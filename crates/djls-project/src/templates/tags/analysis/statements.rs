@@ -349,6 +349,7 @@ mod tests {
     use crate::templates::tags::analysis::state::Env;
     use crate::templates::tags::analysis::state::TokenSplit;
     use crate::templates::tags::testing::django_function;
+    use crate::templates::tags::types::OptionRejection;
     use crate::templates::tags::types::SplitPosition;
 
     fn parse_function(source: &str) -> StmtFunctionDef {
@@ -758,24 +759,22 @@ def do_tag(parser, token):
     }
 
     #[test]
-    fn pop_0_with_assignment() {
-        let env = eval_body(
-            r"
-def do_tag(parser, token):
-    bits = token.split_contents()
-    tag_name = bits.pop(0)
-",
-        );
-        assert_eq!(
-            env.get("tag_name"),
-            &AbstractValue::SplitElement {
-                index: SplitPosition::Forward(0)
-            }
-        );
-        assert_eq!(
-            env.get("bits"),
-            &AbstractValue::SplitResult(TokenSplit::fresh().after_slice_from(1))
-        );
+    fn pop_zero_with_assignment() {
+        for index in ["0", "-0"] {
+            let env = eval_body(&format!(
+                "def do_tag(parser, token):\n    bits = token.split_contents()\n    tag_name = bits.pop({index})\n"
+            ));
+            assert_eq!(
+                env.get("tag_name"),
+                &AbstractValue::SplitElement {
+                    index: SplitPosition::Forward(0)
+                }
+            );
+            assert_eq!(
+                env.get("bits"),
+                &AbstractValue::SplitResult(TokenSplit::fresh().after_slice_from(1))
+            );
+        }
     }
 
     #[test]
@@ -812,6 +811,61 @@ def do_tag(parser, token):
             env.get("bits"),
             &AbstractValue::SplitResult(TokenSplit::fresh().after_pop_back())
         );
+    }
+
+    #[test]
+    fn explicit_pop_minus_one_tracks_return_and_mutation() {
+        let env = eval_body(
+            r"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    bits.pop()
+    last = bits.pop(-1)
+",
+        );
+        assert_eq!(
+            env.get("last"),
+            &AbstractValue::SplitElement {
+                index: SplitPosition::Backward(2)
+            }
+        );
+        assert_eq!(
+            env.get("bits"),
+            &AbstractValue::SplitResult(TokenSplit::fresh().after_pop_back().after_pop_back())
+        );
+    }
+
+    #[test]
+    fn untracked_pop_discards_return_and_remaining_positions() {
+        for call in [
+            "bits.pop(2)",
+            "bits.pop(-2)",
+            "bits.pop(index)",
+            "bits.pop(*indices)",
+            "bits.pop(0, 1)",
+            "bits.pop(index=0)",
+        ] {
+            let env = eval_body(&format!(
+                "def do_tag(parser, token):\n    bits = token.split_contents()\n    popped = {call}\n    following = bits[1]\n"
+            ));
+            assert_eq!(env.get("popped"), &AbstractValue::Unknown, "{call}");
+            assert_eq!(env.get("bits"), &AbstractValue::Unknown, "{call}");
+            assert_eq!(env.get("following"), &AbstractValue::Unknown, "{call}");
+        }
+    }
+
+    #[test]
+    fn untracked_pop_statement_discards_remaining_positions() {
+        let env = eval_body(
+            r"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    bits.pop(2)
+    following = bits[1]
+",
+        );
+        assert_eq!(env.get("bits"), &AbstractValue::Unknown);
+        assert_eq!(env.get("following"), &AbstractValue::Unknown);
     }
 
     #[test]
@@ -890,10 +944,8 @@ def do_tag(parser, token):
         crate::templates::tags::analysis::analyze_compile_function(func)
     }
 
-    // Fabricated: simple option loop without duplicate check. No corpus
-    // function has an option loop that allows duplicates — real Django tags
-    // always check for duplicates via `if option in options:` or `if option
-    // in seen:`. Keep as unit test for the simpler code path. (b)
+    // Fabricated: simple option loop without duplicate checking. No corpus
+    // function covers this simpler extraction path. (b)
     #[test]
     fn option_loop_basic() {
         let rule = analyze(
@@ -913,12 +965,12 @@ def do_tag(parser, token):
         );
         let opts = rule.known_options.expect("should have known_options");
         assert_eq!(opts.values, vec!["with".to_string(), "only".to_string()]);
-        assert!(opts.rejects_unknown);
-        assert!(opts.allow_duplicates);
+        assert_eq!(opts.duplicate_rejection, OptionRejection::NotDetected);
+        assert_eq!(opts.unknown_rejection, OptionRejection::Detected);
     }
 
     // Corpus: do_translate in i18n.py — option loop with `seen = set()`
-    // duplicate check. Options: "noop", "context", "as". Rejects unknown.
+    // duplicate check. Options: "noop", "context", "as".
     #[test]
     fn option_loop_with_duplicate_check() {
         let func = django_function("django/templatetags/i18n.py", "do_translate")
@@ -929,15 +981,25 @@ def do_tag(parser, token):
             opts.values,
             vec!["noop".to_string(), "context".to_string(), "as".to_string()]
         );
-        assert!(opts.rejects_unknown);
-        assert!(!opts.allow_duplicates);
+        assert_eq!(opts.duplicate_rejection, OptionRejection::Detected);
+        assert_eq!(opts.unknown_rejection, OptionRejection::Detected);
     }
 
-    // Fabricated: option loop without else/raise — allows unknown options.
-    // No corpus function has this pattern (real Django tags always reject
-    // unknown options). Keep as unit test for permissive code path. (b)
+    // Corpus: do_include in loader_tags.py — option loop with dict-based
+    // duplicate check (`if option in options:`). Options: "with", "only".
     #[test]
-    fn option_loop_allows_unknown() {
+    fn option_loop_include_pattern() {
+        let func = django_function("django/template/loader_tags.py", "do_include")
+            .expect("expected Django fixture function should exist");
+        let rule = analyze_func(&func);
+        let opts = rule.known_options.expect("should have known_options");
+        assert_eq!(opts.values, vec!["with".to_string(), "only".to_string()]);
+        assert_eq!(opts.duplicate_rejection, OptionRejection::Detected);
+        assert_eq!(opts.unknown_rejection, OptionRejection::Detected);
+    }
+
+    #[test]
+    fn option_loop_without_rejection_guards() {
         let rule = analyze(
             r#"
 def do_tag(parser, token):
@@ -952,26 +1014,53 @@ def do_tag(parser, token):
 "#,
         );
         let opts = rule.known_options.expect("should have known_options");
-        assert_eq!(
-            opts.values,
-            vec!["noescape".to_string(), "trimmed".to_string()]
-        );
-        assert!(!opts.rejects_unknown);
-        assert!(opts.allow_duplicates);
+        assert_eq!(opts.values, vec!["noescape", "trimmed"]);
+        assert_eq!(opts.duplicate_rejection, OptionRejection::NotDetected);
+        assert_eq!(opts.unknown_rejection, OptionRejection::NotDetected);
     }
 
-    // Corpus: do_include in loader_tags.py — option loop with dict-based
-    // duplicate check (`if option in options:`). Options: "with", "only".
-    // Rejects unknown, rejects duplicates.
     #[test]
-    fn option_loop_include_pattern() {
-        let func = django_function("django/template/loader_tags.py", "do_include")
-            .expect("expected Django fixture function should exist");
-        let rule = analyze_func(&func);
+    fn option_loop_membership_without_raise_is_not_duplicate_rejection() {
+        let rule = analyze(
+            r#"
+def do_tag(parser, token):
+    remaining = token.split_contents()[1:]
+    seen = set()
+    while remaining:
+        option = remaining.pop(0)
+        if option in seen:
+            continue
+        if option == "only":
+            seen.add(option)
+"#,
+        );
         let opts = rule.known_options.expect("should have known_options");
-        assert_eq!(opts.values, vec!["with".to_string(), "only".to_string()]);
-        assert!(opts.rejects_unknown);
-        assert!(!opts.allow_duplicates);
+        assert_eq!(opts.values, vec!["only"]);
+        assert_eq!(opts.duplicate_rejection, OptionRejection::NotDetected);
+        assert_eq!(opts.unknown_rejection, OptionRejection::NotDetected);
+    }
+
+    #[test]
+    fn option_loop_duplicate_rejection_does_not_imply_unknown_rejection() {
+        let rule = analyze(
+            r#"
+def do_tag(parser, token):
+    remaining = token.split_contents()[1:]
+    seen = set()
+    while remaining:
+        option = remaining.pop(0)
+        if option in seen:
+            raise TemplateSyntaxError("duplicate option")
+        if option == "only":
+            seen.add(option)
+        else:
+            continue
+"#,
+        );
+        let opts = rule.known_options.expect("should have known_options");
+        assert_eq!(opts.values, vec!["only"]);
+        assert_eq!(opts.duplicate_rejection, OptionRejection::Detected);
+        assert_eq!(opts.unknown_rejection, OptionRejection::NotDetected);
     }
 
     #[test]

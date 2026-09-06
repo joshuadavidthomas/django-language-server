@@ -54,8 +54,8 @@ tag_rules:
       values:
         - with
         - only
-      allow_duplicates: false
-      rejects_unknown: true
+      duplicate_rejection: detected
+      unknown_rejection: detected
     diagnostic_messages:
       - constraint:
           ArgumentCount:

@@ -242,8 +242,17 @@ pub struct ChoiceAt {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct KnownOptions {
     pub values: Vec<String>,
-    pub allow_duplicates: bool,
-    pub rejects_unknown: bool,
+    pub duplicate_rejection: OptionRejection,
+    pub unknown_rejection: OptionRejection,
+}
+
+/// Whether extraction recognized a rejection guard in an option-parsing loop.
+/// Non-detection does not establish that the tag accepts the input.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OptionRejection {
+    NotDetected,
+    Detected,
 }
 
 /// Block structure extracted from `parser.parse((...))` control flow patterns.

@@ -1,5 +1,6 @@
 use std::ops::ControlFlow;
 
+use ruff_python_ast::Arguments;
 use ruff_python_ast::CmpOp;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprAttribute;
@@ -16,13 +17,36 @@ use crate::templates::tags::analysis::exceptions::direct_raise_exception;
 use crate::templates::tags::analysis::state::AbstractValue;
 use crate::templates::tags::analysis::state::Env;
 use crate::templates::tags::types::KnownOptions;
+use crate::templates::tags::types::OptionRejection;
 
 /// Info about a `bits.pop(...)` call for mutation tracking.
 pub(super) struct PopInfo {
     /// The variable name being popped from (e.g., "bits")
     var_name: String,
-    /// Whether this is `pop(0)` (from front) or `pop()` (from end)
-    from_front: bool,
+    position: PopPosition,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum PopPosition {
+    Front,
+    Back,
+    Untracked,
+}
+
+impl PopPosition {
+    pub(super) fn from_arguments(args: &Arguments) -> Self {
+        if !args.keywords.is_empty() {
+            return Self::Untracked;
+        }
+        match args.args.as_ref() {
+            [] => Self::Back,
+            [arg] if arg.non_negative_integer() == Some(0) || arg.negative_integer() == Some(0) => {
+                Self::Front
+            }
+            [arg] if arg.negative_integer() == Some(1) => Self::Back,
+            _ => Self::Untracked,
+        }
+    }
 }
 
 /// Try to extract pop call info from an expression, without evaluating it.
@@ -38,15 +62,9 @@ pub(super) fn try_extract_pop_call(expr: &Expr) -> Option<PopInfo> {
     }
     let var_name = value.name_target()?;
 
-    let from_front = if let Some(arg) = call.arguments.args.first() {
-        arg.non_negative_integer() == Some(0)
-    } else {
-        false
-    };
-
     Some(PopInfo {
         var_name: var_name.to_string(),
-        from_front,
+        position: PopPosition::from_arguments(&call.arguments),
     })
 }
 
@@ -54,11 +72,11 @@ pub(super) fn try_extract_pop_call(expr: &Expr) -> Option<PopInfo> {
 pub(super) fn apply_pop_mutation(env: &mut Env, pop_info: &PopInfo) {
     env.mutate(&pop_info.var_name, |v| {
         if let AbstractValue::SplitResult(split) = v {
-            *split = if pop_info.from_front {
-                split.after_pop_front()
-            } else {
-                split.after_pop_back()
-            };
+            match pop_info.position {
+                PopPosition::Front => *split = split.after_pop_front(),
+                PopPosition::Back => *split = split.after_pop_back(),
+                PopPosition::Untracked => *v = AbstractValue::Unknown,
+            }
         }
     });
 }
@@ -91,31 +109,23 @@ pub(super) fn try_extract_option_loop(while_stmt: &StmtWhile, env: &Env) -> Opti
     let option_var = find_option_pop_var(&while_stmt.body, loop_var)?;
 
     // Scan if/elif/else chains for option value checks
-    let mut values = Vec::new();
-    let mut rejects_unknown = false;
-    let mut allow_duplicates = true;
+    let mut options = KnownOptions {
+        values: Vec::new(),
+        duplicate_rejection: OptionRejection::NotDetected,
+        unknown_rejection: OptionRejection::NotDetected,
+    };
 
     for stmt in &while_stmt.body {
         if let Stmt::If(if_stmt) = stmt {
-            extract_option_checks(
-                if_stmt,
-                &option_var,
-                &mut values,
-                &mut rejects_unknown,
-                &mut allow_duplicates,
-            );
+            extract_option_checks(if_stmt, &option_var, &mut options);
         }
     }
 
-    if values.is_empty() {
+    if options.values.is_empty() {
         return None;
     }
 
-    Some(KnownOptions {
-        values,
-        allow_duplicates,
-        rejects_unknown,
-    })
+    Some(options)
 }
 
 /// Find the variable assigned from `loop_var.pop(0)` in a while-loop body.
@@ -126,8 +136,9 @@ fn find_option_pop_var(body: &[Stmt], loop_var: &str) -> Option<String> {
             && assign.targets.len() == 1
             && let Some(name) = assign.targets[0].name_target()
         {
-            let is_pop_zero = try_extract_pop_call(&assign.value)
-                .is_some_and(|info| info.var_name == loop_var && info.from_front);
+            let is_pop_zero = try_extract_pop_call(&assign.value).is_some_and(|info| {
+                info.var_name == loop_var && info.position == PopPosition::Front
+            });
             if is_pop_zero {
                 option_var = Some(name.to_string());
                 return ControlFlow::Break(());
@@ -139,64 +150,25 @@ fn find_option_pop_var(body: &[Stmt], loop_var: &str) -> Option<String> {
 }
 
 /// Extract option names from if/elif/else chains checking the option variable.
-fn extract_option_checks(
-    if_stmt: &StmtIf,
-    option_var: &str,
-    values: &mut Vec<String>,
-    rejects_unknown: &mut bool,
-    allow_duplicates: &mut bool,
-) {
-    let mut visitor =
-        OptionCheckVisitor::new(option_var, values, rejects_unknown, allow_duplicates);
-    visitor.visit_if(if_stmt);
-}
+fn extract_option_checks(if_stmt: &StmtIf, option_var: &str, options: &mut KnownOptions) {
+    let clauses = std::iter::once((Some(if_stmt.test.as_ref()), if_stmt.body.as_slice())).chain(
+        if_stmt
+            .elif_else_clauses
+            .iter()
+            .map(|clause| (clause.test.as_ref(), clause.body.as_slice())),
+    );
 
-struct OptionCheckVisitor<'a> {
-    option_var: &'a str,
-    values: &'a mut Vec<String>,
-    rejects_unknown: &'a mut bool,
-    allow_duplicates: &'a mut bool,
-}
-
-impl<'a> OptionCheckVisitor<'a> {
-    fn new(
-        option_var: &'a str,
-        values: &'a mut Vec<String>,
-        rejects_unknown: &'a mut bool,
-        allow_duplicates: &'a mut bool,
-    ) -> Self {
-        Self {
-            option_var,
-            values,
-            rejects_unknown,
-            allow_duplicates,
-        }
-    }
-
-    fn visit_if(&mut self, if_stmt: &StmtIf) {
-        if is_duplicate_check(&if_stmt.test, self.option_var) {
-            *self.allow_duplicates = false;
-        } else if let Some(opt_name) = extract_option_equality(&if_stmt.test, self.option_var)
-            && !self.values.contains(&opt_name)
-        {
-            self.values.push(opt_name);
-        }
-
-        for clause in &if_stmt.elif_else_clauses {
-            if let Some(test) = &clause.test {
-                if is_duplicate_check(test, self.option_var) {
-                    *self.allow_duplicates = false;
-                } else if let Some(opt_name) = extract_option_equality(test, self.option_var)
-                    && !self.values.contains(&opt_name)
-                {
-                    self.values.push(opt_name);
-                }
-            } else {
-                // else branch — if it raises, unknown options are rejected
-                if direct_raise_exception(&clause.body).is_some() {
-                    *self.rejects_unknown = true;
-                }
+    for (test, body) in clauses {
+        if let Some(test) = test {
+            if is_duplicate_check(test, option_var) && direct_raise_exception(body).is_some() {
+                options.duplicate_rejection = OptionRejection::Detected;
+            } else if let Some(opt_name) = extract_option_equality(test, option_var)
+                && !options.values.contains(&opt_name)
+            {
+                options.values.push(opt_name);
             }
+        } else if direct_raise_exception(body).is_some() {
+            options.unknown_rejection = OptionRejection::Detected;
         }
     }
 }

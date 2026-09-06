@@ -12,6 +12,7 @@ use ruff_python_ast::Number;
 use crate::ast::ExprExt;
 use crate::templates::tags::analysis::CallContext;
 use crate::templates::tags::analysis::calls::resolve_call;
+use crate::templates::tags::analysis::mutations::PopPosition;
 use crate::templates::tags::analysis::state::AbstractValue;
 use crate::templates::tags::analysis::state::Env;
 use crate::templates::tags::analysis::state::TokenSplit;
@@ -235,21 +236,15 @@ fn eval_pop_return(obj: &AbstractValue, args: &Arguments) -> AbstractValue {
         return AbstractValue::Unknown;
     };
 
-    if let Some(arg) = args.args.first() {
-        // bits.pop(0) — return element at front_offset
-        if let Some(0) = arg.non_negative_integer() {
-            return AbstractValue::SplitElement {
-                index: split.resolve_index(0),
-            };
-        }
-    } else {
-        // bits.pop() — return last element (before pop)
-        return AbstractValue::SplitElement {
+    match PopPosition::from_arguments(args) {
+        PopPosition::Front => AbstractValue::SplitElement {
+            index: split.resolve_index(0),
+        },
+        PopPosition::Back => AbstractValue::SplitElement {
             index: SplitPosition::Backward(split.back_offset() + 1),
-        };
+        },
+        PopPosition::Untracked => AbstractValue::Unknown,
     }
-
-    AbstractValue::Unknown
 }
 
 /// Convert an i64 to an `AbstractValue` index element based on sign.

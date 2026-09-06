@@ -69,6 +69,7 @@ pub use tags::ExtractedDiagnosticMessage;
 pub use tags::ExtractedMessageArg;
 pub use tags::ExtractedMessageTemplate;
 pub use tags::KnownOptions;
+pub use tags::OptionRejection;
 pub use tags::RequiredKeyword;
 pub use tags::SplitPosition;
 pub use tags::TagArgument;

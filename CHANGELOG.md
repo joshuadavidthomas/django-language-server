@@ -36,6 +36,8 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Fixed explicit `false` and empty LSP initialization options failing to override project configuration.
 - Fixed `djls check` scanning the project root when template settings branches differ only in context processors.
 - Fixed duplicate names and excess inclusion-tag arguments producing invented Template Library definitions.
+- Fixed false duplicate-option diagnostics for tag parsers that check membership without raising an error.
+- Fixed tag-rule extraction using incorrect argument positions after unsupported `pop()` calls.
 
 ## [6.1.0]
 
