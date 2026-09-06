@@ -5,7 +5,6 @@ use std::sync::atomic::Ordering;
 
 use camino::Utf8Path;
 use djls_project::Db as ProjectDb;
-use djls_project::ModelGraph;
 use djls_project::Project;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::FilterAritySpecs;
@@ -277,9 +276,5 @@ impl SemanticDb for TestDatabase {
 
     fn projectless_filter_arity_specs(&self) -> &FilterAritySpecs {
         &self.projectless_filter_arity_specs
-    }
-
-    fn model_graph(&self) -> &ModelGraph {
-        ModelGraph::empty_ref()
     }
 }
