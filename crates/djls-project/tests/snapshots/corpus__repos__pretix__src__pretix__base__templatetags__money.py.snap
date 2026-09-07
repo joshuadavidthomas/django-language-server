@@ -1,7 +1,15 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::money":
+    kind: filter
+    has_doc: false
+  "filter::money_numberfield":
+    kind: filter
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules: {}
 filter_arities:
   "src.pretix.base.templatetags.money::filter::money": optional_argument

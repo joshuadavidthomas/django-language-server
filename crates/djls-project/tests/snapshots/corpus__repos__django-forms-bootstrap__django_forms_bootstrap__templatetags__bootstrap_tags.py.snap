@@ -1,7 +1,21 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::as_bootstrap":
+    kind: filter
+    has_doc: false
+  "filter::as_bootstrap_horizontal":
+    kind: filter
+    has_doc: false
+  "filter::as_bootstrap_inline":
+    kind: filter
+    has_doc: false
+  "filter::css_class":
+    kind: filter
+    has_doc: false
+symbols_are_unobserved: true
 tag_rules: {}
 filter_arities:
   "django_forms_bootstrap.templatetags.bootstrap_tags::filter::as_bootstrap": no_argument

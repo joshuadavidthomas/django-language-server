@@ -2,6 +2,44 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::first_char":
+    kind: filter
+    has_doc: false
+  "filter::humanize_absolute_date":
+    kind: filter
+    has_doc: false
+  "filter::humanize_relative_date":
+    kind: filter
+    has_doc: false
+  "filter::model_to_dict":
+    kind: filter
+    has_doc: false
+  "filter::remaining_chars":
+    kind: filter
+    has_doc: false
+  "tag::formfield":
+    kind: tag
+    has_doc: false
+  "tag::formhelp":
+    kind: tag
+    has_doc: false
+  "tag::formlabel":
+    kind: tag
+    has_doc: false
+  "tag::htmlmin":
+    kind: tag
+    has_doc: false
+  "tag::markdown":
+    kind: tag
+    has_doc: false
+  "tag::replace_query_param":
+    kind: tag
+    has_doc: false
+  "tag::update_query_string":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "bookmarks.templatetags.shared::tag::formfield":
     arg_constraints: []

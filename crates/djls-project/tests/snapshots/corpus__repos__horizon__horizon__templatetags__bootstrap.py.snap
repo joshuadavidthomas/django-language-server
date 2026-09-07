@@ -2,6 +2,11 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "tag::bs_progress_bar":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "horizon.templatetags.bootstrap::tag::bs_progress_bar":
     arg_constraints: []

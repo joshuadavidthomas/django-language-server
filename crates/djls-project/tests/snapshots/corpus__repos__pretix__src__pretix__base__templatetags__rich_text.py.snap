@@ -1,7 +1,15 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::rich_text":
+    kind: filter
+    has_doc: false
+  "filter::rich_text_snippet":
+    kind: filter
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules: {}
 filter_arities:
   "src.pretix.base.templatetags.rich_text::filter::rich_text": no_argument

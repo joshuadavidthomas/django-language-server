@@ -2,6 +2,20 @@
 source: crates/djls-project/tests/extraction.rs
 expression: "sorted_snapshot(&result).expect(\"i18n extraction snapshot should serialize\")"
 ---
+definitions:
+  "tag::blocktrans":
+    kind: tag
+    has_doc: false
+  "tag::blocktranslate":
+    kind: tag
+    has_doc: false
+  "tag::trans":
+    kind: tag
+    has_doc: false
+  "tag::translate":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "django.templatetags.i18n::tag::blocktrans":
     arg_constraints: []

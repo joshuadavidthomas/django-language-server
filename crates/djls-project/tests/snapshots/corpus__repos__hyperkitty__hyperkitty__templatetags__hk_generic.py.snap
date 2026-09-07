@@ -2,6 +2,71 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::date_with_senders_timezone":
+    kind: filter
+    has_doc: false
+  "filter::escapeemail":
+    kind: filter
+    has_doc: false
+  "filter::escapeemaillinks":
+    kind: filter
+    has_doc: false
+  "filter::get_item":
+    kind: filter
+    has_doc: false
+  "filter::is_unread_by":
+    kind: filter
+    has_doc: false
+  "filter::monthtodate":
+    kind: filter
+    has_doc: false
+  "filter::multiply":
+    kind: filter
+    has_doc: false
+  "filter::num_comments":
+    kind: filter
+    has_doc: false
+  "filter::reply_subject":
+    kind: filter
+    has_doc: false
+  "filter::snip_pgp":
+    kind: filter
+    has_doc: false
+  "filter::snip_quoted":
+    kind: filter
+    has_doc: false
+  "filter::sort":
+    kind: filter
+    has_doc: false
+  "filter::sort_by_name":
+    kind: filter
+    has_doc: false
+  "filter::strip_subject":
+    kind: filter
+    has_doc: false
+  "filter::to_json":
+    kind: filter
+    has_doc: false
+  "filter::truncatesmart":
+    kind: filter
+    has_doc: false
+  "filter::until":
+    kind: filter
+    has_doc: false
+  "tag::export_allowed":
+    kind: tag
+    has_doc: false
+  "tag::gravatar":
+    kind: tag
+    has_doc: false
+  "tag::is_message_new":
+    kind: tag
+    has_doc: false
+  "tag::settings_value_equals":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "hyperkitty.templatetags.hk_generic::tag::export_allowed":
     arg_constraints: []

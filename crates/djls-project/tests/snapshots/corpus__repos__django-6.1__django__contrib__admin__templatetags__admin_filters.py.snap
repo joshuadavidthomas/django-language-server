@@ -2,6 +2,14 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::to_object_display_value":
+    kind: filter
+    has_doc: false
+  "filter::truncated_unordered_list":
+    kind: filter
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules: {}
 filter_arities:
   "django.contrib.admin.templatetags.admin_filters::filter::to_object_display_value": no_argument

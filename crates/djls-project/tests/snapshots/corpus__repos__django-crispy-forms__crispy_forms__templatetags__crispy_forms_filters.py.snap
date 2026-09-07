@@ -1,7 +1,24 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::as_crispy_errors":
+    kind: filter
+    has_doc: false
+  "filter::as_crispy_field":
+    kind: filter
+    has_doc: false
+  "filter::crispy":
+    kind: filter
+    has_doc: false
+  "filter::flatatt":
+    kind: filter
+    has_doc: false
+  "filter::optgroups":
+    kind: filter
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules: {}
 filter_arities:
   "crispy_forms.templatetags.crispy_forms_filters::filter::as_crispy_errors": optional_argument

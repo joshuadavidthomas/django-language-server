@@ -2,6 +2,11 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "tag::echo2":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "tests.template_tests.templatetags.subpackage.echo::tag::echo2":
     arg_constraints: []

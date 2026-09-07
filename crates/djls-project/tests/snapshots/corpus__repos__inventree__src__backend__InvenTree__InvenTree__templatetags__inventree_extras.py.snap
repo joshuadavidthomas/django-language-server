@@ -2,6 +2,56 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::keyvalue":
+    kind: filter
+    has_doc: false
+  "tag::decimal":
+    kind: tag
+    has_doc: false
+  "tag::define":
+    kind: tag
+    has_doc: false
+  "tag::inventree_commit_date":
+    kind: tag
+    has_doc: false
+  "tag::inventree_commit_hash":
+    kind: tag
+    has_doc: false
+  "tag::inventree_customize":
+    kind: tag
+    has_doc: false
+  "tag::inventree_installer":
+    kind: tag
+    has_doc: false
+  "tag::inventree_instance_name":
+    kind: tag
+    has_doc: false
+  "tag::inventree_logo":
+    kind: tag
+    has_doc: false
+  "tag::inventree_title":
+    kind: tag
+    has_doc: false
+  "tag::inventree_version":
+    kind: tag
+    has_doc: false
+  "tag::render_date":
+    kind: tag
+    has_doc: false
+  "tag::setting_object":
+    kind: tag
+    has_doc: false
+  "tag::settings_value":
+    kind: tag
+    has_doc: false
+  "tag::str2bool":
+    kind: tag
+    has_doc: false
+  "tag::to_list":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "src.backend.InvenTree.InvenTree.templatetags.inventree_extras::tag::decimal":
     arg_constraints: []

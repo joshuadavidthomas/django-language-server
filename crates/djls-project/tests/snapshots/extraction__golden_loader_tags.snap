@@ -2,6 +2,14 @@
 source: crates/djls-project/tests/extraction.rs
 expression: "sorted_snapshot(&result).expect(\"loader-tags extraction snapshot should serialize\")"
 ---
+definitions:
+  "tag::block":
+    kind: tag
+    has_doc: false
+  "tag::include":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "django.template.loader_tags::tag::block":
     arg_constraints:

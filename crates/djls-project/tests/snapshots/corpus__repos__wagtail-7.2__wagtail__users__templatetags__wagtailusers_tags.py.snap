@@ -2,6 +2,11 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "tag::format_permissions":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "wagtail.users.templatetags.wagtailusers_tags::tag::format_permissions":
     arg_constraints: []

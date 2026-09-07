@@ -2,6 +2,14 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "tag::inlinei18n":
+    kind: tag
+    has_doc: false
+  "tag::statici18n":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "src.statici18n.templatetags.statici18n::tag::inlinei18n":
     arg_constraints: []

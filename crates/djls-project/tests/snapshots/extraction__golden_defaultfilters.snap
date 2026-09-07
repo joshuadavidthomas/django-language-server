@@ -1,7 +1,39 @@
 ---
 source: crates/djls-project/tests/extraction.rs
-expression: sorted_snapshot(&result)
+expression: "sorted_snapshot(&result).expect(\"default-filters extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::add":
+    kind: filter
+    has_doc: false
+  "filter::addslashes":
+    kind: filter
+    has_doc: false
+  "filter::cut":
+    kind: filter
+    has_doc: false
+  "filter::date":
+    kind: filter
+    has_doc: false
+  "filter::default":
+    kind: filter
+    has_doc: false
+  "filter::escapejs":
+    kind: filter
+    has_doc: false
+  "filter::floatformat":
+    kind: filter
+    has_doc: false
+  "filter::lower":
+    kind: filter
+    has_doc: false
+  "filter::title":
+    kind: filter
+    has_doc: false
+  "filter::upper":
+    kind: filter
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules: {}
 filter_arities:
   "django.template.defaultfilters::filter::add": required_argument

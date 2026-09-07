@@ -2,6 +2,17 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::is_admin":
+    kind: filter
+    has_doc: false
+  "filter::is_member":
+    kind: filter
+    has_doc: false
+  "tag::get_public_projects":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "readthedocs.core.templatetags.privacy_tags::tag::get_public_projects":
     arg_constraints: []

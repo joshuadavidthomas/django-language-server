@@ -2,6 +2,92 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "tag::add":
+    kind: tag
+    has_doc: false
+  "tag::asset":
+    kind: tag
+    has_doc: false
+  "tag::company_image":
+    kind: tag
+    has_doc: false
+  "tag::convert_currency":
+    kind: tag
+    has_doc: false
+  "tag::create_currency":
+    kind: tag
+    has_doc: false
+  "tag::divide":
+    kind: tag
+    has_doc: false
+  "tag::encode_svg_image":
+    kind: tag
+    has_doc: false
+  "tag::filter_db_model":
+    kind: tag
+    has_doc: false
+  "tag::filter_queryset":
+    kind: tag
+    has_doc: false
+  "tag::format_date":
+    kind: tag
+    has_doc: false
+  "tag::format_datetime":
+    kind: tag
+    has_doc: false
+  "tag::format_number":
+    kind: tag
+    has_doc: false
+  "tag::getindex":
+    kind: tag
+    has_doc: false
+  "tag::getkey":
+    kind: tag
+    has_doc: false
+  "tag::icon":
+    kind: tag
+    has_doc: false
+  "tag::include_icon_fonts":
+    kind: tag
+    has_doc: false
+  "tag::internal_link":
+    kind: tag
+    has_doc: false
+  "tag::logo_image":
+    kind: tag
+    has_doc: false
+  "tag::modulo":
+    kind: tag
+    has_doc: false
+  "tag::multiply":
+    kind: tag
+    has_doc: false
+  "tag::order_queryset":
+    kind: tag
+    has_doc: false
+  "tag::parameter":
+    kind: tag
+    has_doc: false
+  "tag::part_image":
+    kind: tag
+    has_doc: false
+  "tag::part_parameter":
+    kind: tag
+    has_doc: false
+  "tag::render_currency":
+    kind: tag
+    has_doc: false
+  "tag::render_html_text":
+    kind: tag
+    has_doc: false
+  "tag::subtract":
+    kind: tag
+    has_doc: false
+  "tag::uploaded_image":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "src.backend.InvenTree.report.templatetags.report::tag::add":
     arg_constraints: []

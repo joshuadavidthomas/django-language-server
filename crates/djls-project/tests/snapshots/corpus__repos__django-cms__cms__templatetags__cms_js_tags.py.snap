@@ -2,6 +2,20 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::bool":
+    kind: filter
+    has_doc: false
+  "filter::json":
+    kind: filter
+    has_doc: false
+  "tag::render_cms_structure_js":
+    kind: tag
+    has_doc: false
+  "tag::render_plugin_init_js":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: true
 tag_rules:
   "cms.templatetags.cms_js_tags::tag::render_cms_structure_js":
     arg_constraints: []

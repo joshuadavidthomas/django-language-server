@@ -22,6 +22,9 @@ flate2 = { workspace = true }
 ignore = { workspace = true }
 pulldown-cmark = { workspace = true }
 reqwest = { workspace = true }
+ruff_python_ast = { workspace = true }
+ruff_python_parser = { workspace = true }
+ruff_text_size = { workspace = true }
 salsa = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -30,6 +33,9 @@ tempfile = { workspace = true }
 toml = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true }
 
 [lints]
 workspace = true

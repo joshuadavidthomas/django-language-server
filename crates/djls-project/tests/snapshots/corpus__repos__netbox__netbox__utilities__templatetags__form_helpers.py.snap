@@ -2,6 +2,29 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::getfield":
+    kind: filter
+    has_doc: false
+  "filter::widget_type":
+    kind: filter
+    has_doc: false
+  "tag::render_custom_fields":
+    kind: tag
+    has_doc: false
+  "tag::render_errors":
+    kind: tag
+    has_doc: false
+  "tag::render_field":
+    kind: tag
+    has_doc: false
+  "tag::render_fieldset":
+    kind: tag
+    has_doc: false
+  "tag::render_form":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "netbox.utilities.templatetags.form_helpers::tag::render_custom_fields":
     arg_constraints: []

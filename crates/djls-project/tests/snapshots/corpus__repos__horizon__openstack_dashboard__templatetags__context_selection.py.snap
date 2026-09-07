@@ -2,6 +2,35 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "tag::iframe_embed_settings":
+    kind: tag
+    has_doc: false
+  "tag::is_multi_region":
+    kind: tag
+    has_doc: false
+  "tag::is_multidomain":
+    kind: tag
+    has_doc: false
+  "tag::show_domain_list":
+    kind: tag
+    has_doc: false
+  "tag::show_overview":
+    kind: tag
+    has_doc: false
+  "tag::show_project_list":
+    kind: tag
+    has_doc: false
+  "tag::show_region_list":
+    kind: tag
+    has_doc: false
+  "tag::show_system_list":
+    kind: tag
+    has_doc: false
+  "tag::show_systems":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "openstack_dashboard.templatetags.context_selection::tag::iframe_embed_settings":
     arg_constraints: []

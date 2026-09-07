@@ -2,6 +2,131 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::make_data_div":
+    kind: filter
+    has_doc: false
+  "filter::noop":
+    kind: filter
+    has_doc: false
+  "filter::trim":
+    kind: filter
+    has_doc: false
+  "tag::context_stack_length":
+    kind: tag
+    has_doc: false
+  "tag::counter":
+    kind: tag
+    has_doc: false
+  "tag::current_app":
+    kind: tag
+    has_doc: false
+  "tag::div":
+    kind: tag
+    has_doc: false
+  "tag::div_custom_end":
+    kind: tag
+    has_doc: false
+  "tag::escape_explicit":
+    kind: tag
+    has_doc: false
+  "tag::escape_explicit_block":
+    kind: tag
+    has_doc: false
+  "tag::escape_format_html":
+    kind: tag
+    has_doc: false
+  "tag::escape_format_html_block":
+    kind: tag
+    has_doc: false
+  "tag::escape_naive":
+    kind: tag
+    has_doc: false
+  "tag::escape_naive_block":
+    kind: tag
+    has_doc: false
+  "tag::explicit_no_context":
+    kind: tag
+    has_doc: false
+  "tag::explicit_no_context_block":
+    kind: tag
+    has_doc: false
+  "tag::extra_data":
+    kind: tag
+    has_doc: false
+  "tag::minusone":
+    kind: tag
+    has_doc: false
+  "tag::minustwo":
+    kind: tag
+    has_doc: false
+  "tag::no_params":
+    kind: tag
+    has_doc: false
+  "tag::no_params_with_context":
+    kind: tag
+    has_doc: false
+  "tag::no_params_with_context_block":
+    kind: tag
+    has_doc: false
+  "tag::one_param":
+    kind: tag
+    has_doc: false
+  "tag::one_param_block":
+    kind: tag
+    has_doc: false
+  "tag::params_and_context":
+    kind: tag
+    has_doc: false
+  "tag::params_and_context_block":
+    kind: tag
+    has_doc: false
+  "tag::simple_keyword_only_default":
+    kind: tag
+    has_doc: false
+  "tag::simple_keyword_only_default_block":
+    kind: tag
+    has_doc: false
+  "tag::simple_keyword_only_param":
+    kind: tag
+    has_doc: false
+  "tag::simple_keyword_only_param_block":
+    kind: tag
+    has_doc: false
+  "tag::simple_one_default":
+    kind: tag
+    has_doc: false
+  "tag::simple_one_default_block":
+    kind: tag
+    has_doc: false
+  "tag::simple_only_unlimited_args":
+    kind: tag
+    has_doc: false
+  "tag::simple_only_unlimited_args_block":
+    kind: tag
+    has_doc: false
+  "tag::simple_two_params":
+    kind: tag
+    has_doc: false
+  "tag::simple_two_params_block":
+    kind: tag
+    has_doc: false
+  "tag::simple_unlimited_args":
+    kind: tag
+    has_doc: false
+  "tag::simple_unlimited_args_block":
+    kind: tag
+    has_doc: false
+  "tag::simple_unlimited_args_kwargs":
+    kind: tag
+    has_doc: false
+  "tag::simple_unlimited_args_kwargs_block":
+    kind: tag
+    has_doc: false
+  "tag::use_l10n":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "tests.template_tests.templatetags.custom::tag::context_stack_length":
     arg_constraints: []

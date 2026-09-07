@@ -2,6 +2,47 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::has_permissions":
+    kind: filter
+    has_doc: false
+  "filter::has_permissions_on_list":
+    kind: filter
+    has_doc: false
+  "filter::quota":
+    kind: filter
+    has_doc: false
+  "filter::quotainf":
+    kind: filter
+    has_doc: false
+  "tag::datepicker_locale":
+    kind: tag
+    has_doc: false
+  "tag::horizon_dashboard_nav":
+    kind: tag
+    has_doc: false
+  "tag::horizon_main_nav":
+    kind: tag
+    has_doc: false
+  "tag::horizon_nav":
+    kind: tag
+    has_doc: false
+  "tag::jstemplate":
+    kind: tag
+    has_doc: false
+  "tag::load_config":
+    kind: tag
+    has_doc: false
+  "tag::minifyspace":
+    kind: tag
+    has_doc: false
+  "tag::quotapercent":
+    kind: tag
+    has_doc: false
+  "tag::template_cache_age":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "horizon.templatetags.horizon::tag::datepicker_locale":
     arg_constraints: []

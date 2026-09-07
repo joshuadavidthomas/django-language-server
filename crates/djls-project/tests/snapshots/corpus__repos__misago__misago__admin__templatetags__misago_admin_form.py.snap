@@ -2,6 +2,47 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::get_options":
+    kind: filter
+    has_doc: false
+  "filter::is_multiple_choice_field":
+    kind: filter
+    has_doc: false
+  "filter::is_radio_select_field":
+    kind: filter
+    has_doc: false
+  "filter::is_select_field":
+    kind: filter
+    has_doc: false
+  "filter::is_textarea_field":
+    kind: filter
+    has_doc: false
+  "filter::is_yesno_switch_field":
+    kind: filter
+    has_doc: false
+  "tag::form_checkbox_row":
+    kind: tag
+    has_doc: false
+  "tag::form_dimensions_row":
+    kind: tag
+    has_doc: false
+  "tag::form_image_row":
+    kind: tag
+    has_doc: false
+  "tag::form_input":
+    kind: tag
+    has_doc: false
+  "tag::form_row":
+    kind: tag
+    has_doc: false
+  "tag::render_attrs":
+    kind: tag
+    has_doc: false
+  "tag::render_bool_attrs":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "misago.admin.templatetags.misago_admin_form::tag::form_checkbox_row":
     arg_constraints: []

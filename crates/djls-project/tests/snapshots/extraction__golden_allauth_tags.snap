@@ -2,6 +2,11 @@
 source: crates/djls-project/tests/extraction.rs
 expression: "sorted_snapshot(&result).expect(\"allauth extraction snapshot should serialize\")"
 ---
+definitions:
+  "tag::element":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules: {}
 filter_arities: {}
 block_specs:

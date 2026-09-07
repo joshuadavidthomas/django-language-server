@@ -1,7 +1,18 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::fuzzydate":
+    kind: filter
+    has_doc: false
+  "filter::super_fuzzydate":
+    kind: filter
+    has_doc: false
+  "filter::text_whole_number":
+    kind: filter
+    has_doc: false
+symbols_are_unobserved: true
 tag_rules: {}
 filter_arities:
   "typogrify.templatetags.typogrify_tags::filter::fuzzydate": optional_argument

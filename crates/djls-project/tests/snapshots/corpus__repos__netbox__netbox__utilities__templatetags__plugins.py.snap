@@ -2,6 +2,32 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "tag::plugin_alerts":
+    kind: tag
+    has_doc: false
+  "tag::plugin_buttons":
+    kind: tag
+    has_doc: false
+  "tag::plugin_full_width_page":
+    kind: tag
+    has_doc: false
+  "tag::plugin_head":
+    kind: tag
+    has_doc: false
+  "tag::plugin_left_page":
+    kind: tag
+    has_doc: false
+  "tag::plugin_list_buttons":
+    kind: tag
+    has_doc: false
+  "tag::plugin_navbar":
+    kind: tag
+    has_doc: false
+  "tag::plugin_right_page":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: true
 tag_rules:
   "netbox.utilities.templatetags.plugins::tag::plugin_alerts":
     arg_constraints: []

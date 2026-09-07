@@ -2,6 +2,68 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::as_range":
+    kind: filter
+    has_doc: false
+  "filter::divide":
+    kind: filter
+    has_doc: false
+  "filter::get_item":
+    kind: filter
+    has_doc: false
+  "filter::get_key":
+    kind: filter
+    has_doc: false
+  "filter::humanize_disk_megabytes":
+    kind: filter
+    has_doc: false
+  "filter::humanize_ram_megabytes":
+    kind: filter
+    has_doc: false
+  "filter::humanize_speed":
+    kind: filter
+    has_doc: false
+  "filter::icon_from_status":
+    kind: filter
+    has_doc: false
+  "filter::kg_to_pounds":
+    kind: filter
+    has_doc: false
+  "filter::meters_to_feet":
+    kind: filter
+    has_doc: false
+  "filter::percentage":
+    kind: filter
+    has_doc: false
+  "filter::startswith":
+    kind: filter
+    has_doc: false
+  "filter::status_from_tag":
+    kind: filter
+    has_doc: false
+  "filter::validated_viewname":
+    kind: filter
+    has_doc: false
+  "filter::viewname":
+    kind: filter
+    has_doc: false
+  "tag::action_url":
+    kind: tag
+    has_doc: false
+  "tag::applied_filters":
+    kind: tag
+    has_doc: false
+  "tag::querystring":
+    kind: tag
+    has_doc: false
+  "tag::table_config_form":
+    kind: tag
+    has_doc: false
+  "tag::utilization_graph":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "netbox.utilities.templatetags.helpers::tag::action_url":
     arg_constraints:

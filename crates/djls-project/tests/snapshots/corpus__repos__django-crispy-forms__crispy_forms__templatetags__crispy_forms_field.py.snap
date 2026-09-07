@@ -2,6 +2,44 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::classes":
+    kind: filter
+    has_doc: false
+  "filter::css_class":
+    kind: filter
+    has_doc: false
+  "filter::is_checkbox":
+    kind: filter
+    has_doc: false
+  "filter::is_checkboxselectmultiple":
+    kind: filter
+    has_doc: false
+  "filter::is_clearable_file":
+    kind: filter
+    has_doc: false
+  "filter::is_file":
+    kind: filter
+    has_doc: false
+  "filter::is_multivalue":
+    kind: filter
+    has_doc: false
+  "filter::is_password":
+    kind: filter
+    has_doc: false
+  "filter::is_radioselect":
+    kind: filter
+    has_doc: false
+  "filter::is_select":
+    kind: filter
+    has_doc: false
+  "tag::crispy_addon":
+    kind: tag
+    has_doc: false
+  "tag::crispy_field":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "crispy_forms.templatetags.crispy_forms_field::tag::crispy_addon":
     arg_constraints: []

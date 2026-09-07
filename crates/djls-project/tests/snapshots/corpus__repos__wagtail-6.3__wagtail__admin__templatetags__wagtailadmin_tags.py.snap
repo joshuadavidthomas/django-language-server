@@ -2,6 +2,212 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::abs":
+    kind: filter
+    has_doc: false
+  "filter::admin_urlquote":
+    kind: filter
+    has_doc: false
+  "filter::cautious_slugify":
+    kind: filter
+    has_doc: false
+  "filter::ellipsistrim":
+    kind: filter
+    has_doc: false
+  "filter::fieldtype":
+    kind: filter
+    has_doc: false
+  "filter::format_content_type":
+    kind: filter
+    has_doc: false
+  "filter::has_unrendered_errors":
+    kind: filter
+    has_doc: false
+  "filter::intcomma":
+    kind: filter
+    has_doc: false
+  "filter::naturaltime":
+    kind: filter
+    has_doc: false
+  "filter::render_with_errors":
+    kind: filter
+    has_doc: false
+  "filter::timesince_simple":
+    kind: filter
+    has_doc: false
+  "filter::user_display_name":
+    kind: filter
+    has_doc: false
+  "filter::widgettype":
+    kind: filter
+    has_doc: false
+  "tag::admin_edit_url":
+    kind: tag
+    has_doc: false
+  "tag::admin_theme_classname":
+    kind: tag
+    has_doc: false
+  "tag::admin_url_name":
+    kind: tag
+    has_doc: false
+  "tag::allow_unicode_slugs":
+    kind: tag
+    has_doc: false
+  "tag::avatar":
+    kind: tag
+    has_doc: false
+  "tag::avatar_url":
+    kind: tag
+    has_doc: false
+  "tag::base_url_setting":
+    kind: tag
+    has_doc: false
+  "tag::breadcrumbs":
+    kind: tag
+    has_doc: false
+  "tag::bulk_action_choices":
+    kind: tag
+    has_doc: false
+  "tag::classnames":
+    kind: tag
+    has_doc: false
+  "tag::component":
+    kind: tag
+    has_doc: false
+  "tag::dialog":
+    kind: tag
+    has_doc: false
+  "tag::dialog_toggle":
+    kind: tag
+    has_doc: false
+  "tag::dropdown":
+    kind: tag
+    has_doc: false
+  "tag::dropdown_button":
+    kind: tag
+    has_doc: false
+  "tag::field_row":
+    kind: tag
+    has_doc: false
+  "tag::formattedfield":
+    kind: tag
+    has_doc: false
+  "tag::formattedfieldfromcontext":
+    kind: tag
+    has_doc: false
+  "tag::fragment":
+    kind: tag
+    has_doc: false
+  "tag::get_comments_enabled":
+    kind: tag
+    has_doc: false
+  "tag::help_block":
+    kind: tag
+    has_doc: false
+  "tag::hook_output":
+    kind: tag
+    has_doc: false
+  "tag::human_readable_date":
+    kind: tag
+    has_doc: false
+  "tag::i18n_enabled":
+    kind: tag
+    has_doc: false
+  "tag::icon":
+    kind: tag
+    has_doc: false
+  "tag::icon_sprite_url":
+    kind: tag
+    has_doc: false
+  "tag::is_page":
+    kind: tag
+    has_doc: false
+  "tag::js_translation_strings":
+    kind: tag
+    has_doc: false
+  "tag::keyboard_shortcuts_dialog":
+    kind: tag
+    has_doc: false
+  "tag::latest_str":
+    kind: tag
+    has_doc: false
+  "tag::locale_label_from_id":
+    kind: tag
+    has_doc: false
+  "tag::locales":
+    kind: tag
+    has_doc: false
+  "tag::message_level_tag":
+    kind: tag
+    has_doc: false
+  "tag::message_tags":
+    kind: tag
+    has_doc: false
+  "tag::notification_static":
+    kind: tag
+    has_doc: false
+  "tag::page_breadcrumbs":
+    kind: tag
+    has_doc: false
+  "tag::page_header_buttons":
+    kind: tag
+    has_doc: false
+  "tag::page_listing_buttons":
+    kind: tag
+    has_doc: false
+  "tag::page_permissions":
+    kind: tag
+    has_doc: false
+  "tag::paginate":
+    kind: tag
+    has_doc: false
+  "tag::pagination_querystring":
+    kind: tag
+    has_doc: false
+  "tag::panel":
+    kind: tag
+    has_doc: false
+  "tag::querystring":
+    kind: tag
+    has_doc: false
+  "tag::rawformattedfield":
+    kind: tag
+    has_doc: false
+  "tag::resolve_url":
+    kind: tag
+    has_doc: false
+  "tag::search_other":
+    kind: tag
+    has_doc: false
+  "tag::sidebar_collapsed":
+    kind: tag
+    has_doc: false
+  "tag::sidebar_props":
+    kind: tag
+    has_doc: false
+  "tag::status":
+    kind: tag
+    has_doc: false
+  "tag::test_collection_is_public":
+    kind: tag
+    has_doc: false
+  "tag::test_page_is_public":
+    kind: tag
+    has_doc: false
+  "tag::timesince_last_update":
+    kind: tag
+    has_doc: false
+  "tag::versioned_static":
+    kind: tag
+    has_doc: false
+  "tag::wagtail_config":
+    kind: tag
+    has_doc: false
+  "tag::workflow_status_with_date":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: true
 tag_rules:
   "wagtail.admin.templatetags.wagtailadmin_tags::tag::admin_edit_url":
     arg_constraints: []

@@ -1,7 +1,180 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::add":
+    kind: filter
+    has_doc: false
+  "filter::addslashes":
+    kind: filter
+    has_doc: false
+  "filter::capfirst":
+    kind: filter
+    has_doc: false
+  "filter::center":
+    kind: filter
+    has_doc: false
+  "filter::cut":
+    kind: filter
+    has_doc: false
+  "filter::date":
+    kind: filter
+    has_doc: false
+  "filter::default":
+    kind: filter
+    has_doc: false
+  "filter::default_if_none":
+    kind: filter
+    has_doc: false
+  "filter::dictsort":
+    kind: filter
+    has_doc: false
+  "filter::dictsortreversed":
+    kind: filter
+    has_doc: false
+  "filter::divisibleby":
+    kind: filter
+    has_doc: false
+  "filter::escape":
+    kind: filter
+    has_doc: false
+  "filter::escapejs":
+    kind: filter
+    has_doc: false
+  "filter::escapeseq":
+    kind: filter
+    has_doc: false
+  "filter::filesizeformat":
+    kind: filter
+    has_doc: false
+  "filter::first":
+    kind: filter
+    has_doc: false
+  "filter::floatformat":
+    kind: filter
+    has_doc: false
+  "filter::force_escape":
+    kind: filter
+    has_doc: false
+  "filter::get_digit":
+    kind: filter
+    has_doc: false
+  "filter::iriencode":
+    kind: filter
+    has_doc: false
+  "filter::join":
+    kind: filter
+    has_doc: false
+  "filter::json_script":
+    kind: filter
+    has_doc: false
+  "filter::last":
+    kind: filter
+    has_doc: false
+  "filter::length":
+    kind: filter
+    has_doc: false
+  "filter::linebreaks":
+    kind: filter
+    has_doc: false
+  "filter::linebreaksbr":
+    kind: filter
+    has_doc: false
+  "filter::linenumbers":
+    kind: filter
+    has_doc: false
+  "filter::ljust":
+    kind: filter
+    has_doc: false
+  "filter::lower":
+    kind: filter
+    has_doc: false
+  "filter::make_list":
+    kind: filter
+    has_doc: false
+  "filter::phone2numeric":
+    kind: filter
+    has_doc: false
+  "filter::pluralize":
+    kind: filter
+    has_doc: false
+  "filter::pprint":
+    kind: filter
+    has_doc: false
+  "filter::random":
+    kind: filter
+    has_doc: false
+  "filter::rjust":
+    kind: filter
+    has_doc: false
+  "filter::safe":
+    kind: filter
+    has_doc: false
+  "filter::safeseq":
+    kind: filter
+    has_doc: false
+  "filter::slice":
+    kind: filter
+    has_doc: false
+  "filter::slugify":
+    kind: filter
+    has_doc: false
+  "filter::stringformat":
+    kind: filter
+    has_doc: false
+  "filter::striptags":
+    kind: filter
+    has_doc: false
+  "filter::time":
+    kind: filter
+    has_doc: false
+  "filter::timesince":
+    kind: filter
+    has_doc: false
+  "filter::timeuntil":
+    kind: filter
+    has_doc: false
+  "filter::title":
+    kind: filter
+    has_doc: false
+  "filter::truncatechars":
+    kind: filter
+    has_doc: false
+  "filter::truncatechars_html":
+    kind: filter
+    has_doc: false
+  "filter::truncatewords":
+    kind: filter
+    has_doc: false
+  "filter::truncatewords_html":
+    kind: filter
+    has_doc: false
+  "filter::unordered_list":
+    kind: filter
+    has_doc: false
+  "filter::upper":
+    kind: filter
+    has_doc: false
+  "filter::urlencode":
+    kind: filter
+    has_doc: false
+  "filter::urlize":
+    kind: filter
+    has_doc: false
+  "filter::urlizetrunc":
+    kind: filter
+    has_doc: false
+  "filter::wordcount":
+    kind: filter
+    has_doc: false
+  "filter::wordwrap":
+    kind: filter
+    has_doc: false
+  "filter::yesno":
+    kind: filter
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules: {}
 filter_arities:
   "django.template.defaultfilters::filter::add": required_argument

@@ -2,6 +2,41 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::richtext":
+    kind: filter
+    has_doc: false
+  "tag::fullpageurl":
+    kind: tag
+    has_doc: false
+  "tag::include_block":
+    kind: tag
+    has_doc: false
+  "tag::pageurl":
+    kind: tag
+    has_doc: false
+  "tag::slugurl":
+    kind: tag
+    has_doc: false
+  "tag::wagtail_documentation_path":
+    kind: tag
+    has_doc: false
+  "tag::wagtail_feature_release_editor_guide_link":
+    kind: tag
+    has_doc: false
+  "tag::wagtail_feature_release_whats_new_link":
+    kind: tag
+    has_doc: false
+  "tag::wagtail_release_notes_path":
+    kind: tag
+    has_doc: false
+  "tag::wagtail_site":
+    kind: tag
+    has_doc: false
+  "tag::wagtail_version":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "wagtail.templatetags.wagtailcore_tags::tag::fullpageurl":
     arg_constraints: []

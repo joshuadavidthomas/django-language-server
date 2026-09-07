@@ -2,6 +2,20 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "tag::convert_to_json":
+    kind: tag
+    has_doc: false
+  "tag::get_recipient_context":
+    kind: tag
+    has_doc: false
+  "tag::serialize":
+    kind: tag
+    has_doc: false
+  "tag::serialize_detailed_org":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "src.sentry.templatetags.sentry_api::tag::convert_to_json":
     arg_constraints: []

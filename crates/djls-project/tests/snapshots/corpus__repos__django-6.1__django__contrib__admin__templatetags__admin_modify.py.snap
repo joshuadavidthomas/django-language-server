@@ -2,6 +2,23 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::cell_count":
+    kind: filter
+    has_doc: false
+  "tag::change_form_admin_actions":
+    kind: tag
+    has_doc: false
+  "tag::change_form_object_tools":
+    kind: tag
+    has_doc: false
+  "tag::prepopulated_fields_js":
+    kind: tag
+    has_doc: false
+  "tag::submit_row":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules: {}
 filter_arities:
   "django.contrib.admin.templatetags.admin_modify::filter::cell_count": no_argument

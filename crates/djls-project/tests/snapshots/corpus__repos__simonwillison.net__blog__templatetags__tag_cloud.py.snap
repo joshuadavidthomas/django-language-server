@@ -2,6 +2,14 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "tag::tag_cloud":
+    kind: tag
+    has_doc: false
+  "tag::tag_cloud_for_tags":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "blog.templatetags.tag_cloud::tag::tag_cloud":
     arg_constraints: []

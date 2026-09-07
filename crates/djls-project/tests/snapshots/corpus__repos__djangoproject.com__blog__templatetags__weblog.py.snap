@@ -2,6 +2,14 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "tag::render_latest_blog_entries":
+    kind: tag
+    has_doc: false
+  "tag::render_month_links":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "blog.templatetags.weblog::tag::render_latest_blog_entries":
     arg_constraints: []

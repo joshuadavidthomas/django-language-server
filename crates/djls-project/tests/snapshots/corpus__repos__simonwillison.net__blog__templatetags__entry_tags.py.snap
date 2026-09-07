@@ -2,6 +2,53 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::break_up_long_words":
+    kind: filter
+    has_doc: false
+  "filter::ends_with_punctuation":
+    kind: filter
+    has_doc: false
+  "filter::first_paragraph":
+    kind: filter
+    has_doc: false
+  "filter::openid_to_url":
+    kind: filter
+    has_doc: false
+  "filter::remove_context_paragraph":
+    kind: filter
+    has_doc: false
+  "filter::resize_images_to_fit_width":
+    kind: filter
+    has_doc: false
+  "filter::split_cutoff":
+    kind: filter
+    has_doc: false
+  "filter::strip_p_ids":
+    kind: filter
+    has_doc: false
+  "filter::strip_wrapping_p":
+    kind: filter
+    has_doc: false
+  "filter::text_ago":
+    kind: filter
+    has_doc: false
+  "filter::typography":
+    kind: filter
+    has_doc: false
+  "filter::xhtml":
+    kind: filter
+    has_doc: false
+  "filter::xhtml2html":
+    kind: filter
+    has_doc: false
+  "tag::entry_footer":
+    kind: tag
+    has_doc: false
+  "tag::entry_footer_no_date":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "blog.templatetags.entry_tags::tag::entry_footer":
     arg_constraints: []

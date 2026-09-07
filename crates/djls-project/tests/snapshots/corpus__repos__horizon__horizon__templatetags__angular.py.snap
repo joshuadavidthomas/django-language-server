@@ -2,6 +2,14 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::angular_escapes":
+    kind: filter
+    has_doc: false
+  "tag::angular_templates":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "horizon.templatetags.angular::tag::angular_templates":
     arg_constraints: []

@@ -1,7 +1,12 @@
 ---
 source: crates/djls-project/tests/extraction.rs
-expression: sorted_snapshot(&result)
+expression: "sorted_snapshot(&result).expect(\"call-style filter extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::upper":
+    kind: filter
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules: {}
 filter_arities: {}
 block_specs: {}

@@ -2,6 +2,71 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "tag::cms_admin_url":
+    kind: tag
+    has_doc: false
+  "tag::cms_toolbar":
+    kind: tag
+    has_doc: false
+  "tag::page_attribute":
+    kind: tag
+    has_doc: false
+  "tag::page_id_url":
+    kind: tag
+    has_doc: false
+  "tag::page_url":
+    kind: tag
+    has_doc: false
+  "tag::placeholder":
+    kind: tag
+    has_doc: false
+  "tag::render_extra_menu_items":
+    kind: tag
+    has_doc: false
+  "tag::render_model":
+    kind: tag
+    has_doc: false
+  "tag::render_model_add":
+    kind: tag
+    has_doc: false
+  "tag::render_model_add_block":
+    kind: tag
+    has_doc: false
+  "tag::render_model_block":
+    kind: tag
+    has_doc: false
+  "tag::render_model_icon":
+    kind: tag
+    has_doc: false
+  "tag::render_placeholder":
+    kind: tag
+    has_doc: false
+  "tag::render_plugin":
+    kind: tag
+    has_doc: false
+  "tag::render_plugin_block":
+    kind: tag
+    has_doc: false
+  "tag::render_uncached_placeholder":
+    kind: tag
+    has_doc: false
+  "tag::show_placeholder":
+    kind: tag
+    has_doc: false
+  "tag::show_placeholder_by_id":
+    kind: tag
+    has_doc: false
+  "tag::show_uncached_placeholder":
+    kind: tag
+    has_doc: false
+  "tag::show_uncached_placeholder_by_id":
+    kind: tag
+    has_doc: false
+  "tag::static_placeholder":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "cms.templatetags.cms_tags::tag::render_extra_menu_items":
     arg_constraints: []

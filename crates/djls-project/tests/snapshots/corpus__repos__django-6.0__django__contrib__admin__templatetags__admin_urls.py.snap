@@ -2,6 +2,17 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::admin_urlname":
+    kind: filter
+    has_doc: false
+  "filter::admin_urlquote":
+    kind: filter
+    has_doc: false
+  "tag::add_preserved_filters":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "django.contrib.admin.templatetags.admin_urls::tag::add_preserved_filters":
     arg_constraints: []

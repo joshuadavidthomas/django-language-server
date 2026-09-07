@@ -2,6 +2,95 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::add_css_class":
+    kind: filter
+    has_doc: false
+  "filter::changeform_condition":
+    kind: filter
+    has_doc: false
+  "filter::changeform_data":
+    kind: filter
+    has_doc: false
+  "filter::class_name":
+    kind: filter
+    has_doc: false
+  "filter::has_active_item":
+    kind: filter
+    has_doc: false
+  "filter::index":
+    kind: filter
+    has_doc: false
+  "filter::is_list":
+    kind: filter
+    has_doc: false
+  "filter::tabs":
+    kind: filter
+    has_doc: false
+  "filter::tabs_active":
+    kind: filter
+    has_doc: false
+  "filter::tabs_errors_count":
+    kind: filter
+    has_doc: false
+  "tag::action_item_classes":
+    kind: tag
+    has_doc: false
+  "tag::action_list":
+    kind: tag
+    has_doc: false
+  "tag::admin_object_app_url":
+    kind: tag
+    has_doc: false
+  "tag::capture":
+    kind: tag
+    has_doc: false
+  "tag::component":
+    kind: tag
+    has_doc: false
+  "tag::element_classes":
+    kind: tag
+    has_doc: false
+  "tag::elided_page_range":
+    kind: tag
+    has_doc: false
+  "tag::fieldset_line_classes":
+    kind: tag
+    has_doc: false
+  "tag::fieldset_row_classes":
+    kind: tag
+    has_doc: false
+  "tag::fieldset_rows_classes":
+    kind: tag
+    has_doc: false
+  "tag::has_nav_item_active":
+    kind: tag
+    has_doc: false
+  "tag::header_title":
+    kind: tag
+    has_doc: false
+  "tag::infinite_paginator_url":
+    kind: tag
+    has_doc: false
+  "tag::preserve_filters":
+    kind: tag
+    has_doc: false
+  "tag::querystring_params":
+    kind: tag
+    has_doc: false
+  "tag::render_section":
+    kind: tag
+    has_doc: false
+  "tag::tab_list":
+    kind: tag
+    has_doc: false
+  "tag::tabs_primary_active":
+    kind: tag
+    has_doc: false
+  "tag::unfold_querystring":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "src.unfold.templatetags.unfold::tag::action_item_classes":
     arg_constraints: []

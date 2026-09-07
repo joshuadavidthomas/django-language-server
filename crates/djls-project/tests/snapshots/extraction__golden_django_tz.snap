@@ -2,6 +2,17 @@
 source: crates/djls-project/tests/extraction.rs
 expression: "sorted_snapshot(&result).expect(\"timezone extraction snapshot should serialize\")"
 ---
+definitions:
+  "tag::get_current_timezone":
+    kind: tag
+    has_doc: false
+  "tag::localtime":
+    kind: tag
+    has_doc: false
+  "tag::timezone":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "django.templatetags.tz::tag::get_current_timezone":
     arg_constraints:
