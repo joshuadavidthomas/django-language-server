@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use serde::Serialize;
+use djls_source::Span;
 
+use crate::templates::tags::types::AssignmentMode;
 use crate::templates::tags::types::SplitPosition;
 
 /// Tracks how a `token.split_contents()` result has been mutated.
@@ -13,7 +14,7 @@ use crate::templates::tags::types::SplitPosition;
 ///
 /// `TokenSplit` encapsulates this offset arithmetic so callers use methods
 /// instead of manually computing `index + base_offset + pops_from_end`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct TokenSplit {
     front_offset: usize,
     back_offset: usize,
@@ -92,13 +93,22 @@ impl TokenSplit {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct AssignmentCall {
+    pub file: djls_source::File,
+    pub function: Span,
+    pub call: Span,
+    pub split: TokenSplit,
+    pub mode: AssignmentMode,
+}
+
 /// Abstract representation of a Python value during analysis.
 ///
 /// Each variant represents a class of runtime values that we can track
 /// through the compile function body. `Unknown` is the safe default —
 /// any value we can't track becomes Unknown, and constraints involving
 /// Unknown values produce no output.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum AbstractValue {
     /// Untracked value — safe default, produces no constraints
     Unknown,
@@ -110,7 +120,9 @@ pub(crate) enum AbstractValue {
     /// The `TokenSplit` tracks mutations (pop from front/back, slicing).
     SplitResult(TokenSplit),
     /// Single element from a split result: `bits[N]` or `bits[-N]`
-    SplitElement { index: SplitPosition },
+    SplitElement {
+        index: SplitPosition,
+    },
     /// `len(split_result)` — carries offsets for constraint adjustment.
     /// The effective original length = `measured_len + split.total_offset()`.
     SplitLength(TokenSplit),
@@ -120,6 +132,8 @@ pub(crate) enum AbstractValue {
     Str(String),
     /// A comparison over the original `split_contents()` result.
     SplitPredicate(SplitPredicate),
+    AssignmentMap(AssignmentCall),
+    AssignmentRemainder(AssignmentCall),
     /// Tuple of tracked values (for function return/destructuring)
     Tuple(Vec<AbstractValue>),
 }
@@ -127,7 +141,9 @@ pub(crate) enum AbstractValue {
 impl AbstractValue {
     pub(crate) fn forget_mutable(&mut self) {
         match self {
-            Self::SplitResult(_) => *self = Self::Unknown,
+            Self::SplitResult(_) | Self::AssignmentMap(_) | Self::AssignmentRemainder(_) => {
+                *self = Self::Unknown;
+            }
             Self::Tuple(values) => {
                 for value in values {
                     value.forget_mutable();
@@ -145,7 +161,7 @@ impl AbstractValue {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SplitPredicate {
     LengthEquals(usize),
     LengthAtLeast(usize),
@@ -243,26 +259,16 @@ impl Env {
     where
         F: FnOnce(&mut AbstractValue),
     {
-        if !self.bindings.contains_key(name) {
-            return false;
-        }
-        let Some(value) = Arc::make_mut(&mut self.bindings).get_mut(name) else {
+        let Some(previous) = self.bindings.get(name).cloned() else {
             return false;
         };
-        f(value);
+        let mut value = previous.clone();
+        f(&mut value);
+        if value != previous {
+            self.forget_aliases(&previous);
+            self.set(name.to_string(), value);
+        }
         true
-    }
-
-    /// Forget every binding that aliases a mutable abstract value.
-    pub(crate) fn forget_aliases(&mut self, aliased: &AbstractValue) {
-        if !self.bindings.values().any(|value| value == aliased) {
-            return;
-        }
-        for value in Arc::make_mut(&mut self.bindings).values_mut() {
-            if value == aliased {
-                *value = AbstractValue::Unknown;
-            }
-        }
     }
 
     /// Keep only bindings that have the same exact value on every branch.
@@ -318,12 +324,59 @@ impl Env {
         }
     }
 
+    /// Equal mutable values may share a Python object. Invalidate those aliases
+    /// before changing one binding; different slices can keep their evidence.
+    pub(crate) fn forget_aliases(&mut self, target: &AbstractValue) {
+        fn contains(value: &AbstractValue, target: &AbstractValue) -> bool {
+            value == target
+                || matches!(value, AbstractValue::Tuple(values)
+                    if values.iter().any(|value| contains(value, target)))
+        }
+        fn forget(value: &mut AbstractValue, target: &AbstractValue) {
+            if value == target {
+                *value = AbstractValue::Unknown;
+            } else if let AbstractValue::Tuple(values) = value {
+                for value in values {
+                    forget(value, target);
+                }
+            }
+        }
+
+        match target {
+            AbstractValue::Tuple(values) => {
+                for value in values {
+                    self.forget_aliases(value);
+                }
+                return;
+            }
+            AbstractValue::SplitResult(_)
+            | AbstractValue::AssignmentMap(_)
+            | AbstractValue::AssignmentRemainder(_) => {}
+            AbstractValue::Unknown
+            | AbstractValue::Token
+            | AbstractValue::Parser
+            | AbstractValue::SplitElement { .. }
+            | AbstractValue::SplitLength(_)
+            | AbstractValue::Int(_)
+            | AbstractValue::Str(_)
+            | AbstractValue::SplitPredicate(_) => return,
+        }
+
+        if self.bindings.values().any(|value| contains(value, target)) {
+            for value in Arc::make_mut(&mut self.bindings).values_mut() {
+                forget(value, target);
+            }
+        }
+    }
+
     /// Forget every mutable token-derived sequence, including aliases nested
     /// in a tuple or mutable literal container.
     pub(crate) fn forget_split_results(&mut self) {
         fn contains_split_result(value: &AbstractValue) -> bool {
             match value {
-                AbstractValue::SplitResult(_) => true,
+                AbstractValue::SplitResult(_)
+                | AbstractValue::AssignmentMap(_)
+                | AbstractValue::AssignmentRemainder(_) => true,
                 AbstractValue::Tuple(values) => values.iter().any(contains_split_result),
                 AbstractValue::Unknown
                 | AbstractValue::Token

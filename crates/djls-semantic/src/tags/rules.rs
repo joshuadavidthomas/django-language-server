@@ -1,7 +1,11 @@
 use std::collections::HashMap;
+use std::collections::HashSet;
+use std::sync::OnceLock;
 
 use djls_project::ArgumentCountConstraint;
 use djls_project::ArgumentFormCoverage;
+use djls_project::AssignmentMode;
+use djls_project::AssignmentOperand;
 use djls_project::ChoiceAt;
 use djls_project::ExtractedDiagnosticConstraint;
 use djls_project::ExtractedDiagnosticMessage;
@@ -11,6 +15,7 @@ use djls_project::FormAtomExpectation;
 use djls_project::FormAtomMismatch;
 use djls_project::KnownOptions;
 use djls_project::OptionRejection;
+use djls_project::RemainderPolicy;
 use djls_project::RequiredKeyword;
 use djls_project::SplitPosition;
 use djls_project::TagArgumentForm;
@@ -18,7 +23,9 @@ use djls_project::TagArgumentFormMismatch;
 use djls_project::TagArgumentKind;
 use djls_project::TagArgumentSyntax;
 use djls_project::TagRule;
+use djls_project::UniqueKeyCardinality;
 use djls_source::Span;
+use regex::Regex;
 
 use crate::errors::ValidationError;
 
@@ -180,26 +187,9 @@ pub(crate) fn evaluate_tag_rules(
     let diagnostic_messages = rules.diagnostic_messages.as_deref().unwrap_or(&[]);
 
     if let Some(error) =
-        validate_signature_syntax(tag_name, &rules.argument_syntax, effective_bits, span)
+        validate_argument_syntax(tag_name, &rules.argument_syntax, effective_bits, span)
     {
         return vec![error];
-    }
-
-    if let TagArgumentSyntax::Forms {
-        forms,
-        coverage: ArgumentFormCoverage::Complete,
-        length_mismatch_message,
-    } = &rules.argument_syntax
-        && let Err(mismatch) = match_complete_forms(forms, effective_bits)
-    {
-        return vec![form_mismatch_error(
-            tag_name,
-            effective_bits,
-            forms,
-            length_mismatch_message.as_ref(),
-            mismatch,
-            span,
-        )];
     }
 
     for constraint in &rules.arg_constraints {
@@ -288,6 +278,104 @@ pub(crate) fn evaluate_tag_rules(
     errors
 }
 
+struct AssignmentMatch {
+    consumed: usize,
+    unique_keys: usize,
+}
+
+fn validate_assignments(
+    tag_name: &str,
+    bits: &[String],
+    operand: &AssignmentOperand,
+    span: Span,
+) -> Option<ValidationError> {
+    let matched = match_assignments(bits, operand.mode);
+    let cardinality_failed = match operand.cardinality {
+        UniqueKeyCardinality::Any => false,
+        UniqueKeyCardinality::AtLeastOne => matched.unique_keys < 1,
+        UniqueKeyCardinality::ExactlyOne => matched.unique_keys != 1,
+    };
+    let message = if cardinality_failed {
+        let source_message = if matched.unique_keys == 0 {
+            &operand.empty_message
+        } else {
+            &operand.multiple_message
+        };
+        source_message
+            .as_ref()
+            .and_then(|message| render_message_template(message, tag_name, bits))
+            .unwrap_or_else(|| {
+                if operand.cardinality == UniqueKeyCardinality::AtLeastOne {
+                    format!("'{tag_name}' expected at least one variable assignment")
+                } else {
+                    format!("'{tag_name}' expected exactly one variable assignment")
+                }
+            })
+    } else if operand.remainder == RemainderPolicy::Reject && matched.consumed != bits.len() {
+        operand
+            .remainder_message
+            .as_ref()
+            .and_then(|message| render_message_template(message, tag_name, bits))
+            .unwrap_or_else(|| format!("'{tag_name}' received an invalid assignment"))
+    } else {
+        return None;
+    };
+    Some(ValidationError::ExtractedRuleViolation {
+        tag: tag_name.to_string(),
+        message,
+        span,
+    })
+}
+
+fn match_assignments(bits: &[String], mode: AssignmentMode) -> AssignmentMatch {
+    let mut keys = HashSet::new();
+    let mut consumed = 0;
+    if bits
+        .first()
+        .and_then(|bit| modern_assignment(bit))
+        .is_some()
+    {
+        for bit in bits {
+            let Some((key, _)) = modern_assignment(bit) else {
+                break;
+            };
+            keys.insert(key);
+            consumed += 1;
+        }
+    } else if mode == AssignmentMode::ModernOrLegacy {
+        while bits.get(consumed + 1).is_some_and(|bit| bit == "as")
+            && bits.get(consumed + 2).is_some()
+        {
+            if let Some(key) = bits.get(consumed + 2) {
+                keys.insert(key.as_str());
+            }
+            consumed += 3;
+            if bits.get(consumed).is_some_and(|bit| bit == "and") {
+                consumed += 1;
+            } else {
+                break;
+            }
+        }
+    }
+    AssignmentMatch {
+        consumed,
+        unique_keys: keys.len(),
+    }
+}
+
+fn modern_assignment(bit: &str) -> Option<(&str, &str)> {
+    let (key, value) = bit.split_once('=')?;
+    (!value.is_empty() && is_python_word_key(key)).then_some((key, value))
+}
+
+fn is_python_word_key(value: &str) -> bool {
+    static PYTHON_WORD_KEY: OnceLock<Result<Regex, regex::Error>> = OnceLock::new();
+    PYTHON_WORD_KEY
+        .get_or_init(|| Regex::new(r"\A[\p{Letter}\p{Number}_]+\z"))
+        .as_ref()
+        .is_ok_and(|pattern| pattern.is_match(value))
+}
+
 fn effective_tag_bits(bits: &[String], strips_as_var: bool) -> &[String] {
     if strips_as_var && bits.len() >= 2 && bits[bits.len() - 2] == "as" {
         &bits[..bits.len() - 2]
@@ -296,27 +384,48 @@ fn effective_tag_bits(bits: &[String], strips_as_var: bool) -> &[String] {
     }
 }
 
-fn validate_signature_syntax(
+fn validate_argument_syntax(
     tag_name: &str,
     syntax: &TagArgumentSyntax,
     bits: &[String],
     span: Span,
 ) -> Option<ValidationError> {
-    let TagArgumentSyntax::Signature {
-        parameters,
-        variadic_keyword,
-        ..
-    } = syntax
-    else {
-        return None;
-    };
-    validate_django_signature(
-        tag_name,
-        parameters,
-        variadic_keyword.as_deref(),
-        bits,
-        span,
-    )
+    match syntax {
+        TagArgumentSyntax::Signature {
+            parameters,
+            variadic_keyword,
+            ..
+        } => validate_django_signature(
+            tag_name,
+            parameters,
+            variadic_keyword.as_deref(),
+            bits,
+            span,
+        ),
+        TagArgumentSyntax::Assignments { operand } => {
+            validate_assignments(tag_name, bits, operand, span)
+        }
+        TagArgumentSyntax::Forms {
+            forms,
+            coverage: ArgumentFormCoverage::Complete,
+            length_mismatch_message,
+        } => match_complete_forms(forms, bits).err().map(|mismatch| {
+            form_mismatch_error(
+                tag_name,
+                bits,
+                forms,
+                length_mismatch_message.as_ref(),
+                mismatch,
+                span,
+            )
+        }),
+        TagArgumentSyntax::Forms {
+            coverage: ArgumentFormCoverage::Partial,
+            ..
+        }
+        | TagArgumentSyntax::Parameters(_)
+        | TagArgumentSyntax::Unknown => None,
+    }
 }
 
 fn validate_django_signature(
@@ -422,12 +531,7 @@ fn bind_django_signature(
 
 fn django_keyword_name(bit: &str) -> Option<&str> {
     let (name, value) = bit.split_once('=')?;
-    (!name.is_empty()
-        && !value.is_empty()
-        && name
-            .chars()
-            .all(|character| character == '_' || character.is_alphanumeric()))
-    .then_some(name)
+    (!value.is_empty() && is_python_word_key(name)).then_some(name)
 }
 
 fn match_complete_forms<'a>(
@@ -1528,6 +1632,74 @@ mod tests {
         let bits = make_bits(&["x"]);
         let errors = evaluate_tag_rules("mytag", &bits, &rule, Span::new(0, 10));
         assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn assignment_matching_uses_python_word_categories() {
+        let modern = |bits: &[&str]| {
+            let owned = bits.iter().map(ToString::to_string).collect::<Vec<_>>();
+            match_assignments(&owned, AssignmentMode::Modern)
+        };
+        assert_eq!(modern(&["\u{30000}=1"]).consumed, 1);
+        assert_eq!(modern(&["\u{0345}=1"]).consumed, 0);
+        assert_eq!(modern(&["\u{1885}=1"]).consumed, 0);
+    }
+
+    #[test]
+    fn assignment_cardinality_diagnostics_distinguish_empty_and_multiple_keys() {
+        let operand = AssignmentOperand {
+            mode: AssignmentMode::Modern,
+            cardinality: UniqueKeyCardinality::ExactlyOne,
+            remainder: RemainderPolicy::Reject,
+            empty_message: Some(ExtractedMessageTemplate::Static(
+                "needs an assignment".into(),
+            )),
+            multiple_message: Some(ExtractedMessageTemplate::Static(
+                "too many assignments".into(),
+            )),
+            remainder_message: None,
+        };
+        for (bits, message) in [
+            (make_bits(&[]), "needs an assignment"),
+            (make_bits(&["x=1", "y=2"]), "too many assignments"),
+        ] {
+            let error = validate_assignments("assign", &bits, &operand, Span::new(0, 10));
+            assert!(
+                matches!(error, Some(ValidationError::ExtractedRuleViolation { message: actual, .. })
+                if actual == message)
+            );
+        }
+        assert!(
+            validate_assignments(
+                "assign",
+                &make_bits(&["x=1", "x=2"]),
+                &operand,
+                Span::new(0, 10)
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn assignment_matching_models_modern_legacy_and_remainder() {
+        let owned =
+            ["first", "as", "key", "and", "second", "as", "other", "and"].map(ToString::to_string);
+        let legacy = match_assignments(&owned, AssignmentMode::ModernOrLegacy);
+        assert_eq!(legacy.consumed, owned.len());
+        assert_eq!(legacy.unique_keys, 2);
+
+        let duplicate =
+            ["first", "as", "key", "and", "second", "as", "key"].map(ToString::to_string);
+        assert_eq!(
+            match_assignments(&duplicate, AssignmentMode::ModernOrLegacy).unique_keys,
+            1
+        );
+
+        let mixed = ["modern=first", "second", "as", "legacy"].map(ToString::to_string);
+        assert_eq!(
+            match_assignments(&mixed, AssignmentMode::ModernOrLegacy).consumed,
+            1
+        );
     }
 
     #[test]

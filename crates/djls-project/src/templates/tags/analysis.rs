@@ -5,10 +5,10 @@ pub(crate) mod exceptions;
 pub(crate) mod expressions;
 pub(crate) mod guards;
 pub(crate) mod mutations;
+pub(crate) mod native;
 pub(crate) mod state;
 pub(crate) mod statements;
 
-use djls_source::File;
 use ruff_python_ast::BoolOp;
 use ruff_python_ast::CmpOp;
 use ruff_python_ast::Expr;
@@ -22,9 +22,13 @@ use ruff_python_ast::StmtFunctionDef;
 
 pub(crate) use self::calls::AbstractValueKey;
 pub(crate) use self::state::AbstractValue;
+pub(crate) use self::state::AssignmentCall;
 pub(crate) use self::state::Env;
 pub(crate) use self::statements::process_statements;
 use crate::ast::ExprExt;
+use crate::db::Db as ProjectDb;
+use crate::python::PythonFunctionDefinition;
+use crate::python::PythonSourceLookup;
 use crate::templates::tags::analysis::constraints::ExtractedTagConstraints;
 use crate::templates::tags::analysis::guards::ExtractedRuleFragment;
 use crate::templates::tags::types::ArgumentCountConstraint;
@@ -33,12 +37,14 @@ use crate::templates::tags::types::ChoiceAt;
 use crate::templates::tags::types::ExtractedDiagnosticMessage;
 use crate::templates::tags::types::KnownOptions;
 use crate::templates::tags::types::ParameterRequirement;
+use crate::templates::tags::types::RemainderPolicy;
 use crate::templates::tags::types::RequiredKeyword;
 use crate::templates::tags::types::SplitPosition;
 use crate::templates::tags::types::TagArgument;
 use crate::templates::tags::types::TagArgumentKind;
 use crate::templates::tags::types::TagArgumentSyntax;
 use crate::templates::tags::types::TagRule;
+use crate::templates::tags::types::UniqueKeyCardinality;
 
 /// Call-resolution context for the analysis.
 ///
@@ -50,12 +56,20 @@ use crate::templates::tags::types::TagRule;
 /// delegates to `analyze_helper` — a Salsa tracked function with cycle
 /// recovery and automatic memoization. When `None` (standalone extraction),
 /// helper calls return `Unknown`.
-pub(crate) struct CallContext<'a> {
-    /// Salsa database, populated when running under tracked extraction.
-    /// Used by `resolve_call` to call `analyze_helper` via Salsa.
-    pub db: Option<&'a dyn djls_source::Db>,
-    /// Source file being analyzed, used to construct `HelperCall` interned keys.
-    pub file: Option<File>,
+pub(crate) struct TagSourceContext<'db> {
+    pub lookup: PythonSourceLookup<'db>,
+    pub function: PythonFunctionDefinition,
+}
+
+impl<'db> TagSourceContext<'db> {
+    pub(crate) fn new(db: &'db dyn ProjectDb, function: PythonFunctionDefinition) -> Self {
+        let lookup = PythonSourceLookup::for_definition(db, db.project(), &function);
+        Self { lookup, function }
+    }
+}
+
+pub(crate) struct CallContext<'ctx, 'db> {
+    pub source: Option<&'ctx mut TagSourceContext<'db>>,
 }
 
 /// Results accumulated during statement processing.
@@ -71,6 +85,7 @@ pub(crate) struct AnalysisResult {
     pub diagnostic_messages: Vec<ExtractedDiagnosticMessage>,
     pub known_options: Option<KnownOptions>,
     pub argument_syntax: Option<TagArgumentSyntax>,
+    pub assignment_call: Option<AssignmentCall>,
 }
 
 impl AnalysisResult {
@@ -89,13 +104,44 @@ impl AnalysisResult {
         if other.known_options.is_some() {
             self.known_options = other.known_options;
         }
-        match (&self.argument_syntax, other.argument_syntax) {
-            (None, syntax) => self.argument_syntax = syntax,
+        match (&mut self.argument_syntax, other.argument_syntax) {
+            (None, syntax) => {
+                self.argument_syntax = syntax;
+                self.assignment_call = other.assignment_call;
+            }
+            (
+                Some(TagArgumentSyntax::Assignments { operand: current }),
+                Some(TagArgumentSyntax::Assignments { operand: next }),
+            ) if self.assignment_call.is_some()
+                && self.assignment_call == other.assignment_call
+                && current.mode == next.mode =>
+            {
+                if matches!(
+                    (current.cardinality, next.cardinality),
+                    (
+                        UniqueKeyCardinality::Any,
+                        UniqueKeyCardinality::AtLeastOne | UniqueKeyCardinality::ExactlyOne
+                    ) | (
+                        UniqueKeyCardinality::AtLeastOne,
+                        UniqueKeyCardinality::ExactlyOne
+                    )
+                ) {
+                    if current.cardinality == UniqueKeyCardinality::Any {
+                        current.empty_message = next.empty_message;
+                    }
+                    current.cardinality = next.cardinality;
+                    current.multiple_message = next.multiple_message;
+                }
+                if current.remainder == RemainderPolicy::Continue
+                    && next.remainder == RemainderPolicy::Reject
+                {
+                    current.remainder = next.remainder;
+                    current.remainder_message = next.remainder_message;
+                }
+            }
             (Some(_), Some(_)) => {
-                // Sequential syntax dispatches constrain the same call. Without
-                // intersecting their forms, retaining either contract would
-                // claim success paths that the other dispatch rejects.
                 self.argument_syntax = Some(TagArgumentSyntax::Unknown);
+                self.assignment_call = None;
             }
             (Some(_), None) => {}
         }
@@ -109,6 +155,7 @@ impl From<ExtractedRuleFragment> for AnalysisResult {
             diagnostic_messages: rule.diagnostic_messages,
             known_options: None,
             argument_syntax: None,
+            assignment_call: None,
         }
     }
 }
@@ -152,7 +199,7 @@ impl<'a> CompileFunction<'a> {
 /// remain unproven without module bindings.
 #[must_use]
 pub(crate) fn analyze_compile_function(func: &StmtFunctionDef) -> TagRule {
-    analyze_compile_function_with_context(func, None, None, None)
+    analyze_compile_function_with_context(func, None, None)
 }
 
 /// Analyze a compile function with name-resolution facts from its parsed module.
@@ -166,26 +213,21 @@ pub(crate) fn analyze_compile_function_in_module(
     func: &StmtFunctionDef,
 ) -> TagRule {
     let bindings = constants::StaticBindings::from_module(module);
-    analyze_compile_function_with_context(func, None, None, Some(&bindings))
+    analyze_compile_function_with_context(func, None, Some(&bindings))
 }
 
-pub(crate) fn analyze_compile_function_in_file(
-    db: &dyn djls_source::Db,
-    file: File,
+pub(crate) fn analyze_compile_function_in_source(
+    source: &mut TagSourceContext<'_>,
     func: &StmtFunctionDef,
 ) -> TagRule {
-    analyze_compile_function_with_context(
-        func,
-        Some(db),
-        Some(file),
-        Some(constants::module_static_bindings(db, file)),
-    )
+    let db = source.lookup.db();
+    let bindings = constants::module_static_bindings(db, source.function.file());
+    analyze_compile_function_with_context(func, Some(source), Some(bindings))
 }
 
 fn analyze_compile_function_with_context(
     func: &StmtFunctionDef,
-    db: Option<&dyn djls_source::Db>,
-    file: Option<File>,
+    source: Option<&mut TagSourceContext<'_>>,
     static_bindings: Option<&constants::StaticBindings>,
 ) -> TagRule {
     let Some(compile_fn) = CompileFunction::from_ast(func) else {
@@ -196,7 +238,7 @@ fn analyze_compile_function_with_context(
     if let Some(static_bindings) = static_bindings {
         constants::seed_static_bindings(static_bindings, func, &mut env);
     }
-    let mut ctx = CallContext { db, file };
+    let mut ctx = CallContext { source };
 
     let (result, _) = statements::process_statements(compile_fn.body, &mut env, &mut ctx);
 
@@ -217,6 +259,13 @@ fn analyze_compile_function_with_context(
         Some(syntax) => syntax,
     };
 
+    let as_var = if !matches!(&argument_syntax, TagArgumentSyntax::Assignments { .. })
+        && supports_manual_as_var_strip(compile_fn.body)
+    {
+        AsVar::Strip
+    } else {
+        AsVar::Keep
+    };
     TagRule {
         arg_constraints: result.constraints.arg_constraints,
         required_keywords: result.constraints.required_keywords,
@@ -228,11 +277,7 @@ fn analyze_compile_function_with_context(
             Some(result.diagnostic_messages)
         },
         argument_syntax,
-        as_var: if supports_manual_as_var_strip(compile_fn.body) {
-            AsVar::Strip
-        } else {
-            AsVar::Keep
-        },
+        as_var,
     }
 }
 

@@ -3,6 +3,7 @@ use std::fs;
 use camino::Utf8Path;
 use djls_project::ArgumentCountConstraint;
 use djls_project::ArgumentFormCoverage;
+use djls_project::AssignmentMode;
 use djls_project::BodyAnalysisEvidence;
 use djls_project::ChoiceAt;
 use djls_project::ExtractedMessageArg;
@@ -10,12 +11,14 @@ use djls_project::ExtractedMessageTemplate;
 use djls_project::FilterArity;
 use djls_project::ParameterRequirement;
 use djls_project::PythonModuleName;
+use djls_project::RemainderPolicy;
 use djls_project::SymbolKey;
 use djls_project::TagArgumentKind;
 use djls_project::TagArgumentPatternKind;
 use djls_project::TagArgumentSyntax;
 use djls_project::TemplateLibraryId;
 use djls_project::TemplateSymbolKind;
+use djls_project::UniqueKeyCardinality;
 use djls_project::template_library_definition_facts;
 use djls_project::template_library_filter_facts;
 use djls_project::template_library_registration_dependencies;
@@ -90,82 +93,6 @@ fn execution_count(db: &TestDatabase, events: &[salsa::Event], query_name: &str)
 
 // Corpus: `no_params` in tests/template_tests/templatetags/custom.py —
 // `@register.simple_tag` with no user args, exercises simple_tag pipeline
-#[test]
-fn failed_known_for_target_skips_the_body_and_reaches_value_error() {
-    let source = r#"
-from django import template
-register = template.Library()
-@register.tag
-def checked(parser, token):
-    bits = token.split_contents()
-    left = bits[1]
-    right = bits[2]
-    try:
-        for left, right in ((1,),):
-            return template.Node(left, right)
-    except ValueError:
-        if len(bits) != 3:
-            raise template.TemplateSyntaxError("expected two arguments")
-        return template.Node()
-    raise template.TemplateSyntaxError("unreachable")
-"#;
-    let result = extract_source(source, "failed_for_target_tags").expect("fixture should extract");
-    let rule = &result.tag_rules[&SymbolKey::tag("failed_for_target_tags", "checked")];
-    assert_eq!(
-        rule.arg_constraints,
-        vec![ArgumentCountConstraint::Exact(3)]
-    );
-}
-
-#[test]
-fn maybe_failing_for_target_keeps_body_and_handler_paths() {
-    let source = r#"
-from django import template
-register = template.Library()
-@register.tag
-def checked(parser, token):
-    bits = token.split_contents()
-    try:
-        for left, right in (runtime_value(),):
-            if len(bits) != 2:
-                raise template.TemplateSyntaxError("body count")
-            return template.Node(left, right)
-    except ValueError:
-        if len(bits) != 3:
-            raise template.TemplateSyntaxError("handler count")
-        return template.Node()
-    raise template.TemplateSyntaxError("unreachable")
-"#;
-    let result = extract_source(source, "maybe_for_target_tags").expect("fixture should extract");
-    let rule = &result.tag_rules[&SymbolKey::tag("maybe_for_target_tags", "checked")];
-    assert_eq!(
-        rule.arg_constraints,
-        vec![ArgumentCountConstraint::OneOf(vec![2, 3])]
-    );
-}
-
-#[test]
-fn split_result_for_value_keeps_its_unpack_arity_provenance() {
-    let source = r#"
-from django import template
-register = template.Library()
-@register.tag
-def checked(parser, token):
-    try:
-        for tag_name, argument in (token.split_contents(),):
-            return template.Node(argument)
-    except ValueError:
-        raise template.TemplateSyntaxError("expected one argument")
-    raise template.TemplateSyntaxError("unreachable")
-"#;
-    let result = extract_source(source, "split_for_target_tags").expect("fixture should extract");
-    let rule = &result.tag_rules[&SymbolKey::tag("split_for_target_tags", "checked")];
-    assert_eq!(
-        rule.arg_constraints,
-        vec![ArgumentCountConstraint::Exact(2)]
-    );
-}
-
 #[test]
 fn extract_bundle_simple_tag() {
     let result = extract_source(CUSTOM_SOURCE, "tests.template_tests.templatetags.custom")
@@ -255,249 +182,6 @@ def javascript(parser, token):
 }
 
 #[test]
-fn negative_length_facts_survive_untracked_branches() {
-    let source = r#"
-from django import template
-register = template.Library()
-@register.tag
-def checked(parser, token):
-    bits = token.split_contents()
-    if len(bits) != 2:
-        if len(bits) == 2:
-            return template.Node()
-    assert runtime_condition()
-    if len(bits) == 3:
-        return template.Node()
-    raise template.TemplateSyntaxError("bad count")
-"#;
-    let result = extract_source(source, "negative_length_tags").expect("fixture should extract");
-    let rule = &result.tag_rules[&SymbolKey::tag("negative_length_tags", "checked")];
-    assert_eq!(
-        rule.arg_constraints,
-        vec![ArgumentCountConstraint::Exact(3)]
-    );
-}
-
-#[test]
-fn ordered_match_dispatch_ignores_unreachable_later_cases() {
-    let source = r#"
-from django import template
-register = template.Library()
-@register.tag
-def matched(parser, token):
-    match token.split_contents():
-        case ["matched", value]:
-            return Node(value)
-        case ["matched", value]:
-            raise template.TemplateSyntaxError("unreachable")
-        case _:
-            raise template.TemplateSyntaxError("bad count")
-"#;
-    let result = extract_source(source, "ordered_match_tags").expect("fixture should extract");
-    let rule = &result.tag_rules[&SymbolKey::tag("ordered_match_tags", "matched")];
-    let (forms, coverage) = rule.argument_syntax.forms().expect("known match form");
-    assert_eq!(coverage, ArgumentFormCoverage::Partial);
-    assert_eq!(forms.len(), 1);
-    assert_eq!(forms[0].pattern().len(), 1);
-}
-
-#[test]
-fn guarded_match_case_falls_through_to_later_cases() {
-    let source = r#"
-from django import template
-register = template.Library()
-@register.tag
-def matched(parser, token):
-    match token.split_contents():
-        case ["matched", mode] if mode == "blocked":
-            raise template.TemplateSyntaxError("blocked")
-        case ["matched", "safe"]:
-            return Node()
-        case _:
-            raise template.TemplateSyntaxError("bad mode")
-"#;
-    let result = extract_source(source, "guarded_match_tags").expect("fixture should extract");
-    let rule = &result.tag_rules[&SymbolKey::tag("guarded_match_tags", "matched")];
-    let (forms, _) = rule.argument_syntax.forms().expect("known guarded form");
-    assert_eq!(forms.len(), 1);
-    assert_eq!(
-        forms[0].pattern()[0].kind,
-        TagArgumentPatternKind::Literal("safe".to_string())
-    );
-}
-
-#[test]
-fn match_or_keeps_different_lengths_and_literals_correlated() {
-    let source = r#"
-from django import template
-register = template.Library()
-@register.tag
-def matched(parser, token):
-    match token.split_contents():
-        case [_, "short"] | [_, _, "long"]:
-            return Node()
-        case _:
-            raise template.TemplateSyntaxError("bad form")
-"#;
-    let result = extract_source(source, "alternative_match_tags").expect("fixture should extract");
-    let rule = &result.tag_rules[&SymbolKey::tag("alternative_match_tags", "matched")];
-    let (forms, _) = rule
-        .argument_syntax
-        .forms()
-        .expect("correlated match forms");
-    assert_eq!(forms.len(), 2);
-    assert!(forms.iter().any(|form| form.match_full(&["short"]).is_ok()));
-    assert!(
-        forms
-            .iter()
-            .any(|form| form.match_full(&["anything", "long"]).is_ok())
-    );
-    assert!(rule.required_keywords.is_empty());
-}
-
-#[test]
-fn match_capture_replaces_an_earlier_environment_value() {
-    let source = r#"
-from django import template
-register = template.Library()
-@register.tag
-def matched(parser, token):
-    bits = token.split_contents()
-    if len(bits) != 2:
-        raise template.TemplateSyntaxError("bad count")
-    value = bits[1]
-    match runtime_value():
-        case value:
-            pass
-    if value != "safe":
-        raise template.TemplateSyntaxError("bad value")
-    return Node()
-"#;
-    let result = extract_source(source, "capture_match_tags").expect("fixture should extract");
-    assert!(
-        result.tag_rules[&SymbolKey::tag("capture_match_tags", "matched")]
-            .required_keywords
-            .is_empty()
-    );
-}
-
-#[test]
-fn unsupported_nested_match_captures_replace_previous_values() {
-    let source = r#"
-from django import template
-register = template.Library()
-@register.tag
-def nested(parser, token):
-    bits = token.split_contents()
-    if len(bits) != 3:
-        raise template.TemplateSyntaxError("count")
-    value = bits[2]
-    match bits:
-        case [_, str(value), _]:
-            if value != "safe":
-                raise template.TemplateSyntaxError("value")
-            return Node()
-        case _:
-            raise template.TemplateSyntaxError("shape")
-"#;
-    let result = extract_source(source, "nested_capture").expect("fixture should extract");
-    let rule = &result.tag_rules[&SymbolKey::tag("nested_capture", "nested")];
-    assert_eq!(
-        rule.arg_constraints,
-        vec![ArgumentCountConstraint::Exact(3)]
-    );
-    assert!(rule.required_keywords.is_empty());
-}
-
-#[test]
-fn match_keyword_proof_survives_an_unrelated_conditional_assignment() {
-    let source = r#"
-from django import template
-register = template.Library()
-@register.tag
-def matched(parser, token):
-    match token.split_contents():
-        case "matched", name, "inline":
-            inline = True
-        case "matched", name:
-            inline = False
-        case _:
-            raise template.TemplateSyntaxError("bad arguments")
-    metadata = runtime_value() if runtime_condition() else None
-    return Node(name, inline, metadata)
-"#;
-    let result = extract_source(source, "match_metadata").expect("fixture should extract");
-    let rule = &result.tag_rules[&SymbolKey::tag("match_metadata", "matched")];
-    assert_eq!(
-        rule.arg_constraints,
-        vec![ArgumentCountConstraint::OneOf(vec![2, 3])]
-    );
-    assert_eq!(rule.required_keywords.len(), 1);
-    let (forms, _) = rule
-        .argument_syntax
-        .forms()
-        .expect("known argument alternatives");
-    assert_eq!(forms.len(), 2);
-}
-
-#[test]
-fn match_case_body_uses_shared_try_loop_and_finally_execution() {
-    let source = r#"
-from django import template
-register = template.Library()
-@register.tag
-def matched(parser, token):
-    match token.split_contents():
-        case ["matched", value]:
-            for _ in (1,):
-                try:
-                    raise ValueError("handled")
-                except ValueError:
-                    break
-                finally:
-                    continue
-            return Node(value)
-        case _:
-            raise template.TemplateSyntaxError("bad count")
-"#;
-    let result = extract_source(source, "nested_match_tags").expect("fixture should extract");
-    let rule = &result.tag_rules[&SymbolKey::tag("nested_match_tags", "matched")];
-    let (forms, _) = rule
-        .argument_syntax
-        .forms()
-        .expect("known nested match form");
-    assert_eq!(forms.len(), 1);
-    assert_eq!(forms[0].pattern().len(), 1);
-}
-
-#[test]
-fn effectful_match_guard_invalidates_the_saved_split_subject() {
-    let source = r#"
-from django import template
-register = template.Library()
-@register.tag
-def matched(parser, token):
-    bits = token.split_contents()
-    if len(bits) != 2:
-        raise template.TemplateSyntaxError("bad count")
-    match bits:
-        case ["matched", value] if mutate(bits):
-            raise template.TemplateSyntaxError("blocked")
-        case ["matched", captured]:
-            pass
-    if captured != "safe":
-        raise template.TemplateSyntaxError("bad value")
-    return Node()
-"#;
-    let result = extract_source(source, "guard_effect_match_tags").expect("fixture should extract");
-    assert!(
-        result.tag_rules[&SymbolKey::tag("guard_effect_match_tags", "matched")]
-            .required_keywords
-            .is_empty()
-    );
-}
-
-#[test]
 fn tuple_unpack_message_requires_reachable_builtin_value_error_handler() {
     let cases = [
         r#"
@@ -540,6 +224,34 @@ from external import *
         );
         assert!(rule.diagnostic_messages.as_ref().is_none_or(Vec::is_empty));
     }
+}
+
+#[test]
+fn negative_length_facts_survive_untracked_branches() {
+    let source = r#"
+from django import template
+register = template.Library()
+@register.tag
+def checked(parser, token):
+    bits = token.split_contents()
+    if len(bits) != 2:
+        if len(bits) == 2:
+            return template.Node()
+    assert runtime_condition()
+    if len(bits) == 3:
+        return template.Node()
+    raise template.TemplateSyntaxError("bad count")
+"#;
+    let result = extract_source(source, "negative_length_tags").expect("fixture should extract");
+    let key = SymbolKey::tag("negative_length_tags", "checked");
+    let rule = result
+        .tag_rules
+        .get(&key)
+        .unwrap_or_else(|| panic!("missing checked rule: {:?}", result.tag_rules));
+    assert_eq!(
+        rule.arg_constraints,
+        vec![ArgumentCountConstraint::Exact(3)]
+    );
 }
 
 #[test]
@@ -608,6 +320,253 @@ def matched(parser, token):
     assert!(result.tag_rules.get(&key).is_none_or(|rule| {
         rule.arg_constraints.is_empty() && rule.required_keywords.is_empty()
     }));
+}
+
+#[test]
+fn ordered_match_dispatch_ignores_unreachable_later_cases() {
+    let source = r#"
+from django import template
+register = template.Library()
+@register.tag
+def matched(parser, token):
+    match token.split_contents():
+        case ["matched", value]:
+            return Node(value)
+        case ["matched", value]:
+            raise template.TemplateSyntaxError("unreachable")
+        case _:
+            raise template.TemplateSyntaxError("bad count")
+"#;
+    let result = extract_source(source, "ordered_match_tags").expect("fixture should extract");
+    let key = SymbolKey::tag("ordered_match_tags", "matched");
+    assert!(
+        result.tag_rules.contains_key(&key),
+        "registration should be extracted"
+    );
+    let rule = &result.tag_rules[&key];
+    let (forms, coverage) = rule.argument_syntax.forms().expect("known match form");
+    assert_eq!(coverage, ArgumentFormCoverage::Partial);
+    assert_eq!(forms.len(), 1);
+    assert_eq!(forms[0].pattern().len(), 1);
+}
+
+#[test]
+fn guarded_match_case_falls_through_to_later_cases() {
+    let source = r#"
+from django import template
+register = template.Library()
+@register.tag
+def matched(parser, token):
+    match token.split_contents():
+        case ["matched", mode] if mode == "blocked":
+            raise template.TemplateSyntaxError("blocked")
+        case ["matched", "safe"]:
+            return Node()
+        case _:
+            raise template.TemplateSyntaxError("bad mode")
+"#;
+    let result = extract_source(source, "guarded_match_tags").expect("fixture should extract");
+    let key = SymbolKey::tag("guarded_match_tags", "matched");
+    assert!(
+        result.tag_rules.contains_key(&key),
+        "registration should be extracted"
+    );
+    let rule = &result.tag_rules[&key];
+    let (forms, _) = rule.argument_syntax.forms().expect("known guarded form");
+    assert_eq!(forms.len(), 1);
+    assert_eq!(
+        forms[0].pattern()[0].kind,
+        TagArgumentPatternKind::Literal("safe".to_string())
+    );
+}
+
+#[test]
+fn match_or_keeps_different_lengths_and_literals_correlated() {
+    let source = r#"
+from django import template
+register = template.Library()
+@register.tag
+def matched(parser, token):
+    match token.split_contents():
+        case [_, "short"] | [_, _, "long"]:
+            return Node()
+        case _:
+            raise template.TemplateSyntaxError("bad form")
+"#;
+    let result = extract_source(source, "alternative_match_tags").expect("fixture should extract");
+    let key = SymbolKey::tag("alternative_match_tags", "matched");
+    assert!(
+        result.tag_rules.contains_key(&key),
+        "registration should be extracted"
+    );
+    let rule = &result.tag_rules[&key];
+    let (forms, _) = rule
+        .argument_syntax
+        .forms()
+        .expect("correlated match forms");
+    assert_eq!(forms.len(), 2);
+    assert!(forms.iter().any(|form| form.match_full(&["short"]).is_ok()));
+    assert!(
+        forms
+            .iter()
+            .any(|form| form.match_full(&["anything", "long"]).is_ok())
+    );
+    assert!(rule.required_keywords.is_empty());
+}
+
+#[test]
+fn unsupported_nested_match_captures_replace_previous_values() {
+    let source = r#"
+from django import template
+register = template.Library()
+@register.tag
+def nested(parser, token):
+    bits = token.split_contents()
+    if len(bits) != 3:
+        raise template.TemplateSyntaxError("count")
+    value = bits[2]
+    match bits:
+        case [_, str(value), _]:
+            if value != "safe":
+                raise template.TemplateSyntaxError("value")
+            return Node()
+        case _:
+            raise template.TemplateSyntaxError("shape")
+"#;
+    let result = extract_source(source, "nested_capture").expect("fixture should extract");
+    let rule = &result.tag_rules[&SymbolKey::tag("nested_capture", "nested")];
+    assert_eq!(
+        rule.arg_constraints,
+        vec![ArgumentCountConstraint::Exact(3)]
+    );
+    assert!(rule.required_keywords.is_empty());
+}
+
+#[test]
+fn match_keyword_proof_survives_an_unrelated_conditional_assignment() {
+    let source = r#"
+from django import template
+register = template.Library()
+@register.tag
+def matched(parser, token):
+    match token.split_contents():
+        case "matched", name, "inline":
+            inline = True
+        case "matched", name:
+            inline = False
+        case _:
+            raise template.TemplateSyntaxError("bad arguments")
+    metadata = runtime_value() if runtime_condition() else None
+    return Node(name, inline, metadata)
+"#;
+    let result = extract_source(source, "match_metadata").expect("fixture should extract");
+    let rule = &result.tag_rules[&SymbolKey::tag("match_metadata", "matched")];
+    assert_eq!(
+        rule.arg_constraints,
+        vec![ArgumentCountConstraint::OneOf(vec![2, 3])]
+    );
+    assert_eq!(
+        rule.required_keywords,
+        vec![djls_project::RequiredKeyword {
+            position: djls_project::SplitPosition::Forward(2),
+            value: "inline".to_string()
+        }]
+    );
+    let (forms, _) = rule
+        .argument_syntax
+        .forms()
+        .expect("known argument alternatives");
+    assert_eq!(forms.len(), 2);
+}
+
+#[test]
+fn match_case_body_uses_shared_try_loop_and_finally_execution() {
+    let source = r#"
+from django import template
+register = template.Library()
+@register.tag
+def matched(parser, token):
+    match token.split_contents():
+        case ["matched", value]:
+            for _ in (1,):
+                try:
+                    raise ValueError("handled")
+                except ValueError:
+                    break
+                finally:
+                    continue
+            return Node(value)
+        case _:
+            raise template.TemplateSyntaxError("bad count")
+"#;
+    let result = extract_source(source, "nested_match_tags").expect("fixture should extract");
+    let key = SymbolKey::tag("nested_match_tags", "matched");
+    assert!(
+        result.tag_rules.contains_key(&key),
+        "registration should be extracted"
+    );
+    let rule = &result.tag_rules[&key];
+    let (forms, _) = rule
+        .argument_syntax
+        .forms()
+        .expect("known nested match form");
+    assert_eq!(forms.len(), 1);
+    assert_eq!(forms[0].pattern().len(), 1);
+}
+
+#[test]
+fn match_capture_replaces_an_earlier_environment_value() {
+    let source = r#"
+from django import template
+register = template.Library()
+@register.tag
+def matched(parser, token):
+    bits = token.split_contents()
+    if len(bits) != 2:
+        raise template.TemplateSyntaxError("bad count")
+    value = bits[1]
+    match runtime_value():
+        case value:
+            pass
+    if value != "safe":
+        raise template.TemplateSyntaxError("bad value")
+    return Node()
+"#;
+    let result = extract_source(source, "capture_match_tags").expect("fixture should extract");
+    let key = SymbolKey::tag("capture_match_tags", "matched");
+    assert!(
+        result.tag_rules.contains_key(&key),
+        "registration should be extracted"
+    );
+    assert!(result.tag_rules[&key].required_keywords.is_empty());
+}
+
+#[test]
+fn effectful_match_guard_invalidates_the_saved_split_subject() {
+    let source = r#"
+from django import template
+register = template.Library()
+@register.tag
+def matched(parser, token):
+    bits = token.split_contents()
+    if len(bits) != 2:
+        raise template.TemplateSyntaxError("bad count")
+    match bits:
+        case ["matched", value] if mutate(bits):
+            raise template.TemplateSyntaxError("blocked")
+        case ["matched", captured]:
+            pass
+    if captured != "safe":
+        raise template.TemplateSyntaxError("bad value")
+    return Node()
+"#;
+    let result = extract_source(source, "guard_effect_match_tags").expect("fixture should extract");
+    let key = SymbolKey::tag("guard_effect_match_tags", "matched");
+    assert!(
+        result.tag_rules.contains_key(&key),
+        "registration should be extracted"
+    );
+    assert!(result.tag_rules[&key].required_keywords.is_empty());
 }
 
 #[test]
@@ -714,6 +673,7 @@ fn split_unpack_executes_at_its_statement_and_through_nested_control_flow() {
     let source = r#"
 from django import template
 register = template.Library()
+
 @register.tag
 def nested(parser, token):
     try:
@@ -724,6 +684,15 @@ def nested(parser, token):
     except ValueError:
         raise template.TemplateSyntaxError("nested needs one argument")
     return Node(value)
+
+@register.tag
+def nested_target(parser, token):
+    try:
+        tag, (left, right) = token.split_contents()
+    except ValueError:
+        raise template.TemplateSyntaxError("nested target needs one argument")
+    return Node(left, right)
+
 @register.tag
 def prefixed(parser, token):
     bits = token.split_contents()
@@ -733,23 +702,41 @@ def prefixed(parser, token):
     except ValueError:
         raise template.TemplateSyntaxError("prefixed needs two arguments")
     return Node(first, second)
+
 @register.tag
 def starred(parser, token):
+    bits = token.split_contents()
     try:
         tag, *middle, last = token.split_contents()
     except ValueError:
         raise template.TemplateSyntaxError("starred needs an argument")
     return Node(middle, last)
+
+@register.tag
+def nonraising(parser, token):
+    bits = token.split_contents()
+    try:
+        marker = 1
+    except ValueError:
+        return Node()
+    if len(bits) != 2:
+        raise template.TemplateSyntaxError("nonraising needs one argument")
+    return Node(bits[1], marker)
 "#;
     let result = extract_source(source, "statement_unpack").expect("fixture should extract");
-    assert_eq!(
-        result.tag_rules[&SymbolKey::tag("statement_unpack", "nested")].arg_constraints,
-        vec![ArgumentCountConstraint::Exact(2)]
-    );
-    assert_eq!(
-        result.tag_rules[&SymbolKey::tag("statement_unpack", "prefixed")].arg_constraints,
-        vec![ArgumentCountConstraint::Exact(3)]
-    );
+    for (tag, constraint) in [
+        ("prefixed", ArgumentCountConstraint::Exact(3)),
+        ("nested_target", ArgumentCountConstraint::Exact(2)),
+        ("nonraising", ArgumentCountConstraint::Exact(2)),
+        ("nested", ArgumentCountConstraint::Exact(2)),
+    ] {
+        let key = SymbolKey::tag("statement_unpack", tag);
+        let rule = result
+            .tag_rules
+            .get(&key)
+            .unwrap_or_else(|| panic!("missing rule for tag: {tag}"));
+        assert_eq!(rule.arg_constraints, vec![constraint], "tag: {tag}");
+    }
     let starred = &result.tag_rules[&SymbolKey::tag("statement_unpack", "starred")];
     assert_eq!(
         starred.arg_constraints,
@@ -775,9 +762,90 @@ def checked(parser, token):
     raise template.TemplateSyntaxError("unreachable")
 "#;
     let result = extract_source(source, "failed_unpack_tags").expect("fixture should extract");
+    let key = SymbolKey::tag("failed_unpack_tags", "checked");
+    let rule = result
+        .tag_rules
+        .get(&key)
+        .unwrap_or_else(|| panic!("missing checked rule: {:?}", result.tag_rules));
     assert_eq!(
-        result.tag_rules[&SymbolKey::tag("failed_unpack_tags", "checked")].arg_constraints,
+        rule.arg_constraints,
         vec![ArgumentCountConstraint::Exact(3)]
+    );
+}
+
+#[test]
+fn failed_known_for_target_skips_the_body_and_reaches_value_error() {
+    let source = r#"
+from django import template
+register = template.Library()
+@register.tag
+def checked(parser, token):
+    bits = token.split_contents()
+    left = bits[1]
+    right = bits[2]
+    try:
+        for left, right in ((1,),):
+            return template.Node(left, right)
+    except ValueError:
+        if len(bits) != 3:
+            raise template.TemplateSyntaxError("expected two arguments")
+        return template.Node()
+    raise template.TemplateSyntaxError("unreachable")
+"#;
+    let result = extract_source(source, "failed_for_target_tags").expect("fixture should extract");
+    let rule = &result.tag_rules[&SymbolKey::tag("failed_for_target_tags", "checked")];
+    assert_eq!(
+        rule.arg_constraints,
+        vec![ArgumentCountConstraint::Exact(3)]
+    );
+}
+
+#[test]
+fn maybe_failing_for_target_keeps_body_and_handler_paths() {
+    let source = r#"
+from django import template
+register = template.Library()
+@register.tag
+def checked(parser, token):
+    bits = token.split_contents()
+    try:
+        for left, right in (runtime_value(),):
+            if len(bits) != 2:
+                raise template.TemplateSyntaxError("body count")
+            return template.Node(left, right)
+    except ValueError:
+        if len(bits) != 3:
+            raise template.TemplateSyntaxError("handler count")
+        return template.Node()
+    raise template.TemplateSyntaxError("unreachable")
+"#;
+    let result = extract_source(source, "maybe_for_target_tags").expect("fixture should extract");
+    let rule = &result.tag_rules[&SymbolKey::tag("maybe_for_target_tags", "checked")];
+    assert_eq!(
+        rule.arg_constraints,
+        vec![ArgumentCountConstraint::OneOf(vec![2, 3])]
+    );
+}
+
+#[test]
+fn split_result_for_value_keeps_its_unpack_arity_provenance() {
+    let source = r#"
+from django import template
+register = template.Library()
+@register.tag
+def checked(parser, token):
+    try:
+        for tag_name, argument in (token.split_contents(),):
+            return template.Node(argument)
+    except ValueError:
+        raise template.TemplateSyntaxError("expected one argument")
+    raise template.TemplateSyntaxError("unreachable")
+"#;
+    let result = extract_source(source, "split_for_target_tags").expect("fixture should extract");
+    let rule = &result.tag_rules[&SymbolKey::tag("split_for_target_tags", "checked")];
+    assert_eq!(
+        rule.arg_constraints,
+        vec![ArgumentCountConstraint::Exact(2)]
     );
 }
 
@@ -803,8 +871,9 @@ def checked(parser, token):
     raise template.TemplateSyntaxError("unreachable")
 "#;
     let result = extract_source(source, "implicit_raise_tags").expect("fixture should extract");
+    let rule = &result.tag_rules[&SymbolKey::tag("implicit_raise_tags", "checked")];
     assert_eq!(
-        result.tag_rules[&SymbolKey::tag("implicit_raise_tags", "checked")].arg_constraints,
+        rule.arg_constraints,
         vec![ArgumentCountConstraint::OneOf(vec![3, 4])]
     );
 }
@@ -832,8 +901,9 @@ def checked(parser, token):
     raise template.TemplateSyntaxError("unreachable")
 "#;
     let result = extract_source(source, "rebound_token_tags").expect("fixture should extract");
+    let rule = &result.tag_rules[&SymbolKey::tag("rebound_token_tags", "checked")];
     assert_eq!(
-        result.tag_rules[&SymbolKey::tag("rebound_token_tags", "checked")].arg_constraints,
+        rule.arg_constraints,
         vec![ArgumentCountConstraint::OneOf(vec![3, 4])]
     );
 }
@@ -860,8 +930,9 @@ def checked(parser, token):
     raise template.TemplateSyntaxError("unreachable")
 "#;
     let result = extract_source(source, "receiver_tags").expect("fixture should extract");
+    let rule = &result.tag_rules[&SymbolKey::tag("receiver_tags", "checked")];
     assert_eq!(
-        result.tag_rules[&SymbolKey::tag("receiver_tags", "checked")].arg_constraints,
+        rule.arg_constraints,
         vec![ArgumentCountConstraint::OneOf(vec![3, 4])]
     );
 }
@@ -871,6 +942,7 @@ fn unpack_outcomes_respect_target_order_and_finally_override() {
     let source = r#"
 from django import template
 register = template.Library()
+
 @register.tag
 def ordered(parser, token):
     bits = token.split_contents()
@@ -881,6 +953,7 @@ def ordered(parser, token):
             return Node()
         raise template.TemplateSyntaxError("bad count")
     return Node(first, second)
+
 @register.tag
 def finalized(parser, token):
     bits = token.split_contents()
@@ -897,9 +970,11 @@ def finalized(parser, token):
             result
                 .tag_rules
                 .get(&SymbolKey::tag("unpack_control", tag))
-                .is_none_or(|rule| !rule
-                    .arg_constraints
-                    .contains(&ArgumentCountConstraint::Exact(2)))
+                .is_none_or(|rule| {
+                    !rule
+                        .arg_constraints
+                        .contains(&ArgumentCountConstraint::Exact(2))
+                })
         );
     }
 }
@@ -2487,14 +2562,189 @@ fn imported_source_edits_invalidate_registration_products() {
 }
 
 #[test]
+fn nested_helper_sources_are_dependencies_and_same_length_edits_change_rules() {
+    let (mut db, file, module) = imported_registration_fixture(
+        "",
+        r#"from django import template
+from .implementation import first
+register = template.Library()
+@register.tag(name="nested")
+def compile_tag(parser, token):
+    bits = first(token)
+    if len(bits) != 2:
+        raise template.TemplateSyntaxError("wrong count")
+    return template.Node()
+"#,
+        "from .helper import second\ndef first(token):\n    return second(token)\n",
+    )
+    .expect("nested-helper fixture should install");
+    let helper_path = Utf8Path::new("/test/project/pkg/helper.py");
+    let helper_source = "def second(token):\n    return token.split_contents()[1:]\n";
+    db.add_file(helper_path.as_str(), helper_source)
+        .expect("helper source should install");
+    let helper_file = db.file(helper_path).expect("helper file should exist");
+    {
+        let key = TemplateLibraryId::new(&db, Some(file), module.clone());
+        assert_eq!(
+            template_library_tag_facts(&db, key).tag_rules()[&SymbolKey::tag("pkg.tags", "nested")]
+                .arg_constraints,
+            vec![ArgumentCountConstraint::Exact(3)]
+        );
+        let dependencies = template_library_registration_dependencies(&db, key);
+        assert!(
+            dependencies.contains(&helper_file),
+            "nested source must enter priming coverage"
+        );
+        assert!(
+            dependencies.contains(
+                &db.file(Utf8Path::new("/test/project/pkg/implementation.py"))
+                    .expect("outer helper should exist")
+            )
+        );
+    }
+    let changed = helper_source.replace("[1:]", "[2:]");
+    assert_eq!(changed.len(), helper_source.len());
+    db.add_file(helper_path.as_str(), &changed)
+        .expect("changed helper should be written");
+    SourceChanges::new([ChangeEvent::ContentChanged(helper_path.to_path_buf())]).apply(&mut db);
+    {
+        let key = TemplateLibraryId::new(&db, Some(file), module.clone());
+        assert_eq!(
+            template_library_tag_facts(&db, key).tag_rules()[&SymbolKey::tag("pkg.tags", "nested")]
+                .arg_constraints,
+            vec![ArgumentCountConstraint::Exact(4)]
+        );
+    }
+    db.add_file(helper_path.as_str(), &format!("{changed}\ndef broken(\n"))
+        .expect("recovered helper source should be written");
+    SourceChanges::new([ChangeEvent::ContentChanged(helper_path.to_path_buf())]).apply(&mut db);
+    let key = TemplateLibraryId::new(&db, Some(file), module);
+    assert!(
+        template_library_tag_facts(&db, key)
+            .tag_rules()
+            .get(&SymbolKey::tag("pkg.tags", "nested"))
+            .is_none_or(|rule| rule.arg_constraints.is_empty())
+    );
+    assert!(
+        template_library_registration_dependencies(&db, key).contains(&helper_file),
+        "an uncertain dependency must remain covered so repairing it triggers extraction"
+    );
+}
+
+#[test]
+fn repeated_helper_resolution_keeps_each_calls_mutation_prefix() {
+    let (db, file, module) = imported_registration_fixture(
+        "",
+        "from django import template\nfrom . import implementation as helpers\nregister = template.Library()\n\n@register.tag\ndef changing(parser, token):\n    before = helpers.bits(token)\n    if len(before) != 2:\n        raise template.TemplateSyntaxError('first count')\n    helpers.bits = unknown_replacement\n    after = helpers.bits(token)\n    if len(after) != 3:\n        raise template.TemplateSyntaxError('second count')\n    return template.Node()\n",
+        "def bits(token):\n    return token.split_contents()\n",
+    ).expect("helper fixture should install");
+    let library = TemplateLibraryId::new(&db, Some(file), module);
+    assert!(
+        template_library_definition_facts(&db, library)
+            .symbol(TemplateSymbolKind::Tag, "changing")
+            .is_some()
+    );
+    assert_eq!(
+        template_library_tag_facts(&db, library).tag_rules()
+            [&SymbolKey::tag("pkg.tags", "changing")]
+            .arg_constraints,
+        vec![ArgumentCountConstraint::Exact(2)]
+    );
+}
+
+#[test]
+fn local_binding_can_replace_an_unknown_module_call_target() {
+    let (db, file, module) = imported_registration_fixture(
+        "",
+        r#"from django import template
+from . import implementation
+register = template.Library()
+class chooser:
+    pass
+@register.tag
+def checked(parser, token):
+    chooser = implementation.bits
+    values = chooser(token)
+    if len(values) != 2:
+        raise template.TemplateSyntaxError("wrong count")
+    return template.Node()
+"#,
+        "def bits(token):\n    return token.split_contents()[1:]\n",
+    )
+    .expect("local binding fixture should install");
+    let library = TemplateLibraryId::new(&db, Some(file), module);
+    assert!(
+        template_library_definition_facts(&db, library)
+            .symbol(TemplateSymbolKind::Tag, "checked")
+            .is_some()
+    );
+    assert_eq!(
+        template_library_tag_facts(&db, library).tag_rules()
+            [&SymbolKey::tag("pkg.tags", "checked")]
+            .arg_constraints,
+        vec![ArgumentCountConstraint::Exact(3)]
+    );
+}
+
+#[test]
+fn unknown_module_call_target_keeps_dependency_and_repair_evidence() {
+    let (mut db, file, module) = imported_registration_fixture(
+        "",
+        r#"from django import template
+from . import implementation
+chooser = implementation.bits
+register = template.Library()
+@register.tag
+def checked(parser, token):
+    values = chooser(token)
+    if len(values) != 2:
+        raise template.TemplateSyntaxError("wrong count")
+    body = parser.parse(("endchecked",))
+    return template.Node(body)
+"#,
+        "class bits:\n    pass\n",
+    )
+    .expect("unknown call fixture should install");
+    let helper_path = Utf8Path::new("/test/project/pkg/implementation.py");
+    let helper_file = db.file(helper_path).expect("helper should exist");
+    let library = TemplateLibraryId::new(&db, Some(file), module.clone());
+    let key = SymbolKey::tag("pkg.tags", "checked");
+    assert!(
+        template_library_definition_facts(&db, library)
+            .symbol(TemplateSymbolKind::Tag, "checked")
+            .is_some()
+    );
+    assert!(
+        template_library_tag_facts(&db, library)
+            .tag_rules()
+            .get(&key)
+            .is_none_or(|rule| rule.arg_constraints.is_empty())
+    );
+    assert!(template_library_registration_dependencies(&db, library).contains(&helper_file));
+    db.add_file(
+        helper_path.as_str(),
+        "def bits(token):\n    return token.split_contents()[1:]\n",
+    )
+    .expect("helper repair should be written");
+    SourceChanges::new([ChangeEvent::ContentChanged(helper_path.to_path_buf())]).apply(&mut db);
+    let library = TemplateLibraryId::new(&db, Some(file), module);
+    assert_eq!(
+        template_library_tag_facts(&db, library).tag_rules()[&key].arg_constraints,
+        vec![ArgumentCountConstraint::Exact(3)]
+    );
+}
+
+#[test]
 fn helper_known_and_unknown_return_branches_remain_unknown() {
     let source = r#"
 from django import template
 register = template.Library()
+
 def maybe_bits(token):
     if runtime_condition():
         return token.split_contents()
     return runtime_value()
+
 @register.tag
 def conditional(parser, token):
     bits = maybe_bits(token)
@@ -2519,10 +2769,12 @@ fn helper_distinct_return_values_join_to_unknown() {
     let source = r#"
 from django import template
 register = template.Library()
+
 def choose_bits(token):
     if runtime_condition():
         return token.split_contents()
     return token.split_contents()[1:]
+
 @register.tag
 def distinct(parser, token):
     bits = choose_bits(token)
@@ -2543,12 +2795,38 @@ def distinct(parser, token):
 }
 
 #[test]
+fn unreachable_later_return_does_not_change_helper_value() {
+    let source = r#"
+from django import template
+register = template.Library()
+
+def choose_bits(token):
+    return token.split_contents()
+    return token.split_contents()[1:]
+
+@register.tag
+def early(parser, token):
+    bits = choose_bits(token)
+    if len(bits) != 2:
+        raise template.TemplateSyntaxError("wrong count")
+    return template.Node()
+"#;
+    let result = extract_source(source, "helper_returns").expect("fixture should extract");
+    let rule = &result.tag_rules[&SymbolKey::tag("helper_returns", "early")];
+    assert_eq!(
+        rule.arg_constraints,
+        vec![ArgumentCountConstraint::Exact(2)]
+    );
+}
+
+#[test]
 fn bare_and_implicit_helper_returns_join_to_unknown() {
     for (name, ending) in [("bare", "    return\n"), ("implicit", "")] {
         let source = format!(
             r#"
 from django import template
 register = template.Library()
+
 def maybe_bits(token):
     if runtime_condition():
         return token.split_contents()
@@ -2569,31 +2847,10 @@ def compile_tag(parser, token):
             result
                 .tag_rules
                 .get(&key)
-                .is_none_or(|rule| rule.arg_constraints.is_empty())
+                .is_none_or(|rule| rule.arg_constraints.is_empty()),
+            "helper: {name}"
         );
     }
-}
-
-#[test]
-fn unreachable_later_return_does_not_change_helper_value() {
-    let source = r#"
-from django import template
-register = template.Library()
-def choose_bits(token):
-    return token.split_contents()
-    return token.split_contents()[1:]
-@register.tag
-def early(parser, token):
-    bits = choose_bits(token)
-    if len(bits) != 2:
-        raise template.TemplateSyntaxError("wrong count")
-    return template.Node()
-"#;
-    let result = extract_source(source, "helper_returns").expect("fixture should extract");
-    assert_eq!(
-        result.tag_rules[&SymbolKey::tag("helper_returns", "early")].arg_constraints,
-        vec![ArgumentCountConstraint::Exact(2)]
-    );
 }
 
 #[test]
@@ -2601,17 +2858,20 @@ fn finally_restores_or_overrides_the_saved_return_value() {
     let source = r#"
 from django import template
 register = template.Library()
+
 def preserved_index():
     index = 1
     try:
         return index
     finally:
         index = 2
+
 def overridden_index():
     try:
         return 1
     finally:
         return 2
+
 @register.tag(name="preserved")
 def preserved(parser, token):
     bits = token.split_contents()
@@ -2620,6 +2880,7 @@ def preserved(parser, token):
     if argument != "required":
         raise template.TemplateSyntaxError("wrong argument")
     return template.Node()
+
 @register.tag(name="overridden")
 def overridden(parser, token):
     bits = token.split_contents()
@@ -2647,12 +2908,14 @@ fn finalizer_mutation_does_not_restore_a_stale_returned_list() {
     let source = r#"
 from django import template
 register = template.Library()
+
 def helper(token):
     bits = token.split_contents()
     try:
         return bits
     finally:
         bits.pop(0)
+
 @register.tag
 def mutated(parser, token):
     bits = helper(token)
@@ -2664,6 +2927,8 @@ def mutated(parser, token):
     let result = extract_source(source, "helper_returns").expect("fixture should extract");
     let key = SymbolKey::tag("helper_returns", "mutated");
     assert!(result.block_specs.as_map().contains_key(&key));
+    // The returned list has lost its tag-name bit. Exact(2) would reject the
+    // valid three-bit opener. Unknown is valid when the alias cannot be tracked.
     assert!(result.tag_rules.get(&key).is_none_or(|rule| {
         !rule
             .arg_constraints
@@ -2676,12 +2941,14 @@ fn return_expression_pop_is_visible_to_the_finalizer() {
     let source = r#"
 from django import template
 register = template.Library()
+
 def helper(token):
     bits = token.split_contents()
     try:
         return bits.pop(0)
     finally:
         return bits
+
 @register.tag
 def popped(parser, token):
     bits = helper(token)
@@ -2705,12 +2972,16 @@ fn direct_nested_helper_returns_keep_dependency_values() {
     let source = r#"
 from django import template
 register = template.Library()
+
 def deepest(token):
     return token.split_contents()
+
 def middle(token):
     return deepest(token)
+
 def outer(token):
     return middle(token)
+
 @register.tag
 def nested(parser, token):
     bits = outer(token)
@@ -4204,4 +4475,367 @@ register.tag("for", do_for)
     insta::assert_yaml_snapshot!(
         sorted_snapshot(&result).expect("missing-definition extraction snapshot should serialize")
     );
+}
+
+fn project_assignment_rule(
+    caller_source: &str,
+    alter_base: impl FnOnce(String) -> String,
+) -> Result<Option<std::sync::Arc<djls_project::TagRule>>, Box<dyn std::error::Error>> {
+    let corpus = Corpus::require()?;
+    let base_path = corpus
+        .root()
+        .join("repos/django-5.2/django/template/base.py");
+    let base = fs::read_to_string(base_path.as_std_path())?;
+    let base = alter_base(base);
+    let mut db = TestDatabase::new();
+    ProjectFixture::new("/test/project")
+        .django_settings_module("settings")
+        .pythonpath("/test/site-packages")
+        .file("/test/project/settings.py", "INSTALLED_APPS = []\n")
+        .file("/test/project/app/__init__.py", "")
+        .file("/test/project/app/templatetags/__init__.py", "")
+        .file(
+            "/test/project/app/implementation.py",
+            r#"
+def compile_assignment(parser, token):
+    return object()
+
+if enabled:
+    globals()["compile_assignment"] = replacement
+"#,
+        )
+        .file(
+            "/test/project/app/helper2.py",
+            "from django.template.base import token_kwargs\n",
+        )
+        .file("/test/project/app/templatetags/example.py", caller_source)
+        .file("/test/site-packages/django/__init__.py", "")
+        .file("/test/site-packages/django/template/__init__.py", "")
+        .file("/test/site-packages/django/template/base.py", base)
+        .install(&mut db)?;
+    let file = db.file(Utf8Path::new("/test/project/app/templatetags/example.py"))?;
+    let library = TemplateLibraryId::new(
+        &db,
+        Some(file),
+        PythonModuleName::parse("app.templatetags.example")?,
+    );
+    Ok(template_library_tag_facts(&db, library)
+        .tag_rules()
+        .get(&SymbolKey::tag(
+            "app.templatetags.example",
+            "assignment_tag",
+        ))
+        .cloned())
+}
+
+const ASSIGNMENT_TAG_SOURCE: &str = r#"
+from django import template
+from django.template.base import token_kwargs
+register = template.Library()
+
+@register.tag(name="assignment_tag")
+def compile_assignment(parser, token):
+    bits = token.split_contents()[1:]
+    values = token_kwargs(bits, parser, support_legacy=True)
+    if not values:
+        raise template.TemplateSyntaxError("assignment_tag needs assignments")
+    if bits:
+        raise template.TemplateSyntaxError("assignment_tag has trailing bits")
+    return template.Node()
+"#;
+
+#[test]
+fn canonical_token_kwargs_derives_assignment_operand_from_guards() {
+    let rule = project_assignment_rule(ASSIGNMENT_TAG_SOURCE, |source| source)
+        .expect("assignment fixture should install")
+        .expect("canonical helper should derive a Tag Rule");
+    assert!(
+        matches!(
+            &rule.argument_syntax,
+            TagArgumentSyntax::Assignments { operand }
+                if operand.mode == AssignmentMode::ModernOrLegacy
+                    && operand.cardinality == UniqueKeyCardinality::AtLeastOne
+                    && operand.remainder == RemainderPolicy::Reject
+                    && operand.empty_message == Some(ExtractedMessageTemplate::Static(
+                        "assignment_tag needs assignments".to_string()
+                    ))
+                    && operand.remainder_message == Some(ExtractedMessageTemplate::Static(
+                        "assignment_tag has trailing bits".to_string()
+                    ))
+        ),
+        "{rule:#?}"
+    );
+}
+
+#[test]
+fn canonical_assignment_helper_aliases_keep_the_same_operand() {
+    for (import, call) in [
+        (
+            "from django.template.base import token_kwargs as parse_kwargs",
+            "parse_kwargs",
+        ),
+        ("import django.template.base as base", "base.token_kwargs"),
+        ("from app.helper2 import token_kwargs", "token_kwargs"),
+    ] {
+        let source = ASSIGNMENT_TAG_SOURCE
+            .replace("from django.template.base import token_kwargs", import)
+            .replace("values = token_kwargs(", &format!("values = {call}("));
+        let rule = project_assignment_rule(&source, |source| source)
+            .expect("assignment fixture should install")
+            .expect("canonical alias should derive a rule");
+        assert!(
+            matches!(&rule.argument_syntax, TagArgumentSyntax::Assignments { operand }
+            if operand.cardinality == UniqueKeyCardinality::AtLeastOne
+                && operand.remainder == RemainderPolicy::Reject),
+            "{import}: {rule:#?}"
+        );
+    }
+}
+
+#[test]
+fn repeated_assignment_guards_keep_the_strongest_constraint_and_first_message() {
+    let source = ASSIGNMENT_TAG_SOURCE.replace(
+        "    if not values:",
+        "    if len(values) != 1:\n        raise template.TemplateSyntaxError(\"exactly one\")\n    if not values:",
+    ).replace(
+        "    return template.Node()",
+        "    if bits:\n        raise template.TemplateSyntaxError(\"later remainder\")\n    return template.Node()",
+    );
+    let rule = project_assignment_rule(&source, |source| source)
+        .expect("assignment fixture should install")
+        .expect("guarded assignment should derive a rule");
+    assert!(
+        matches!(&rule.argument_syntax, TagArgumentSyntax::Assignments { operand }
+        if operand.cardinality == UniqueKeyCardinality::ExactlyOne
+            && operand.empty_message == Some(ExtractedMessageTemplate::Static("exactly one".to_string()))
+            && operand.multiple_message == Some(ExtractedMessageTemplate::Static("exactly one".to_string()))
+            && operand.remainder_message == Some(ExtractedMessageTemplate::Static("assignment_tag has trailing bits".to_string()))),
+        "{rule:#?}"
+    );
+}
+
+#[test]
+fn empty_and_multiple_assignment_guards_keep_their_own_messages() {
+    let source = ASSIGNMENT_TAG_SOURCE.replace(
+        "    if bits:",
+        "    if len(values) != 1:\n        raise template.TemplateSyntaxError(\"exactly one\")\n    if bits:",
+    );
+    let rule = project_assignment_rule(&source, |source| source)
+        .expect("assignment fixture should install")
+        .expect("guarded assignment should derive a rule");
+    assert!(
+        matches!(&rule.argument_syntax, TagArgumentSyntax::Assignments { operand }
+        if operand.cardinality == UniqueKeyCardinality::ExactlyOne
+            && operand.empty_message == Some(ExtractedMessageTemplate::Static("assignment_tag needs assignments".to_string()))
+            && operand.multiple_message == Some(ExtractedMessageTemplate::Static("exactly one".to_string()))),
+        "{rule:#?}"
+    );
+}
+
+#[test]
+fn assignment_arguments_cannot_restore_a_mutated_input() {
+    let source = ASSIGNMENT_TAG_SOURCE.replace(
+        "token_kwargs(bits, parser, support_legacy=True)",
+        "token_kwargs(bits, (consume(bits), parser)[1], support_legacy=True)",
+    );
+    let rule = project_assignment_rule(&source, |source| source)
+        .expect("assignment fixture should install");
+    assert!(
+        rule.is_none_or(|rule| !matches!(
+            rule.argument_syntax,
+            TagArgumentSyntax::Assignments { .. }
+        )),
+        "later argument mutation must invalidate the earlier list value"
+    );
+}
+
+#[test]
+fn rebound_canonical_token_kwargs_is_not_native() {
+    let rule = project_assignment_rule(ASSIGNMENT_TAG_SOURCE, |mut source| {
+        source.push_str("\ndef replacement(bits, parser, support_legacy=False): return {}\ntoken_kwargs = replacement\n");
+        source
+    }).expect("assignment fixture should install");
+    assert!(
+        rule.is_none_or(|rule| !matches!(
+            rule.argument_syntax,
+            TagArgumentSyntax::Assignments { .. }
+        ))
+    );
+}
+
+#[test]
+fn replaced_or_recovered_canonical_exports_do_not_gain_native_semantics() {
+    for suffix in [
+        "\ndef token_kwargs(bits, parser, support_legacy=False): return {}\n",
+        "\nfrom app.implementation import compile_assignment as token_kwargs\n",
+        "\ndef broken(\n",
+    ] {
+        let rule = project_assignment_rule(ASSIGNMENT_TAG_SOURCE, |mut source| {
+            source.push_str(suffix);
+            source
+        })
+        .expect("assignment fixture should install");
+        assert!(
+            rule.is_none_or(|rule| !matches!(
+                rule.argument_syntax,
+                TagArgumentSyntax::Assignments { .. }
+            )),
+            "unproven export: {suffix}"
+        );
+    }
+}
+
+#[test]
+fn first_party_django_shadow_does_not_gain_native_assignment_semantics() {
+    let corpus = Corpus::require().expect("synced corpus should be available");
+    let base = fs::read_to_string(
+        corpus
+            .root()
+            .join("repos/django-5.2/django/template/base.py"),
+    )
+    .expect("locked Django source should be readable");
+    let mut db = TestDatabase::new();
+    ProjectFixture::new("/test/project")
+        .django_settings_module("settings")
+        .file("/test/project/settings.py", "INSTALLED_APPS = []\n")
+        .file("/test/project/django/__init__.py", "")
+        .file("/test/project/django/template/__init__.py", "")
+        .file("/test/project/django/template/base.py", base)
+        .file("/test/project/tags.py", ASSIGNMENT_TAG_SOURCE)
+        .install(&mut db)
+        .expect("first-party shadow fixture should install");
+    let file = db
+        .file(Utf8Path::new("/test/project/tags.py"))
+        .expect("library should exist");
+    let library = TemplateLibraryId::new(
+        &db,
+        Some(file),
+        PythonModuleName::parse("tags").expect("module name should be valid"),
+    );
+    assert!(
+        template_library_definition_facts(&db, library)
+            .symbol(TemplateSymbolKind::Tag, "assignment_tag")
+            .is_some()
+    );
+    let rules = template_library_tag_facts(&db, library).tag_rules();
+    assert!(
+        rules
+            .get(&SymbolKey::tag("tags", "assignment_tag"))
+            .is_none_or(|rule| !matches!(
+                rule.argument_syntax,
+                TagArgumentSyntax::Assignments { .. }
+            ))
+    );
+}
+
+#[test]
+fn uncertain_assignment_map_branch_does_not_prove_cardinality() {
+    let source = ASSIGNMENT_TAG_SOURCE.replace(
+        "    if not values:",
+        "    if enabled:\n        values = fallback\n    if not values:",
+    );
+    let rule = project_assignment_rule(&source, |source| source)
+        .expect("assignment fixture should install");
+    assert!(rule.is_none_or(|rule| !matches!(&rule.argument_syntax,
+        TagArgumentSyntax::Assignments { operand }
+            if operand.cardinality != UniqueKeyCardinality::Any)));
+}
+
+#[test]
+fn caller_parameter_shadowing_is_not_native() {
+    let source = ASSIGNMENT_TAG_SOURCE.replace(
+        "def compile_assignment(parser, token):",
+        "def compile_assignment(parser, token, token_kwargs):",
+    );
+    let rule = project_assignment_rule(&source, |source| source)
+        .expect("assignment fixture should install");
+    assert!(
+        rule.is_none_or(|rule| !matches!(
+            rule.argument_syntax,
+            TagArgumentSyntax::Assignments { .. }
+        ))
+    );
+}
+
+#[test]
+fn compound_dynamic_module_write_keeps_registration_callable_unknown() {
+    let source = r#"
+from django import template
+from app.implementation import compile_assignment
+register = template.Library()
+register.tag("assignment_tag", compile_assignment)
+"#;
+    assert!(
+        project_assignment_rule(source, |source| source)
+            .expect("assignment fixture should install")
+            .is_none()
+    );
+}
+
+#[test]
+fn mutated_module_member_is_not_native_at_direct_or_aliased_call() {
+    for call in [
+        "base.token_kwargs(bits, parser, support_legacy=True)",
+        "parse_kwargs(bits, parser, support_legacy=True)",
+    ] {
+        let source = ASSIGNMENT_TAG_SOURCE
+            .replace(
+                "from django.template.base import token_kwargs",
+                "import django.template.base as base",
+            )
+            .replace(
+                "    values = token_kwargs(bits, parser, support_legacy=True)",
+                &format!(
+                    "    base.token_kwargs = replacement\n    parse_kwargs = base.token_kwargs\n    values = {call}"
+                ),
+            );
+        let rule = project_assignment_rule(&source, |source| source)
+            .expect("assignment fixture should install");
+        assert!(rule.is_none_or(|rule| {
+            !matches!(rule.argument_syntax, TagArgumentSyntax::Assignments { .. })
+        }));
+    }
+}
+
+#[test]
+fn mutated_assignment_map_does_not_prove_input_cardinality() {
+    for mutation in [
+        "    values['default'] = 1",
+        "    alias = values\n    consume(alias)",
+    ] {
+        let source = ASSIGNMENT_TAG_SOURCE.replace(
+            "    if not values:",
+            &format!("{mutation}\n    if not values:"),
+        );
+        let rule = project_assignment_rule(&source, |source| source)
+            .expect("assignment fixture should install");
+        assert!(
+            rule.is_none_or(|rule| !matches!(
+                &rule.argument_syntax,
+                TagArgumentSyntax::Assignments { operand }
+                    if operand.cardinality != UniqueKeyCardinality::Any
+            )),
+            "map mutation must invalidate later cardinality evidence: {mutation}"
+        );
+    }
+}
+
+#[test]
+fn mutated_assignment_remainder_does_not_prove_full_consumption() {
+    for mutation in ["    bits[:] = []", "    alias = bits\n    consume(alias)"] {
+        let source = ASSIGNMENT_TAG_SOURCE.replace(
+            "    if not values:",
+            &format!("{mutation}\n    if not values:"),
+        );
+        let rule = project_assignment_rule(&source, |source| source)
+            .expect("assignment fixture should install");
+        assert!(
+            rule.is_none_or(|rule| !matches!(
+                &rule.argument_syntax,
+                TagArgumentSyntax::Assignments { operand }
+                    if operand.remainder == RemainderPolicy::Reject
+            )),
+            "remainder mutation must invalidate later consumption evidence: {mutation}"
+        );
+    }
 }

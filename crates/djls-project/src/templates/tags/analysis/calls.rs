@@ -1,8 +1,12 @@
-//! Intra-module function call resolution via Salsa tracked functions.
+//! Source-backed calls and their effects on argument values.
+
+use ruff_python_ast::Expr;
+use ruff_python_ast::ExprCall;
 
 use crate::templates::tags::HelperCall;
 use crate::templates::tags::analysis::CallContext;
 use crate::templates::tags::analysis::state::AbstractValue;
+use crate::templates::tags::analysis::state::Env;
 use crate::templates::tags::analysis::state::TokenSplit;
 use crate::templates::tags::analyze_helper;
 
@@ -31,7 +35,10 @@ impl From<&AbstractValue> for AbstractValueKey {
             AbstractValue::SplitLength(split) => AbstractValueKey::SplitLength(*split),
             AbstractValue::Int(n) => AbstractValueKey::Int(*n),
             AbstractValue::Str(s) => AbstractValueKey::Str(s.clone()),
-            AbstractValue::SplitPredicate(_) | AbstractValue::Tuple(_) => AbstractValueKey::Other,
+            AbstractValue::SplitPredicate(_)
+            | AbstractValue::AssignmentMap(_)
+            | AbstractValue::AssignmentRemainder(_)
+            | AbstractValue::Tuple(_) => AbstractValueKey::Other,
         }
     }
 }
@@ -51,36 +58,51 @@ impl From<&AbstractValueKey> for AbstractValue {
     }
 }
 
-/// Resolve a function call to a module-local helper.
-///
-/// When a Salsa database and file are available (`ctx.db` and `ctx.file`
-/// are `Some`), constructs a `HelperCall` interned value and delegates to
-/// `analyze_helper` — a Salsa tracked function with cycle recovery and
-/// automatic memoization. This replaces manual caching, depth limits, and
-/// self-recursion guards.
-///
-/// When running without Salsa (standalone extraction), returns `Unknown`
-/// for all helper calls.
-///
-/// Returns `Unknown` if:
-/// - No Salsa database is available (standalone extraction)
-/// - The callee is not found in the parsed module
-/// - Multiple return statements yield different abstract values
-/// - A cycle is detected (Salsa cycle recovery returns `Unknown`)
-pub(crate) fn resolve_call(
-    callee_name: &str,
+pub(crate) fn evaluate_source_call(
+    expression: &ExprCall,
     args: &[AbstractValue],
-    ctx: &mut CallContext<'_>,
+    keywords: &[AbstractValue],
+    receiver: Option<&AbstractValue>,
+    env: &mut Env,
+    ctx: Option<&mut CallContext<'_, '_>>,
 ) -> AbstractValue {
-    // When Salsa is available, use tracked function with cycle recovery
-    if let (Some(db), Some(file)) = (ctx.db, ctx.file) {
-        let arg_keys: Vec<AbstractValueKey> = args.iter().map(AbstractValueKey::from).collect();
-        let call = HelperCall::new(db, file, callee_name.to_string(), arg_keys);
-        return analyze_helper(db, call);
+    let mut value = AbstractValue::Unknown;
+    if let Some(source) = ctx.and_then(|ctx| ctx.source.as_deref_mut()) {
+        let db = source.lookup.db();
+        let definition = source.function.statement(db).and_then(|function| {
+            source
+                .lookup
+                .exact_function_at_call(function, &expression.func)
+        });
+        if let Some(definition) = definition {
+            if let Some(native) = crate::templates::tags::analysis::native::classify_native_call(
+                &definition,
+                expression,
+                source,
+            ) {
+                return native.evaluate(args, keywords, env);
+            }
+            if keywords.is_empty()
+                && !expression
+                    .arguments
+                    .args
+                    .iter()
+                    .any(|arg| matches!(arg, Expr::Starred(_)))
+            {
+                let arg_keys = args.iter().map(AbstractValueKey::from).collect::<Vec<_>>();
+                let call = HelperCall::new(db, definition, arg_keys);
+                let outcome = analyze_helper(db, call);
+                source
+                    .lookup
+                    .absorb_evidence(&outcome.consulted_files, outcome.recovered_lookups);
+                value = outcome.value;
+            }
+        }
     }
-
-    // No Salsa database — cannot resolve helper calls
-    AbstractValue::Unknown
+    for argument in args.iter().chain(keywords).chain(receiver) {
+        env.forget_aliases(argument);
+    }
+    value
 }
 
 #[cfg(test)]
@@ -98,7 +120,6 @@ mod tests {
 
     use super::*;
     use crate::templates::tags::analysis::CallContext;
-    use crate::templates::tags::analysis::state::Env;
     use crate::templates::tags::analysis::statements::process_statements;
     use crate::templates::tags::testing::fixture_source;
     use crate::templates::tags::types::SplitPosition;
@@ -135,6 +156,13 @@ mod tests {
 
     #[salsa::db]
     impl salsa::Database for TestDatabase {}
+
+    #[salsa::db]
+    impl crate::db::Db for TestDatabase {
+        fn project(&self) -> Option<crate::Project> {
+            None
+        }
+    }
 
     #[salsa::db]
     impl djls_source::Db for TestDatabase {
@@ -189,9 +217,11 @@ mod tests {
             .map_or("token", |p| p.parameter.name.as_str());
 
         let mut env = Env::for_compile_function(parser_param, token_param);
+        let lookup = crate::python::PythonSourceLookup::for_file(&db, file);
+        let definition = lookup.definition(main_func);
+        let mut source = crate::templates::tags::analysis::TagSourceContext::new(&db, definition);
         let mut ctx = CallContext {
-            db: Some(&db),
-            file: Some(file),
+            source: Some(&mut source),
         };
 
         process_statements(&main_func.body, &mut env, &mut ctx);
@@ -222,9 +252,11 @@ mod tests {
             .map_or("token", |p| p.parameter.name.as_str());
 
         let mut env = Env::for_compile_function(parser_param, token_param);
+        let lookup = crate::python::PythonSourceLookup::for_file(&db, file);
+        let definition = lookup.definition(main_func);
+        let mut source = crate::templates::tags::analysis::TagSourceContext::new(&db, definition);
         let mut ctx = CallContext {
-            db: Some(&db),
-            file: Some(file),
+            source: Some(&mut source),
         };
 
         process_statements(&main_func.body, &mut env, &mut ctx);

@@ -516,7 +516,7 @@ fn summarize_form_evidence(states: &[ExecutionState]) -> FormEvidence {
 pub(crate) fn process_statements(
     stmts: &[Stmt],
     env: &mut Env,
-    ctx: &mut CallContext<'_>,
+    ctx: &mut CallContext<'_, '_>,
 ) -> (AnalysisResult, AbstractValue) {
     let states =
         process_statement_states(stmts, ExecutionStates::from_env(std::mem::take(env)), ctx);
@@ -554,7 +554,7 @@ fn join_return_values(mut values: impl Iterator<Item = AbstractValue>) -> Abstra
 fn process_statement_states(
     stmts: &[Stmt],
     mut states: ExecutionStates,
-    ctx: &mut CallContext<'_>,
+    ctx: &mut CallContext<'_, '_>,
 ) -> ExecutionStates {
     for stmt in stmts {
         if !states.has_next() {
@@ -652,7 +652,7 @@ fn process_statement_states(
 fn branch_for(
     stmt_for: &ruff_python_ast::StmtFor,
     mut states: ExecutionStates,
-    ctx: &mut CallContext<'_>,
+    ctx: &mut CallContext<'_, '_>,
 ) -> ExecutionStates {
     let incoming = states.take_next();
     for state in incoming {
@@ -749,7 +749,7 @@ fn branch_for(
 fn branch_with(
     stmt_with: &ruff_python_ast::StmtWith,
     mut states: ExecutionStates,
-    ctx: &mut CallContext<'_>,
+    ctx: &mut CallContext<'_, '_>,
 ) -> ExecutionStates {
     let incoming = states.take_next();
     for mut state in incoming {
@@ -770,7 +770,7 @@ fn branch_with(
 fn branch_while(
     stmt_while: &ruff_python_ast::StmtWhile,
     mut states: ExecutionStates,
-    ctx: &mut CallContext<'_>,
+    ctx: &mut CallContext<'_, '_>,
 ) -> ExecutionStates {
     let incoming = states.take_next();
     for mut state in incoming {
@@ -854,7 +854,7 @@ fn branch_while(
 fn branch_match(
     stmt_match: &ruff_python_ast::StmtMatch,
     mut states: ExecutionStates,
-    ctx: &mut CallContext<'_>,
+    ctx: &mut CallContext<'_, '_>,
 ) -> ExecutionStates {
     let incoming = states.take_next();
     for mut state in incoming {
@@ -1150,7 +1150,7 @@ fn split_match_guard(
     guard: Option<&Expr>,
     matched: ExecutionStates,
     subject: &mut AbstractValue,
-    ctx: &mut CallContext<'_>,
+    ctx: &mut CallContext<'_, '_>,
 ) -> (ExecutionStates, ExecutionStates) {
     let Some(guard) = guard else {
         return (matched, ExecutionStates(Vec::new()));
@@ -1278,7 +1278,7 @@ fn branch_conditional_assignment(
 fn branch_if(
     stmt_if: &ruff_python_ast::StmtIf,
     mut states: ExecutionStates,
-    ctx: &mut CallContext<'_>,
+    ctx: &mut CallContext<'_, '_>,
 ) -> ExecutionStates {
     let incoming = states.take_next();
     let mut alternatives = states;
@@ -1326,6 +1326,11 @@ fn branch_if(
                             test, body, &path.env,
                         )
                     });
+            let assignment_guard = test.and_then(|test| {
+                crate::templates::tags::analysis::guards::assignment_rejecting_guard(
+                    test, body, &path.env,
+                )
+            });
             let unsupported_form_condition = test.is_some_and(|test| {
                 truth.is_none()
                     && predicate.is_none()
@@ -1378,6 +1383,13 @@ fn branch_if(
                                 test, &fallthrough.env,
                             ),
                         );
+                    }
+                    if let Some((call, syntax)) = assignment_guard {
+                        fallthrough.result.extend(AnalysisResult {
+                            argument_syntax: Some(syntax),
+                            assignment_call: Some(call),
+                            ..AnalysisResult::default()
+                        });
                     }
                     unmatched = Some(fallthrough);
                 }
@@ -1703,7 +1715,7 @@ fn exception_handler_match(
 fn branch_try(
     stmt_try: &ruff_python_ast::StmtTry,
     mut states: ExecutionStates,
-    ctx: &mut CallContext<'_>,
+    ctx: &mut CallContext<'_, '_>,
 ) -> ExecutionStates {
     let incoming = states.take_next();
     // Outcomes reached before this try do not enter its finalizer.
@@ -1977,7 +1989,7 @@ fn common_raised_message(states: &[ExecutionState]) -> Option<ExtractedMessageTe
 fn run_finally(
     finalbody: &[Stmt],
     alternatives: ExecutionStates,
-    ctx: &mut CallContext<'_>,
+    ctx: &mut CallContext<'_, '_>,
 ) -> ExecutionStates {
     let mut after_finally = ExecutionStates(Vec::new());
     for mut state in alternatives.0 {
@@ -2033,10 +2045,10 @@ fn project_common_results(paths: &[&ExecutionState]) -> AnalysisResult {
             .iter()
             .all(|path| path.result.known_options.as_ref() == Some(options))
     });
-    let argument_syntax = if paths
-        .iter()
-        .all(|path| path.result.argument_syntax == first.result.argument_syntax)
-    {
+    let argument_syntax = if paths.iter().all(|path| {
+        path.result.argument_syntax == first.result.argument_syntax
+            && path.result.assignment_call == first.result.assignment_call
+    }) {
         first.result.argument_syntax.clone()
     } else if paths
         .iter()
@@ -2052,6 +2064,11 @@ fn project_common_results(paths: &[&ExecutionState]) -> AnalysisResult {
         diagnostic_messages,
         known_options,
         argument_syntax,
+        assignment_call: first.result.assignment_call.filter(|call| {
+            paths
+                .iter()
+                .all(|path| path.result.assignment_call == Some(*call))
+        }),
     }
 }
 
@@ -2235,6 +2252,8 @@ fn project_argument_form(
             | AbstractValue::Int(_)
             | AbstractValue::Str(_)
             | AbstractValue::SplitPredicate(_)
+            | AbstractValue::AssignmentMap(_)
+            | AbstractValue::AssignmentRemainder(_)
             | AbstractValue::Tuple(_) => None,
         })
         .min()
@@ -2485,6 +2504,8 @@ fn position_name(
             | AbstractValue::Int(_)
             | AbstractValue::Str(_)
             | AbstractValue::SplitPredicate(_)
+            | AbstractValue::AssignmentMap(_)
+            | AbstractValue::AssignmentRemainder(_)
             | AbstractValue::Tuple(_) => None,
         })
         .min()
@@ -2834,12 +2855,11 @@ fn static_truthiness(expr: &Expr) -> Option<bool> {
 fn execute_assignment(
     assign: &StmtAssign,
     mut state: ExecutionState,
-    ctx: &mut CallContext<'_>,
+    ctx: &mut CallContext<'_, '_>,
 ) -> Vec<ExecutionState> {
     let StmtAssign { targets, value, .. } = assign;
     let pop_info = try_extract_pop_call(value);
-    let form_incomplete = expression_may_mutate_split(value, &state.env)
-        || unsupported_container_captures_split(value, &state.env)
+    let form_incomplete = unsupported_container_captures_split(value, &state.env)
         || pop_info.as_ref().is_some_and(PopInfo::is_untracked);
     let rhs = eval_expr_with_ctx(value, &mut state.env, Some(ctx));
 
@@ -3025,7 +3045,12 @@ fn expression_may_mutate_split(expr: &Expr, env: &Env) -> bool {
                     if let Expr::Attribute(attribute) = call.func.as_ref() {
                         let receiver = eval_expr(&attribute.value, &mut self.env.clone());
                         (
-                            matches!(receiver, AbstractValue::SplitResult(_)),
+                            matches!(
+                                receiver,
+                                AbstractValue::SplitResult(_)
+                                    | AbstractValue::AssignmentMap(_)
+                                    | AbstractValue::AssignmentRemainder(_)
+                            ),
                             matches!(receiver, AbstractValue::Str(_))
                                 && attribute.attr.as_str() == "join",
                         )
@@ -3060,7 +3085,9 @@ fn expression_may_mutate_split(expr: &Expr, env: &Env) -> bool {
 fn expression_contains_split(expr: &Expr, env: &Env) -> bool {
     fn value_contains_split(value: &AbstractValue) -> bool {
         match value {
-            AbstractValue::SplitResult(_) => true,
+            AbstractValue::SplitResult(_)
+            | AbstractValue::AssignmentMap(_)
+            | AbstractValue::AssignmentRemainder(_) => true,
             AbstractValue::Tuple(values) => values.iter().any(value_contains_split),
             AbstractValue::Unknown
             | AbstractValue::Token
@@ -3198,7 +3225,9 @@ fn process_assignment_target(
         Expr::Attribute(attribute) => {
             let mut target_env = env.clone();
             match eval_expr(&attribute.value, &mut target_env) {
-                AbstractValue::SplitResult(_) => {
+                AbstractValue::SplitResult(_)
+                | AbstractValue::AssignmentMap(_)
+                | AbstractValue::AssignmentRemainder(_) => {
                     env.forget_split_results();
                     AssignmentTargetResult::applied(true)
                 }
@@ -3221,6 +3250,8 @@ fn process_assignment_target(
             let form_incomplete = matches!(
                 eval_expr(&subscript.value, &mut target_env),
                 AbstractValue::SplitResult(_)
+                    | AbstractValue::AssignmentMap(_)
+                    | AbstractValue::AssignmentRemainder(_)
             );
             if form_incomplete {
                 env.forget_split_results();
@@ -3323,6 +3354,8 @@ fn process_tuple_unpack(
         | AbstractValue::SplitElement { .. }
         | AbstractValue::SplitLength(_)
         | AbstractValue::SplitPredicate(_)
+        | AbstractValue::AssignmentMap(_)
+        | AbstractValue::AssignmentRemainder(_)
         | AbstractValue::Int(_)
         | AbstractValue::Str(_) => {
             for target in targets {
@@ -3393,12 +3426,32 @@ mod tests {
         crate::templates::tags::analysis::constants::seed_static_bindings(
             &bindings, func, &mut env,
         );
-        let mut ctx = CallContext {
-            db: None,
-            file: None,
-        };
-        let _ = process_statements(&func.body, &mut env, &mut ctx);
+        let mut ctx = CallContext { source: None };
+        process_statements(&func.body, &mut env, &mut ctx);
         env
+    }
+
+    #[test]
+    fn deduplicate_states_preserves_first_occurrence_order() {
+        let path = |value| {
+            let mut env = Env::default();
+            env.set("value".to_string(), AbstractValue::Int(value));
+            ExecutionState::from_env(env)
+        };
+        let first = path(1);
+        let second = path(2);
+        let third = path(3);
+        let mut paths = vec![
+            first.clone(),
+            second.clone(),
+            first.clone(),
+            third.clone(),
+            second.clone(),
+        ];
+
+        deduplicate_states(&mut paths);
+
+        assert_eq!(paths, vec![first, second, third]);
     }
 
     #[test]
@@ -3458,38 +3511,12 @@ mod tests {
     }
 
     #[test]
-    fn deduplicate_states_preserves_first_occurrence_order() {
-        let path = |value| {
-            let mut env = Env::default();
-            env.set("value".to_string(), AbstractValue::Int(value));
-            ExecutionState::from_env(env)
-        };
-        let first = path(1);
-        let second = path(2);
-        let third = path(3);
-        let mut paths = vec![
-            first.clone(),
-            second.clone(),
-            first.clone(),
-            third.clone(),
-            second.clone(),
-        ];
-
-        deduplicate_states(&mut paths);
-
-        assert_eq!(paths, vec![first, second, third]);
-    }
-
-    #[test]
     fn return_expression_applies_pop_once() {
         let function = parse_function(
             "def compile(parser, token):\n    bits = token.split_contents()\n    return bits.pop(0)\n",
         );
         let mut env = Env::for_compile_function("parser", "token");
-        let mut ctx = CallContext {
-            db: None,
-            file: None,
-        };
+        let mut ctx = CallContext { source: None };
         let (_, value) = process_statements(&function.body, &mut env, &mut ctx);
         assert_eq!(
             value,

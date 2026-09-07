@@ -119,6 +119,8 @@ fn extract_message_arg(expr: &Expr, env: &Env) -> Option<ExtractedMessageArg> {
         | AbstractValue::SplitResult(_)
         | AbstractValue::SplitLength(_)
         | AbstractValue::SplitPredicate(_)
+        | AbstractValue::AssignmentMap(_)
+        | AbstractValue::AssignmentRemainder(_)
         | AbstractValue::Tuple(_) => None,
     }
 }

@@ -111,7 +111,7 @@ impl TagRule {
                 .as_ref()
                 .is_some_and(|messages| !messages.is_empty())
             || match &self.argument_syntax {
-                TagArgumentSyntax::Signature { .. } => true,
+                TagArgumentSyntax::Signature { .. } | TagArgumentSyntax::Assignments { .. } => true,
                 TagArgumentSyntax::Parameters(parameters) => !parameters.is_empty(),
                 TagArgumentSyntax::Forms { forms, .. } => !forms.is_empty(),
                 TagArgumentSyntax::Unknown => false,
@@ -299,6 +299,42 @@ pub struct BlockSpec {
     pub body_analysis_evidence: BodyAnalysisEvidence,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AssignmentMode {
+    Modern,
+    ModernOrLegacy,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UniqueKeyCardinality {
+    Any,
+    AtLeastOne,
+    ExactlyOne,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RemainderPolicy {
+    Continue,
+    Reject,
+}
+
+/// Source-derived contract for Django's assignment operand parser.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AssignmentOperand {
+    pub mode: AssignmentMode,
+    pub cardinality: UniqueKeyCardinality,
+    pub remainder: RemainderPolicy,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub empty_message: Option<ExtractedMessageTemplate>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub multiple_message: Option<ExtractedMessageTemplate>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remainder_message: Option<ExtractedMessageTemplate>,
+}
+
 /// Argument syntax known for a tag definition.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TagArgumentSyntax {
@@ -326,6 +362,8 @@ pub enum TagArgumentSyntax {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         length_mismatch_message: Option<ExtractedMessageTemplate>,
     },
+    /// A maximal sequence consumed by Django's canonical `token_kwargs` helper.
+    Assignments { operand: AssignmentOperand },
 }
 
 impl TagArgumentSyntax {
@@ -333,7 +371,7 @@ impl TagArgumentSyntax {
     pub fn parameters(&self) -> Option<&[TagArgument]> {
         match self {
             Self::Signature { parameters, .. } | Self::Parameters(parameters) => Some(parameters),
-            Self::Unknown | Self::Forms { .. } => None,
+            Self::Unknown | Self::Forms { .. } | Self::Assignments { .. } => None,
         }
     }
 
@@ -343,7 +381,10 @@ impl TagArgumentSyntax {
             Self::Forms {
                 forms, coverage, ..
             } => Some((forms, *coverage)),
-            Self::Unknown | Self::Signature { .. } | Self::Parameters(_) => None,
+            Self::Unknown
+            | Self::Signature { .. }
+            | Self::Parameters(_)
+            | Self::Assignments { .. } => None,
         }
     }
 }
