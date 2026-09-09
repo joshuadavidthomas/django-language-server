@@ -1,3 +1,5 @@
+use std::fmt::Write as _;
+
 use camino::Utf8PathBuf;
 use divan::Bencher;
 use djls_bench::Db;
@@ -5,10 +7,20 @@ use djls_bench::Fixture;
 use djls_bench::REPEATED_INNER_ITERS;
 use djls_bench::python_fixtures;
 use djls_bench::require;
+use djls_project::Interpreter;
 use djls_project::InvalidModuleName;
+use djls_project::Project;
 use djls_project::PythonModuleName;
+use djls_project::SearchPaths;
+use djls_project::testing::django_settings;
+use djls_project::testing::settings_module_file;
+use djls_source::Db as _;
 use djls_source::File;
 use djls_source::FileError;
+use djls_testing::Corpus;
+use djls_testing::OsTestDatabase;
+use djls_testing::ProjectFixture;
+use djls_testing::TestDatabase;
 use djls_testing::extract_bundle;
 
 struct ExtractionFile {
@@ -73,6 +85,96 @@ fn tags(bencher: Bencher) {
                 divan::black_box(bundle);
             }
             divan::black_box(extracted);
+        });
+}
+
+/// Fresh settings parsing, evaluation, and projection with growing independent
+/// conditional bindings. Source generation and database setup are not timed.
+#[divan::bench(args = [8, 32, 64])]
+fn settings_cold_branches(bencher: Bencher, branches: usize) {
+    let mut source = String::from("INSTALLED_APPS = ['core']\n");
+    for index in 0..branches {
+        require(
+            "write conditional settings fixture",
+            writeln!(
+                source,
+                "if FLAG_{index}:\n    SETTING_{index} = 'enabled'\nelse:\n    SETTING_{index} = 'disabled'"
+            ),
+        );
+    }
+    bencher
+        .with_inputs(|| {
+            let mut db = TestDatabase::new();
+            let project = require(
+                "prepare cold conditional settings input",
+                ProjectFixture::new("/corpus/repos/settings-project/src/project")
+                    .django_settings_module("settings")
+                    .file(
+                        "/corpus/repos/settings-project/src/project/settings.py",
+                        source.as_str(),
+                    )
+                    .install(&mut db),
+            );
+            (db, project)
+        })
+        .bench_local_values(|(db, project)| {
+            divan::black_box(django_settings(&db, project));
+        });
+}
+
+/// Real settings source and imports, with no installed dependencies and fresh
+/// evaluation queries. Corpus metadata, search paths, and entry resolution are setup;
+/// source reads, parsing, evaluation, and settings projection are timed.
+#[divan::bench(args = ["healthchecks", "netbox", "pretix"], sample_count = 10)]
+fn settings_cold_corpus(bencher: Bencher, name: &str) {
+    let corpus = require("load settings corpus", Corpus::require());
+    let declaration = require(
+        "find settings corpus project",
+        require(
+            "load corpus project declarations",
+            corpus.repo_settings_projects(),
+        )
+        .into_iter()
+        .find(|project| project.repo_name == name)
+        .ok_or("benchmark repository must declare settings metadata"),
+    );
+    let [settings_module] = declaration.django_settings_modules.as_slice() else {
+        djls_bench::fail("settings corpus benchmark requires exactly one settings module");
+    };
+    let settings_module = require(
+        "parse corpus settings module",
+        PythonModuleName::parse(settings_module),
+    );
+    bencher
+        .with_inputs(|| {
+            let mut db = OsTestDatabase::new();
+            let interpreter = Interpreter::VenvPath(corpus.root().join("hermetic-no-venv"));
+            let search_paths = SearchPaths::from_project_settings(
+                db.file_system(),
+                &declaration.project_root,
+                &interpreter,
+                &[],
+            );
+            search_paths.register_roots(&db);
+            let project = Project::new(
+                &db,
+                declaration.project_root.clone(),
+                search_paths,
+                interpreter,
+                Some(settings_module.clone()),
+                Vec::new(),
+                Vec::new(),
+                djls_conf::Settings::default().tagspecs().clone(),
+            );
+            db.set_project(project);
+            require(
+                "resolve corpus settings entry",
+                settings_module_file(&db, project).ok_or("settings module must resolve"),
+            );
+            (db, project)
+        })
+        .bench_local_values(|(db, project)| {
+            divan::black_box(django_settings(&db, project));
         });
 }
 
