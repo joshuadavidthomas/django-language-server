@@ -15,8 +15,8 @@ pub enum DiagnosticSeverity {
 
 /// Configuration for diagnostic severity levels.
 ///
-/// All diagnostics are enabled by default at "error" severity.
-/// Configure severity per diagnostic code or prefix pattern.
+/// Diagnostics use a code-specific default severity and can be configured per
+/// diagnostic code or prefix pattern.
 /// Specific codes override prefix patterns.
 ///
 /// Example configuration:
@@ -47,7 +47,7 @@ impl DiagnosticsConfig {
     /// Resolution order (most specific wins):
     /// 1. Exact match (e.g., "S100")
     /// 2. Longest prefix match (e.g., "S1" over "S")
-    /// 3. Default: Error
+    /// 3. Code-specific default
     #[must_use]
     pub fn get_severity(&self, code: &str) -> DiagnosticSeverity {
         // First, check for exact match
@@ -72,12 +72,19 @@ impl DiagnosticsConfig {
             }
         }
 
-        best_match.map_or(DiagnosticSeverity::Error, |(_, severity)| severity)
+        best_match.map_or_else(|| default_severity(code), |(_, severity)| severity)
     }
 
     /// Set the severity for a specific diagnostic code or prefix.
     pub fn set_severity(&mut self, code: &str, severity: DiagnosticSeverity) {
         self.severity.insert(code.to_string(), severity);
+    }
+}
+
+fn default_severity(code: &str) -> DiagnosticSeverity {
+    match code {
+        "S124" => DiagnosticSeverity::Hint,
+        _ => DiagnosticSeverity::Error,
     }
 }
 
@@ -89,6 +96,7 @@ mod tests {
     fn test_get_severity_default() {
         let config = DiagnosticsConfig::default();
         assert_eq!(config.get_severity("S100"), DiagnosticSeverity::Error);
+        assert_eq!(config.get_severity("S124"), DiagnosticSeverity::Hint);
         assert_eq!(config.get_severity("T100"), DiagnosticSeverity::Error);
     }
 
@@ -97,12 +105,14 @@ mod tests {
         let mut severity = HashMap::new();
         severity.insert("S100".to_string(), DiagnosticSeverity::Warning);
         severity.insert("S101".to_string(), DiagnosticSeverity::Off);
+        severity.insert("S124".to_string(), DiagnosticSeverity::Warning);
 
         let config = DiagnosticsConfig { severity };
 
         assert_eq!(config.get_severity("S100"), DiagnosticSeverity::Warning);
         assert_eq!(config.get_severity("S101"), DiagnosticSeverity::Off);
         assert_eq!(config.get_severity("S102"), DiagnosticSeverity::Error);
+        assert_eq!(config.get_severity("S124"), DiagnosticSeverity::Warning);
     }
 
     #[test]

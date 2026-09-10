@@ -19,10 +19,14 @@ use djls_project::TemplateSymbol;
 use djls_project::TemplateSymbolAvailability;
 use djls_project::TemplateSymbolKind;
 use djls_project::TemplateSymbolName;
+use djls_project::UnreadRegistration;
+use djls_project::UnreadShape;
 use djls_project::template_library_catalog;
+use djls_project::template_library_definition_facts;
 use djls_project::testing;
 use djls_project::testing::TemplateBackendLibrariesInput;
 use djls_project::testing::TemplateLibraryInput;
+use djls_source::Span;
 use djls_testing::ProjectFixture;
 use djls_testing::TestDatabase;
 
@@ -315,6 +319,61 @@ fn symbol_lookup_keeps_known_providers_beside_open_loadable_libraries() {
             required: vec![library_name("known").expect("library name should parse")],
             open: vec![library_name("open").expect("library name should parse")],
         }
+    );
+}
+
+#[test]
+fn unreadable_registration_statements_keep_source_order_spans_and_shapes() {
+    let mut db = TestDatabase::new();
+    let source = "from django import template\nregister = template.Library()\nregister.tags['dynamic'] = func\n@register.simple_tag(unsupported=True)\ndef ignored(): pass\ndef other_tag(context): pass\nregister.simple_tag(takes_context=True)(globals()['other_tag'])\n";
+    let project = ProjectFixture::new("/project")
+        .django_settings_module("project.settings")
+        .file(
+            "/project/project/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'libraries': {'open': 'open_tags'}}}]\n",
+        )
+        .file("/project/open_tags.py", source)
+        .file(
+            "/project/django/template/defaultfilters.py",
+            "from django import template\nregister = template.Library()\n",
+        )
+        .file("/project/templates/page.html", "{% load open %}")
+        .install(&mut db)
+        .expect("unreadable-registration fixture should install");
+    let catalog = template_library_catalog(&db, project);
+    let library = project_inventory(catalog)
+        .loadable_library_str("open")
+        .found()
+        .expect("open library should resolve");
+    let facts = template_library_definition_facts(&db, library.id());
+    let span = |statement: &str| {
+        Span::new(
+            u32::try_from(
+                source
+                    .find(statement)
+                    .expect("unreadable statement should be in the fixture source"),
+            )
+            .expect("fixture offset should fit in a source span"),
+            u32::try_from(statement.len()).expect("fixture statement should fit in a source span"),
+        )
+    };
+
+    assert_eq!(
+        facts.unread_registrations(),
+        vec![
+            UnreadRegistration {
+                span: span("register.tags['dynamic'] = func"),
+                shape: UnreadShape::InventoryMutated,
+            },
+            UnreadRegistration {
+                span: span("@register.simple_tag(unsupported=True)\ndef ignored(): pass"),
+                shape: UnreadShape::RegistrationShapeUnknown,
+            },
+            UnreadRegistration {
+                span: span("register.simple_tag(takes_context=True)(globals()['other_tag'])",),
+                shape: UnreadShape::RegistrationNameUnresolved,
+            },
+        ]
     );
 }
 

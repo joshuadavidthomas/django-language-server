@@ -13,7 +13,9 @@ use pulldown_cmark::Parser as MarkdownParser;
 use pulldown_cmark::Tag;
 use pulldown_cmark::TagEnd;
 
+use crate::TestDatabase;
 use crate::fixtures::snapshot_validate_files;
+use crate::fixtures::standard_validation_db;
 
 const UPDATE_ENV: &str = "DJLS_UPDATE_MDTEST_SNAPSHOTS";
 const NO_DIAGNOSTICS_SNAPSHOT: &str = "✓ no diagnostics";
@@ -48,19 +50,7 @@ impl Scenario {
     }
 
     fn render_validation_snapshot(&self) -> anyhow::Result<String> {
-        let primary = self.primary_file()?;
-        let rendered = snapshot_validate_files(
-            primary.path.as_str(),
-            primary.source.as_str(),
-            self.files
-                .iter()
-                .map(|file| (file.path.as_str(), file.source.as_str())),
-        )?;
-        Ok(if rendered.trim().is_empty() {
-            NO_DIAGNOSTICS_SNAPSHOT.to_string()
-        } else {
-            rendered
-        })
+        render_validation_scenario(&standard_validation_db()?, self)
     }
 
     fn snapshot_update(&self, actual: String) -> SnapshotUpdate {
@@ -114,6 +104,28 @@ impl SnapshotUpdate {
 
         output
     }
+}
+
+/// Render one validation scenario against a caller-supplied database.
+pub fn render_validation_scenario(
+    db: &TestDatabase,
+    scenario: &Scenario,
+) -> anyhow::Result<String> {
+    let primary = scenario.primary_file()?;
+    let rendered = snapshot_validate_files(
+        db,
+        primary.path.as_str(),
+        primary.source.as_str(),
+        scenario
+            .files
+            .iter()
+            .map(|file| (file.path.as_str(), file.source.as_str())),
+    )?;
+    Ok(if rendered.trim().is_empty() {
+        NO_DIAGNOSTICS_SNAPSHOT.to_string()
+    } else {
+        rendered
+    })
 }
 
 pub fn run_suite(dir: &Path) -> anyhow::Result<()> {

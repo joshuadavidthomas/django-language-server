@@ -122,7 +122,7 @@ impl DiagnosticRenderer {
             Severity::Error => Level::ERROR,
             Severity::Warning => Level::WARNING,
             Severity::Info => Level::INFO,
-            Severity::Hint => Level::HELP,
+            Severity::Hint => Level::HELP.with_name("hint"),
         };
 
         let mut snippet = Snippet::source(diagnostic.source)

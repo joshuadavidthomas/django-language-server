@@ -25,6 +25,7 @@ SERVER_COMMAND = [
 ]
 TEST_DIR = Path(__file__).parent.parent
 TEST_WORKSPACE = TEST_DIR / "project"
+UNREADABLE_WORKSPACE = TEST_DIR / "project_unreadable"
 EXPECTED_STARTUP_PROGRESS_TITLES = {
     "Resolving Django environment",
     "Discovering Django project facts",
@@ -112,6 +113,25 @@ async def vscode_client(lsp_client: LanguageClient):
             capabilities=client_capabilities("visual-studio-code"),
             workspace_folders=[
                 WorkspaceFolder(uri=TEST_WORKSPACE.as_uri(), name="test_project")
+            ],
+        )
+    )
+    await wait_for_project_load(lsp_client)
+
+    yield
+
+    await lsp_client.shutdown_session()
+
+
+@pytest_lsp.fixture(config=ClientServerConfig(server_command=SERVER_COMMAND))
+async def unreadable_client(lsp_client: LanguageClient):
+    await lsp_client.initialize_session(
+        InitializeParams(
+            capabilities=client_capabilities("visual-studio-code"),
+            workspace_folders=[
+                WorkspaceFolder(
+                    uri=UNREADABLE_WORKSPACE.as_uri(), name="unreadable_project"
+                )
             ],
         )
     )

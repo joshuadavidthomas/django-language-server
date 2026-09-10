@@ -1,4 +1,5 @@
 mod code_actions;
+mod commands;
 mod completions;
 mod context;
 mod diagnostics;
@@ -14,6 +15,8 @@ mod symbols;
 mod warmup;
 
 pub use code_actions::code_actions;
+pub use commands::REPORT_UNREADABLE_REGISTRATION_COMMAND;
+pub use commands::ReportUnreadableRegistrationParams;
 pub use completions::completion;
 pub use diagnostics::collect_diagnostics;
 pub use folding::collect_folding_ranges;

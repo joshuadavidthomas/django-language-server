@@ -9,6 +9,7 @@ use djls_source::LineCol;
 use djls_source::LineIndex;
 use djls_source::PositionEncoding;
 use djls_source::Span;
+use djls_testing::ProjectFixture;
 use djls_testing::TestDatabase;
 use djls_testing::standard_validation_db;
 use tower_lsp_server::ls_types;
@@ -318,4 +319,67 @@ fn severity_off_suppresses_diagnostic_and_code_action() {
 
     assert!(diagnostics.is_empty());
     assert!(actions.is_empty());
+}
+
+#[test]
+fn unreadable_library_action_reports_resolved_module_and_first_statement() {
+    let source = "{% load open %}\n";
+    let library_path = "/test/project/open_tags.py";
+    let mut db = TestDatabase::new();
+    ProjectFixture::new("/test/project")
+        .django_settings_module("project.settings")
+        .file(
+            "/test/project/project/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'open': 'open_tags'}}}]\n",
+        )
+        .file(
+            library_path,
+            concat!(
+                "from django import template\n",
+                "register = template.Library()\n",
+                "def other_tag(context): pass\n",
+                "register.simple_tag(takes_context=True)(globals()['other_tag'])\n",
+            ),
+        )
+        .file(TEMPLATE_PATH, source)
+        .install(&mut db)
+        .expect("unreadable-library fixture should install");
+
+    let action = only_action(
+        collect_actions(&db, request_at(source, "open"))
+            .expect("unreadable library should produce a code action response"),
+    )
+    .expect("unreadable library should produce one action");
+    let command = action
+        .command
+        .as_ref()
+        .expect("unreadable-library action should contain a command");
+    let arguments = command
+        .arguments
+        .as_deref()
+        .expect("report command should contain arguments");
+    let registration_uri = ls_types::Uri::from_file_path(Utf8Path::new(library_path).as_std_path())
+        .expect("registration path should convert to a file URI");
+
+    assert_eq!(
+        action.title,
+        "Report unreadable registration to django-language-server"
+    );
+    assert_eq!(action.kind, Some(ls_types::CodeActionKind::QUICKFIX));
+    assert!(action.edit.is_none());
+    assert_eq!(
+        command.command,
+        djls_ide::REPORT_UNREADABLE_REGISTRATION_COMMAND
+    );
+    assert_eq!(
+        arguments,
+        [djls_ide::ReportUnreadableRegistrationParams {
+            module: "open_tags".to_string(),
+            file: registration_uri,
+            line: 4,
+            shape: "the registered name cannot be resolved".to_string(),
+            count: 1,
+        }
+        .into_lsp_value()]
+    );
 }

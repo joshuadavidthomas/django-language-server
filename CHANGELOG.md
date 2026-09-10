@@ -21,6 +21,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 ### Added
 
 - Added a "Why a language server?" docs page.
+- Added an S124 hint on `{% load %}` for unreadable library registrations, with a code action that opens a prefilled issue.
 - **Internal**: Compare DJLS template tag validation against Django's template compilation on a dedicated fixture project.
 - **Internal**: Extraction snapshots now record library symbol inventories and whether they are open; a corpus census counts registration sites and records candidates that cannot be matched to extracted definitions.
 - **Internal**: Added cold settings-analysis benchmarks for conditional bindings and corpus projects.

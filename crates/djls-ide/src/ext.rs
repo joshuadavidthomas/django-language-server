@@ -4,6 +4,7 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::DiagnosticSeverity;
 use djls_semantic::ValidationError;
+use djls_source::File;
 use djls_source::LineIndex;
 use djls_source::Offset;
 use djls_source::PositionEncoding;
@@ -360,6 +361,10 @@ pub(crate) trait DiagnosticExt: std::fmt::Display {
         self.to_string()
     }
 
+    fn diagnostic_related_information(&self) -> Vec<(File, Span, String)> {
+        Vec::new()
+    }
+
     fn to_lsp_diagnostic(
         &self,
         source: &str,
@@ -388,6 +393,36 @@ pub(crate) trait DiagnosticExt: std::fmt::Display {
             data: None,
         })
     }
+
+    fn to_lsp_diagnostic_in_db(
+        &self,
+        db: &dyn djls_semantic::Db,
+        source: &str,
+        line_index: &LineIndex,
+        encoding: PositionEncoding,
+        config: &djls_conf::DiagnosticsConfig,
+    ) -> Option<ls_types::Diagnostic> {
+        let related_information = self
+            .diagnostic_related_information()
+            .into_iter()
+            .filter_map(|(file, span, message)| {
+                let related_source = file.try_source(db).ok()?;
+                let location = ls_types::Location {
+                    uri: file.path(db).to_lsp_uri()?,
+                    range: span.to_lsp_range_with_encoding(
+                        related_source.as_str(),
+                        file.line_index(db),
+                        encoding,
+                    ),
+                };
+                Some(ls_types::DiagnosticRelatedInformation { location, message })
+            })
+            .collect::<Vec<_>>();
+        let mut diagnostic = self.to_lsp_diagnostic(source, line_index, encoding, config)?;
+        diagnostic.related_information =
+            (!related_information.is_empty()).then_some(related_information);
+        Some(diagnostic)
+    }
 }
 
 impl DiagnosticExt for ParseError {
@@ -407,6 +442,27 @@ impl DiagnosticExt for ValidationError {
 
     fn diagnostic_code(&self) -> &'static str {
         self.code()
+    }
+
+    fn diagnostic_related_information(&self) -> Vec<(File, Span, String)> {
+        let Self::UnreadableLibrary {
+            registration_file,
+            unread,
+            ..
+        } = self
+        else {
+            return Vec::new();
+        };
+        unread
+            .iter()
+            .map(|registration| {
+                (
+                    *registration_file,
+                    registration.span,
+                    registration.shape.to_string(),
+                )
+            })
+            .collect()
     }
 }
 

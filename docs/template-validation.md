@@ -103,6 +103,14 @@ Validates that `{% load %}` library names refer to known template tag libraries:
 - **S120** — Unknown library (not found in active or inactive libraries)
 - **S121** — Library exists on the project's Python search paths, but its app is not in `INSTALLED_APPS`
 
+### Unreadable Registrations (S124)
+
+S124 is a hint on a `{% load %}` argument when djls could not read one or more registrations in that library. It names the Python file, line, and reason; related locations point to each unread statement. Unrecognized tags and filters from that library are not reported. Readable registrations still receive argument and structure checks.
+
+The hint's code action opens a prefilled GitHub issue with the module name, djls version, reason, and statement snippet. Check the snippet for private information before submitting. You can change S124's severity or turn it off through the existing diagnostic configuration.
+
+Only load sites receive this hint. Open builtin libraries have no load site. An open library can also suppress unknown-name diagnostics in templates that never load it; those templates do not yet receive a hint explaining why.
+
 ### Extends Validation (S122–S123)
 
 Validates structural rules for `{% extends %}`:

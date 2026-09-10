@@ -191,6 +191,7 @@ Map diagnostic codes or prefixes to severity levels. Supports:
 
 - `S122` - `{% extends %}` must be the first tag in the template (no tags or variables before it)
 - `S123` - `{% extends %}` cannot appear more than once in a template
+- `S124` - Loaded library has unreadable registrations (Hint by default; unrecognized tags and filters are not reported)
 
 !!! note "Automatic Validation"
 

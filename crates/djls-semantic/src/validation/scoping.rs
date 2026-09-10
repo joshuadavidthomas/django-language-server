@@ -130,5 +130,18 @@ pub(crate) fn check_load_libraries_rule(db: &dyn Db, arguments: &[LoaderArgument
                 .accumulate(db);
             }
         }
+
+        if let Some(unreadable) = &fact.unreadable {
+            let Some(error) = ValidationError::unreadable_library(
+                db,
+                lib.as_str().to_string(),
+                lib.span(),
+                unreadable.registration_file,
+                unreadable.unread.clone(),
+            ) else {
+                continue;
+            };
+            ValidationErrorAccumulator(error).accumulate(db);
+        }
     }
 }

@@ -91,13 +91,21 @@ fn templates_compile_like_django() {
             .expect("compilation template should be readable");
         validate_template_file(&db, file);
         let errors = validate_template_file::accumulated::<ValidationErrorAccumulator>(&db, file);
+        // S124 says DJLS could not read part of a library. It is a hint, not a
+        // rejection, so it does not count against Django compilation.
+        let rejects = errors.iter().any(|error| {
+            !matches!(
+                &error.0,
+                djls_semantic::ValidationError::UnreadableLibrary { .. }
+            )
+        });
 
-        match (compilation, errors.is_empty()) {
-            (DjangoCompilation::Compiled, true) | (DjangoCompilation::Failed { .. }, false) => {}
-            (DjangoCompilation::Compiled, false) => {
+        match (compilation, rejects) {
+            (DjangoCompilation::Compiled, false) | (DjangoCompilation::Failed { .. }, true) => {}
+            (DjangoCompilation::Compiled, true) => {
                 false_positives.insert(case);
             }
-            (DjangoCompilation::Failed { .. }, true) => {
+            (DjangoCompilation::Failed { .. }, false) => {
                 missed_diagnostics.insert(case);
             }
         }

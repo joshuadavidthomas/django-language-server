@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
+use std::fmt;
 
+use djls_source::Span;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprAttribute;
 use ruff_python_ast::ExprCall;
@@ -8,6 +10,7 @@ use ruff_python_ast::StmtExpr;
 use ruff_python_ast::StmtFunctionDef;
 use ruff_python_ast::visitor;
 use ruff_python_ast::visitor::Visitor;
+use ruff_text_size::Ranged;
 
 use super::filters::FilterArityMap;
 use super::libraries::TemplateLibraryId;
@@ -162,12 +165,55 @@ pub(crate) enum RegistrationKind {
     Filter,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize)]
+pub struct UnreadRegistration {
+    /// Span of the statement in the Template Library's Python file.
+    pub span: Span,
+    pub shape: UnreadShape,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize)]
+pub enum UnreadShape {
+    /// `register` is rebound, deleted, augmented, imported, or is a function name.
+    RegisterRebound,
+    /// `register.tags` or `register.filters` is written directly.
+    InventoryMutated,
+    /// `register` is referenced under `if`/`for`/`while`/`with`/`try`/`match`,
+    /// in a class body, in a nested function, or in a type alias.
+    RegisterInControlFlow,
+    /// `register` is referenced by a statement that is not a registration:
+    /// bare expression, return, raise, assert, or a non-registration decorator.
+    RegisterOutsideRegistration,
+    /// A `register.<helper>` decorator or call has an unrecognized shape.
+    RegistrationShapeUnknown,
+    /// The registration shape is recognized but its symbol name cannot be resolved.
+    RegistrationNameUnresolved,
+}
+
+impl fmt::Display for UnreadShape {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let message = match self {
+            Self::RegisterRebound => "the template register is rebound, deleted, or augmented",
+            Self::InventoryMutated => "the tag or filter inventory is mutated directly",
+            Self::RegisterInControlFlow => {
+                "the template register is used in control flow or a nested scope"
+            }
+            Self::RegisterOutsideRegistration => {
+                "the template register is used outside a registration"
+            }
+            Self::RegistrationShapeUnknown => "the registration shape is not recognized",
+            Self::RegistrationNameUnresolved => "the registered name cannot be resolved",
+        };
+        f.write_str(message)
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 enum RegistrationInventory {
     #[default]
     NotLibrary,
     Observed,
-    Open,
+    Open(Vec<UnreadRegistration>),
 }
 
 #[derive(Debug, Default)]
@@ -184,12 +230,35 @@ impl RegistrationSourceAnalysis {
 
     fn observe_register_use(&mut self) {
         if matches!(self.inventory, RegistrationInventory::NotLibrary) {
-            self.inventory = RegistrationInventory::Open;
+            self.inventory = RegistrationInventory::Open(Vec::new());
         }
     }
 
-    fn open_inventory(&mut self) {
-        self.inventory = RegistrationInventory::Open;
+    fn open_inventory(&mut self, node: &impl Ranged, shape: UnreadShape) {
+        self.open_inventory_at(node.span(), shape);
+    }
+
+    fn open_inventory_at(&mut self, span: Span, shape: UnreadShape) {
+        let unread = UnreadRegistration { span, shape };
+        match &mut self.inventory {
+            RegistrationInventory::Open(unread_registrations) => {
+                if !unread_registrations
+                    .iter()
+                    .any(|existing| existing.span == span)
+                {
+                    unread_registrations.push(unread);
+                }
+            }
+            RegistrationInventory::NotLibrary | RegistrationInventory::Observed => {
+                self.inventory = RegistrationInventory::Open(vec![unread]);
+            }
+        }
+    }
+
+    fn sort_unread_registrations(&mut self) {
+        if let RegistrationInventory::Open(unread_registrations) = &mut self.inventory {
+            unread_registrations.sort_by_key(|unread| (unread.span.start(), unread.span.end()));
+        }
     }
 
     fn defines_library(&self) -> bool {
@@ -197,7 +266,14 @@ impl RegistrationSourceAnalysis {
     }
 
     fn inventory_is_open(&self) -> bool {
-        matches!(self.inventory, RegistrationInventory::Open)
+        matches!(self.inventory, RegistrationInventory::Open(_))
+    }
+
+    fn unread_registrations(&self) -> &[UnreadRegistration] {
+        match &self.inventory {
+            RegistrationInventory::Open(unread_registrations) => unread_registrations,
+            RegistrationInventory::NotLibrary | RegistrationInventory::Observed => &[],
+        }
     }
 }
 
@@ -270,7 +346,7 @@ fn collect_from_class_body(body: &[Stmt], analysis: &mut RegistrationSourceAnaly
         {
             collect_from_decorated_function(function, None, None, analysis);
             if body_contains_register(&function.body) {
-                analysis.open_inventory();
+                analysis.open_inventory(function, UnreadShape::RegisterInControlFlow);
             }
             continue;
         }
@@ -387,7 +463,7 @@ fn analyze_registrations_from_body_in_module(
                     }
                     if clause.bound() == "register" {
                         analysis.registrations.clear();
-                        analysis.open_inventory();
+                        analysis.open_inventory(import, UnreadShape::RegisterRebound);
                     }
                     transparent_decorated_functions.remove(clause.bound());
                 }
@@ -414,7 +490,7 @@ fn analyze_registrations_from_body_in_module(
                     }
                     if member.bound() == "register" {
                         analysis.registrations.clear();
-                        analysis.open_inventory();
+                        analysis.open_inventory(import, UnreadShape::RegisterRebound);
                     }
                     transparent_decorated_functions.remove(member.bound());
                 }
@@ -448,13 +524,13 @@ fn analyze_registrations_from_body_in_module(
                         analysis.observe_fresh_library();
                     } else {
                         analysis.registrations.clear();
-                        analysis.open_inventory();
+                        analysis.open_inventory(assign, UnreadShape::RegisterRebound);
                     }
                 }
                 if assign.targets.iter().any(is_register_inventory_target)
                     || (contains_register(&assign.value) && !binds_register)
                 {
-                    analysis.open_inventory();
+                    analysis.open_inventory(assign, UnreadShape::InventoryMutated);
                 }
                 if binds_template {
                     template_is_django = false;
@@ -469,12 +545,12 @@ fn analyze_registrations_from_body_in_module(
             Stmt::AnnAssign(assign) => {
                 if assign.target.name_target() == Some("register") {
                     analysis.registrations.clear();
-                    analysis.open_inventory();
+                    analysis.open_inventory(assign, UnreadShape::RegisterRebound);
                 }
                 if is_register_inventory_target(&assign.target)
                     || assign.value.as_deref().is_some_and(contains_register)
                 {
-                    analysis.open_inventory();
+                    analysis.open_inventory(assign, UnreadShape::InventoryMutated);
                 }
                 if assign.target.name_target() == Some("template") {
                     template_is_django = false;
@@ -496,7 +572,7 @@ fn analyze_registrations_from_body_in_module(
                     || is_register_inventory_target(&assign.target)
                     || contains_register(&assign.value)
                 {
-                    analysis.open_inventory();
+                    analysis.open_inventory(assign, UnreadShape::RegisterRebound);
                 }
                 if assign.target.name_target() == Some("template") {
                     template_is_django = false;
@@ -519,7 +595,7 @@ fn analyze_registrations_from_body_in_module(
                         || is_register_inventory_target(target)
                         || contains_register(target)
                 }) {
-                    analysis.open_inventory();
+                    analysis.open_inventory(delete, UnreadShape::RegisterRebound);
                 }
                 if delete
                     .targets
@@ -551,7 +627,7 @@ fn analyze_registrations_from_body_in_module(
                 }
                 if function.name.as_str() == "register" {
                     analysis.registrations.clear();
-                    analysis.open_inventory();
+                    analysis.open_inventory(function, UnreadShape::RegisterRebound);
                 }
                 let local_source = LocalFunctionSource::from_function(function);
                 collect_from_decorated_function(
@@ -561,7 +637,7 @@ fn analyze_registrations_from_body_in_module(
                     &mut analysis,
                 );
                 if body_contains_register(&function.body) {
-                    analysis.open_inventory();
+                    analysis.open_inventory(function, UnreadShape::RegisterOutsideRegistration);
                 }
                 if !function.decorator_list.is_empty()
                     && function.decorator_list.iter().all(|decorator| {
@@ -582,24 +658,28 @@ fn analyze_registrations_from_body_in_module(
                 }
                 if class.name.as_str() == "register" {
                     analysis.registrations.clear();
-                    analysis.open_inventory();
+                    analysis.open_inventory(class, UnreadShape::RegisterRebound);
                 }
                 collect_from_class_body(&class.body, &mut analysis);
                 if statement_contains_register(stmt) {
-                    analysis.open_inventory();
+                    analysis.open_inventory(class, UnreadShape::RegisterInControlFlow);
                 }
                 transparent_decorated_functions.remove(class.name.as_str());
             }
-            Stmt::Expr(StmtExpr { value, .. }) => {
-                if let Expr::Call(call) = value.as_ref() {
+            Stmt::Expr(expression_statement) => {
+                if let Expr::Call(call) = expression_statement.value.as_ref() {
                     collect_from_call_statement(
+                        expression_statement,
                         call,
                         &transparent_decorated_functions,
                         python_facts.as_deref_mut(),
                         &mut analysis,
                     );
-                } else if contains_register(value) {
-                    analysis.open_inventory();
+                } else if contains_register(&expression_statement.value) {
+                    analysis.open_inventory(
+                        expression_statement,
+                        UnreadShape::RegisterOutsideRegistration,
+                    );
                 }
             }
             Stmt::For(_)
@@ -612,13 +692,13 @@ fn analyze_registrations_from_body_in_module(
                 library_constructor = None;
                 transparent_decorated_functions.clear();
                 if statement_contains_register(stmt) {
-                    analysis.open_inventory();
+                    analysis.open_inventory(stmt, UnreadShape::RegisterInControlFlow);
                 }
             }
             Stmt::TypeAlias(_) => {
                 transparent_decorated_functions.clear();
                 if statement_contains_register(stmt) {
-                    analysis.open_inventory();
+                    analysis.open_inventory(stmt, UnreadShape::RegisterInControlFlow);
                 }
             }
             Stmt::Return(_)
@@ -631,12 +711,13 @@ fn analyze_registrations_from_body_in_module(
             | Stmt::Continue(_)
             | Stmt::IpyEscapeCommand(_) => {
                 if statement_contains_register(stmt) {
-                    analysis.open_inventory();
+                    analysis.open_inventory(stmt, UnreadShape::RegisterOutsideRegistration);
                 }
             }
         }
     }
 
+    analysis.sort_unread_registrations();
     analysis
 }
 
@@ -717,7 +798,7 @@ fn collect_from_decorated_function(
         let expression = &decorator.expression;
         if !registration_decorator_rooted_at_register(expression) {
             if contains_register(expression) {
-                analysis.open_inventory();
+                analysis.open_inventory(func_def, UnreadShape::RegisterOutsideRegistration);
             }
             continue;
         }
@@ -733,13 +814,13 @@ fn collect_from_decorated_function(
             navigation,
         };
         let Some(lowered) = lower_registration_expression(expression, Some(applied)) else {
-            analysis.open_inventory();
+            analysis.open_inventory(func_def, UnreadShape::RegistrationShapeUnknown);
             continue;
         };
         let Some(registration) =
             registration_from_lowered(lowered, &BTreeMap::new(), python_facts.as_deref_mut())
         else {
-            analysis.open_inventory();
+            analysis.open_inventory(func_def, UnreadShape::RegistrationNameUnresolved);
             continue;
         };
         analysis.registrations.push(registration);
@@ -970,6 +1051,7 @@ fn lower_registration_call(
 
 /// Extract registrations from a call expression statement.
 fn collect_from_call_statement(
+    statement: &StmtExpr,
     call: &ExprCall,
     transparent_decorated_functions: &BTreeMap<String, LocalFunctionSource>,
     python_facts: Option<&mut PythonSourceLookup<'_>>,
@@ -991,7 +1073,7 @@ fn collect_from_call_statement(
     analysis.observe_register_use();
 
     let Some(lowered) = lowered else {
-        analysis.open_inventory();
+        analysis.open_inventory(statement, UnreadShape::RegistrationShapeUnknown);
         return;
     };
     if lowered.callable.is_none() {
@@ -1003,7 +1085,7 @@ fn collect_from_call_statement(
     let Some(registration) =
         registration_from_lowered(lowered, transparent_decorated_functions, python_facts)
     else {
-        analysis.open_inventory();
+        analysis.open_inventory(statement, UnreadShape::RegistrationNameUnresolved);
         return;
     };
     analysis.registrations.push(registration);
@@ -1200,10 +1282,12 @@ enum TemplateLibraryDefinitionState {
     },
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum TemplateLibrarySymbolInventory {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TemplateLibrarySymbolInventory {
     Observed,
-    Open,
+    /// At least one registration could not be read. Symbols missing from the
+    /// observed set may still exist.
+    Open(Vec<UnreadRegistration>),
 }
 
 /// Equality-bearing registration facts for one Template Library source module.
@@ -1243,10 +1327,28 @@ impl<'db> TemplateLibraryDefinitionFacts<'db> {
         matches!(
             self.state,
             TemplateLibraryDefinitionState::Library {
-                inventory: TemplateLibrarySymbolInventory::Open,
+                inventory: TemplateLibrarySymbolInventory::Open(_),
                 ..
             }
         )
+    }
+
+    /// Statements whose registration effects could not be read, in source order.
+    /// Empty unless the symbol inventory is open.
+    #[must_use]
+    pub fn unread_registrations(&self) -> &[UnreadRegistration] {
+        match &self.state {
+            TemplateLibraryDefinitionState::Library {
+                inventory: TemplateLibrarySymbolInventory::Open(unread_registrations),
+                ..
+            } => unread_registrations,
+            TemplateLibraryDefinitionState::Failed
+            | TemplateLibraryDefinitionState::ParsedNotLibrary { .. }
+            | TemplateLibraryDefinitionState::Library {
+                inventory: TemplateLibrarySymbolInventory::Observed,
+                ..
+            } => &[],
+        }
     }
 
     /// Observed definitions. Missing symbols remain uncertain when
@@ -1504,7 +1606,9 @@ fn template_library_source_analysis<'db>(
     let state =
         if registration_analysis.defines_library() || !tags.is_empty() || !filters.is_empty() {
             let inventory = if symbols_unobserved {
-                TemplateLibrarySymbolInventory::Open
+                TemplateLibrarySymbolInventory::Open(
+                    registration_analysis.unread_registrations().to_vec(),
+                )
             } else {
                 TemplateLibrarySymbolInventory::Observed
             };
@@ -1655,6 +1759,43 @@ mod tests {
     fn registered_source<'a>(source: &'a str, registration: &RegistrationInfo) -> Option<&'a str> {
         let span = registration.local_source()?.definition_span;
         source.get(span.start_usize()..span.end_usize())
+    }
+
+    #[test]
+    fn unread_registration_keeps_the_first_shape_for_a_duplicate_statement_span() {
+        let source = "from django import template\nregister = template.Library()\nregister: object = register\n";
+        let analysis = analyze_registrations(source);
+        let statement = "register: object = register";
+        let start = source
+            .find(statement)
+            .expect("duplicate-trigger statement should be in the source");
+
+        assert_eq!(
+            analysis.unread_registrations(),
+            [UnreadRegistration {
+                span: Span::saturating_from_bounds_usize(start, start + statement.len()),
+                shape: UnreadShape::RegisterRebound,
+            }]
+        );
+    }
+
+    #[test]
+    fn unread_decorator_uses_the_full_function_statement_span() {
+        let source = "from django import template\nregister = template.Library()\n@register.simple_tag(unsupported=True)\ndef ignored():\n    return 'ignored'\n";
+        let analysis = analyze_registrations(source);
+        let statement =
+            "@register.simple_tag(unsupported=True)\ndef ignored():\n    return 'ignored'";
+        let start = source
+            .find(statement)
+            .expect("decorated function statement should be in the source");
+
+        assert_eq!(
+            analysis.unread_registrations(),
+            [UnreadRegistration {
+                span: Span::saturating_from_bounds_usize(start, start + statement.len()),
+                shape: UnreadShape::RegistrationShapeUnknown,
+            }]
+        );
     }
 
     #[test]
