@@ -1,0 +1,999 @@
+{
+  "template_dirs": [
+    "${PROJECT}/templates"
+  ],
+  "template_library_catalog": {
+    "builtins": [
+      "django.template.defaulttags",
+      "django.template.defaultfilters",
+      "django.template.loader_tags"
+    ],
+    "libraries": {
+      "cache": "django.templatetags.cache",
+      "i18n": "django.templatetags.i18n",
+      "l10n": "django.templatetags.l10n",
+      "static": "django.templatetags.static",
+      "tz": "django.templatetags.tz",
+      "verdict_tags": "verdict_tags"
+    },
+    "symbols": [
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "add"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "addslashes"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "capfirst"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "center"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "cut"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "date"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "default"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "default_if_none"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "dictsort"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "dictsortreversed"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "divisibleby"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "escape"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "escapejs"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "escapeseq"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "filesizeformat"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "first"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "floatformat"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "force_escape"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "get_digit"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "iriencode"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "join"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "json_script"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "last"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "length"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "linebreaks"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "linebreaksbr"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "linenumbers"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "ljust"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "lower"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "make_list"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "phone2numeric"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "pluralize"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "pprint"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "random"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "rjust"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "safe"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "safeseq"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "slice"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "slugify"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "stringformat"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "striptags"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "time"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "timesince"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "timeuntil"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "title"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "truncatechars"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "truncatechars_html"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "truncatewords"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "truncatewords_html"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "unordered_list"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "upper"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "urlencode"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "urlize"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "urlizetrunc"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "wordcount"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "wordwrap"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.template.defaultfilters",
+        "load_name": null,
+        "module": "django.template.defaultfilters",
+        "name": "yesno"
+      },
+      {
+        "kind": "tag",
+        "library_module": "django.template.defaulttags",
+        "load_name": null,
+        "module": "django.template.defaulttags",
+        "name": "autoescape"
+      },
+      {
+        "kind": "tag",
+        "library_module": "django.template.defaulttags",
+        "load_name": null,
+        "module": "django.template.defaulttags",
+        "name": "comment"
+      },
+      {
+        "kind": "tag",
+        "library_module": "django.template.defaulttags",
+        "load_name": null,
+        "module": "django.template.defaulttags",
+        "name": "csrf_token"
+      },
+      {
+        "kind": "tag",
+        "library_module": "django.template.defaulttags",
+        "load_name": null,
+        "module": "django.template.defaulttags",
+        "name": "cycle"
+      },
+      {
+        "kind": "tag",
+        "library_module": "django.template.defaulttags",
+        "load_name": null,
+        "module": "django.template.defaulttags",
+        "name": "debug"
+      },
+      {
+        "kind": "tag",
+        "library_module": "django.template.defaulttags",
+        "load_name": null,
+        "module": "django.template.defaulttags",
+        "name": "filter"
+      },
+      {
+        "kind": "tag",
+        "library_module": "django.template.defaulttags",
+        "load_name": null,
+        "module": "django.template.defaulttags",
+        "name": "firstof"
+      },
+      {
+        "kind": "tag",
+        "library_module": "django.template.defaulttags",
+        "load_name": null,
+        "module": "django.template.defaulttags",
+        "name": "for"
+      },
+      {
+        "kind": "tag",
+        "library_module": "django.template.defaulttags",
+        "load_name": null,
+        "module": "django.template.defaulttags",
+        "name": "if"
+      },
+      {
+        "kind": "tag",
+        "library_module": "django.template.defaulttags",
+        "load_name": null,
+        "module": "django.template.defaulttags",
+        "name": "ifchanged"
+      },
+      {
+        "kind": "tag",
+        "library_module": "django.template.defaulttags",
+        "load_name": null,
+        "module": "django.template.defaulttags",
+        "name": "load"
+      },
+      {
+        "kind": "tag",
+        "library_module": "django.template.defaulttags",
+        "load_name": null,
+        "module": "django.template.defaulttags",
+        "name": "lorem"
+      },
+      {
+        "kind": "tag",
+        "library_module": "django.template.defaulttags",
+        "load_name": null,
+        "module": "django.template.defaulttags",
+        "name": "now"
+      },
+      {
+        "kind": "tag",
+        "library_module": "django.template.defaulttags",
+        "load_name": null,
+        "module": "django.template.defaulttags",
+        "name": "querystring"
+      },
+      {
+        "kind": "tag",
+        "library_module": "django.template.defaulttags",
+        "load_name": null,
+        "module": "django.template.defaulttags",
+        "name": "regroup"
+      },
+      {
+        "kind": "tag",
+        "library_module": "django.template.defaulttags",
+        "load_name": null,
+        "module": "django.template.defaulttags",
+        "name": "resetcycle"
+      },
+      {
+        "kind": "tag",
+        "library_module": "django.template.defaulttags",
+        "load_name": null,
+        "module": "django.template.defaulttags",
+        "name": "spaceless"
+      },
+      {
+        "kind": "tag",
+        "library_module": "django.template.defaulttags",
+        "load_name": null,
+        "module": "django.template.defaulttags",
+        "name": "templatetag"
+      },
+      {
+        "kind": "tag",
+        "library_module": "django.template.defaulttags",
+        "load_name": null,
+        "module": "django.template.defaulttags",
+        "name": "url"
+      },
+      {
+        "kind": "tag",
+        "library_module": "django.template.defaulttags",
+        "load_name": null,
+        "module": "django.template.defaulttags",
+        "name": "verbatim"
+      },
+      {
+        "kind": "tag",
+        "library_module": "django.template.defaulttags",
+        "load_name": null,
+        "module": "django.template.defaulttags",
+        "name": "widthratio"
+      },
+      {
+        "kind": "tag",
+        "library_module": "django.template.defaulttags",
+        "load_name": null,
+        "module": "django.template.defaulttags",
+        "name": "with"
+      },
+      {
+        "kind": "tag",
+        "library_module": "django.template.loader_tags",
+        "load_name": null,
+        "module": "django.template.loader_tags",
+        "name": "block"
+      },
+      {
+        "kind": "tag",
+        "library_module": "django.template.loader_tags",
+        "load_name": null,
+        "module": "django.template.loader_tags",
+        "name": "extends"
+      },
+      {
+        "kind": "tag",
+        "library_module": "django.template.loader_tags",
+        "load_name": null,
+        "module": "django.template.loader_tags",
+        "name": "include"
+      },
+      {
+        "kind": "tag",
+        "library_module": "django.templatetags.cache",
+        "load_name": "cache",
+        "module": "django.templatetags.cache",
+        "name": "cache"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.templatetags.i18n",
+        "load_name": "i18n",
+        "module": "django.templatetags.i18n",
+        "name": "language_bidi"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.templatetags.i18n",
+        "load_name": "i18n",
+        "module": "django.templatetags.i18n",
+        "name": "language_name"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.templatetags.i18n",
+        "load_name": "i18n",
+        "module": "django.templatetags.i18n",
+        "name": "language_name_local"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.templatetags.i18n",
+        "load_name": "i18n",
+        "module": "django.templatetags.i18n",
+        "name": "language_name_translated"
+      },
+      {
+        "kind": "tag",
+        "library_module": "django.templatetags.i18n",
+        "load_name": "i18n",
+        "module": "django.templatetags.i18n",
+        "name": "blocktrans"
+      },
+      {
+        "kind": "tag",
+        "library_module": "django.templatetags.i18n",
+        "load_name": "i18n",
+        "module": "django.templatetags.i18n",
+        "name": "blocktranslate"
+      },
+      {
+        "kind": "tag",
+        "library_module": "django.templatetags.i18n",
+        "load_name": "i18n",
+        "module": "django.templatetags.i18n",
+        "name": "get_available_languages"
+      },
+      {
+        "kind": "tag",
+        "library_module": "django.templatetags.i18n",
+        "load_name": "i18n",
+        "module": "django.templatetags.i18n",
+        "name": "get_current_language"
+      },
+      {
+        "kind": "tag",
+        "library_module": "django.templatetags.i18n",
+        "load_name": "i18n",
+        "module": "django.templatetags.i18n",
+        "name": "get_current_language_bidi"
+      },
+      {
+        "kind": "tag",
+        "library_module": "django.templatetags.i18n",
+        "load_name": "i18n",
+        "module": "django.templatetags.i18n",
+        "name": "get_language_info"
+      },
+      {
+        "kind": "tag",
+        "library_module": "django.templatetags.i18n",
+        "load_name": "i18n",
+        "module": "django.templatetags.i18n",
+        "name": "get_language_info_list"
+      },
+      {
+        "kind": "tag",
+        "library_module": "django.templatetags.i18n",
+        "load_name": "i18n",
+        "module": "django.templatetags.i18n",
+        "name": "language"
+      },
+      {
+        "kind": "tag",
+        "library_module": "django.templatetags.i18n",
+        "load_name": "i18n",
+        "module": "django.templatetags.i18n",
+        "name": "trans"
+      },
+      {
+        "kind": "tag",
+        "library_module": "django.templatetags.i18n",
+        "load_name": "i18n",
+        "module": "django.templatetags.i18n",
+        "name": "translate"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.templatetags.l10n",
+        "load_name": "l10n",
+        "module": "django.templatetags.l10n",
+        "name": "localize"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.templatetags.l10n",
+        "load_name": "l10n",
+        "module": "django.templatetags.l10n",
+        "name": "unlocalize"
+      },
+      {
+        "kind": "tag",
+        "library_module": "django.templatetags.l10n",
+        "load_name": "l10n",
+        "module": "django.templatetags.l10n",
+        "name": "localize"
+      },
+      {
+        "kind": "tag",
+        "library_module": "django.templatetags.static",
+        "load_name": "static",
+        "module": "django.templatetags.static",
+        "name": "get_media_prefix"
+      },
+      {
+        "kind": "tag",
+        "library_module": "django.templatetags.static",
+        "load_name": "static",
+        "module": "django.templatetags.static",
+        "name": "get_static_prefix"
+      },
+      {
+        "kind": "tag",
+        "library_module": "django.templatetags.static",
+        "load_name": "static",
+        "module": "django.templatetags.static",
+        "name": "static"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.templatetags.tz",
+        "load_name": "tz",
+        "module": "django.templatetags.tz",
+        "name": "localtime"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.templatetags.tz",
+        "load_name": "tz",
+        "module": "django.templatetags.tz",
+        "name": "timezone"
+      },
+      {
+        "kind": "filter",
+        "library_module": "django.templatetags.tz",
+        "load_name": "tz",
+        "module": "django.templatetags.tz",
+        "name": "utc"
+      },
+      {
+        "kind": "tag",
+        "library_module": "django.templatetags.tz",
+        "load_name": "tz",
+        "module": "django.templatetags.tz",
+        "name": "get_current_timezone"
+      },
+      {
+        "kind": "tag",
+        "library_module": "django.templatetags.tz",
+        "load_name": "tz",
+        "module": "django.templatetags.tz",
+        "name": "localtime"
+      },
+      {
+        "kind": "tag",
+        "library_module": "django.templatetags.tz",
+        "load_name": "tz",
+        "module": "django.templatetags.tz",
+        "name": "timezone"
+      },
+      {
+        "kind": "tag",
+        "library_module": "verdict_tags",
+        "load_name": "verdict_tags",
+        "module": "verdict_tags",
+        "name": "authored_default"
+      },
+      {
+        "kind": "tag",
+        "library_module": "verdict_tags",
+        "load_name": "verdict_tags",
+        "module": "verdict_tags",
+        "name": "authored_keyword_only"
+      },
+      {
+        "kind": "tag",
+        "library_module": "verdict_tags",
+        "load_name": "verdict_tags",
+        "module": "verdict_tags",
+        "name": "authored_panel"
+      },
+      {
+        "kind": "tag",
+        "library_module": "verdict_tags",
+        "load_name": "verdict_tags",
+        "module": "verdict_tags",
+        "name": "authored_required"
+      },
+      {
+        "kind": "tag",
+        "library_module": "verdict_tags",
+        "load_name": "verdict_tags",
+        "module": "verdict_tags",
+        "name": "class_tag"
+      },
+      {
+        "kind": "tag",
+        "library_module": "verdict_tags",
+        "load_name": "verdict_tags",
+        "module": "verdict_tags",
+        "name": "curried_context"
+      },
+      {
+        "kind": "tag",
+        "library_module": "verdict_tags",
+        "load_name": "verdict_tags",
+        "module": "verdict_tags",
+        "name": "decorator_context"
+      },
+      {
+        "kind": "tag",
+        "library_module": "verdict_tags",
+        "load_name": "verdict_tags",
+        "module": "verdict_tags",
+        "name": "direct_context"
+      },
+      {
+        "kind": "tag",
+        "library_module": "verdict_tags",
+        "load_name": "verdict_tags",
+        "module": "verdict_tags",
+        "name": "helper_tag"
+      },
+      {
+        "kind": "tag",
+        "library_module": "verdict_tags",
+        "load_name": "verdict_tags",
+        "module": "verdict_tags",
+        "name": "stdlib_partial_context"
+      },
+      {
+        "kind": "tag",
+        "library_module": "verdict_tags",
+        "load_name": "verdict_tags",
+        "module": "verdict_tags",
+        "name": "stdlib_wrapped"
+      }
+    ]
+  },
+  "template_verdicts": {
+    "authored_default_duplicate_binding.html": {
+      "verdict": "accepted"
+    },
+    "authored_default_missing_required.html": {
+      "verdict": "accepted"
+    },
+    "authored_default_valid.html": {
+      "verdict": "accepted"
+    },
+    "authored_keyword_only_missing.html": {
+      "error": "'authored_keyword_only' did not receive value(s) for the argument(s): 'required'",
+      "verdict": "rejected"
+    },
+    "authored_keyword_only_valid.html": {
+      "verdict": "accepted"
+    },
+    "authored_positional_after_keyword.html": {
+      "error": "'authored_default' received some positional argument(s) after some keyword argument(s)",
+      "verdict": "rejected"
+    },
+    "authored_repeated_keyword.html": {
+      "error": "'authored_default' received multiple values for keyword argument 'one'",
+      "verdict": "rejected"
+    },
+    "authored_required_missing.html": {
+      "error": "'authored_required' did not receive value(s) for the argument(s): 'value'",
+      "verdict": "rejected"
+    },
+    "authored_required_valid.html": {
+      "verdict": "accepted"
+    },
+    "class_missing.html": {
+      "error": "'class_tag' requires one argument",
+      "verdict": "rejected"
+    },
+    "class_valid.html": {
+      "verdict": "accepted"
+    },
+    "curried_context_missing.html": {
+      "error": "'curried_context' did not receive value(s) for the argument(s): 'value'",
+      "verdict": "rejected"
+    },
+    "curried_context_valid.html": {
+      "verdict": "accepted"
+    },
+    "decorator_context_missing.html": {
+      "error": "'decorator_context' did not receive value(s) for the argument(s): 'value'",
+      "verdict": "rejected"
+    },
+    "decorator_context_valid.html": {
+      "verdict": "accepted"
+    },
+    "direct_context_missing.html": {
+      "error": "'direct_context' did not receive value(s) for the argument(s): 'value'",
+      "verdict": "rejected"
+    },
+    "direct_context_valid.html": {
+      "verdict": "accepted"
+    },
+    "firstof_missing.html": {
+      "error": "'firstof' statement requires at least one argument",
+      "verdict": "rejected"
+    },
+    "firstof_valid.html": {
+      "verdict": "accepted"
+    },
+    "for_valid.html": {
+      "verdict": "accepted"
+    },
+    "for_wrong_separator.html": {
+      "error": "'for' statements should use the format 'for x in y': for x from items",
+      "verdict": "rejected"
+    },
+    "helper_missing.html": {
+      "error": "'helper_tag' requires one argument",
+      "verdict": "rejected"
+    },
+    "helper_valid.html": {
+      "verdict": "accepted"
+    },
+    "include_missing_assignment.html": {
+      "error": "\"with\" in 'include' tag needs at least one keyword argument.",
+      "verdict": "rejected"
+    },
+    "include_valid.html": {
+      "verdict": "accepted"
+    },
+    "lorem_extra_arguments.html": {
+      "error": "Incorrect format for 'lorem' tag",
+      "verdict": "rejected"
+    },
+    "lorem_no_arguments.html": {
+      "verdict": "accepted"
+    },
+    "lorem_random.html": {
+      "verdict": "accepted"
+    },
+    "lorem_words.html": {
+      "verdict": "accepted"
+    },
+    "simple_block_missing.html": {
+      "error": "'authored_panel' did not receive value(s) for the argument(s): 'title'",
+      "verdict": "rejected"
+    },
+    "simple_block_valid.html": {
+      "verdict": "accepted"
+    },
+    "stdlib_partial_context_invalid.html": {
+      "error": "'stdlib_partial_context' received too many positional arguments",
+      "verdict": "rejected"
+    },
+    "stdlib_partial_context_valid.html": {
+      "verdict": "accepted"
+    },
+    "stdlib_wrapped_invalid.html": {
+      "error": "'stdlib_wrapped' received too many positional arguments",
+      "verdict": "rejected"
+    },
+    "stdlib_wrapped_valid.html": {
+      "verdict": "accepted"
+    },
+    "templatetag_invalid_choice.html": {
+      "error": "Invalid templatetag argument: 'foo'. Must be one of: ['openblock', 'closeblock', 'openvariable', 'closevariable', 'openbrace', 'closebrace', 'opencomment', 'closecomment']",
+      "verdict": "rejected"
+    },
+    "templatetag_valid.html": {
+      "verdict": "accepted"
+    },
+    "with_invalid_assignment.html": {
+      "error": "'with' expected at least one variable assignment",
+      "verdict": "rejected"
+    },
+    "with_valid.html": {
+      "verdict": "accepted"
+    }
+  }
+}

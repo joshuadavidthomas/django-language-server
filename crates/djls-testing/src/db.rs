@@ -193,6 +193,7 @@ pub struct OsTestDatabase {
     fs: Arc<dyn FileSystem>,
     files: SourceFiles,
     project: Option<Project>,
+    projectless_tag_specs: TagSpecs,
 }
 
 impl Default for OsTestDatabase {
@@ -214,6 +215,7 @@ impl OsTestDatabase {
             fs,
             files: SourceFiles::default(),
             project: None,
+            projectless_tag_specs: TagSpecs::default(),
         }
     }
 
@@ -261,6 +263,21 @@ impl djls_source::Db for OsTestDatabase {
 impl ProjectDb for OsTestDatabase {
     fn project(&self) -> Option<Project> {
         self.project
+    }
+}
+
+#[salsa::db]
+impl SemanticDb for OsTestDatabase {
+    fn projectless_tag_specs(&self) -> &TagSpecs {
+        &self.projectless_tag_specs
+    }
+
+    fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {
+        djls_conf::DiagnosticsConfig::default()
+    }
+
+    fn projectless_filter_arity_specs(&self) -> &FilterAritySpecs {
+        FilterAritySpecs::empty_ref()
     }
 }
 

@@ -1,5 +1,6 @@
 mod corpus;
 mod db;
+mod django_facts;
 mod extraction;
 mod fixtures;
 mod mdtest;
@@ -17,6 +18,11 @@ pub use corpus::sync_corpus;
 pub use db::OsTestDatabase;
 pub use db::SalsaEventLog;
 pub use db::TestDatabase;
+pub use django_facts::DjangoFactsGolden;
+pub use django_facts::GoldenTemplateLibraryCatalog;
+pub use django_facts::GoldenTemplateSymbol;
+pub use django_facts::TemplateVerdict;
+pub use django_facts::django_facts_project;
 pub use extraction::ExtractionBundle;
 pub use extraction::SortedExtractionResult;
 pub use extraction::extract_bundle;

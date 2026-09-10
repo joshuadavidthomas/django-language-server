@@ -25,16 +25,19 @@ def main() -> None:
         "template_dirs": collect_template_dirs(project, site_packages),
         "template_library_catalog": collect_template_library_catalog(),
     }
+    if args.template_verdicts:
+        facts["template_verdicts"] = collect_template_verdicts(project)
     json.dump(facts, sys.stdout, indent=2, sort_keys=True)
     sys.stdout.write("\n")
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Generate normalized Django facts for the e2e fixture project."
+        description="Generate normalized Django facts for a fixture project."
     )
     parser.add_argument("--project", type=Path, required=True)
     parser.add_argument("--settings")
+    parser.add_argument("--template-verdicts", action="store_true")
     return parser.parse_args()
 
 
@@ -107,6 +110,23 @@ def collect_template_library_catalog() -> dict[str, Any]:
         "libraries": libraries,
         "symbols": symbols,
     }
+
+
+def collect_template_verdicts(project: Path) -> dict[str, dict[str, str]]:
+    from django.template import Engine
+    from django.template import TemplateSyntaxError
+
+    engine = Engine.get_default()
+    verdicts = {}
+    for path in sorted((project / "templates").iterdir()):
+        name = path.name
+        try:
+            engine.get_template(name)
+        except TemplateSyntaxError as error:
+            verdicts[name] = {"verdict": "rejected", "error": str(error)}
+        else:
+            verdicts[name] = {"verdict": "accepted"}
+    return verdicts
 
 
 def symbol_rows(library: Any, library_module: str, load_name: str | None) -> list[dict[str, str | None]]:
