@@ -35,7 +35,13 @@ pub(crate) fn resolve_occurrence_availability(
 ) -> SymbolAvailability {
     match scoped_libraries.symbol(name, kind) {
         ScopedTemplateSymbolLookup::Builtin => SymbolAvailability::Available,
-        ScopedTemplateSymbolLookup::RequiresLoad(required) => {
+        ScopedTemplateSymbolLookup::RequiresLoad { required, open } => {
+            if open
+                .iter()
+                .any(|library| load_state.is_symbol_available(library.as_str(), name))
+            {
+                return SymbolAvailability::Inconclusive;
+            }
             if required
                 .iter()
                 .any(|library| load_state.is_symbol_available(library.as_str(), name))

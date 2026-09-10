@@ -274,9 +274,10 @@ fn symbol_join_distinguishes_unanimous_and_partial_ambiguous_libraries() {
 
     assert_eq!(
         project_inventory(&libraries).symbol("all_tag", TemplateSymbolKind::Tag),
-        ScopedTemplateSymbolLookup::RequiresLoad(vec![
-            library_name("shared").expect("test library name should be valid")
-        ])
+        ScopedTemplateSymbolLookup::RequiresLoad {
+            required: vec![library_name("shared").expect("test library name should be valid")],
+            open: Vec::new(),
+        }
     );
     assert_eq!(
         project_inventory(&libraries).symbol("one_tag", TemplateSymbolKind::Tag),
@@ -284,13 +285,36 @@ fn symbol_join_distinguishes_unanimous_and_partial_ambiguous_libraries() {
     );
     assert_eq!(
         project_inventory(&libraries).symbol("all_filter", TemplateSymbolKind::Filter),
-        ScopedTemplateSymbolLookup::RequiresLoad(vec![
-            library_name("shared").expect("test library name should be valid")
-        ])
+        ScopedTemplateSymbolLookup::RequiresLoad {
+            required: vec![library_name("shared").expect("test library name should be valid")],
+            open: Vec::new(),
+        }
     );
     assert_eq!(
         project_inventory(&libraries).symbol("one_filter", TemplateSymbolKind::Filter),
         ScopedTemplateSymbolLookup::Inconclusive
+    );
+}
+
+#[test]
+fn symbol_lookup_keeps_known_providers_beside_open_loadable_libraries() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("settings")
+        .file("/proj/settings.py", "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'OPTIONS': {'libraries': {'known': 'known_tags', 'open': 'open_tags'}}}]\n")
+        .file("/proj/known_tags.py", "from django import template\nregister = template.Library()\n@register.simple_tag\ndef known_tag(): pass\n")
+        .file("/proj/open_tags.py", "from django import template\nregister = template.Library()\ndef other_tag(context): pass\nregister.simple_tag(takes_context=True)(globals()['other_tag'])\n")
+        .file("/proj/django/template/defaultfilters.py", "from django import template\nregister = template.Library()\n")
+        .file("/proj/templates/page.html", "{% known_tag %}")
+        .install(&mut db)
+        .expect("open-library fixture should install");
+    let catalog = template_library_catalog(&db, project);
+    assert_eq!(
+        project_inventory(catalog).symbol("known_tag", TemplateSymbolKind::Tag),
+        ScopedTemplateSymbolLookup::RequiresLoad {
+            required: vec![library_name("known").expect("library name should parse")],
+            open: vec![library_name("open").expect("library name should parse")],
+        }
     );
 }
 

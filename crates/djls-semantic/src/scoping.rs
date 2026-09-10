@@ -290,15 +290,20 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
                         TagOccurrenceKey::from_name_span(tag.name_span),
                         ScopedTagFact {
                             spec: spec.cloned(),
-                            availability: contextual_fact.availability,
                             structure_accepts_spelling: matches!(
                                 tag.structural_meaning,
                                 StructuralOccurrenceMeaning::CapturedIntermediate
                                     | StructuralOccurrenceMeaning::CapturedCloser
-                            ) || matches!(
+                            ) || (matches!(
                                 grammar_fact.classification,
                                 TagClassification::Inconclusive
-                            ),
+                            ) && !matches!(
+                                // An open grammar does not waive a proven load requirement.
+                                contextual_fact.availability,
+                                SymbolAvailability::Unloaded { .. }
+                                    | SymbolAvailability::AmbiguousUnloaded { .. }
+                            )),
+                            availability: contextual_fact.availability,
                             unknown_load_can_shadow: contextual_fact.unknown_load_can_shadow,
                             loader_arguments,
                         },
