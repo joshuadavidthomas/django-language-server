@@ -1,137 +1,172 @@
 # /// script
 # requires-python = ">=3.11"
-# dependencies = []
+# dependencies = ["typer>=0.27.0", "rich>=14.0.0"]
 # ///
-"""Time fresh djls check processes against selected corpus repositories.
+"""Time fresh djls check processes against corpus repositories.
 
     just corpus sync
     cargo build --release -p djls
-    uv run tools/demo_check.py healthchecks netbox pretix
-    uv run tools/demo_check.py --list
-    uv run tools/demo_check.py --all
+    uv run tools/demo_check.py check healthchecks netbox pretix
 
-Uses manifest project roots and settings modules, with normal DJLS config and
-Python environment discovery. No dependencies are installed for the repositories.
-Each check passes the repository directory as its input, even when the project
-root is nested. DJLS applies its normal extension and ignore rules; test templates
-may be included. Missing settings metadata leaves settings auto-detection to DJLS;
-this is not a claim of complete project configuration or LSP readiness.
-
-Times include process startup, discovery, analysis, diagnostic rendering and log
-I/O. Building and corpus sync are separate. Each process has a fresh analysis
-cache, but the OS filesystem cache is not cleared. DJLS does not report the total
-files checked, so this script reports repository counts rather than guessing a
-template count. Findings do not fail the demo; command failures do.
+Timing includes startup, discovery, analysis, diagnostic rendering, and log I/O;
+building and corpus sync are separate. Each process has a fresh analysis cache,
+but the OS filesystem cache is not cleared. Repository dependencies are not
+installed; settings come from the manifest or auto-detection, not a guarantee of
+complete project configuration. Findings do not fail the demo; command failures do.
 """
 
 from __future__ import annotations
 
-import argparse
 import os
 import re
 import subprocess
 import sys
 import tempfile
 import time
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Annotated
 
 import tomllib
+import typer
+from rich.console import Console
+from rich.table import Table
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "crates/djls-testing/manifest.toml"
+DEFAULT_BINARY = ROOT / "target/release/djls"
+console = Console(markup=False, highlight=False, soft_wrap=True)
+app = typer.Typer(help=__doc__, add_completion=False)
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
-    parser.add_argument(
-        "projects", nargs="*", help="repository names from the corpus manifest"
-    )
-    parser.add_argument(
-        "--all", action="store_true", help="check every corpus repository"
-    )
-    parser.add_argument(
-        "--list",
-        action="store_true",
-        help="list repository names and settings metadata",
-    )
-    parser.add_argument(
-        "--binary",
-        type=Path,
-        default=ROOT / "target/release/djls",
-        help="djls executable (default: target/release/djls)",
-    )
-    args = parser.parse_args(argv)
-    if sum([bool(args.projects), args.all, args.list]) != 1:
-        parser.error("choose project names, --all, or --list")
+@dataclass(frozen=True)
+class Repository:
+    name: str
+    checkout: Path
+    project: Path
+    settings: str | None
 
+
+@dataclass(frozen=True)
+class Clean:
+    pass
+
+
+@dataclass(frozen=True)
+class Findings:
+    count: int
+
+
+@dataclass(frozen=True)
+class Failure:
+    exit_code: int
+
+
+def load_repositories() -> dict[str, Repository]:
     with MANIFEST.open("rb") as source:
         manifest = tomllib.load(source)
-    repos = {repo["name"]: repo for repo in manifest["repo"]}
-    if args.list:
-        for name, repo in repos.items():
-            print(f"{name:28} {repo.get('django_settings_module', '(auto-detect)')}")
-        return 0
+    corpus = MANIFEST.parent / manifest["corpus"]["root_dir"] / "repos"
+    return {
+        entry["name"]: Repository(
+            entry["name"],
+            corpus / entry["name"],
+            corpus / entry["name"] / entry.get("project_root", "."),
+            entry.get("django_settings_module"),
+        )
+        for entry in manifest["repo"]
+    }
 
-    names = list(repos) if args.all else args.projects
-    for name in names:
+
+@app.command("list")
+def list_repositories() -> None:
+    """List manifest repositories, project roots, and settings modules."""
+    table = Table("Repository", "Project root", "Settings module")
+    for column in table.columns:
+        column.overflow = "fold"
+    for repo in load_repositories().values():
+        table.add_row(
+            repo.name,
+            str(repo.project.relative_to(repo.checkout)),
+            repo.settings or "auto-detect",
+        )
+    console.print(table)
+
+
+@app.command()
+def check(
+    names: Annotated[
+        list[str] | None, typer.Argument(help="Manifest repository names.")
+    ] = None,
+    all_repos: Annotated[
+        bool, typer.Option("--all", help="Check every repository.")
+    ] = False,
+    binary: Annotated[Path, typer.Option(help="DJLS executable.")] = DEFAULT_BINARY,
+) -> None:
+    """Check selected repositories, or use --all.
+
+    Timing includes startup, discovery, analysis, diagnostic rendering, and log
+    I/O. Building and corpus sync are separate. Processes have fresh analysis
+    caches; the OS filesystem cache is not cleared. Repository dependencies are
+    not installed, and settings may be auto-detected. This does not establish
+    complete project configuration. Findings do not fail the demo; failures do.
+    """
+    if bool(names) == all_repos:
+        raise typer.BadParameter("choose repository names or --all, but not both")
+    repos = load_repositories()
+    selected = list(repos) if all_repos else names or []
+    for name in selected:
         if name not in repos:
-            parser.error(f"unknown corpus repository {name!r}; use --list")
-    if len(set(names)) != len(names):
-        parser.error("specify each repository only once")
-
-    binary = args.binary.resolve()
+            raise typer.BadParameter(
+                f"unknown corpus repository {name!r}; run the list command"
+            )
+    if len(set(selected)) != len(selected):
+        raise typer.BadParameter("specify each repository only once")
+    binary = binary.resolve()
     if not binary.is_file() or not os.access(binary, os.X_OK):
-        parser.error(
+        raise typer.BadParameter(
             f"executable not found: {binary}; run cargo build --release -p djls"
         )
-
-    corpus = MANIFEST.parent / manifest["corpus"]["root_dir"] / "repos"
-    for name in names:
-        checkout = corpus / name
-        project = checkout / repos[name].get("project_root", ".")
-        if not (checkout / ".complete.json").is_file() or not project.is_dir():
-            parser.error(
+    for name in selected:
+        repo = repos[name]
+        if (
+            not (repo.checkout / ".complete.json").is_file()
+            or not repo.project.is_dir()
+        ):
+            raise typer.BadParameter(
                 f"{name}: corpus checkout or project root missing; run just corpus sync"
             )
 
     version = subprocess.run(
-        [str(binary), "--version"],
-        capture_output=True,
-        text=True,
-        check=True,
+        [str(binary), "--version"], capture_output=True, text=True, check=True
     ).stdout.strip()
     logs = Path(tempfile.mkdtemp(prefix="djls-check-demo-"))
-    width = max(len(name) for name in names)
-    print(f"{version} | {len(names)} corpus repositories | sequential, fresh processes")
-    print(f"Binary: {binary}")
-    print("Timing includes discovery, analysis, and diagnostic output to logs.")
-    print(
-        "Settings come from corpus metadata or auto-detection; dependencies are not installed."
+    console.print(
+        f"{version} | {len(selected)} repositories | sequential, fresh processes"
     )
-    print(f"Logs: {logs}\n", flush=True)
-
+    console.print(f"Binary: {binary}\nLogs: {logs}")
+    console.print("Timing includes discovery, analysis, and diagnostic output to logs.")
+    console.print(
+        "Settings come from metadata or auto-detection; dependencies are not installed."
+    )
+    width = max(map(len, selected))
     failed = 0
     started = time.perf_counter()
-    for name in names:
+    for name in selected:
         repo = repos[name]
-        checkout = corpus / name
-        project = checkout / repo.get("project_root", ".")
         env = os.environ.copy()
         # A settings module inherited from the caller must not leak between repos.
         env.pop("DJANGO_SETTINGS_MODULE", None)
-        if settings := repo.get("django_settings_module"):
-            env["DJANGO_SETTINGS_MODULE"] = settings
-        command = [str(binary), "check", "--color", "never", str(checkout)]
-        print(f"  {name:<{width}}  ", end="", flush=True)
+        if repo.settings:
+            env["DJANGO_SETTINGS_MODULE"] = repo.settings
         with (logs / f"{name}.log").open("w", encoding="utf-8") as log:
-            log.write(f"cwd: {project}\nsettings: {settings or '(auto-detect)'}\n\n")
+            log.write(
+                f"cwd: {repo.project}\nsettings: {repo.settings or '(auto-detect)'}\n\n"
+            )
             log.flush()
             before = time.perf_counter()
-            result = subprocess.run(
-                command,
-                cwd=project,
+            process = subprocess.run(
+                [str(binary), "check", "--color", "never", str(repo.checkout)],
+                cwd=repo.project,
                 env=env,
                 stdout=log,
                 stderr=subprocess.PIPE,
@@ -139,35 +174,44 @@ def main(argv: list[str] | None = None) -> int:
                 check=False,
             )
             elapsed = time.perf_counter() - before
-            log.write(result.stderr)
+            log.write(process.stderr)
         # Exit 1 also covers infrastructure failures. Only the CLI's full summary
         # identifies a completed check with findings; anything else stays a failure.
         findings = re.fullmatch(
-            r"Found (\d+) errors? in \d+ files?\.", result.stderr.strip()
+            r"Found (\d+) errors? in \d+ files?\.", process.stderr.strip()
         )
-        if result.returncode == 0:
-            status = "no diagnostics"
-        elif result.returncode == 1 and findings:
-            status = f"{int(findings[1]):,} diagnostics"
+        outcome: Clean | Findings | Failure
+        if process.returncode == 0:
+            outcome = Clean()
+        elif process.returncode == 1 and findings:
+            outcome = Findings(int(findings[1]))
         else:
-            failed += 1
-            status = f"FAILED (exit {result.returncode}; see log)"
-        print(f"{elapsed:8.3f}s  {status}", flush=True)
+            outcome = Failure(process.returncode)
+        match outcome:
+            case Clean():
+                status, style = "no diagnostics", "green"
+            case Findings(count):
+                status, style = f"{count:,} diagnostics", "yellow"
+            case Failure(exit_code):
+                failed += 1
+                status, style = f"FAILED (exit {exit_code}; see log)", "red"
+        console.print(f"  {name:<{width}}  {elapsed:8.3f}s  {status}", style=style)
 
-    elapsed = time.perf_counter() - started
-    print(
-        f"\n{len(names) - failed}/{len(names)} checks completed in {elapsed:.3f}s wall time."
+    wall_time = time.perf_counter() - started
+    console.print(
+        f"\n{len(selected) - failed}/{len(selected)} checks completed in {wall_time:.3f}s wall time."
     )
     if failed:
-        print(f"{failed} failed; inspect logs in {logs} before using these timings.")
-    return int(failed > 0)
+        console.print(
+            f"{failed} failed; inspect logs in {logs} before using these timings.",
+            style="yellow",
+        )
+    raise typer.Exit(int(failed > 0))
 
 
 if __name__ == "__main__":
     try:
-        sys.exit(main())
-    except KeyboardInterrupt:
-        sys.exit(130)
+        app()
     except (OSError, subprocess.CalledProcessError) as error:
-        print(f"Demo failed: {error}", file=sys.stderr)
+        console.print(f"Demo failed: {error}", style="red")
         sys.exit(1)
