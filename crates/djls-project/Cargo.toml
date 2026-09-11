@@ -21,9 +21,14 @@ tracing = { workspace = true }
 [dev-dependencies]
 djls-testing = { workspace = true }
 insta = { workspace = true }
+libtest-mimic = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true }
 toml = { workspace = true }
+
+[[test]]
+name = "corpus_settings"
+harness = false
 
 [lints]
 workspace = true

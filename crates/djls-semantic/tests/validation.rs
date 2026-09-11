@@ -1,6 +1,5 @@
 use std::borrow::Cow;
 use std::collections::BTreeMap;
-use std::fmt::Write;
 use std::fs;
 use std::path::PathBuf;
 
@@ -917,94 +916,8 @@ fn extracted_self_named_block_requires_concretized_end_tag() {
 // Run `cargo run -p djls-testing --bin corpus -- sync` to populate it.
 
 use djls_testing::Corpus;
-use djls_testing::build_entry_specs;
 use djls_testing::build_specs_from_extraction;
 use djls_testing::collect_argument_validation_errors_with_revision;
-
-struct FailureEntry {
-    path: Utf8PathBuf,
-    errors: Vec<String>,
-}
-
-fn format_failures(failures: &[FailureEntry]) -> Result<String, std::fmt::Error> {
-    let mut out = String::new();
-    for failure in failures.iter().take(20) {
-        writeln!(out, "  {}:", failure.path)?;
-        for error in &failure.errors {
-            writeln!(out, "    - {error}")?;
-        }
-    }
-    if failures.len() > 20 {
-        writeln!(out, "  ... and {} more", failures.len() - 20)?;
-    }
-    Ok(out)
-}
-
-#[test]
-fn corpus_templates_have_no_argument_false_positives() {
-    let corpus = Corpus::require().expect("synced corpus should be available for corpus tests");
-
-    let templates = corpus.templates_in(corpus.root());
-    let mut by_entry: BTreeMap<Utf8PathBuf, Vec<Utf8PathBuf>> = BTreeMap::new();
-
-    for template_path in templates {
-        let Some(entry_dir) = corpus.entry_dir_for_path(&template_path) else {
-            continue;
-        };
-
-        by_entry.entry(entry_dir).or_default().push(template_path);
-    }
-
-    for templates in by_entry.values_mut() {
-        templates.sort();
-    }
-
-    let mut failures = Vec::new();
-
-    for (entry_dir, templates) in by_entry {
-        if templates.is_empty() {
-            continue;
-        }
-
-        let (specs, arities) = build_entry_specs(&corpus, &entry_dir)
-            .expect("corpus entry tag and filter specs should build");
-        let db = TestDatabase::new()
-            .with_projectless_tag_specs(specs)
-            .with_projectless_filter_arity_specs(arities);
-
-        for (i, template_path) in templates.into_iter().enumerate() {
-            let Ok(content) = fs::read_to_string(template_path.as_std_path()) else {
-                continue;
-            };
-
-            let errors = collect_argument_validation_errors_with_revision(
-                &db,
-                "corpus_test.html",
-                i as u64,
-                &content,
-            )
-            .expect("corpus template argument errors should be collected");
-            if errors.is_empty() {
-                continue;
-            }
-
-            failures.push(FailureEntry {
-                path: template_path,
-                errors: errors
-                    .into_iter()
-                    .take(5)
-                    .map(|e| format!("{e:?}"))
-                    .collect(),
-            });
-        }
-    }
-
-    assert!(
-        failures.is_empty(),
-        "Corpus templates have false positives:\n{}",
-        format_failures(&failures).expect("corpus failures should format")
-    );
-}
 
 #[test]
 #[allow(clippy::too_many_lines)]

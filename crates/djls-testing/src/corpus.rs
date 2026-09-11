@@ -132,11 +132,16 @@ impl Corpus {
         &self.root
     }
 
-    fn locked_repo_dirs(&self) -> impl Iterator<Item = Utf8PathBuf> + '_ {
+    /// Locked corpus repositories in lockfile order, as names and directories.
+    pub fn locked_repos(&self) -> impl Iterator<Item = (&str, Utf8PathBuf)> + '_ {
         self.lockfile
             .repos
             .iter()
-            .map(|repo| self.root.join("repos").join(&repo.name))
+            .map(|repo| (repo.name.as_str(), self.root.join("repos").join(&repo.name)))
+    }
+
+    fn locked_repo_dirs(&self) -> impl Iterator<Item = Utf8PathBuf> + '_ {
+        self.locked_repos().map(|(_, directory)| directory)
     }
 
     pub fn repo_settings_projects(&self) -> anyhow::Result<Vec<CorpusSettingsProject>> {
@@ -619,6 +624,10 @@ mod tests {
             },
         };
 
+        assert_eq!(
+            corpus.locked_repos().collect::<Vec<_>>(),
+            vec![("djangopackages.org", registered.clone())]
+        );
         assert_eq!(corpus.extraction_targets(), vec![registered_tags.clone()]);
         let targets = corpus
             .extraction_target_members()
