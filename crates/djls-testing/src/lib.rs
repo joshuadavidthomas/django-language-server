@@ -48,7 +48,6 @@ pub use fixtures::validation_db;
 pub use mdtest::Scenario;
 pub use mdtest::ScenarioFile;
 pub use mdtest::ScenarioFileKind;
-pub use mdtest::render_validation_scenario;
 pub use mdtest::run_suite;
 pub use mdtest::run_suite_with;
 pub use settings::ProjectSettings;

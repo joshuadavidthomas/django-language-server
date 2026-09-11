@@ -115,10 +115,11 @@ impl SnapshotUpdate {
     }
 }
 
-/// Render one validation scenario against a caller-supplied database.
-pub fn render_validation_scenario(
+fn render_validation_scenario(
     db: &mut OsTestDatabase,
     scenario: &Scenario,
+    default_settings: &str,
+    applied_settings: &mut String,
 ) -> anyhow::Result<String> {
     let primary = scenario.primary_file()?;
     let python_files = scenario
@@ -144,8 +145,13 @@ pub fn render_validation_scenario(
     for (path, source) in &python_files {
         db.add_file(path.as_str(), source)?;
     }
-    if let Some(settings_source) = &scenario.settings_source {
-        db.add_file(VALIDATION_SETTINGS_PATH, settings_source)?;
+    let effective_settings = scenario
+        .settings_source
+        .as_deref()
+        .unwrap_or(default_settings);
+    if applied_settings != effective_settings {
+        db.add_file(VALIDATION_SETTINGS_PATH, effective_settings)?;
+        effective_settings.clone_into(applied_settings);
     }
 
     let rendered = snapshot_validate_files(
@@ -162,12 +168,6 @@ pub fn render_validation_scenario(
     }
     for (path, _) in &python_files {
         db.remove_file(path.as_str())?;
-    }
-    if scenario.settings_source.is_some() {
-        db.add_file(
-            VALIDATION_SETTINGS_PATH,
-            &ProjectSettings::default().settings_py(),
-        )?;
     }
 
     let rendered = rendered?;
@@ -223,9 +223,17 @@ impl MdtestRun {
 
         match self.renderer {
             Renderer::Validation => {
+                let default_settings = ProjectSettings::default().settings_py();
+                let mut applied_settings = default_settings.clone();
                 let mut db = standard_validation_db()?;
-                let mut render =
-                    |scenario: &Scenario| render_validation_scenario(&mut db, scenario);
+                let mut render = |scenario: &Scenario| {
+                    render_validation_scenario(
+                        &mut db,
+                        scenario,
+                        &default_settings,
+                        &mut applied_settings,
+                    )
+                };
                 for path in files {
                     self.run_file(&path, &mut render)?;
                 }
