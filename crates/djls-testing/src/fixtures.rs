@@ -391,17 +391,6 @@ pub fn collect_errors(db: &dyn djls_semantic::Db, file: File) -> Vec<ValidationE
         .collect()
 }
 
-#[must_use]
-pub fn is_argument_validation_error(err: &ValidationError) -> bool {
-    matches!(
-        err,
-        ValidationError::ExpressionSyntaxError { .. }
-            | ValidationError::FilterMissingArgument { .. }
-            | ValidationError::FilterUnexpectedArgument { .. }
-            | ValidationError::ExtractedRuleViolation { .. }
-    )
-}
-
 pub fn collect_argument_validation_errors_with_revision(
     db: &TestDatabase,
     path: &str,
@@ -413,11 +402,19 @@ pub fn collect_argument_validation_errors_with_revision(
 
     Ok(collect_errors(db, file)
         .into_iter()
-        .filter(is_argument_validation_error)
+        .filter(|error| {
+            matches!(
+                error,
+                ValidationError::ExpressionSyntaxError { .. }
+                    | ValidationError::FilterMissingArgument { .. }
+                    | ValidationError::FilterUnexpectedArgument { .. }
+                    | ValidationError::ExtractedRuleViolation { .. }
+            )
+        })
         .collect())
 }
 
-pub fn extract_and_merge(
+fn extract_and_merge(
     _corpus: &Corpus,
     dir: &Utf8Path,
     specs: &mut TagSpecs,
@@ -473,7 +470,7 @@ pub fn build_entry_specs(
 }
 
 /// Render validation errors into a plain-text diagnostic snapshot.
-pub fn render_diagnostic_snapshot(
+fn render_diagnostic_snapshot(
     path: &str,
     source: &str,
     errors: &[ValidationError],
@@ -576,15 +573,4 @@ pub fn validation_db(settings_py: &str) -> anyhow::Result<OsTestDatabase> {
     let (mut db, _, _) = corpus_project_database(project_root, [], "settings")?;
     db.add_file("/fixture/settings.py", settings_py)?;
     Ok(db)
-}
-
-pub fn render_validate_snapshot(
-    db: &mut OsTestDatabase,
-    path: &str,
-    source: &str,
-) -> anyhow::Result<String> {
-    let file = db.add_file(path, source)?;
-    let mut errors = collect_errors(db, file);
-    errors.sort_by_key(|error| error.primary_span().map_or(0, Span::start));
-    render_diagnostic_snapshot(path, source, &errors)
 }
