@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::fmt::Write;
 use std::fs;
+use std::path::PathBuf;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
@@ -10,6 +11,7 @@ use djls_conf::TagLibraryDef;
 use djls_conf::TagSpecDef;
 use djls_conf::TagTypeDef;
 use djls_project::ArgumentCountConstraint;
+use djls_project::Project;
 use djls_project::ScopedTemplateLibraries;
 use djls_project::SymbolDefinition;
 use djls_project::TagRule;
@@ -29,13 +31,13 @@ use djls_semantic::library_tag_specs;
 use djls_semantic::semantic_grammar_vocabulary;
 use djls_semantic::tag_spec_at;
 use djls_semantic::tag_specs_for_file;
-use djls_source::ChangeEvent;
-use djls_source::SourceChanges;
 use djls_templates::parse_template;
+use djls_testing::OsTestDatabase;
 use djls_testing::ProjectFixture;
 use djls_testing::ProjectSettings;
 use djls_testing::TestDatabase;
 use djls_testing::collect_errors as collect_validation_errors;
+use djls_testing::corpus_project_database;
 
 fn configured_tag_specs(definitions: &[(&str, &str, TagTypeDef)]) -> TagSpecDef {
     TagSpecDef {
@@ -79,6 +81,21 @@ fn collect_file_errors(
 ) -> anyhow::Result<Vec<ValidationError>> {
     let file = djls_source::path_to_file(db, Utf8Path::new(path))?;
     Ok(collect_validation_errors(db, file))
+}
+
+fn validation_project_database(
+    name: &str,
+) -> anyhow::Result<(OsTestDatabase, Project, Utf8PathBuf)> {
+    let project_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("resources/projects")
+        .join(name)
+        .canonicalize()
+        .map_err(|error| anyhow::anyhow!("failed to resolve project fixture `{name}`: {error}"))?;
+    let project_root = Utf8PathBuf::from_path_buf(project_root)
+        .map_err(|path| anyhow::anyhow!("fixture path should be UTF-8: {}", path.display()))?;
+    let (db, project, _) =
+        corpus_project_database(project_root.clone(), [project_root.clone()], "settings")?;
+    Ok((db, project, project_root))
 }
 
 #[test]
@@ -563,30 +580,9 @@ fn configured_fallback_does_not_weaken_empty_trusted_signatures() {
 
 #[test]
 fn loaded_imported_signature_rebinds_after_source_invalidation() {
-    let mut db = TestDatabase::new();
-    let project = ProjectFixture::new("/proj")
-        .settings(&ProjectSettings {
-            dirs: vec!["/proj/templates".to_string()],
-            libraries: BTreeMap::from([(
-                "authored".to_string(),
-                "app.templatetags.authored".to_string(),
-            )]),
-            ..ProjectSettings::default()
-        })
-        .file(
-            "/proj/app/templatetags/authored.py",
-            "from django import template\nfrom app.implementation import imported\nregister = template.Library()\nregister.simple_tag(imported, name='loaded_imported')\n",
-        )
-        .file(
-            "/proj/app/implementation.py",
-            "def imported(value): return value\n",
-        )
-        .file(
-            "/proj/templates/page.html",
-            "{% load authored %}{% loaded_imported %}",
-        )
-        .install(&mut db)
+    let (mut db, project, project_root) = validation_project_database("rebinding-import")
         .expect("loaded imported signature fixture should install");
+    let template_path = project_root.join("templates/page.html");
 
     let library =
         ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
@@ -606,7 +602,7 @@ fn loaded_imported_signature_rebinds_after_source_invalidation() {
                 && parameters[0].requirement.is_required()
     ));
     assert!(
-        collect_file_errors(&db, "/proj/templates/page.html")
+        collect_file_errors(&db, template_path.as_str())
             .expect("missing imported argument should validate")
             .iter()
             .any(|error| matches!(
@@ -617,16 +613,12 @@ fn loaded_imported_signature_rebinds_after_source_invalidation() {
     );
     drop(before);
 
-    let implementation_path = Utf8Path::new("/proj/app/implementation.py");
+    let implementation_path = project_root.join("app/implementation.py");
     db.add_file(
         implementation_path.as_str(),
         "def imported(value=None, **options): return value, options\n",
     )
     .expect("updated imported callable should be written");
-    SourceChanges::new([ChangeEvent::ContentChanged(
-        implementation_path.to_path_buf(),
-    )])
-    .apply(&mut db);
 
     let updated_library =
         ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
@@ -650,7 +642,7 @@ fn loaded_imported_signature_rebinds_after_source_invalidation() {
             && name == "options"
     ));
     assert!(
-        collect_file_errors(&db, "/proj/templates/page.html")
+        collect_file_errors(&db, template_path.as_str())
             .expect("updated imported argument should validate")
             .is_empty()
     );
@@ -658,23 +650,7 @@ fn loaded_imported_signature_rebinds_after_source_invalidation() {
 
 #[test]
 fn semantic_grammar_vocabulary_indexes_definition_identities_and_openness() {
-    let mut db = TestDatabase::new();
-    let project = ProjectFixture::new("/proj")
-        .settings(&ProjectSettings {
-            dirs: vec!["/proj/templates".to_string()],
-            libraries: BTreeMap::from([("panels".to_string(), "panel_tags".to_string())]),
-            ..ProjectSettings::default()
-        })
-        .file(
-            "/proj/django/template/defaultfilters.py",
-            "from django import template\nregister = template.Library()\n@register.filter\ndef title(value): return value\n",
-        )
-        .file(
-            "/proj/panel_tags.py",
-            "from django import template\nregister = template.Library()\n@register.tag(name='panel')\ndef panel(parser, token):\n    nodelist = parser.parse(('elsepanel', 'endpanel'))\n    parser.delete_first_token()\n    return Node(nodelist)\n",
-        )
-        .file("/proj/templates/page.html", "{% load panels %}")
-        .install(&mut db)
+    let (db, project, _) = validation_project_database("grammar-vocabulary")
         .expect("project fixture should install into the test database");
 
     let vocabulary = semantic_grammar_vocabulary(&db, project);
@@ -846,38 +822,15 @@ fn captured_intermediate_does_not_apply_a_colliding_standalone_contract() {
     );
 }
 
-fn extracted_block_db(source: &str) -> anyhow::Result<TestDatabase> {
-    let mut db = TestDatabase::new();
-    let project = ProjectFixture::new("/proj")
-        .settings(&ProjectSettings {
-            installed_apps: vec!["blog".to_string()],
-            dirs: Vec::new(),
-            app_dirs: true,
-            ..ProjectSettings::default()
-        })
-        .file("/proj/blog/__init__.py", "")
-        .file("/proj/blog/templatetags/__init__.py", "")
-        .file("/proj/blog/templatetags/ambiguous.py", source)
-        .file("/proj/django/__init__.py", "")
-        .file("/proj/django/template/__init__.py", "")
-        .file(
-            "/proj/django/template/defaulttags.py",
-            "from django import template\nregister = template.Library()\n@register.tag\ndef load(parser, token): pass\n",
-        )
-        .file(
-            "/proj/django/template/loader_tags.py",
-            "from django import template\nregister = template.Library()\n@register.tag\ndef block(parser, token): pass\n@register.tag\ndef extends(parser, token): pass\n@register.tag\ndef include(parser, token): pass\n",
-        )
-        .install(&mut db)?;
-
+fn extracted_block_db(module: &str) -> anyhow::Result<OsTestDatabase> {
+    let (db, project, _) = validation_project_database("extracted-block")?;
+    let module_name = format!("blog.templatetags.{module}");
     let library =
         ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
             .resolved_libraries()
             .into_iter()
-            .find(|library| library.module_name_str() == "blog.templatetags.ambiguous")
-            .ok_or_else(|| {
-                anyhow::anyhow!("fixture library blog.templatetags.ambiguous was not discovered")
-            })?;
+            .find(|library| library.module_name_str() == module_name)
+            .ok_or_else(|| anyhow::anyhow!("fixture library {module_name} was not discovered"))?;
     let library_specs = library_tag_specs(&db, project, library.id());
     let mut specs = TagSpecs::default();
     if let Some(spec) = library_specs.get("mystery") {
@@ -886,41 +839,17 @@ fn extracted_block_db(source: &str) -> anyhow::Result<TestDatabase> {
     Ok(db.with_projectless_tag_specs(specs))
 }
 
-fn extracted_unknown_block_db() -> anyhow::Result<TestDatabase> {
-    let source = r#"
-from django import template
-
-register = template.Library()
-
-@register.tag("mystery")
-def do_mystery(parser, token):
-    options = {"name": "mystery"}
-    nodelist = parser.parse((f"end{options['name']}",))
-    return MysteryNode(nodelist)
-"#;
-
-    extracted_block_db(source)
+fn extracted_unknown_block_db() -> anyhow::Result<OsTestDatabase> {
+    extracted_block_db("dynamic_end")
 }
 
-fn extracted_self_named_block_db() -> anyhow::Result<TestDatabase> {
-    let source = r#"
-from django import template
-
-register = template.Library()
-
-@register.tag("mystery")
-def do_mystery(parser, token):
-    tag_name, *rest = token.split_contents()
-    nodelist = parser.parse((f"end{tag_name}",))
-    return MysteryNode(nodelist)
-"#;
-
-    extracted_block_db(source)
+fn extracted_self_named_block_db() -> anyhow::Result<OsTestDatabase> {
+    extracted_block_db("self_named_end")
 }
 
 #[test]
 fn extracted_unknown_block_does_not_require_synthesized_end_tag() {
-    let db = extracted_unknown_block_db().expect("unknown block fixture should build");
+    let mut db = extracted_unknown_block_db().expect("unknown block fixture should build");
     assert_eq!(
         db.projectless_tag_specs()
             .get("mystery")
@@ -930,8 +859,10 @@ fn extracted_unknown_block_does_not_require_synthesized_end_tag() {
         "ambiguous extracted closer must stay unknown, not be synthesized"
     );
 
-    let errors = collect_test_errors(&db, "{% load ambiguous %}\n{% mystery %}\n")
-        .expect("template validation errors should be collected");
+    let file = db
+        .add_file("test.html", "{% load dynamic_end %}\n{% mystery %}\n")
+        .expect("template source should be added");
+    let errors = collect_validation_errors(&db, file);
 
     assert!(
         !errors.iter().any(|error| matches!(
@@ -947,7 +878,7 @@ fn extracted_unknown_block_does_not_require_synthesized_end_tag() {
 
 #[test]
 fn extracted_self_named_block_requires_concretized_end_tag() {
-    let db = extracted_self_named_block_db().expect("self-named block fixture should build");
+    let mut db = extracted_self_named_block_db().expect("self-named block fixture should build");
     assert_eq!(
         db.projectless_tag_specs()
             .get("mystery")
@@ -956,8 +887,10 @@ fn extracted_self_named_block_requires_concretized_end_tag() {
         Some("endmystery")
     );
 
-    let errors = collect_test_errors(&db, "{% load ambiguous %}\n{% mystery %}\n")
-        .expect("template validation errors should be collected");
+    let file = db
+        .add_file("test.html", "{% load self_named_end %}\n{% mystery %}\n")
+        .expect("template source should be added");
+    let errors = collect_validation_errors(&db, file);
 
     assert!(
         errors.iter().any(|error| matches!(
@@ -1076,59 +1009,48 @@ fn corpus_templates_have_no_argument_false_positives() {
 #[test]
 #[allow(clippy::too_many_lines)]
 fn loaded_unreadable_library_reports_each_load_argument_without_changing_validation() {
-    let mut db = TestDatabase::new();
-    let open_source = concat!(
-        "from django import template\n",
-        "register = template.Library()\n",
-        "def other_tag(context): pass\n",
-        "register.simple_tag(takes_context=True)(globals()['other_tag'])\n",
-        "@register.simple_tag\n",
-        "def known_tag(): pass\n",
-    );
-    let unread_statement = "register.simple_tag(takes_context=True)(globals()['other_tag'])";
-    let open_template = "{% load open %}{% known_tag %}";
-    let known_template = "{% load known %}{% known_tag %}";
-    let mixed_template = "{% load known open %}";
-    let selective_template = "{% load known_tag from open %}";
-    let repeated_template = "{% load open open %}";
-    ProjectFixture::new("/proj")
-        .settings(&ProjectSettings {
-            dirs: vec!["/proj/templates".to_string()],
-            libraries: BTreeMap::from([
-                ("known".to_string(), "known_tags".to_string()),
-                ("open".to_string(), "open_tags".to_string()),
-            ]),
-            ..ProjectSettings::default()
-        })
-        .file(
-            "/proj/known_tags.py",
-            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef known_tag(): pass\n",
-        )
-        .file("/proj/open_tags.py", open_source)
-        .file("/proj/templates/open.html", open_template)
-        .file("/proj/templates/known.html", known_template)
-        .file("/proj/templates/mixed.html", mixed_template)
-        .file("/proj/templates/selective.html", selective_template)
-        .file("/proj/templates/repeated.html", repeated_template)
-        .install(&mut db)
+    let (db, _, project_root) = validation_project_database("unreadable-library")
         .expect("unreadable-library fixture should install");
+    let open_path = project_root.join("open_tags.py");
+    let template_root = project_root.join("templates");
+    let open_template_path = template_root.join("open.html");
+    let known_template_path = template_root.join("known.html");
+    let mixed_template_path = template_root.join("mixed.html");
+    let selective_template_path = template_root.join("selective.html");
+    let repeated_template_path = template_root.join("repeated.html");
+    let open_source = fs::read_to_string(open_path.as_std_path())
+        .expect("open Template Library source should be readable");
+    let open_template = fs::read_to_string(open_template_path.as_std_path())
+        .expect("open template should be readable");
+    let mixed_template = fs::read_to_string(mixed_template_path.as_std_path())
+        .expect("mixed template should be readable");
+    let selective_template = fs::read_to_string(selective_template_path.as_std_path())
+        .expect("selective template should be readable");
+    let repeated_template = fs::read_to_string(repeated_template_path.as_std_path())
+        .expect("repeated template should be readable");
 
-    let open_file = db
-        .file(Utf8Path::new("/proj/open_tags.py"))
+    let open_file = djls_source::path_to_file(&db, open_path.as_path())
         .expect("open Template Library source should exist");
     let unread_start = open_source
-        .find(unread_statement)
-        .expect("open source should contain the unread statement");
+        .lines()
+        .take(3)
+        .map(|line| line.len() + 1)
+        .sum::<usize>();
+    let unread_length = open_source
+        .lines()
+        .nth(3)
+        .expect("open source should contain the unread statement")
+        .len();
     let expected_unread = vec![UnreadRegistration {
         span: djls_source::Span::saturating_from_bounds_usize(
             unread_start,
-            unread_start + unread_statement.len(),
+            unread_start + unread_length,
         ),
         shape: UnreadShape::RegistrationNameUnresolved,
     }];
 
     let open_errors =
-        collect_file_errors(&db, "/proj/templates/open.html").expect("open load should validate");
+        collect_file_errors(&db, open_template_path.as_str()).expect("open load should validate");
     let [
         ValidationError::UnreadableLibrary {
             library,
@@ -1162,10 +1084,10 @@ fn loaded_unreadable_library_reports_each_load_argument_without_changing_validat
     );
 
     let known_errors =
-        collect_file_errors(&db, "/proj/templates/known.html").expect("known load should validate");
+        collect_file_errors(&db, known_template_path.as_str()).expect("known load should validate");
     assert!(known_errors.is_empty(), "{known_errors:#?}");
 
-    let mixed_errors = collect_file_errors(&db, "/proj/templates/mixed.html")
+    let mixed_errors = collect_file_errors(&db, mixed_template_path.as_str())
         .expect("mixed full load should validate");
     let [ValidationError::UnreadableLibrary { span, .. }] = mixed_errors.as_slice() else {
         panic!("expected one hint for the open argument, got {mixed_errors:#?}");
@@ -1178,7 +1100,7 @@ fn loaded_unreadable_library_reports_each_load_argument_without_changing_validat
         djls_source::Span::saturating_from_bounds_usize(mixed_open, mixed_open + "open".len())
     );
 
-    let selective_errors = collect_file_errors(&db, "/proj/templates/selective.html")
+    let selective_errors = collect_file_errors(&db, selective_template_path.as_str())
         .expect("selective load should validate");
     let [ValidationError::UnreadableLibrary { span, .. }] = selective_errors.as_slice() else {
         panic!("expected one hint for a selective load, got {selective_errors:#?}");
@@ -1194,7 +1116,7 @@ fn loaded_unreadable_library_reports_each_load_argument_without_changing_validat
         )
     );
 
-    let repeated_errors = collect_file_errors(&db, "/proj/templates/repeated.html")
+    let repeated_errors = collect_file_errors(&db, repeated_template_path.as_str())
         .expect("repeated loads should validate");
     let repeated_starts = repeated_errors
         .iter()
