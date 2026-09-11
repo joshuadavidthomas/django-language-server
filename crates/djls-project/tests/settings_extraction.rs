@@ -8,7 +8,6 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::Settings;
 use djls_conf::TagSpecDef;
-use djls_project::Db;
 use djls_project::Interpreter;
 use djls_project::Project;
 use djls_project::PythonModuleName;
@@ -51,6 +50,7 @@ use djls_source::WalkOptions;
 use djls_source::path_to_file;
 use djls_testing::OsTestDatabase;
 use djls_testing::ProjectFixture;
+use djls_testing::ProjectFixtureDatabase;
 use djls_testing::TestDatabase;
 use serde_json::Value;
 use serde_json::json;
@@ -138,26 +138,24 @@ fn binding_unknown_origin(source: &str, name: &str) -> Result<Origin, Box<dyn st
     })?)
 }
 
-fn python_project(db: &dyn Db) -> Project {
+fn python_project(db: &impl ProjectFixtureDatabase) -> Project {
     python_project_with_paths(db, &[])
 }
 
-fn python_project_with_paths(db: &dyn Db, pythonpath: &[Utf8PathBuf]) -> Project {
+fn python_project_with_paths(
+    db: &impl ProjectFixtureDatabase,
+    pythonpath: &[Utf8PathBuf],
+) -> Project {
     let root = Utf8Path::new("/project");
     let interpreter = Interpreter::Auto;
     let search_paths =
         SearchPaths::from_project_settings(db.file_system(), root, &interpreter, pythonpath);
-    search_paths.register_roots(db);
-    Project::new(
-        db,
-        root.to_path_buf(),
-        search_paths,
-        interpreter,
-        None,
-        Vec::new(),
-        Vec::new(),
-        TagSpecDef::default(),
-    )
+    ProjectFixture::new(root)
+        .interpreter(interpreter)
+        .search_paths(search_paths)
+        .tag_specs(TagSpecDef::default())
+        .build(db)
+        .unwrap_or_else(|error| panic!("Python project fixture should build: {error:#}"))
 }
 
 fn expected_span(source: &str, needle: &str) -> Option<Span> {

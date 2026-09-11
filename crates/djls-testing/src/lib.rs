@@ -33,6 +33,7 @@ pub use extraction::SortedExtractionResult;
 pub use extraction::extract_bundle;
 pub use extraction::sorted_snapshot;
 pub use fixtures::ProjectFixture;
+pub use fixtures::ProjectFixtureDatabase;
 pub use fixtures::build_entry_specs;
 pub use fixtures::build_specs_from_extraction;
 pub use fixtures::builtin_filter;

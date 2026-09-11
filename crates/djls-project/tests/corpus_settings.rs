@@ -16,20 +16,14 @@ use camino::Utf8Path;
 #[cfg(not(windows))]
 use djls_project::Interpreter;
 #[cfg(not(windows))]
-use djls_project::Project;
-#[cfg(not(windows))]
-use djls_project::PythonModuleName;
-#[cfg(not(windows))]
-use djls_project::SearchPaths;
-#[cfg(not(windows))]
 use djls_project::testing::django_settings;
 #[cfg(not(windows))]
 use djls_project::testing::settings_module_file;
-#[cfg(not(windows))]
-use djls_source::Db as _;
 use djls_testing::Corpus;
 #[cfg(not(windows))]
 use djls_testing::OsTestDatabase;
+#[cfg(not(windows))]
+use djls_testing::ProjectFixture;
 use serde_json::Value;
 
 #[cfg(not(windows))]
@@ -190,25 +184,10 @@ fn settings_extraction_snapshots() -> Result<(), Box<dyn std::error::Error>> {
         for settings_module in corpus_project.django_settings_modules {
             let mut db = OsTestDatabase::with_disk_roots([checkout_root.clone()]);
             let interpreter = Interpreter::VenvPath(corpus.root().join("hermetic-no-venv"));
-            let pythonpath = Vec::new();
-            let search_paths = SearchPaths::from_project_settings(
-                db.file_system(),
-                project_root.as_path(),
-                &interpreter,
-                &pythonpath,
-            );
-            search_paths.register_roots(&db);
-            let project = Project::new(
-                &db,
-                project_root.clone(),
-                search_paths,
-                interpreter,
-                Some(PythonModuleName::parse(&settings_module)?),
-                pythonpath,
-                Vec::new(),
-                djls_conf::Settings::default().tagspecs().clone(),
-            );
-            db.set_project(project);
+            let project = ProjectFixture::new(project_root.clone())
+                .django_settings_module(&settings_module)
+                .interpreter(interpreter)
+                .install(&mut db)?;
 
             settings_module_file(&db, project).ok_or_else(|| {
                 io::Error::other(format!(

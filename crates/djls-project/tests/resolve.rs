@@ -3,7 +3,6 @@ use std::io;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
-use djls_conf::Settings;
 use djls_project::testing::PythonImportOutcomeView;
 use djls_project::testing::PythonModuleEvaluationView;
 use djls_project::testing::compute_django_environment;
@@ -1345,18 +1344,11 @@ fn ty_symlink() {
         &Interpreter::Auto,
         &[],
     );
-    search_paths.register_roots(&db);
-    let project = Project::new(
-        &db,
-        root,
-        search_paths,
-        Interpreter::Auto,
-        None,
-        Vec::new(),
-        Vec::new(),
-        Settings::default().tagspecs().clone(),
-    );
-    db.set_project(project);
+    let project = ProjectFixture::new(root)
+        .interpreter(Interpreter::Auto)
+        .search_paths(search_paths)
+        .install(&mut db)
+        .expect("resolver project fixture should build");
 
     let foo_module = PythonSourceModule::resolve(
         &db,
@@ -2354,18 +2346,11 @@ fn ty_case_sensitive_resolution_with_symlinked_directory() {
         &Interpreter::Auto,
         &[],
     );
-    search_paths.register_roots(&db);
-    let project = Project::new(
-        &db,
-        root,
-        search_paths,
-        Interpreter::Auto,
-        None,
-        Vec::new(),
-        Vec::new(),
-        Settings::default().tagspecs().clone(),
-    );
-    db.set_project(project);
+    let project = ProjectFixture::new(root)
+        .interpreter(Interpreter::Auto)
+        .search_paths(search_paths)
+        .install(&mut db)
+        .expect("resolver project fixture should build");
 
     assert_eq!(
         PythonSourceModule::resolve(

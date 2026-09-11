@@ -352,6 +352,28 @@ impl OsTestDatabase {
         disk: Arc<dyn FileSystem>,
         disk_roots: impl IntoIterator<Item = Utf8PathBuf>,
     ) -> Self {
+        Self::with_file_system_and_storage(disk, disk_roots, salsa::Storage::default())
+    }
+
+    /// Create a layered database that records Salsa events.
+    #[must_use]
+    pub fn with_file_system_and_event_log(
+        disk: Arc<dyn FileSystem>,
+        disk_roots: impl IntoIterator<Item = Utf8PathBuf>,
+        event_log: SalsaEventLog,
+    ) -> Self {
+        Self::with_file_system_and_storage(
+            disk,
+            disk_roots,
+            salsa::Storage::new(Some(Box::new(move |event| event_log.push(event)))),
+        )
+    }
+
+    fn with_file_system_and_storage(
+        disk: Arc<dyn FileSystem>,
+        disk_roots: impl IntoIterator<Item = Utf8PathBuf>,
+        storage: salsa::Storage<Self>,
+    ) -> Self {
         let memory = Arc::new(Mutex::new(InMemoryFileSystem::new()));
         let fs = Arc::new(LayeredFileSystem::new(
             Arc::clone(&memory),
@@ -359,7 +381,7 @@ impl OsTestDatabase {
             disk_roots,
         ));
         Self {
-            storage: salsa::Storage::default(),
+            storage,
             fs,
             memory,
             files: SourceFiles::default(),
@@ -382,6 +404,15 @@ impl OsTestDatabase {
     pub fn with_projectless_tag_specs(mut self, specs: TagSpecs) -> Self {
         self.projectless_tag_specs = specs;
         self
+    }
+
+    pub(crate) fn insert_fixture_file(&self, path: &str, content: &str) -> anyhow::Result<()> {
+        // Fixture setup precedes root registration and queries, so no change event is needed.
+        self.memory
+            .lock()
+            .map_err(|_error| anyhow::anyhow!("in-memory filesystem lock is poisoned"))?
+            .add_file(path.into(), content.to_string());
+        Ok(())
     }
 
     /// Add an in-memory file above the database's disk filesystem.
@@ -499,6 +530,7 @@ mod tests {
     use djls_source::Db as _;
 
     use super::*;
+    use crate::ProjectFixture;
 
     #[test]
     fn layered_filesystem_reads_disk_only_below_allowed_roots() {
@@ -568,6 +600,23 @@ mod tests {
         assert!(issues.is_empty());
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].path, Utf8Path::new("/blocked/memory.py"));
+    }
+
+    #[test]
+    fn project_fixture_installs_files_in_os_database() {
+        let mut db = OsTestDatabase::new();
+        let project = ProjectFixture::new("/project")
+            .file("/project/module.py", "VALUE = 1\n")
+            .install(&mut db)
+            .expect("OS-backed project fixture should install");
+
+        assert_eq!(db.project(), Some(project));
+        assert_eq!(
+            db.file_system()
+                .read_to_string(Utf8Path::new("/project/module.py"))
+                .expect("fixture file should be readable"),
+            "VALUE = 1\n"
+        );
     }
 
     #[test]

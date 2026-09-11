@@ -1,15 +1,12 @@
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::io;
-use std::mem;
 use std::sync::Arc;
-use std::sync::Mutex;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
-use djls_conf::Settings;
 use djls_project::Db as ProjectDb;
 use djls_project::testing::PythonSyntaxErrorClass;
 use djls_project::testing::compute_django_environment;
@@ -24,7 +21,6 @@ use djls_source::FileSystem;
 use djls_source::InMemoryFileSystem;
 use djls_source::RootWalk;
 use djls_source::SourceChanges;
-use djls_source::SourceFiles;
 use djls_source::WalkOptions;
 use djls_testing::DjangoFactsGolden;
 use djls_testing::GoldenTemplateSymbol;
@@ -36,7 +32,6 @@ use djls_testing::django_facts_project;
 use salsa::Database;
 use salsa::Event;
 use salsa::EventKind;
-use salsa::Storage;
 use serde_json::Value;
 use serde_json::to_value;
 
@@ -1052,39 +1047,9 @@ impl FileSystem for ToggleReadFileSystem {
     }
 }
 
-#[salsa::db]
-#[derive(Clone)]
-struct EventTestDatabase {
-    storage: Storage<Self>,
-    fs: Arc<dyn FileSystem>,
-    files: SourceFiles,
-    project: Option<Project>,
-}
-
-#[salsa::db]
-impl Database for EventTestDatabase {}
-
-#[salsa::db]
-impl SourceDb for EventTestDatabase {
-    fn files(&self) -> &SourceFiles {
-        &self.files
-    }
-
-    fn file_system(&self) -> &dyn FileSystem {
-        self.fs.as_ref()
-    }
-}
-
-#[salsa::db]
-impl ProjectDb for EventTestDatabase {
-    fn project(&self) -> Option<Project> {
-        self.project
-    }
-}
-
 #[test]
 fn readable_unreadable_rescans_recompute_ancestors_once_and_retain_dependency() {
-    let events = Arc::new(Mutex::new(Vec::new()));
+    let events = SalsaEventLog::default();
     let readable = Arc::new(AtomicBool::new(true));
     let leaf_path = Utf8PathBuf::from("/proj/myproject/leaf.py");
     let mut inner = InMemoryFileSystem::new();
@@ -1097,48 +1062,20 @@ fn readable_unreadable_rescans_recompute_ancestors_once_and_retain_dependency() 
         "from .leaf import *\nINSTALLED_APPS = ['local']\n".to_string(),
     );
     inner.add_file(leaf_path.clone(), "TEMPLATES = []\n".to_string());
-    let mut db = EventTestDatabase {
-        storage: Storage::new(Some(Box::new({
-            let events = Arc::clone(&events);
-            move |event| {
-                events
-                    .lock()
-                    .expect("test mutex should not be poisoned")
-                    .push(event);
-            }
-        }))),
-        fs: Arc::new(ToggleReadFileSystem {
+    let mut db = OsTestDatabase::with_file_system_and_event_log(
+        Arc::new(ToggleReadFileSystem {
             inner,
             toggled_path: leaf_path,
             readable: Arc::clone(&readable),
         }),
-        files: SourceFiles::default(),
-        project: None,
-    };
-    let root = Utf8PathBuf::from("/proj");
-    let interpreter = Interpreter::Auto;
-    let pythonpath = Vec::new();
-    let search_paths = SearchPaths::from_project_settings(
-        db.file_system(),
-        root.as_path(),
-        &interpreter,
-        &pythonpath,
+        [Utf8PathBuf::from("/proj")],
+        events.clone(),
     );
-    search_paths.register_roots(&db);
-    let project = Project::new(
-        &db,
-        root,
-        search_paths,
-        interpreter,
-        Some(
-            PythonModuleName::parse("myproject.settings")
-                .expect("test Python module name should be valid"),
-        ),
-        pythonpath,
-        Vec::new(),
-        Settings::default().tagspecs().clone(),
-    );
-    db.project = Some(project);
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .interpreter(Interpreter::Auto)
+        .install(&mut db)
+        .expect("settings project fixture should build");
 
     let _ = django_settings(&db, project);
     // settings.py loads `.leaf` and its distinct parent package
@@ -1148,9 +1085,8 @@ fn readable_unreadable_rescans_recompute_ancestors_once_and_retain_dependency() 
         3
     );
     events
-        .lock()
-        .expect("test mutex should not be poisoned")
-        .clear();
+        .take()
+        .expect("settings event log should be readable");
 
     for next_readable in [false, true] {
         readable.store(next_readable, Ordering::SeqCst);
@@ -1160,8 +1096,9 @@ fn readable_unreadable_rescans_recompute_ancestors_once_and_retain_dependency() 
             ProjectFactsPhase::SettingsSources.run(&db, project).count(),
             3
         );
-        let transition_events =
-            mem::take(&mut *events.lock().expect("test mutex should not be poisoned"));
+        let transition_events = events
+            .take()
+            .expect("settings event log should be readable");
 
         assert_eq!(
             execution_count(&db, &transition_events, "evaluate_python_module"),
@@ -1287,27 +1224,10 @@ fn project_with_file_system_failure(
         Arc::new(FailingFileSystem { inner: fs, failure }),
         [Utf8PathBuf::from("/proj")],
     );
-    let root = Utf8PathBuf::from("/proj");
-    let interpreter = Interpreter::Auto;
-    let pythonpath = Vec::new();
-    let search_paths = SearchPaths::from_project_settings(
-        db.file_system(),
-        root.as_path(),
-        &interpreter,
-        &pythonpath,
-    );
-    search_paths.register_roots(&db);
-    let project = Project::new(
-        &db,
-        root,
-        search_paths,
-        interpreter,
-        Some(PythonModuleName::parse("myproject.settings")?),
-        pythonpath,
-        Vec::new(),
-        djls_conf::Settings::default().tagspecs().clone(),
-    );
-    db.set_project(project);
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .interpreter(Interpreter::Auto)
+        .install(&mut db)?;
 
     Ok((db, project))
 }
@@ -1331,28 +1251,22 @@ fn apply_project_discovery(db: &mut TestDatabase) -> Result<(), io::Error> {
 fn project_requiring_environment_application(
     db: &mut TestDatabase,
 ) -> Result<Project, Box<dyn std::error::Error>> {
-    db.add_file(
-        "/proj/settings.py",
-        "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'extras.tags'}}}]\n",
-    )?;
-    db.add_file("/vendor/extras/__init__.py", "")?;
-    db.add_file(
-        "/vendor/extras/tags.py",
-        "from django import template\nregister = template.Library()\n@register.simple_tag\ndef custom(): pass\n",
-    )?;
-
-    let project = Project::new(
-        db,
-        Utf8PathBuf::from("/proj"),
-        SearchPaths::default(),
-        Interpreter::Auto,
-        Some(PythonModuleName::parse("settings")?),
-        vec![Utf8PathBuf::from("/vendor")],
-        Vec::new(),
-        Settings::default().tagspecs().clone(),
-    );
-    db.set_project(project);
-    Ok(project)
+    Ok(ProjectFixture::new("/proj")
+        .file(
+            "/proj/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'extras.tags'}}}]\n",
+        )
+        .file("/vendor/extras/__init__.py", "")
+        .file(
+            "/vendor/extras/tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef custom(): pass\n",
+        )
+        .django_settings_module("settings")
+        .pythonpath("/vendor")
+        .interpreter(Interpreter::Auto)
+        .search_paths(SearchPaths::default())
+        .register_roots(false)
+        .install(db)?)
 }
 
 #[test]
@@ -1708,30 +1622,11 @@ fn unreadable_root_settings_are_dynamic_never_unset() {
         }),
         [Utf8PathBuf::from("/proj")],
     );
-    let root = Utf8PathBuf::from("/proj");
-    let interpreter = Interpreter::Auto;
-    let pythonpath = Vec::new();
-    let search_paths = SearchPaths::from_project_settings(
-        db.file_system(),
-        root.as_path(),
-        &interpreter,
-        &pythonpath,
-    );
-    search_paths.register_roots(&db);
-    let project = Project::new(
-        &db,
-        root,
-        search_paths,
-        interpreter,
-        Some(
-            PythonModuleName::parse("myproject.settings")
-                .expect("test Python module name should be valid"),
-        ),
-        pythonpath,
-        Vec::new(),
-        Settings::default().tagspecs().clone(),
-    );
-    db.set_project(project);
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .interpreter(Interpreter::Auto)
+        .install(&mut db)
+        .expect("settings project fixture should build");
 
     let settings =
         to_value(django_settings(&db, project)).expect("test Python module name should be valid");
@@ -1766,31 +1661,11 @@ fn django_discovery_includes_deduped_unreadable_settings_source() {
         }),
         [Utf8PathBuf::from("/proj")],
     );
-    let root = Utf8PathBuf::from("/proj");
-    let interpreter = Interpreter::Auto;
-    let pythonpath = Vec::new();
-    let search_paths = SearchPaths::from_project_settings(
-        db.file_system(),
-        root.as_path(),
-        &interpreter,
-        &pythonpath,
-    );
-    search_paths.register_roots(&db);
-    let tag_specs = djls_conf::Settings::default().tagspecs().clone();
-    let project = Project::new(
-        &db,
-        root,
-        search_paths,
-        interpreter,
-        Some(
-            PythonModuleName::parse("myproject.settings")
-                .expect("test Python module name should be valid"),
-        ),
-        pythonpath,
-        Vec::new(),
-        tag_specs,
-    );
-    db.set_project(project);
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .interpreter(Interpreter::Auto)
+        .install(&mut db)
+        .expect("settings project fixture should build");
 
     let settings_sources = ProjectFactsPhase::SettingsSources.run(&db, project);
     assert_eq!(settings_sources.count(), 3);
@@ -3200,31 +3075,11 @@ fn failed_available_candidate_walk_makes_missing_library_inconclusive() {
         }),
         [Utf8PathBuf::from("/proj")],
     );
-    let root = Utf8PathBuf::from("/proj");
-    let interpreter = Interpreter::Auto;
-    let pythonpath = Vec::new();
-    let search_paths = SearchPaths::from_project_settings(
-        db.file_system(),
-        root.as_path(),
-        &interpreter,
-        &pythonpath,
-    );
-    search_paths.register_roots(&db);
-    let tag_specs = djls_conf::Settings::default().tagspecs().clone();
-    let project = Project::new(
-        &db,
-        root,
-        search_paths,
-        interpreter,
-        Some(
-            PythonModuleName::parse("myproject.settings")
-                .expect("test Python module name should be valid"),
-        ),
-        pythonpath,
-        Vec::new(),
-        tag_specs,
-    );
-    db.set_project(project);
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .interpreter(Interpreter::Auto)
+        .install(&mut db)
+        .expect("settings project fixture should build");
 
     let libraries = template_library_catalog(&db, project);
     assert!(matches!(
