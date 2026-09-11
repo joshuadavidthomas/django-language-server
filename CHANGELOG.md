@@ -21,6 +21,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 ### Added
 
 - Added a "Why a language server?" docs page.
+- Added a getting started guide and grouped the documentation navigation into editor, usage, and reference sections.
 
 ### Changed
 

@@ -1,14 +1,19 @@
-# Clients
+# Editor setup
 
-Django Language Server works with any client that supports the Language Server Protocol (LSP).
+Django Language Server works with any editor that supports the Language Server Protocol (LSP). Four editors have setup guides:
 
-## Adding a new client
+- [Neovim](neovim.md)
+- [Sublime Text](sublime-text.md)
+- [VS Code](vscode.md)
+- [Zed](zed.md)
 
-Documentation for setting up the language server in other clients is sorely needed. Any editor that has [LSP client](https://langserver.org/#:~:text=for%20more%20information.-,LSP%20clients,opensesame%2Dextension%2Dlanguage_server,-Community%20Discussion%20Forums) support should work.
+## Using another editor
 
-If you get it working in your editor:
+Any editor with an [LSP client](https://langserver.org/) can use the server: configure the client to run `djls serve` for Django template files. The [getting started guide](../getting-started.md) covers installing the server and verifying the setup works.
 
-1. Create a new Markdown file in the [`docs/clients/`](https://github.com/joshuadavidthomas/django-language-server/tree/main/docs/clients) directory (e.g., `docs/clients/vscode.md`)
+If you get it working in your editor, we sorely need documentation for other editors:
+
+1. Create a new Markdown file in the [`docs/clients/`](https://github.com/joshuadavidthomas/django-language-server/tree/main/docs/clients) directory (e.g., `docs/clients/helix.md`)
 2. Include step-by-step setup instructions, any required configuration snippets, and tips for troubleshooting
 
 Your feedback and contributions will help make the setup process smoother for everyone! 🙌

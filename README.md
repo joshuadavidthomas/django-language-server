@@ -61,36 +61,23 @@ New to language servers, or unsure whether you need one? Start with [Why a langu
 
 ## Getting Started
 
-Set up your editor's LSP client to run the server:
+Follow the [getting started guide](docs/getting-started.md) to go from nothing to a working setup: install the server, configure your editor, and open a template.
 
-- [VS Code](docs/clients/vscode.md) - Install the extension from the marketplace
-- [Neovim](docs/clients/neovim.md) - Configure with `vim.lsp.config()`
-- [Sublime Text](docs/clients/sublime-text.md) - Set up with LSP package
-- [Zed](docs/clients/zed.md) - Install the extension
-
-See [all client configurations](docs/clients/index.md).
-
-Most editors can use `uvx --from django-language-server djls serve` to run the server on-demand without installing it. Alternatively, install it globally first:
+The short version:
 
 ```bash
 uv tool install django-language-server
 # or: pipx install django-language-server
 ```
 
-See the [Installation](docs/installation.md) guide for Homebrew, pip, standalone binaries, and source builds. The [`djls` CLI](docs/cli.md) can also check templates without an editor.
+Then set up your editor's LSP client to run the server:
 
-Once configured, open any Django template file in your project to get:
+- [VS Code](docs/clients/vscode.md) - Install the extension from the marketplace
+- [Neovim](docs/clients/neovim.md) - Configure with `vim.lsp.config()`
+- [Sublime Text](docs/clients/sublime-text.md) - Set up with LSP package
+- [Zed](docs/clients/zed.md) - Install the extension
 
-- Template tag and filter completions with snippets
-- Real-time syntax validation and diagnostics
-- Hover documentation for template tags, filters, libraries, and template references
-- Navigation to templates, inherited blocks, and Python definitions for Template Libraries, Tags, and Filters
-- Reference search across template inheritance blocks
-- Clickable links for `{% extends %}`, `{% include %}`, and `{% load %}` names
-- Quick fixes for unloaded template tags/filters and mismatched `{% endblock %}` names
-- Folding for Django template regions
-- Outline symbols for template structure
-- Opt-in LSP document formatting through `djangofmt`
+Any other editor with an LSP client works too; see [Editor setup](docs/clients/index.md). The [Installation](docs/installation.md) reference covers Homebrew, pip, standalone binaries, and source builds. The [`djls` CLI](docs/cli.md) can check templates without an editor.
 
 ## Documentation
 
