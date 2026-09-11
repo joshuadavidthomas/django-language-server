@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::io;
 
+use camino::Utf8PathBuf;
 use djls_conf::TagDef;
 use djls_conf::TagLibraryDef;
 use djls_conf::TagSpecDef;
@@ -31,6 +32,7 @@ use djls_source::Span;
 use djls_testing::ProjectFixture;
 use djls_testing::ProjectSettings;
 use djls_testing::TestDatabase;
+use djls_testing::corpus_project_database;
 
 type TestResult<T> = Result<T, Box<dyn std::error::Error>>;
 
@@ -304,22 +306,15 @@ fn symbol_join_distinguishes_unanimous_and_partial_ambiguous_libraries() {
 
 #[test]
 fn symbol_lookup_keeps_known_providers_beside_open_loadable_libraries() {
-    let mut db = TestDatabase::new();
-    let project = ProjectFixture::new("/proj")
-        .settings(&ProjectSettings {
-            dirs: vec!["/proj/templates".to_string()],
-            libraries: BTreeMap::from([
-                ("known".to_string(), "known_tags".to_string()),
-                ("open".to_string(), "open_tags".to_string()),
-            ]),
-            ..ProjectSettings::default()
-        })
-        .file("/proj/known_tags.py", "from django import template\nregister = template.Library()\n@register.simple_tag\ndef known_tag(): pass\n")
-        .file("/proj/open_tags.py", "from django import template\nregister = template.Library()\ndef other_tag(context): pass\nregister.simple_tag(takes_context=True)(globals()['other_tag'])\n")
-        .file("/proj/django/template/defaultfilters.py", "from django import template\nregister = template.Library()\n")
-        .file("/proj/templates/page.html", "{% known_tag %}")
-        .install(&mut db)
-        .expect("open-library fixture should install");
+    let project_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("resources/projects/open-loadable-library")
+        .canonicalize()
+        .expect("open-library project fixture should resolve");
+    let project_root = Utf8PathBuf::from_path_buf(project_root)
+        .expect("open-library project fixture path should be UTF-8");
+    let (db, project, _) =
+        corpus_project_database(project_root.clone(), [project_root], "settings")
+            .expect("open-library project fixture should install");
     let catalog = template_library_catalog(&db, project);
     assert_eq!(
         project_inventory(catalog).symbol("known_tag", TemplateSymbolKind::Tag),
