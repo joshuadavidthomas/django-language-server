@@ -124,3 +124,113 @@ error[S117]: 'for' statements should have at least four words: for item in
 1 | {% for item in %}{% endfor %}
   | ^^^^^^^^^^^^^^^^^
 ```
+
+## accepts one loop variable
+
+```htmldjango
+{% for x in items %}{% endfor %}
+```
+
+```snapshot
+✓ no diagnostics
+```
+
+## accepts unpacked loop variables
+
+```htmldjango
+{% for x, y in items %}{% endfor %}
+```
+
+```snapshot
+✓ no diagnostics
+```
+
+## accepts reversed after the iterable
+
+```htmldjango
+{% for x in items reversed %}{% endfor %}
+```
+
+```snapshot
+✓ no diagnostics
+```
+
+## accepts unpacking with reversed
+
+```htmldjango
+{% for x, y in items reversed %}{% endfor %}
+```
+
+```snapshot
+✓ no diagnostics
+```
+
+## rejects from in place of in
+
+```htmldjango
+{% for x from items %}{% endfor %}
+```
+
+```snapshot
+error[S117]: 'for' statements should use the format 'for x in y': for x from items
+ --> test.html:1:1
+  |
+1 | {% for x from items %}{% endfor %}
+  | ^^^^^^^^^^^^^^^^^^^^^^
+```
+
+## rejects from before reversed
+
+```htmldjango
+{% for x from items reversed %}{% endfor %}
+```
+
+```snapshot
+error[S117]: 'for' statements should use the format 'for x in y': for x from items reversed
+ --> test.html:1:1
+  |
+1 | {% for x from items reversed %}{% endfor %}
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+```
+
+## rejects reversed as the iterable
+
+```htmldjango
+{% for x in reversed %}{% endfor %}
+```
+
+```snapshot
+error[S117]: Tag 'for' does not accept 'reversed' at position 3
+ --> test.html:1:1
+  |
+1 | {% for x in reversed %}{% endfor %}
+  | ^^^^^^^^^^^^^^^^^^^^^^^
+```
+
+## rejects a missing in keyword
+
+```htmldjango
+{% for x y in reversed %}{% endfor %}
+```
+
+```snapshot
+error[S117]: Tag 'for' does not accept 'reversed' at position 4
+ --> test.html:1:1
+  |
+1 | {% for x y in reversed %}{% endfor %}
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^
+```
+
+## rejects an omitted iterable
+
+```htmldjango
+{% for x in %}{% endfor %}
+```
+
+```snapshot
+error[S117]: 'for' statements should have at least four words: for x in
+ --> test.html:1:1
+  |
+1 | {% for x in %}{% endfor %}
+  | ^^^^^^^^^^^^^^
+```

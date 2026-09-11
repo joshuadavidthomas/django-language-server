@@ -43,3 +43,18 @@ error[S100]: Unclosed 'comment' tag
 1 | {% comment %}
   | ^^^^^^^^^^^^^
 ```
+
+## a hidden load does not affect later tag availability
+
+```htmldjango
+{% comment %}{% load i18n %}{% endcomment %}
+{% trans "hello" %}
+```
+
+```snapshot
+error[S109]: Tag 'trans' requires the 'i18n' tag library
+ --> test.html:2:1
+  |
+2 | {% trans "hello" %}
+  | ^^^^^^^^^^^^^^^^^^^
+```
