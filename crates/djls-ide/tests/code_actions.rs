@@ -43,7 +43,7 @@ fn ambiguous_db_with_source(source: &str) -> TestResult<OsTestDatabase> {
         ]),
         ..ProjectSettings::default()
     };
-    let mut db = validation_db(&settings)?;
+    let mut db = validation_db(&settings.settings_py())?;
     let library = "from django import template\nregister = template.Library()\n@register.tag(name='ambiguous_tag')\ndef ambiguous_tag(parser, token): pass\n@register.filter(name='ambiguous_filter')\ndef ambiguous_filter(value): pass\n";
     db.add_file("/fixture/alpha_tags.py", library)?;
     db.add_file("/fixture/beta_tags.py", library)?;
@@ -198,14 +198,16 @@ fn unloaded_filter_action_inserts_required_library() {
         installed_apps: vec!["django.contrib.humanize".into()],
         ..ProjectSettings::default()
     };
-    let mut db = validation_db(&settings).expect("validation fixture should build");
+    let settings_py = settings.settings_py();
+    let mut db = validation_db(&settings_py).expect("validation fixture should build");
     db.add_file(TEMPLATE_PATH, source)
         .expect("template fixture should be added");
     let actions = collect_actions(&db, request_at(source, "intcomma"))
         .expect("unloaded filter should produce a code action response");
     let action = only_action(actions).expect("unloaded filter should produce one action");
     let edit = only_edit(&action).expect("unloaded filter action should contain one edit");
-    let mut edited_db = validation_db(&settings).expect("edited validation fixture should build");
+    let mut edited_db =
+        validation_db(&settings_py).expect("edited validation fixture should build");
     edited_db
         .add_file(TEMPLATE_PATH, &apply_edit(source, edit))
         .expect("edited template fixture should be added");

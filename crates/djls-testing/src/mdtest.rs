@@ -34,7 +34,7 @@ pub struct Scenario {
     snapshot_start: Option<usize>,
     snapshot_end: Option<usize>,
     snapshot_insert_at: usize,
-    project_settings: ProjectSettings,
+    settings_source: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -144,13 +144,8 @@ pub fn render_validation_scenario(
     for (path, source) in &python_files {
         db.add_file(path.as_str(), source)?;
     }
-    let default_settings = ProjectSettings::default();
-    let settings_overridden = scenario.project_settings != default_settings;
-    if settings_overridden {
-        db.add_file(
-            VALIDATION_SETTINGS_PATH,
-            &scenario.project_settings.settings_py(),
-        )?;
+    if let Some(settings_source) = &scenario.settings_source {
+        db.add_file(VALIDATION_SETTINGS_PATH, settings_source)?;
     }
 
     let rendered = snapshot_validate_files(
@@ -168,8 +163,11 @@ pub fn render_validation_scenario(
     for (path, _) in &python_files {
         db.remove_file(path.as_str())?;
     }
-    if settings_overridden {
-        db.add_file(VALIDATION_SETTINGS_PATH, &default_settings.settings_py())?;
+    if scenario.settings_source.is_some() {
+        db.add_file(
+            VALIDATION_SETTINGS_PATH,
+            &ProjectSettings::default().settings_py(),
+        )?;
     }
 
     let rendered = rendered?;
@@ -377,7 +375,7 @@ struct ScenarioCollector<'a> {
 struct Heading {
     level: usize,
     name: String,
-    settings: Option<ProjectSettings>,
+    settings: Option<String>,
 }
 
 #[derive(Debug)]
@@ -611,7 +609,7 @@ impl<'a> ScenarioCollector<'a> {
         }
         if !matches!(
             language.as_str(),
-            "htmldjango" | "django" | "html" | "py" | "toml" | "snapshot"
+            "htmldjango" | "django" | "html" | "py" | "snapshot"
         ) {
             let heading = self
                 .current
@@ -634,7 +632,6 @@ impl<'a> ScenarioCollector<'a> {
         match block.language.as_str() {
             "htmldjango" | "django" | "html" => self.set_template(block),
             "py" => self.set_python(block),
-            "toml" => self.set_settings(&block),
             "snapshot" => self.set_snapshot(block),
             _ => Ok(()),
         }
@@ -701,10 +698,18 @@ impl<'a> ScenarioCollector<'a> {
             ));
         }
         if file_path == "settings.py" {
-            return Err(format!(
-                "heading '{}' Python path 'settings.py' is reserved for generated project settings",
-                current.name
-            ));
+            let heading = self
+                .headings
+                .last_mut()
+                .ok_or_else(|| "settings.py must appear under a heading".to_string())?;
+            if heading.settings.is_some() {
+                return Err(format!(
+                    "heading '{}' has more than one py block for path 'settings.py'",
+                    current.name
+                ));
+            }
+            heading.settings = Some(block.content);
+            return Ok(());
         }
         if current
             .files
@@ -722,29 +727,6 @@ impl<'a> ScenarioCollector<'a> {
             path: file_path,
             source: block.content,
         });
-        Ok(())
-    }
-
-    fn set_settings(&mut self, block: &FencedBlock) -> Result<(), String> {
-        self.pending_file_path = None;
-        let current_name = self
-            .current
-            .as_ref()
-            .ok_or_else(|| "toml code block must appear under a heading".to_string())?
-            .name
-            .clone();
-        let heading = self
-            .headings
-            .last_mut()
-            .ok_or_else(|| "toml code block must appear under a heading".to_string())?;
-        if heading.settings.is_some() {
-            return Err(format!(
-                "heading '{current_name}' has more than one toml code block"
-            ));
-        }
-        let settings = toml::from_str(&block.content)
-            .map_err(|error| format!("heading '{current_name}' has invalid toml: {error}"))?;
-        heading.settings = Some(settings);
         Ok(())
     }
 
@@ -803,12 +785,11 @@ impl<'a> ScenarioCollector<'a> {
                     current.name
                 )
             })?;
-            let project_settings = self
+            let settings_source = self
                 .headings
                 .iter()
                 .rev()
-                .find_map(|heading| heading.settings.clone())
-                .unwrap_or_default();
+                .find_map(|heading| heading.settings.clone());
             self.scenarios.push(Scenario {
                 name: current.name,
                 files: current.files,
@@ -817,7 +798,7 @@ impl<'a> ScenarioCollector<'a> {
                 snapshot_start: current.snapshot_start,
                 snapshot_end: current.snapshot_end,
                 snapshot_insert_at,
-                project_settings,
+                settings_source,
             });
             Ok(())
         } else if current.snapshot.is_none() {
@@ -1110,23 +1091,30 @@ source
     }
 
     #[test]
-    fn rejects_two_toml_blocks_in_one_section() {
+    fn rejects_two_settings_python_blocks_in_one_section() {
         let markdown = r"# Shape
 
-```toml
-builtins = []
+`settings.py`:
+
+```py
+FIRST = 1
 ```
 
-```toml
-libraries = {}
+`settings.py`:
+
+```py
+SECOND = 2
 ```
 ";
 
         let error = ScenarioCollector::new(markdown)
             .collect()
-            .expect_err("two toml blocks should be rejected");
+            .expect_err("two settings.py blocks should be rejected");
 
-        assert_eq!(error, "heading 'Shape' has more than one toml code block");
+        assert_eq!(
+            error,
+            "heading 'Shape' has more than one py block for path 'settings.py'"
+        );
     }
 
     #[test]
@@ -1192,35 +1180,18 @@ SECOND = 2
     }
 
     #[test]
-    fn rejects_python_label_reserved_for_generated_settings() {
-        let markdown = r"# Shape
+    fn inherits_settings_python_from_an_ancestor_heading() {
+        let markdown = r#"# Shape
 
 `settings.py`:
 
 ```py
-VALUE = 1
-```
-";
-
-        let error = ScenarioCollector::new(markdown)
-            .collect()
-            .expect_err("settings.py should be reserved");
-
-        assert_eq!(
-            error,
-            "heading 'Shape' Python path 'settings.py' is reserved for generated project settings"
-        );
-    }
-
-    #[test]
-    fn inherits_toml_from_an_ancestor_heading() {
-        let markdown = r#"# Shape
-
-```toml
-builtins = ["local_tags"]
+BUILTINS = ["local_tags"]
 ```
 
-## scenario
+## Group
+
+### scenario
 
 `local_tags.py`:
 
@@ -1257,7 +1228,37 @@ snapshot
                 },
             ]
         );
-        assert_eq!(scenarios[0].project_settings.builtins, ["local_tags"]);
+        assert_eq!(
+            scenarios[0].settings_source.as_deref(),
+            Some("BUILTINS = [\"local_tags\"]")
+        );
+    }
+
+    #[test]
+    fn allows_settings_python_on_a_grouping_heading() {
+        let markdown = r"# Shape
+
+## Group
+
+`settings.py`:
+
+```py
+VALUE = 1
+```
+
+### scenario
+
+```htmldjango
+content
+```
+";
+
+        let scenarios = ScenarioCollector::new(markdown)
+            .collect()
+            .expect("settings.py on a grouping heading should parse");
+
+        assert_eq!(scenarios.len(), 1);
+        assert_eq!(scenarios[0].settings_source.as_deref(), Some("VALUE = 1"));
     }
 
     #[test]
