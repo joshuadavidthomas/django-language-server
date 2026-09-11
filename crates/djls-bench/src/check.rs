@@ -898,6 +898,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "runs the full corpus check workload in the benchmark workflow"]
     fn full_corpus_check_workload_is_stable() {
         let corpus = full_corpus_templates().expect("full corpus templates should load");
         snapshot_corpus("check_workload_corpus_all", corpus);

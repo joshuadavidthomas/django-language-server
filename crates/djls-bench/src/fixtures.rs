@@ -526,6 +526,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "loads the Django and full template corpora and checks discovered file counts in the benchmark workflow"]
     fn corpus_loader_synchronizes_every_discovered_template() {
         let required = bench_corpus_is_required();
         for (name, corpus) in [
