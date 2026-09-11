@@ -1,0 +1,139 @@
+{
+  "django_compilation": {
+    "authored_default_duplicate_binding.html": {
+      "result": "compiled"
+    },
+    "authored_default_missing_required.html": {
+      "result": "compiled"
+    },
+    "authored_default_valid.html": {
+      "result": "compiled"
+    },
+    "authored_keyword_only_missing.html": {
+      "error": "'authored_keyword_only' did not receive value(s) for the argument(s): 'required'",
+      "result": "failed"
+    },
+    "authored_keyword_only_valid.html": {
+      "result": "compiled"
+    },
+    "authored_positional_after_keyword.html": {
+      "error": "'authored_default' received some positional argument(s) after some keyword argument(s)",
+      "result": "failed"
+    },
+    "authored_repeated_keyword.html": {
+      "error": "'authored_default' received multiple values for keyword argument 'one'",
+      "result": "failed"
+    },
+    "authored_required_missing.html": {
+      "error": "'authored_required' did not receive value(s) for the argument(s): 'value'",
+      "result": "failed"
+    },
+    "authored_required_valid.html": {
+      "result": "compiled"
+    },
+    "class_missing.html": {
+      "error": "'class_tag' requires one argument",
+      "result": "failed"
+    },
+    "class_valid.html": {
+      "result": "compiled"
+    },
+    "curried_context_missing.html": {
+      "error": "'curried_context' did not receive value(s) for the argument(s): 'value'",
+      "result": "failed"
+    },
+    "curried_context_valid.html": {
+      "result": "compiled"
+    },
+    "decorator_context_missing.html": {
+      "error": "'decorator_context' did not receive value(s) for the argument(s): 'value'",
+      "result": "failed"
+    },
+    "decorator_context_valid.html": {
+      "result": "compiled"
+    },
+    "direct_context_missing.html": {
+      "error": "'direct_context' did not receive value(s) for the argument(s): 'value'",
+      "result": "failed"
+    },
+    "direct_context_valid.html": {
+      "result": "compiled"
+    },
+    "firstof_missing.html": {
+      "error": "'firstof' statement requires at least one argument",
+      "result": "failed"
+    },
+    "firstof_valid.html": {
+      "result": "compiled"
+    },
+    "for_valid.html": {
+      "result": "compiled"
+    },
+    "for_wrong_separator.html": {
+      "error": "'for' statements should use the format 'for x in y': for x from items",
+      "result": "failed"
+    },
+    "helper_missing.html": {
+      "error": "'helper_tag' requires one argument",
+      "result": "failed"
+    },
+    "helper_valid.html": {
+      "result": "compiled"
+    },
+    "include_missing_assignment.html": {
+      "error": "\"with\" in 'include' tag needs at least one keyword argument.",
+      "result": "failed"
+    },
+    "include_valid.html": {
+      "result": "compiled"
+    },
+    "lorem_extra_arguments.html": {
+      "error": "Incorrect format for 'lorem' tag",
+      "result": "failed"
+    },
+    "lorem_no_arguments.html": {
+      "result": "compiled"
+    },
+    "lorem_random.html": {
+      "result": "compiled"
+    },
+    "lorem_words.html": {
+      "result": "compiled"
+    },
+    "simple_block_missing.html": {
+      "error": "'authored_panel' did not receive value(s) for the argument(s): 'title'",
+      "result": "failed"
+    },
+    "simple_block_valid.html": {
+      "result": "compiled"
+    },
+    "stdlib_partial_context_invalid.html": {
+      "error": "'stdlib_partial_context' received too many positional arguments",
+      "result": "failed"
+    },
+    "stdlib_partial_context_valid.html": {
+      "result": "compiled"
+    },
+    "stdlib_wrapped_invalid.html": {
+      "error": "'stdlib_wrapped' received too many positional arguments",
+      "result": "failed"
+    },
+    "stdlib_wrapped_valid.html": {
+      "result": "compiled"
+    },
+    "templatetag_invalid_choice.html": {
+      "error": "Invalid templatetag argument: 'foo'. Must be one of: ['openblock', 'closeblock', 'openvariable', 'closevariable', 'openbrace', 'closebrace', 'opencomment', 'closecomment']",
+      "result": "failed"
+    },
+    "templatetag_valid.html": {
+      "result": "compiled"
+    },
+    "with_invalid_assignment.html": {
+      "error": "'with' expected at least one variable assignment",
+      "result": "failed"
+    },
+    "with_valid.html": {
+      "result": "compiled"
+    }
+  }
+}

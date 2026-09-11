@@ -26,6 +26,7 @@ use djls_source::RootWalk;
 use djls_source::SourceChanges;
 use djls_source::SourceFiles;
 use djls_source::WalkOptions;
+use djls_testing::DjangoFactsGolden;
 use djls_testing::GoldenTemplateSymbol;
 use djls_testing::OsTestDatabase;
 use djls_testing::ProjectFixture;
@@ -3957,12 +3958,13 @@ fn template_library_catalog_include_resolved_and_configured_only_libraries() {
 
 #[test]
 fn django_facts_golden_template_dirs_match() {
-    let (db, project, project_root, django_source_root, golden) = django_facts_project(
-        "tests/project",
-        "tests/fixtures/django-facts/django-5.2.json",
-        "djls_test.settings",
-    )
-    .expect("Django facts golden fixture should build");
+    let (db, project, project_root, django_source_root) =
+        django_facts_project("tests/project", "djls_test.settings")
+            .expect("Django facts project should build");
+    let golden: DjangoFactsGolden = serde_json::from_str(include_str!(
+        "../../../tests/fixtures/django-facts/django-5.2.json"
+    ))
+    .expect("Django facts golden should parse");
     assert!(
         project
             .search_paths(&db)
@@ -3990,12 +3992,12 @@ fn django_facts_golden_template_dirs_match() {
 
 #[test]
 fn django_facts_golden_template_library_catalog_matches() {
-    let (db, project, _, _, golden) = django_facts_project(
-        "tests/project",
-        "tests/fixtures/django-facts/django-5.2.json",
-        "djls_test.settings",
-    )
-    .expect("Django facts golden fixture should build");
+    let (db, project, _, _) = django_facts_project("tests/project", "djls_test.settings")
+        .expect("Django facts project should build");
+    let golden: DjangoFactsGolden = serde_json::from_str(include_str!(
+        "../../../tests/fixtures/django-facts/django-5.2.json"
+    ))
+    .expect("Django facts golden should parse");
     let libraries = template_library_catalog(&db, project);
     let actual_builtins = active_builtin_modules(libraries);
     assert_eq!(actual_builtins, golden.template_library_catalog.builtins);

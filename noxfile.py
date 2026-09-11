@@ -170,11 +170,13 @@ def fixtures(session):
         "python",
         "tools/django_facts.py",
         "--project",
-        "tests/verdicts",
-        "--template-verdicts",
+        "tests/compilation",
+        "--compilation",
         silent=True,
     )
-    Path("tests/fixtures/django-facts/verdicts-5.2.json").write_text(output, encoding="utf-8")
+    Path("tests/fixtures/django-facts/compilation-5.2.json").write_text(
+        output, encoding="utf-8"
+    )
 
 
 @nox.session

@@ -8,6 +8,6 @@ TEMPLATES = [
         "BACKEND": "django.template.backends.django.DjangoTemplates",
         "DIRS": [BASE_DIR / "templates"],
         "APP_DIRS": False,
-        "OPTIONS": {"libraries": {"verdict_tags": "verdict_tags"}},
+        "OPTIONS": {"libraries": {"compilation_tags": "compilation_tags"}},
     }
 ]

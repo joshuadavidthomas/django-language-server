@@ -21,12 +21,13 @@ def main() -> None:
     site_packages = Path(django.__file__).resolve().parents[1]
     django.setup()
 
-    facts = {
-        "template_dirs": collect_template_dirs(project, site_packages),
-        "template_library_catalog": collect_template_library_catalog(),
-    }
-    if args.template_verdicts:
-        facts["template_verdicts"] = collect_template_verdicts(project)
+    if args.compilation:
+        facts = {"django_compilation": collect_django_compilation(project)}
+    else:
+        facts = {
+            "template_dirs": collect_template_dirs(project, site_packages),
+            "template_library_catalog": collect_template_library_catalog(),
+        }
     json.dump(facts, sys.stdout, indent=2, sort_keys=True)
     sys.stdout.write("\n")
 
@@ -37,7 +38,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--project", type=Path, required=True)
     parser.add_argument("--settings")
-    parser.add_argument("--template-verdicts", action="store_true")
+    parser.add_argument("--compilation", action="store_true")
     return parser.parse_args()
 
 
@@ -112,21 +113,21 @@ def collect_template_library_catalog() -> dict[str, Any]:
     }
 
 
-def collect_template_verdicts(project: Path) -> dict[str, dict[str, str]]:
+def collect_django_compilation(project: Path) -> dict[str, dict[str, str]]:
     from django.template import Engine
     from django.template import TemplateSyntaxError
 
     engine = Engine.get_default()
-    verdicts = {}
+    compilation = {}
     for path in sorted((project / "templates").iterdir()):
         name = path.name
         try:
             engine.get_template(name)
         except TemplateSyntaxError as error:
-            verdicts[name] = {"verdict": "rejected", "error": str(error)}
+            compilation[name] = {"result": "failed", "error": str(error)}
         else:
-            verdicts[name] = {"verdict": "accepted"}
-    return verdicts
+            compilation[name] = {"result": "compiled"}
+    return compilation
 
 
 def symbol_rows(library: Any, library_module: str, load_name: str | None) -> list[dict[str, str | None]]:

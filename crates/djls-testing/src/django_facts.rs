@@ -19,8 +19,12 @@ use crate::db::OsTestDatabase;
 pub struct DjangoFactsGolden {
     pub template_dirs: Vec<String>,
     pub template_library_catalog: GoldenTemplateLibraryCatalog,
-    #[serde(default)]
-    pub template_verdicts: BTreeMap<String, TemplateVerdict>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CompilationGolden {
+    pub django_compilation: BTreeMap<String, DjangoCompilation>,
 }
 
 #[derive(Deserialize)]
@@ -42,25 +46,18 @@ pub struct GoldenTemplateSymbol {
 }
 
 #[derive(Deserialize)]
-#[serde(tag = "verdict", rename_all = "lowercase", deny_unknown_fields)]
-pub enum TemplateVerdict {
-    Accepted,
-    Rejected { error: String },
+#[serde(tag = "result", rename_all = "lowercase", deny_unknown_fields)]
+pub enum DjangoCompilation {
+    Compiled,
+    Failed { error: String },
 }
 
-type DjangoFactsGoldenFixture = (
-    OsTestDatabase,
-    Project,
-    Utf8PathBuf,
-    Utf8PathBuf,
-    DjangoFactsGolden,
-);
+type DjangoFactsProject = (OsTestDatabase, Project, Utf8PathBuf, Utf8PathBuf);
 
 pub fn django_facts_project(
     project_dir: &str,
-    golden_file: &str,
     settings_module: &str,
-) -> Result<DjangoFactsGoldenFixture, Box<dyn std::error::Error>> {
+) -> Result<DjangoFactsProject, Box<dyn std::error::Error>> {
     let corpus = Corpus::require()?;
     let django_source_root = corpus.root().join("repos/django-5.2");
     if !django_source_root.join("django/__init__.py").is_file() {
@@ -81,9 +78,6 @@ pub fn django_facts_project(
         )
     })?;
     let project_root = workspace.join(project_dir);
-    let golden_path = workspace.join(golden_file);
-    let golden_source = std::fs::read_to_string(golden_path.as_std_path())?;
-    let golden = serde_json::from_str(&golden_source)?;
 
     let mut db = OsTestDatabase::new();
     let interpreter = Interpreter::VenvPath(corpus.root().join("hermetic-no-venv"));
@@ -105,5 +99,5 @@ pub fn django_facts_project(
     );
     db.set_project(project);
 
-    Ok((db, project, project_root, django_source_root, golden))
+    Ok((db, project, project_root, django_source_root))
 }

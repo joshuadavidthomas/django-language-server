@@ -1,4 +1,4 @@
-"""Tag registration and signature examples for template verdicts."""
+"""Tag registration and signature examples for template compilation."""
 
 from __future__ import annotations
 
