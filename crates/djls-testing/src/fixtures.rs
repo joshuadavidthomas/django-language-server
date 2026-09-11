@@ -42,6 +42,7 @@ use crate::OsTestDatabase;
 use crate::TestDatabase;
 use crate::extract_bundle;
 use crate::module_name_from_file;
+use crate::settings::ProjectSettings;
 
 #[must_use]
 pub fn builtin_tag(name: &str, module: &str) -> serde_json::Value {
@@ -543,19 +544,17 @@ pub fn snapshot_validate_files<'a>(
 
 /// Validation fixture for mdtest snapshots backed by the pinned Django corpus.
 pub fn standard_validation_db() -> anyhow::Result<OsTestDatabase> {
-    validation_db(false, false)
+    validation_db(&ProjectSettings::default())
 }
 
 pub fn partial_validation_db() -> anyhow::Result<OsTestDatabase> {
-    validation_db(true, false)
+    validation_db(&ProjectSettings {
+        partial: true,
+        ..ProjectSettings::default()
+    })
 }
 
-/// Validation fixture with one Template Library whose inventory is open.
-pub fn unreadable_validation_db() -> anyhow::Result<OsTestDatabase> {
-    validation_db(false, true)
-}
-
-fn validation_db(partial: bool, unreadable_library: bool) -> anyhow::Result<OsTestDatabase> {
+pub fn validation_db(settings: &ProjectSettings) -> anyhow::Result<OsTestDatabase> {
     let corpus = Corpus::require()?;
     let django_source_root = corpus.root().join("repos/django-5.2");
     anyhow::ensure!(
@@ -571,74 +570,16 @@ fn validation_db(partial: bool, unreadable_library: bool) -> anyhow::Result<OsTe
         SearchPath::SitePackages(django_source_root.clone()),
     ]);
 
-    let open_key = if partial {
-        ", UNKNOWN: 'maybe'"
-    } else {
-        Default::default()
-    };
-    let unreadable_library_setting = if unreadable_library {
-        ", 'open': 'example.open.templatetags.open_tags'"
-    } else {
-        Default::default()
-    };
-    let settings = format!(
-        "INSTALLED_APPS = ['django.contrib.humanize']\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/templates'], 'APP_DIRS': False, 'OPTIONS': {{'builtins': ['example.templatetags.custom'], 'libraries': {{'alpha': 'example.alpha.templatetags.alpha', 'beta': 'example.beta.templatetags.beta'{unreadable_library_setting}}}}}{open_key}}}]\n"
-    );
-    let ambiguous_library = r#"from django import template
-register = template.Library()
-
-@register.tag(name="ambiguous_tag")
-def ambiguous_tag(parser, token): pass
-
-@register.filter(name="ambiguous_filter")
-def ambiguous_filter(value, arg=None): pass
-"#;
-
     let mut db = OsTestDatabase::with_disk_roots([django_source_root]);
     search_paths.register_roots(&db);
-    for (path, source) in [
-        ("/fixture/project/__init__.py", ""),
-        ("/fixture/project/settings.py", settings.as_str()),
-        ("/fixture/example/__init__.py", ""),
-        ("/fixture/example/templatetags/__init__.py", ""),
-        (
-            "/fixture/example/templatetags/custom.py",
-            "from django import template\nregister = template.Library()\n\n@register.simple_tag\ndef one_arg_tag(value): pass\n",
-        ),
-        ("/fixture/example/alpha/__init__.py", ""),
-        ("/fixture/example/alpha/templatetags/__init__.py", ""),
-        (
-            "/fixture/example/alpha/templatetags/alpha.py",
-            ambiguous_library,
-        ),
-        ("/fixture/example/beta/__init__.py", ""),
-        ("/fixture/example/beta/templatetags/__init__.py", ""),
-        (
-            "/fixture/example/beta/templatetags/beta.py",
-            ambiguous_library,
-        ),
-    ] {
-        db.add_file(path, source)?;
-    }
-    if unreadable_library {
-        for (path, source) in [
-            ("/fixture/example/open/__init__.py", ""),
-            ("/fixture/example/open/templatetags/__init__.py", ""),
-            (
-                "/fixture/example/open/templatetags/open_tags.py",
-                "from django import template\nregister = template.Library()\n@register.simple_tag\ndef known_tag(): pass\nregister.simple_tag(takes_context=True)(globals()['other_tag'])\n",
-            ),
-        ] {
-            db.add_file(path, source)?;
-        }
-    }
+    db.add_file("/fixture/settings.py", &settings.render_settings_py()?)?;
 
     let project = Project::new(
         &db,
         project_root,
         search_paths,
         interpreter,
-        Some(PythonModuleName::parse("project.settings")?),
+        Some(PythonModuleName::parse("settings")?),
         pythonpath,
         Vec::new(),
         Settings::default().tagspecs().clone(),

@@ -1,6 +1,20 @@
 # Unreadable Template Library loads
 
+```toml
+libraries = { open = "open_tags" }
+```
+
 ## loaded library has a registration DJLS could not read
+
+`open_tags.py`:
+
+```py
+from django import template
+register = template.Library()
+@register.simple_tag
+def known_tag(): pass
+register.simple_tag(takes_context=True)(globals()['other_tag'])
+```
 
 ```htmldjango
 {% load open %}
@@ -16,6 +30,16 @@ hint[S124]: DJLS could not read a registration in `open_tags.py` at line 5 (the 
 ```
 
 ## unrecognized tag from an unreadable library is not reported
+
+`open_tags.py`:
+
+```py
+from django import template
+register = template.Library()
+@register.simple_tag
+def known_tag(): pass
+register.simple_tag(takes_context=True)(globals()['other_tag'])
+```
 
 ```htmldjango
 {% load open %}

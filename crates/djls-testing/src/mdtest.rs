@@ -15,11 +15,14 @@ use pulldown_cmark::Tag;
 use pulldown_cmark::TagEnd;
 
 use crate::OsTestDatabase;
+use crate::ProjectSettings;
 use crate::fixtures::snapshot_validate_files;
 use crate::fixtures::standard_validation_db;
 
 const UPDATE_ENV: &str = "DJLS_UPDATE_MDTEST_SNAPSHOTS";
 const NO_DIAGNOSTICS_SNAPSHOT: &str = "✓ no diagnostics";
+const VALIDATION_PROJECT_ROOT: &str = "/fixture";
+const VALIDATION_SETTINGS_PATH: &str = "/fixture/settings.py";
 const VALIDATION_TEMPLATE_ROOT: &str = "/templates";
 
 #[derive(Debug)]
@@ -31,10 +34,18 @@ pub struct Scenario {
     snapshot_start: Option<usize>,
     snapshot_end: Option<usize>,
     snapshot_insert_at: usize,
+    project_settings: ProjectSettings,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScenarioFileKind {
+    Template,
+    Python,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ScenarioFile {
+    pub kind: ScenarioFileKind,
     pub path: String,
     pub source: String,
 }
@@ -110,9 +121,19 @@ pub fn render_validation_scenario(
     scenario: &Scenario,
 ) -> anyhow::Result<String> {
     let primary = scenario.primary_file()?;
-    let scenario_files = scenario
+    let python_files = scenario
         .files
         .iter()
+        .filter(|file| file.kind == ScenarioFileKind::Python)
+        .map(|file| {
+            djls_source::safe_join(Utf8Path::new(VALIDATION_PROJECT_ROOT), &file.path)
+                .map(|path| (path, file.source.as_str()))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let template_files = scenario
+        .files
+        .iter()
+        .filter(|file| file.kind == ScenarioFileKind::Template)
         .map(|file| {
             djls_source::safe_join(Utf8Path::new(VALIDATION_TEMPLATE_ROOT), &file.path)
                 .map(|path| (path, file.source.as_str()))
@@ -120,18 +141,40 @@ pub fn render_validation_scenario(
         .collect::<Result<Vec<_>, _>>()?;
     let primary_database_path =
         djls_source::safe_join(Utf8Path::new(VALIDATION_TEMPLATE_ROOT), &primary.path)?;
+    for (path, source) in &python_files {
+        db.add_file(path.as_str(), source)?;
+    }
+    let default_settings = ProjectSettings::default();
+    let settings_overridden = scenario.project_settings != default_settings;
+    if settings_overridden {
+        db.add_file(
+            VALIDATION_SETTINGS_PATH,
+            &scenario.project_settings.render_settings_py()?,
+        )?;
+    }
+
     let rendered = snapshot_validate_files(
         db,
         primary_database_path.as_str(),
         primary.path.as_str(),
         primary.source.as_str(),
-        scenario_files
+        template_files
             .iter()
             .map(|(path, source)| (path.as_str(), *source)),
     );
-    for (path, _) in &scenario_files {
+    for (path, _) in &template_files {
         db.remove_file(path.as_str())?;
     }
+    for (path, _) in &python_files {
+        db.remove_file(path.as_str())?;
+    }
+    if settings_overridden {
+        db.add_file(
+            VALIDATION_SETTINGS_PATH,
+            &default_settings.render_settings_py()?,
+        )?;
+    }
+
     let rendered = rendered?;
     Ok(if rendered.trim().is_empty() {
         NO_DIAGNOSTICS_SNAPSHOT.to_string()
@@ -141,14 +184,7 @@ pub fn render_validation_scenario(
 }
 
 pub fn run_suite(dir: &Path) -> anyhow::Result<()> {
-    run_validation_suite_with(dir, standard_validation_db)
-}
-
-pub fn run_validation_suite_with(
-    dir: &Path,
-    database: fn() -> anyhow::Result<OsTestDatabase>,
-) -> anyhow::Result<()> {
-    MdtestRun::new(dir.to_path_buf(), Renderer::Validation(database)).run()
+    MdtestRun::new(dir.to_path_buf(), Renderer::Validation).run()
 }
 
 pub fn run_suite_with(
@@ -160,7 +196,7 @@ pub fn run_suite_with(
 
 #[derive(Clone, Copy)]
 enum Renderer {
-    Validation(fn() -> anyhow::Result<OsTestDatabase>),
+    Validation,
     Scenario(fn(&Scenario) -> anyhow::Result<String>),
 }
 
@@ -191,8 +227,8 @@ impl MdtestRun {
         }
 
         match self.renderer {
-            Renderer::Validation(database) => {
-                let mut db = database()?;
+            Renderer::Validation => {
+                let mut db = standard_validation_db()?;
                 let mut render =
                     |scenario: &Scenario| render_validation_scenario(&mut db, scenario);
                 for path in files {
@@ -344,6 +380,7 @@ struct ScenarioCollector<'a> {
 struct Heading {
     level: usize,
     name: String,
+    settings: Option<ProjectSettings>,
 }
 
 #[derive(Debug)]
@@ -526,13 +563,28 @@ impl<'a> ScenarioCollector<'a> {
         }
 
         if let Some(current) = &self.current
-            && !current.files.is_empty()
             && heading.level > current.level
         {
-            return Err(format!(
-                "scenario '{}' has child heading '{}' after its Django code block",
-                current.name, name
-            ));
+            if current
+                .files
+                .iter()
+                .any(|file| file.kind == ScenarioFileKind::Template)
+            {
+                return Err(format!(
+                    "scenario '{}' has child heading '{}' after its Django code block",
+                    current.name, name
+                ));
+            }
+            if current
+                .files
+                .iter()
+                .any(|file| file.kind == ScenarioFileKind::Python)
+            {
+                return Err(format!(
+                    "heading '{}' has a py code block but no template block before child heading '{}'",
+                    current.name, name
+                ));
+            }
         }
 
         self.finish_current()?;
@@ -541,6 +593,7 @@ impl<'a> ScenarioCollector<'a> {
         self.headings.push(Heading {
             level: heading.level,
             name: name.to_string(),
+            settings: None,
         });
         self.current = Some(PartialScenario::new(self.scenario_name(), heading.level));
         self.pending_file_path = None;
@@ -552,13 +605,24 @@ impl<'a> ScenarioCollector<'a> {
             return Ok(());
         };
         let Some(language) = code_block.language else {
+            self.pending_file_path = None;
             return Ok(());
         };
+        if language == "ignore" {
+            self.pending_file_path = None;
+            return Ok(());
+        }
         if !matches!(
             language.as_str(),
-            "htmldjango" | "django" | "html" | "snapshot"
+            "htmldjango" | "django" | "html" | "py" | "toml" | "snapshot"
         ) {
-            return Ok(());
+            let heading = self
+                .current
+                .as_ref()
+                .map_or("<document>", |current| current.name.as_str());
+            return Err(format!(
+                "heading '{heading}' has unknown code block language '{language}'"
+            ));
         }
 
         let closing_fence_line = self.line_at(range.start);
@@ -571,13 +635,15 @@ impl<'a> ScenarioCollector<'a> {
         };
 
         match block.language.as_str() {
-            "htmldjango" | "django" | "html" => self.set_source(block),
+            "htmldjango" | "django" | "html" => self.set_template(block),
+            "py" => self.set_python(block),
+            "toml" => self.set_settings(&block),
             "snapshot" => self.set_snapshot(block),
             _ => Ok(()),
         }
     }
 
-    fn set_source(&mut self, block: FencedBlock) -> Result<(), String> {
+    fn set_template(&mut self, block: FencedBlock) -> Result<(), String> {
         let current = self.current.as_mut().ok_or_else(|| {
             "htmldjango code block must appear under a scenario heading".to_string()
         })?;
@@ -601,7 +667,11 @@ impl<'a> ScenarioCollector<'a> {
                 current.name, file_path
             ));
         }
-        if current.files.iter().any(|file| file.path == file_path) {
+        if current
+            .files
+            .iter()
+            .any(|file| file.kind == ScenarioFileKind::Template && file.path == file_path)
+        {
             return Err(format!(
                 "scenario '{}' has more than one template block for path '{}'",
                 current.name, file_path
@@ -609,10 +679,75 @@ impl<'a> ScenarioCollector<'a> {
         }
 
         current.files.push(ScenarioFile {
+            kind: ScenarioFileKind::Template,
             path: file_path,
             source: block.content,
         });
         current.snapshot_insert_at = Some(block.fence_end);
+        Ok(())
+    }
+
+    fn set_python(&mut self, block: FencedBlock) -> Result<(), String> {
+        let current = self
+            .current
+            .as_mut()
+            .ok_or_else(|| "py code block must appear under a heading".to_string())?;
+        let file_path = self
+            .pending_file_path
+            .take()
+            .ok_or_else(|| format!("heading '{}' has an unlabeled py code block", current.name))?;
+
+        if Utf8Path::new(&file_path).is_absolute() {
+            return Err(format!(
+                "heading '{}' Python path '{}' must be relative",
+                current.name, file_path
+            ));
+        }
+        if file_path == "settings.py" {
+            return Err(format!(
+                "heading '{}' Python path 'settings.py' is reserved for generated project settings",
+                current.name
+            ));
+        }
+        if current
+            .files
+            .iter()
+            .any(|file| file.kind == ScenarioFileKind::Python && file.path == file_path)
+        {
+            return Err(format!(
+                "heading '{}' has more than one py block for path '{}'",
+                current.name, file_path
+            ));
+        }
+
+        current.files.push(ScenarioFile {
+            kind: ScenarioFileKind::Python,
+            path: file_path,
+            source: block.content,
+        });
+        Ok(())
+    }
+
+    fn set_settings(&mut self, block: &FencedBlock) -> Result<(), String> {
+        self.pending_file_path = None;
+        let current_name = self
+            .current
+            .as_ref()
+            .ok_or_else(|| "toml code block must appear under a heading".to_string())?
+            .name
+            .clone();
+        let heading = self
+            .headings
+            .last_mut()
+            .ok_or_else(|| "toml code block must appear under a heading".to_string())?;
+        if heading.settings.is_some() {
+            return Err(format!(
+                "heading '{current_name}' has more than one toml code block"
+            ));
+        }
+        let settings = toml::from_str(&block.content)
+            .map_err(|error| format!("heading '{current_name}' has invalid toml: {error}"))?;
+        heading.settings = Some(settings);
         Ok(())
     }
 
@@ -640,10 +775,23 @@ impl<'a> ScenarioCollector<'a> {
         let Some(current) = self.current.take() else {
             return Ok(());
         };
+        let template_count = current
+            .files
+            .iter()
+            .filter(|file| file.kind == ScenarioFileKind::Template)
+            .count();
 
-        if !current.files.is_empty() {
-            let primary_file_index = if current.files.len() == 1 {
-                current.primary_file_index.unwrap_or(0)
+        if template_count > 0 {
+            let local_primary_file_index = if template_count == 1 {
+                current
+                    .primary_file_index
+                    .or_else(|| {
+                        current
+                            .files
+                            .iter()
+                            .position(|file| file.kind == ScenarioFileKind::Template)
+                    })
+                    .ok_or_else(|| format!("scenario '{}' has no template file", current.name))?
             } else {
                 current.primary_file_index.ok_or_else(|| {
                     format!(
@@ -658,14 +806,21 @@ impl<'a> ScenarioCollector<'a> {
                     current.name
                 )
             })?;
+            let project_settings = self
+                .headings
+                .iter()
+                .rev()
+                .find_map(|heading| heading.settings.clone())
+                .unwrap_or_default();
             self.scenarios.push(Scenario {
                 name: current.name,
                 files: current.files,
-                primary_file_index,
+                primary_file_index: local_primary_file_index,
                 snapshot: current.snapshot,
                 snapshot_start: current.snapshot_start,
                 snapshot_end: current.snapshot_end,
                 snapshot_insert_at,
+                project_settings,
             });
             Ok(())
         } else if current.snapshot.is_none() {
@@ -731,6 +886,7 @@ error[S102]: Orphaned tag
         assert_eq!(
             scenarios[0].files,
             vec![ScenarioFile {
+                kind: ScenarioFileKind::Template,
                 path: "templates/test.html".to_string(),
                 source: "{% else %}".to_string(),
             }]
@@ -767,6 +923,7 @@ error[S102]: Orphaned tag
         assert_eq!(
             scenarios[0].files,
             vec![ScenarioFile {
+                kind: ScenarioFileKind::Template,
                 path: "test.html".to_string(),
                 source: "{% else %}".to_string(),
             }]
@@ -808,10 +965,12 @@ error[S102]: Orphaned tag
             scenarios[0].files,
             vec![
                 ScenarioFile {
+                    kind: ScenarioFileKind::Template,
                     path: "test.html".to_string(),
                     source: "{% extends \"parent.html\" %}".to_string(),
                 },
                 ScenarioFile {
+                    kind: ScenarioFileKind::Template,
                     path: "parent.html".to_string(),
                     source: "{% block content %}{% endblock %}".to_string(),
                 },
@@ -858,10 +1017,12 @@ error[S102]: Orphaned tag
             scenarios[0].files,
             vec![
                 ScenarioFile {
+                    kind: ScenarioFileKind::Template,
                     path: "parent.html".to_string(),
                     source: "{% block content %}{% endblock %}".to_string(),
                 },
                 ScenarioFile {
+                    kind: ScenarioFileKind::Template,
                     path: "test.html".to_string(),
                     source: "{% extends \"parent.html\" %}".to_string(),
                 },
@@ -948,6 +1109,272 @@ source
         assert_eq!(
             error,
             "scenario 'absolute path' template path '/templates/test.html' must be relative"
+        );
+    }
+
+    #[test]
+    fn rejects_two_toml_blocks_in_one_section() {
+        let markdown = r"# Shape
+
+```toml
+builtins = []
+```
+
+```toml
+libraries = {}
+```
+";
+
+        let error = ScenarioCollector::new(markdown)
+            .collect()
+            .expect_err("two toml blocks should be rejected");
+
+        assert_eq!(error, "heading 'Shape' has more than one toml code block");
+    }
+
+    #[test]
+    fn rejects_unlabeled_python_blocks() {
+        let markdown = r"# Shape
+
+```py
+VALUE = 1
+```
+";
+
+        let error = ScenarioCollector::new(markdown)
+            .collect()
+            .expect_err("unlabeled py block should be rejected");
+
+        assert_eq!(error, "heading 'Shape' has an unlabeled py code block");
+    }
+
+    #[test]
+    fn rejects_unknown_code_block_languages() {
+        let markdown = r"# Scenario
+
+```rust
+fn main() {}
+```
+";
+
+        let error = ScenarioCollector::new(markdown)
+            .collect()
+            .expect_err("unknown fence language should be rejected");
+
+        assert_eq!(
+            error,
+            "heading 'Scenario' has unknown code block language 'rust'"
+        );
+    }
+
+    #[test]
+    fn rejects_duplicate_python_labels_in_one_section() {
+        let markdown = r"# Scenario
+
+`custom_tags.py`:
+
+```py
+FIRST = 1
+```
+
+`custom_tags.py`:
+
+```py
+SECOND = 2
+```
+";
+
+        let error = ScenarioCollector::new(markdown)
+            .collect()
+            .expect_err("duplicate py labels should be rejected");
+
+        assert_eq!(
+            error,
+            "heading 'Scenario' has more than one py block for path 'custom_tags.py'"
+        );
+    }
+
+    #[test]
+    fn rejects_python_label_reserved_for_generated_settings() {
+        let markdown = r"# Shape
+
+`settings.py`:
+
+```py
+VALUE = 1
+```
+";
+
+        let error = ScenarioCollector::new(markdown)
+            .collect()
+            .expect_err("settings.py should be reserved");
+
+        assert_eq!(
+            error,
+            "heading 'Shape' Python path 'settings.py' is reserved for generated project settings"
+        );
+    }
+
+    #[test]
+    fn inherits_toml_from_an_ancestor_heading() {
+        let markdown = r#"# Shape
+
+```toml
+builtins = ["local_tags"]
+```
+
+## scenario
+
+`local_tags.py`:
+
+```py
+LOCAL = 1
+```
+
+```htmldjango
+{% local_tag %}
+```
+
+```snapshot
+snapshot
+```
+"#;
+
+        let scenarios = ScenarioCollector::new(markdown)
+            .collect()
+            .expect("inherited settings should parse");
+
+        assert_eq!(scenarios.len(), 1);
+        assert_eq!(
+            scenarios[0].files,
+            vec![
+                ScenarioFile {
+                    kind: ScenarioFileKind::Python,
+                    path: "local_tags.py".to_string(),
+                    source: "LOCAL = 1".to_string(),
+                },
+                ScenarioFile {
+                    kind: ScenarioFileKind::Template,
+                    path: "test.html".to_string(),
+                    source: "{% local_tag %}".to_string(),
+                },
+            ]
+        );
+        assert_eq!(scenarios[0].project_settings.builtins, ["local_tags"]);
+    }
+
+    #[test]
+    fn python_files_belong_only_to_their_section() {
+        let markdown = r"# Shape
+
+## first
+
+`local_tags.py`:
+
+```py
+FIRST = 1
+```
+
+```htmldjango
+first
+```
+
+```snapshot
+snapshot
+```
+
+## second
+
+`local_tags.py`:
+
+```py
+SECOND = 2
+```
+
+```htmldjango
+second
+```
+
+```snapshot
+snapshot
+```
+";
+
+        let scenarios = ScenarioCollector::new(markdown)
+            .collect()
+            .expect("section-local Python files should parse");
+
+        assert_eq!(scenarios.len(), 2);
+        assert_eq!(scenarios[0].files[0].source, "FIRST = 1");
+        assert_eq!(scenarios[1].files[0].source, "SECOND = 2");
+        assert_eq!(
+            scenarios
+                .iter()
+                .map(|scenario| scenario.files.len())
+                .collect::<Vec<_>>(),
+            [2, 2]
+        );
+    }
+
+    #[test]
+    fn rejects_python_on_a_grouping_heading() {
+        let markdown = r"# Shape
+
+`unused_tags.py`:
+
+```py
+UNUSED = 1
+```
+
+## scenario
+
+```htmldjango
+content
+```
+";
+
+        let error = ScenarioCollector::new(markdown)
+            .collect()
+            .expect_err("Python on a grouping heading should be rejected");
+
+        assert_eq!(
+            error,
+            "heading 'Shape' has a py code block but no template block before child heading 'scenario'"
+        );
+    }
+
+    #[test]
+    fn ignore_blocks_do_not_relabel_templates() {
+        let markdown = r"# Group
+
+`ignored.py`:
+
+```ignore
+ignored
+```
+
+## scenario
+
+```htmldjango
+content
+```
+
+```snapshot
+snapshot
+```
+";
+
+        let scenarios = ScenarioCollector::new(markdown)
+            .collect()
+            .expect("ignore block should be skipped");
+
+        assert_eq!(scenarios.len(), 1);
+        assert_eq!(
+            scenarios[0]
+                .primary_file()
+                .expect("scenario should have a primary template")
+                .path,
+            "test.html"
         );
     }
 

@@ -1,6 +1,19 @@
 # Tag argument diagnostics
 
+```toml
+builtins = ["custom_tags"]
+```
+
 ## tag requires an argument
+
+`custom_tags.py`:
+
+```py
+from django import template
+register = template.Library()
+@register.simple_tag
+def one_arg_tag(value): pass
+```
 
 ```htmldjango
 {% one_arg_tag %}
@@ -15,6 +28,15 @@ error[S117]: 'one_arg_tag' did not receive value(s) for the argument(s): 'value'
 ```
 
 ## tag accepts exactly one argument
+
+`custom_tags.py`:
+
+```py
+from django import template
+register = template.Library()
+@register.simple_tag
+def one_arg_tag(value): pass
+```
 
 ```htmldjango
 {% one_arg_tag first second %}
