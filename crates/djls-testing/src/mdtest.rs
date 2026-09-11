@@ -3,7 +3,6 @@
 //! See `resources/mdtest/README.md` for the authoring format.
 
 use std::ops::Range;
-use std::path::Path;
 
 use anyhow::Context as _;
 use camino::Utf8Path;
@@ -178,148 +177,66 @@ fn render_validation_scenario(
     })
 }
 
-pub fn run_suite(dir: &Path) -> anyhow::Result<()> {
-    MdtestRun::new(dir.to_path_buf(), Renderer::Validation).run()
+pub fn run_file(path: &Utf8Path, markdown: &str) -> anyhow::Result<()> {
+    let default_settings = ProjectSettings::default().settings_py();
+    let mut applied_settings = default_settings.clone();
+    let mut db = standard_validation_db()?;
+    run_file_with(path, markdown, |scenario| {
+        render_validation_scenario(&mut db, scenario, &default_settings, &mut applied_settings)
+    })
 }
 
-pub fn run_suite_with(
-    dir: &Path,
-    render: fn(&Scenario) -> anyhow::Result<String>,
+pub fn run_file_with(
+    path: &Utf8Path,
+    markdown: &str,
+    mut render: impl FnMut(&Scenario) -> anyhow::Result<String>,
 ) -> anyhow::Result<()> {
-    MdtestRun::new(dir.to_path_buf(), Renderer::Scenario(render)).run()
-}
-
-#[derive(Clone, Copy)]
-enum Renderer {
-    Validation,
-    Scenario(fn(&Scenario) -> anyhow::Result<String>),
+    MdtestRun::new().run(path, markdown, &mut render)
 }
 
 struct MdtestRun {
-    root: std::path::PathBuf,
-    renderer: Renderer,
     update: bool,
     failures: Vec<String>,
 }
 
 impl MdtestRun {
-    fn new(root: std::path::PathBuf, renderer: Renderer) -> Self {
+    fn new() -> Self {
         Self {
-            root,
-            renderer,
             update: std::env::var_os(UPDATE_ENV).is_some_and(|value| value != "0"),
             failures: Vec::new(),
         }
     }
 
-    fn run(mut self) -> anyhow::Result<()> {
-        let files = self.files()?;
-        if files.is_empty() {
-            anyhow::bail!(
-                "expected at least one mdtest file in `{}`",
-                self.root.display()
-            );
-        }
+    fn run(
+        mut self,
+        path: &Utf8Path,
+        markdown: &str,
+        mut render: impl FnMut(&Scenario) -> anyhow::Result<String>,
+    ) -> anyhow::Result<()> {
+        let scenarios = ScenarioCollector::new(markdown)
+            .collect()
+            .map_err(|err| anyhow::anyhow!("failed to parse {path}: {err}"))?;
+        anyhow::ensure!(
+            !scenarios.is_empty(),
+            "{path} did not contain any scenarios"
+        );
 
-        match self.renderer {
-            Renderer::Validation => {
-                let default_settings = ProjectSettings::default().settings_py();
-                let mut applied_settings = default_settings.clone();
-                let mut db = standard_validation_db()?;
-                let mut render = |scenario: &Scenario| {
-                    render_validation_scenario(
-                        &mut db,
-                        scenario,
-                        &default_settings,
-                        &mut applied_settings,
-                    )
-                };
-                for path in files {
-                    self.run_file(&path, &mut render)?;
-                }
-            }
-            Renderer::Scenario(mut render) => {
-                for path in files {
-                    self.run_file(&path, &mut render)?;
-                }
-            }
-        }
+        let updates = self.render_scenarios(path, &scenarios, &mut render)?;
 
+        if self.update {
+            let rewritten_markdown = SnapshotUpdate::apply_all(markdown, &updates);
+            std::fs::write(path, rewritten_markdown)
+                .with_context(|| format!("failed to update snapshots in mdtest file `{path}`"))?;
+        }
         if !self.failures.is_empty() {
             anyhow::bail!("mdtest failures:\n\n{}", self.failures.join("\n\n"));
         }
         Ok(())
     }
 
-    fn files(&self) -> anyhow::Result<Vec<std::path::PathBuf>> {
-        let mut dirs = vec![self.root.clone()];
-        let mut files = Vec::new();
-
-        while let Some(dir) = dirs.pop() {
-            let entries = std::fs::read_dir(&dir)
-                .with_context(|| format!("failed to read mdtest directory `{}`", dir.display()))?;
-            for entry in entries {
-                let path = entry
-                    .with_context(|| {
-                        format!(
-                            "failed to read an entry in mdtest directory `{}`",
-                            dir.display()
-                        )
-                    })?
-                    .path();
-                if path.is_dir() {
-                    dirs.push(path);
-                } else if path.extension().is_some_and(|ext| ext == "md")
-                    && path.file_name().is_none_or(|name| name != "README.md")
-                {
-                    files.push(path);
-                }
-            }
-        }
-
-        files.sort();
-        Ok(files)
-    }
-
-    fn run_file(
-        &mut self,
-        path: &Path,
-        render: &mut impl FnMut(&Scenario) -> anyhow::Result<String>,
-    ) -> anyhow::Result<()> {
-        let markdown = std::fs::read_to_string(path)
-            .with_context(|| format!("failed to read mdtest file `{}`", path.display()))?;
-        let scenarios = match ScenarioCollector::new(&markdown).collect() {
-            Ok(scenarios) => scenarios,
-            Err(err) => {
-                self.failures
-                    .push(format!("failed to parse {}: {err}", path.display()));
-                return Ok(());
-            }
-        };
-
-        if scenarios.is_empty() {
-            self.failures
-                .push(format!("{} did not contain any scenarios", path.display()));
-            return Ok(());
-        }
-
-        let updates = self.render_scenarios(path, &scenarios, render)?;
-
-        if self.update {
-            let rewritten_markdown = SnapshotUpdate::apply_all(&markdown, &updates);
-            std::fs::write(path, rewritten_markdown).with_context(|| {
-                format!(
-                    "failed to update snapshots in mdtest file `{}`",
-                    path.display()
-                )
-            })?;
-        }
-        Ok(())
-    }
-
     fn render_scenarios(
         &mut self,
-        path: &Path,
+        path: &Utf8Path,
         scenarios: &[Scenario],
         mut render: impl FnMut(&Scenario) -> anyhow::Result<String>,
     ) -> anyhow::Result<Vec<SnapshotUpdate>> {
@@ -338,7 +255,7 @@ impl MdtestRun {
 
     fn check_snapshot(
         &mut self,
-        path: &Path,
+        path: &Utf8Path,
         scenario: &Scenario,
         actual: &str,
     ) -> anyhow::Result<()> {
@@ -348,7 +265,7 @@ impl MdtestRun {
                 "mdtest scenario missing snapshot: {} ({}) in {}. Set {UPDATE_ENV}=1 to insert snapshots.",
                 scenario.name,
                 primary_path,
-                path.display(),
+                path,
             ));
             return Ok(());
         };
@@ -358,7 +275,7 @@ impl MdtestRun {
                 "mdtest scenario failed: {} ({}) in {}\n\nexpected:\n{}\n\nactual:\n{}\n\nSet {UPDATE_ENV}=1 to update snapshots.",
                 scenario.name,
                 primary_path,
-                path.display(),
+                path,
                 expected.trim_end(),
                 actual.trim_end(),
             ));

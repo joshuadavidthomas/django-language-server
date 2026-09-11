@@ -2,10 +2,16 @@
 
 These Markdown files pair Django templates with their rendered DJLS diagnostics.
 
-Run them with:
+Run every Markdown file with:
 
 ```bash
 cargo test -p djls-semantic --test mdtest
+```
+
+Each Markdown file is one test. Filter by the file name to run one file:
+
+```bash
+cargo test -p djls-semantic --test mdtest scoping
 ```
 
 Update generated snapshots with:
@@ -13,6 +19,8 @@ Update generated snapshots with:
 ```bash
 DJLS_UPDATE_MDTEST_SNAPSHOTS=1 cargo test -p djls-semantic --test mdtest
 ```
+
+The same file-name filter updates one file instead of the whole set.
 
 ## Fences
 
