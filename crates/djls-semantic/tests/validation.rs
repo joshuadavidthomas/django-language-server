@@ -24,27 +24,26 @@ use djls_semantic::TagRole;
 use djls_semantic::TagSpec;
 use djls_semantic::TagSpecs;
 use djls_semantic::ValidationError;
-use djls_semantic::ValidationErrorAccumulator;
 use djls_semantic::builtin_tag_specs;
 use djls_semantic::library_tag_specs;
 use djls_semantic::semantic_grammar_vocabulary;
 use djls_semantic::tag_spec_at;
 use djls_semantic::tag_specs_for_file;
-use djls_semantic::validate_template_file;
 use djls_source::ChangeEvent;
 use djls_source::SourceChanges;
 use djls_templates::parse_template;
+use djls_testing::OsTestDatabase;
 use djls_testing::ProjectFixture;
 use djls_testing::TestDatabase;
-use djls_testing::collect_errors;
+use djls_testing::collect_errors as collect_validation_errors;
 use djls_testing::partial_validation_db;
 use djls_testing::standard_validation_db;
 
-fn standard_db() -> anyhow::Result<TestDatabase> {
+fn standard_db() -> anyhow::Result<OsTestDatabase> {
     standard_validation_db()
 }
 
-fn partial_db() -> anyhow::Result<TestDatabase> {
+fn partial_db() -> anyhow::Result<OsTestDatabase> {
     partial_validation_db()
 }
 
@@ -70,8 +69,8 @@ fn configured_tag_specs(definitions: &[(&str, &str, TagTypeDef)]) -> TagSpecDef 
     }
 }
 
-fn partial_ambiguous_db() -> anyhow::Result<TestDatabase> {
-    let db = partial_db()?;
+fn partial_ambiguous_db() -> anyhow::Result<OsTestDatabase> {
+    let mut db = partial_db()?;
     db.add_file(
         "/example/alpha/templatetags/alpha.py",
         "from django import template\nregister = template.Library()\n@register.tag(name='shared')\ndef shared_tag(parser, token): pass\n@register.filter(name='shared')\ndef shared_filter(value): pass\n",
@@ -103,19 +102,34 @@ fn unknown_load_contract_db() -> anyhow::Result<TestDatabase> {
     Ok(db)
 }
 
-fn collect_all_errors(db: &TestDatabase, source: &str) -> anyhow::Result<Vec<ValidationError>> {
+fn collect_all_errors(
+    db: &mut OsTestDatabase,
+    source: &str,
+) -> anyhow::Result<Vec<ValidationError>> {
+    let file = db.add_file("test.html", source)?;
+    Ok(collect_validation_errors(db, file))
+}
+
+fn collect_test_errors(db: &TestDatabase, source: &str) -> anyhow::Result<Vec<ValidationError>> {
     collect_errors(db, "test.html", source)
 }
 
-fn collect_file_errors(db: &TestDatabase, path: &str) -> anyhow::Result<Vec<ValidationError>> {
-    let file = db.file(Utf8Path::new(path))?;
-    validate_template_file(db, file);
-    Ok(
-        validate_template_file::accumulated::<ValidationErrorAccumulator>(db, file)
-            .into_iter()
-            .map(|error| error.0.clone())
-            .collect(),
-    )
+fn collect_errors(
+    db: &TestDatabase,
+    path: &str,
+    source: &str,
+) -> anyhow::Result<Vec<ValidationError>> {
+    db.add_file(path, source)?;
+    let file = db.create_file_with_revision(Utf8Path::new(path), 0)?;
+    Ok(collect_validation_errors(db, file))
+}
+
+fn collect_file_errors(
+    db: &dyn djls_semantic::Db,
+    path: &str,
+) -> anyhow::Result<Vec<ValidationError>> {
+    let file = djls_source::path_to_file(db, Utf8Path::new(path))?;
+    Ok(collect_validation_errors(db, file))
 }
 
 #[test]
@@ -339,14 +353,14 @@ def compile_loop(parser, token):
 
 #[test]
 fn widthratio_real_length_dispatch_validates_correlated_forms() {
-    let db = standard_db().expect("standard validation fixture should build");
+    let mut db = standard_db().expect("standard validation fixture should build");
 
     for source in [
         "{% widthratio this_value max_value max_width %}",
         "{% widthratio this_value max_value max_width as ratio %}",
     ] {
         assert!(
-            collect_all_errors(&db, source)
+            collect_all_errors(&mut db, source)
                 .expect("valid widthratio source should validate")
                 .is_empty(),
             "expected valid widthratio syntax: {source}"
@@ -360,7 +374,7 @@ fn widthratio_real_length_dispatch_validates_correlated_forms() {
         "{% widthratio this_value max_value max_width WRONG ratio %}",
         "{% widthratio this_value max_value max_width as ratio extra %}",
     ] {
-        let errors = collect_all_errors(&db, source)
+        let errors = collect_all_errors(&mut db, source)
             .expect("malformed widthratio source should produce diagnostics");
         assert!(
             errors.iter().any(|error| matches!(
@@ -1638,14 +1652,14 @@ fn captured_intermediate_does_not_apply_a_colliding_standalone_contract() {
     );
     let db = TestDatabase::new().with_projectless_tag_specs(specs);
 
-    let standalone_errors = collect_all_errors(&db, "{% else one %}")
+    let standalone_errors = collect_test_errors(&db, "{% else one %}")
         .expect("template validation errors should be collected");
     assert!(standalone_errors.iter().any(|error| matches!(
         error,
         ValidationError::ExtractedRuleViolation { tag, .. } if tag == "else"
     )));
 
-    let captured_errors = collect_all_errors(&db, "{% if condition %}{% else one %}{% endif %}")
+    let captured_errors = collect_test_errors(&db, "{% if condition %}{% else one %}{% endif %}")
         .expect("template validation errors should be collected");
     assert!(
         !captured_errors.iter().any(|error| matches!(
@@ -2058,7 +2072,7 @@ fn extracted_unknown_block_does_not_require_synthesized_end_tag() {
         "ambiguous extracted closer must stay unknown, not be synthesized"
     );
 
-    let errors = collect_all_errors(&db, "{% load ambiguous %}\n{% mystery %}\n")
+    let errors = collect_test_errors(&db, "{% load ambiguous %}\n{% mystery %}\n")
         .expect("template validation errors should be collected");
 
     assert!(
@@ -2084,7 +2098,7 @@ fn extracted_self_named_block_requires_concretized_end_tag() {
         Some("endmystery")
     );
 
-    let errors = collect_all_errors(&db, "{% load ambiguous %}\n{% mystery %}\n")
+    let errors = collect_test_errors(&db, "{% load ambiguous %}\n{% mystery %}\n")
         .expect("template validation errors should be collected");
 
     assert!(
@@ -2098,8 +2112,8 @@ fn extracted_self_named_block_requires_concretized_end_tag() {
 
 #[test]
 fn partial_knowledge_suppresses_unknown_tag() {
-    let db = partial_db().expect("partial validation fixture should build");
-    let errors = collect_all_errors(&db, "{% definitely_unknown %}\n")
+    let mut db = partial_db().expect("partial validation fixture should build");
+    let errors = collect_all_errors(&mut db, "{% definitely_unknown %}\n")
         .expect("template validation errors should be collected");
 
     assert!(
@@ -2112,9 +2126,9 @@ fn partial_knowledge_suppresses_unknown_tag() {
 
 #[test]
 fn unknown_loaded_library_suppresses_unloaded_tag_and_filter_diagnostics() {
-    let db = partial_ambiguous_db().expect("ambiguous partial validation fixture should build");
+    let mut db = partial_ambiguous_db().expect("ambiguous partial validation fixture should build");
     let errors = collect_all_errors(
-        &db,
+        &mut db,
         "{% load unknown_library %}\n{% shared %}\n{{ value|shared }}\n",
     )
     .expect("template validation errors should be collected");
@@ -2140,7 +2154,7 @@ fn unknown_loaded_library_suppresses_unloaded_tag_and_filter_diagnostics() {
 #[test]
 fn unknown_load_shadowed_tag_contract_suppresses_extracted_argument_rule() {
     let db = unknown_load_contract_db().expect("unknown-load validation fixture should build");
-    let errors = collect_all_errors(&db, "{% load unknown_library %}\n{% contract_tag %}\n")
+    let errors = collect_test_errors(&db, "{% load unknown_library %}\n{% contract_tag %}\n")
         .expect("template validation errors should be collected");
 
     assert!(
@@ -2155,7 +2169,7 @@ fn unknown_load_shadowed_tag_contract_suppresses_extracted_argument_rule() {
 #[test]
 fn unknown_load_shadowed_tag_contract_full_library_argument_order_is_last_definition_wins() {
     let db = unknown_load_contract_db().expect("unknown-load validation fixture should build");
-    let restored_errors = collect_all_errors(
+    let restored_errors = collect_test_errors(
         &db,
         concat!(
             "{% load unknown_library exact %}\n",
@@ -2187,7 +2201,7 @@ fn unknown_load_shadowed_tag_contract_full_library_argument_order_is_last_defini
         "a later found library without contract_tag must not clear prior uncertainty: {restored_errors:?}"
     );
 
-    let shadowed_errors = collect_all_errors(
+    let shadowed_errors = collect_test_errors(
         &db,
         concat!(
             "{% load exact unknown_library %}\n",
@@ -2215,7 +2229,7 @@ fn unknown_load_shadowed_tag_contract_full_library_argument_order_is_last_defini
 #[test]
 fn unknown_load_shadowed_tag_contract_selective_statement_order_is_last_definition_wins() {
     let db = unknown_load_contract_db().expect("unknown-load validation fixture should build");
-    let restored_errors = collect_all_errors(
+    let restored_errors = collect_test_errors(
         &db,
         concat!(
             "{% load exact_symbol exact_filter from unknown_library %}\n",
@@ -2240,7 +2254,7 @@ fn unknown_load_shadowed_tag_contract_selective_statement_order_is_last_definiti
         "the later exact load must restore the selectively uncertain filter contract: {restored_errors:?}"
     );
 
-    let shadowed_errors = collect_all_errors(
+    let shadowed_errors = collect_test_errors(
         &db,
         concat!(
             "{% load exact %}\n",
@@ -2269,7 +2283,7 @@ fn unknown_load_shadowed_tag_contract_selective_statement_order_is_last_definiti
 #[test]
 fn unknown_load_shadowed_tag_contract_suppresses_later_opener_contract() {
     let db = unknown_load_contract_db().expect("unknown-load validation fixture should build");
-    let errors = collect_all_errors(&db, "{% load unknown_library %}\n{% if condition %}\n")
+    let errors = collect_test_errors(&db, "{% load unknown_library %}\n{% if condition %}\n")
         .expect("template validation errors should be collected");
 
     assert!(
@@ -2283,7 +2297,7 @@ fn unknown_load_shadowed_tag_contract_suppresses_later_opener_contract() {
 #[test]
 fn unknown_load_shadowed_tag_contract_suppresses_later_orphan_contracts() {
     let db = unknown_load_contract_db().expect("unknown-load validation fixture should build");
-    let errors = collect_all_errors(&db, "{% load unknown_library %}\n{% else %}\n{% endif %}\n")
+    let errors = collect_test_errors(&db, "{% load unknown_library %}\n{% else %}\n{% endif %}\n")
         .expect("template validation errors should be collected");
 
     assert!(
@@ -2305,7 +2319,7 @@ fn unknown_load_shadowed_tag_contract_suppresses_later_orphan_contracts() {
 #[test]
 fn unknown_load_shadowed_tag_contract_selective_import_is_symbol_specific() {
     let db = unknown_load_contract_db().expect("unknown-load validation fixture should build");
-    let errors = collect_all_errors(
+    let errors = collect_test_errors(
         &db,
         concat!(
             "{% load contract_tag if from unknown_library %}\n",
@@ -2348,7 +2362,7 @@ fn unknown_load_shadowed_tag_contract_selective_import_is_symbol_specific() {
 #[test]
 fn unknown_load_shadowed_tag_contract_exact_and_closed_loads_retain_contracts() {
     let partial = unknown_load_contract_db().expect("unknown-load validation fixture should build");
-    let exact_errors = collect_all_errors(
+    let exact_errors = collect_test_errors(
         &partial,
         "{% load exact %}\n{% contract_tag %}\n{% if condition %}\n",
     )
@@ -2367,9 +2381,9 @@ fn unknown_load_shadowed_tag_contract_exact_and_closed_loads_retain_contracts() 
         "an exact load must not suppress an unrelated opener contract: {exact_errors:?}"
     );
 
-    let closed = standard_db().expect("standard validation fixture should build");
+    let mut closed = standard_db().expect("standard validation fixture should build");
     let closed_errors = collect_all_errors(
-        &closed,
+        &mut closed,
         "{% load missing_library %}\n{% one_arg_tag %}\n{% if condition %}\n",
     )
     .expect("template validation errors should be collected");
@@ -2391,7 +2405,7 @@ fn unknown_load_shadowed_tag_contract_exact_and_closed_loads_retain_contracts() 
 #[test]
 fn unknown_load_shadowed_tag_contract_preserves_captured_closer_and_intermediate() {
     let db = unknown_load_contract_db().expect("unknown-load validation fixture should build");
-    let errors = collect_all_errors(
+    let errors = collect_test_errors(
         &db,
         concat!(
             "{% if first %}\n",
@@ -2418,7 +2432,7 @@ fn unknown_load_shadowed_tag_contract_preserves_captured_closer_and_intermediate
 #[test]
 fn unknown_load_shadowed_tag_contract_preserves_captured_close_arguments() {
     let db = unknown_load_contract_db().expect("unknown-load validation fixture should build");
-    let errors = collect_all_errors(
+    let errors = collect_test_errors(
         &db,
         concat!(
             "{% block expected %}\n",
@@ -2441,7 +2455,7 @@ fn unknown_load_shadowed_tag_contract_preserves_captured_close_arguments() {
 #[test]
 fn unknown_load_shadowed_tag_contract_suppresses_definition_roles() {
     let db = unknown_load_contract_db().expect("unknown-load validation fixture should build");
-    let errors = collect_all_errors(
+    let errors = collect_test_errors(
         &db,
         concat!(
             "{% load if extends from unknown_library %}\n",
@@ -2470,7 +2484,7 @@ fn unknown_load_shadowed_tag_contract_suppresses_definition_roles() {
 #[test]
 fn unknown_load_shadowed_tag_contract_does_not_create_a_later_load_event() {
     let db = unknown_load_contract_db().expect("unknown-load validation fixture should build");
-    let errors = collect_all_errors(
+    let errors = collect_test_errors(
         &db,
         concat!(
             "{% load load from unknown_library %}\n",
@@ -2491,8 +2505,8 @@ fn unknown_load_shadowed_tag_contract_does_not_create_a_later_load_event() {
 
 #[test]
 fn partial_knowledge_suppresses_unknown_load_library() {
-    let db = partial_db().expect("partial validation fixture should build");
-    let errors = collect_all_errors(&db, "{% load missing_library %}\n")
+    let mut db = partial_db().expect("partial validation fixture should build");
+    let errors = collect_all_errors(&mut db, "{% load missing_library %}\n")
         .expect("template validation errors should be collected");
 
     assert!(
@@ -2505,8 +2519,8 @@ fn partial_knowledge_suppresses_unknown_load_library() {
 
 #[test]
 fn partial_knowledge_suppresses_unknown_filter() {
-    let db = partial_db().expect("partial validation fixture should build");
-    let errors = collect_all_errors(&db, "{{ value|definitely_unknown }}\n")
+    let mut db = partial_db().expect("partial validation fixture should build");
+    let errors = collect_all_errors(&mut db, "{{ value|definitely_unknown }}\n")
         .expect("template validation errors should be collected");
 
     assert!(
@@ -2519,9 +2533,9 @@ fn partial_knowledge_suppresses_unknown_filter() {
 
 #[test]
 fn partial_knowledge_suppresses_filter_arity_after_unknown_load() {
-    let db = partial_db().expect("partial validation fixture should build");
+    let mut db = partial_db().expect("partial validation fixture should build");
     let errors = collect_all_errors(
-        &db,
+        &mut db,
         "{% load project_filters %}\n{{ value|truncatewords }}\n",
     )
     .expect("template validation errors should be collected");
@@ -2537,8 +2551,8 @@ fn partial_knowledge_suppresses_filter_arity_after_unknown_load() {
 
 #[test]
 fn unknown_load_name_without_available_candidate_stays_unknown_library() {
-    let db = standard_db().expect("standard validation fixture should build");
-    let errors = collect_all_errors(&db, "{% load missing_library %}\n")
+    let mut db = standard_db().expect("standard validation fixture should build");
+    let errors = collect_all_errors(&mut db, "{% load missing_library %}\n")
         .expect("template validation errors should be collected");
 
     assert!(
@@ -2552,8 +2566,8 @@ fn unknown_load_name_without_available_candidate_stays_unknown_library() {
 
 #[test]
 fn unknown_tag_without_available_candidate_stays_unknown_tag() {
-    let db = standard_db().expect("standard validation fixture should build");
-    let errors = collect_all_errors(&db, "{% definitely_unknown %}\n")
+    let mut db = standard_db().expect("standard validation fixture should build");
+    let errors = collect_all_errors(&mut db, "{% definitely_unknown %}\n")
         .expect("template validation errors should be collected");
 
     assert!(
@@ -2569,14 +2583,14 @@ fn unknown_tag_without_available_candidate_stays_unknown_tag() {
 
 #[test]
 fn mixed_expression_and_filter_arity_errors() {
-    let db = standard_db().expect("standard validation fixture should build");
+    let mut db = standard_db().expect("standard validation fixture should build");
     let source = concat!(
         "{% if and x %}bad expr{% endif %}\n",
         "{{ value|truncatewords }}\n",
         "{{ value|title:\"bad\" }}\n",
     );
-    let errors =
-        collect_all_errors(&db, source).expect("template validation errors should be collected");
+    let errors = collect_all_errors(&mut db, source)
+        .expect("template validation errors should be collected");
 
     let expr_errors: Vec<_> = errors
         .iter()
@@ -2610,7 +2624,7 @@ fn mixed_expression_and_filter_arity_errors() {
 
 #[test]
 fn opaque_region_suppresses_all_validation() {
-    let db = standard_db().expect("standard validation fixture should build");
+    let mut db = standard_db().expect("standard validation fixture should build");
     // Everything inside verbatim should be skipped
     let source = concat!(
         "{% verbatim %}\n",
@@ -2619,8 +2633,8 @@ fn opaque_region_suppresses_all_validation() {
         "{{ value|title:\"bad\" }}\n",
         "{% endverbatim %}\n",
     );
-    let errors =
-        collect_all_errors(&db, source).expect("template validation errors should be collected");
+    let errors = collect_all_errors(&mut db, source)
+        .expect("template validation errors should be collected");
 
     // Filter out structural errors (UnclosedTag etc) that come from the block tree
     let validation_errors: Vec<_> = errors
@@ -2686,14 +2700,14 @@ fn extracted_verbatim_policy_stays_opaque_while_custom_mixed_body_is_analyzed() 
 
 #[test]
 fn errors_before_and_after_opaque_region() {
-    let db = standard_db().expect("standard validation fixture should build");
+    let mut db = standard_db().expect("standard validation fixture should build");
     let source = concat!(
         "{{ value|truncatewords }}\n",
         "{% verbatim %}{% if and x %}{% endverbatim %}\n",
         "{{ value|title:\"bad\" }}\n",
     );
-    let errors =
-        collect_all_errors(&db, source).expect("template validation errors should be collected");
+    let errors = collect_all_errors(&mut db, source)
+        .expect("template validation errors should be collected");
 
     let s115_errors: Vec<_> = errors
         .iter()
@@ -2726,15 +2740,15 @@ fn errors_before_and_after_opaque_region() {
 
 #[test]
 fn comment_block_also_opaque() {
-    let db = standard_db().expect("standard validation fixture should build");
+    let mut db = standard_db().expect("standard validation fixture should build");
     let source = concat!(
         "{% comment %}\n",
         "{% if and x %}{% endif %}\n",
         "{{ value|truncatewords }}\n",
         "{% endcomment %}\n",
     );
-    let errors =
-        collect_all_errors(&db, source).expect("template validation errors should be collected");
+    let errors = collect_all_errors(&mut db, source)
+        .expect("template validation errors should be collected");
 
     let validation_errors: Vec<_> = errors
         .iter()
@@ -2756,9 +2770,9 @@ fn comment_block_also_opaque() {
 
 #[test]
 fn load_inside_block_affects_later_occurrences() {
-    let db = standard_db().expect("standard validation fixture should build");
+    let mut db = standard_db().expect("standard validation fixture should build");
     let errors = collect_all_errors(
-        &db,
+        &mut db,
         "{% if value %}{% load i18n %}{% trans 'hello' %}{% endif %}",
     )
     .expect("template validation errors should be collected");
@@ -2774,13 +2788,13 @@ fn load_inside_block_affects_later_occurrences() {
 
 #[test]
 fn load_inside_verbatim_does_not_affect_later_tag_availability() {
-    let db = standard_db().expect("standard validation fixture should build");
+    let mut db = standard_db().expect("standard validation fixture should build");
     let source = concat!(
         "{% verbatim %}{% load i18n %}{% endverbatim %}\n",
         "{% trans \"hello\" %}\n",
     );
-    let errors =
-        collect_all_errors(&db, source).expect("template validation errors should be collected");
+    let errors = collect_all_errors(&mut db, source)
+        .expect("template validation errors should be collected");
 
     assert!(
         errors.iter().any(|error| matches!(
@@ -2794,13 +2808,13 @@ fn load_inside_verbatim_does_not_affect_later_tag_availability() {
 
 #[test]
 fn load_inside_comment_does_not_affect_later_tag_availability() {
-    let db = standard_db().expect("standard validation fixture should build");
+    let mut db = standard_db().expect("standard validation fixture should build");
     let source = concat!(
         "{% comment %}{% load i18n %}{% endcomment %}\n",
         "{% trans \"hello\" %}\n",
     );
-    let errors =
-        collect_all_errors(&db, source).expect("template validation errors should be collected");
+    let errors = collect_all_errors(&mut db, source)
+        .expect("template validation errors should be collected");
 
     assert!(
         errors.iter().any(|error| matches!(
@@ -2814,12 +2828,12 @@ fn load_inside_comment_does_not_affect_later_tag_availability() {
 
 #[test]
 fn unloaded_tag_and_filter_with_expression_error() {
-    let db = standard_db().expect("standard validation fixture should build");
+    let mut db = standard_db().expect("standard validation fixture should build");
     // trans requires {% load i18n %}, but it's not loaded
     // Also has an expression error in an if tag
     let source = concat!("{% if or x %}bad{% endif %}\n", "{% trans \"hello\" %}\n",);
-    let errors =
-        collect_all_errors(&db, source).expect("template validation errors should be collected");
+    let errors = collect_all_errors(&mut db, source)
+        .expect("template validation errors should be collected");
 
     let expr_errors: Vec<_> = errors
         .iter()
@@ -2856,14 +2870,14 @@ fn unloaded_tag_and_filter_with_expression_error() {
 
 #[test]
 fn loaded_library_tags_valid_with_filter_errors() {
-    let db = standard_db().expect("standard validation fixture should build");
+    let mut db = standard_db().expect("standard validation fixture should build");
     let source = concat!(
         "{% load i18n %}\n",
         "{% trans \"hello\" %}\n",
         "{{ value|truncatewords }}\n",
     );
-    let errors =
-        collect_all_errors(&db, source).expect("template validation errors should be collected");
+    let errors = collect_all_errors(&mut db, source)
+        .expect("template validation errors should be collected");
 
     let scoping_errors: Vec<_> = errors
         .iter()
@@ -2894,7 +2908,7 @@ fn loaded_library_tags_valid_with_filter_errors() {
 
 #[test]
 fn snapshot_mixed_diagnostics() {
-    let db = standard_db().expect("standard validation fixture should build");
+    let mut db = standard_db().expect("standard validation fixture should build");
     let source = concat!(
         "{% if and x %}oops{% endif %}\n",
         "{{ name|title:\"arg\" }}\n",
@@ -2902,22 +2916,22 @@ fn snapshot_mixed_diagnostics() {
         "{% trans \"hello\" %}\n",
     );
 
-    let rendered = djls_testing::render_validate_snapshot(&db, "test.html", 0, source)
+    let rendered = djls_testing::render_validate_snapshot(&mut db, "test.html", source)
         .expect("mixed diagnostic snapshot should render");
     insta::assert_snapshot!(rendered);
 }
 
 #[test]
 fn snapshot_clean_template_no_errors() {
-    let db = standard_db().expect("standard validation fixture should build");
+    let mut db = standard_db().expect("standard validation fixture should build");
     let source = concat!(
         "{% if user.is_authenticated %}\n",
         "  <h1>{{ user.name|title }}</h1>\n",
         "  {{ user.joined|date:\"Y-m-d\" }}\n",
         "{% endif %}\n",
     );
-    let errors =
-        collect_all_errors(&db, source).expect("template validation errors should be collected");
+    let errors = collect_all_errors(&mut db, source)
+        .expect("template validation errors should be collected");
 
     let validation_errors: Vec<_> = errors
         .iter()
@@ -2943,7 +2957,7 @@ fn snapshot_clean_template_no_errors() {
 
 #[test]
 fn snapshot_complex_valid_template() {
-    let db = standard_db().expect("standard validation fixture should build");
+    let mut db = standard_db().expect("standard validation fixture should build");
     // A realistic Django admin-style template with various features
     let source = concat!(
         "{% load i18n %}\n",
@@ -2958,8 +2972,8 @@ fn snapshot_complex_valid_template() {
         "  {{ raw_template_syntax }}\n",
         "{% endverbatim %}\n",
     );
-    let errors =
-        collect_all_errors(&db, source).expect("template validation errors should be collected");
+    let errors = collect_all_errors(&mut db, source)
+        .expect("template validation errors should be collected");
 
     let validation_errors: Vec<_> = errors
         .iter()
@@ -2985,7 +2999,7 @@ fn snapshot_complex_valid_template() {
 
 #[test]
 fn snapshot_multiple_error_types() {
-    let db = standard_db().expect("standard validation fixture should build");
+    let mut db = standard_db().expect("standard validation fixture should build");
     let source = concat!(
         "{{ value|title:\"unwanted\" }}\n",
         "{% if == broken %}bad{% endif %}\n",
@@ -2994,7 +3008,7 @@ fn snapshot_multiple_error_types() {
         "{{ result|truncatewords }}\n",
     );
 
-    let rendered = djls_testing::render_validate_snapshot(&db, "test.html", 0, source)
+    let rendered = djls_testing::render_validate_snapshot(&mut db, "test.html", source)
         .expect("multiple-error diagnostic snapshot should render");
     insta::assert_snapshot!(rendered);
 }
@@ -3003,10 +3017,10 @@ fn snapshot_multiple_error_types() {
 
 #[test]
 fn extends_as_first_tag_no_errors() {
-    let db = standard_db().expect("standard validation fixture should build");
+    let mut db = standard_db().expect("standard validation fixture should build");
     let source = r#"{% extends "base.html" %}"#;
-    let errors =
-        collect_all_errors(&db, source).expect("template validation errors should be collected");
+    let errors = collect_all_errors(&mut db, source)
+        .expect("template validation errors should be collected");
     let extends_errors: Vec<_> = errors
         .iter()
         .filter(|e| {
@@ -3025,10 +3039,10 @@ fn extends_as_first_tag_no_errors() {
 
 #[test]
 fn text_whitespace_before_extends_no_errors() {
-    let db = standard_db().expect("standard validation fixture should build");
+    let mut db = standard_db().expect("standard validation fixture should build");
     let source = "  \n\n  {% extends \"base.html\" %}";
-    let errors =
-        collect_all_errors(&db, source).expect("template validation errors should be collected");
+    let errors = collect_all_errors(&mut db, source)
+        .expect("template validation errors should be collected");
     let extends_errors: Vec<_> = errors
         .iter()
         .filter(|e| {
@@ -3047,10 +3061,10 @@ fn text_whitespace_before_extends_no_errors() {
 
 #[test]
 fn comment_before_extends_no_errors() {
-    let db = standard_db().expect("standard validation fixture should build");
+    let mut db = standard_db().expect("standard validation fixture should build");
     let source = "{# this is a comment #}{% extends \"base.html\" %}";
-    let errors =
-        collect_all_errors(&db, source).expect("template validation errors should be collected");
+    let errors = collect_all_errors(&mut db, source)
+        .expect("template validation errors should be collected");
     let extends_errors: Vec<_> = errors
         .iter()
         .filter(|e| {
@@ -3069,10 +3083,10 @@ fn comment_before_extends_no_errors() {
 
 #[test]
 fn no_extends_at_all_no_errors() {
-    let db = standard_db().expect("standard validation fixture should build");
+    let mut db = standard_db().expect("standard validation fixture should build");
     let source = "{% if user %}hello{% endif %}";
-    let errors =
-        collect_all_errors(&db, source).expect("template validation errors should be collected");
+    let errors = collect_all_errors(&mut db, source)
+        .expect("template validation errors should be collected");
     let extends_errors: Vec<_> = errors
         .iter()
         .filter(|e| {
@@ -3091,10 +3105,10 @@ fn no_extends_at_all_no_errors() {
 
 #[test]
 fn tag_before_extends_s122() {
-    let db = standard_db().expect("standard validation fixture should build");
+    let mut db = standard_db().expect("standard validation fixture should build");
     let source = "{% load i18n %}{% extends \"base.html\" %}";
-    let errors =
-        collect_all_errors(&db, source).expect("template validation errors should be collected");
+    let errors = collect_all_errors(&mut db, source)
+        .expect("template validation errors should be collected");
     let s122: Vec<_> = errors
         .iter()
         .filter(|e| matches!(e, ValidationError::ExtendsMustBeFirst { .. }))
@@ -3104,10 +3118,10 @@ fn tag_before_extends_s122() {
 
 #[test]
 fn variable_before_extends_s122() {
-    let db = standard_db().expect("standard validation fixture should build");
+    let mut db = standard_db().expect("standard validation fixture should build");
     let source = "{{ variable }}{% extends \"base.html\" %}";
-    let errors =
-        collect_all_errors(&db, source).expect("template validation errors should be collected");
+    let errors = collect_all_errors(&mut db, source)
+        .expect("template validation errors should be collected");
     let s122: Vec<_> = errors
         .iter()
         .filter(|e| matches!(e, ValidationError::ExtendsMustBeFirst { .. }))
@@ -3117,10 +3131,10 @@ fn variable_before_extends_s122() {
 
 #[test]
 fn multiple_extends_s123() {
-    let db = standard_db().expect("standard validation fixture should build");
+    let mut db = standard_db().expect("standard validation fixture should build");
     let source = r#"{% extends "base.html" %}{% extends "other.html" %}"#;
-    let errors =
-        collect_all_errors(&db, source).expect("template validation errors should be collected");
+    let errors = collect_all_errors(&mut db, source)
+        .expect("template validation errors should be collected");
     let s123: Vec<_> = errors
         .iter()
         .filter(|e| matches!(e, ValidationError::MultipleExtends { .. }))
@@ -3136,10 +3150,10 @@ fn multiple_extends_s123() {
 
 #[test]
 fn tag_before_extends_and_multiple_extends_s122_and_s123() {
-    let db = standard_db().expect("standard validation fixture should build");
+    let mut db = standard_db().expect("standard validation fixture should build");
     let source = r#"{% load i18n %}{% extends "a.html" %}{% extends "b.html" %}"#;
-    let errors =
-        collect_all_errors(&db, source).expect("template validation errors should be collected");
+    let errors = collect_all_errors(&mut db, source)
+        .expect("template validation errors should be collected");
     let s122: Vec<_> = errors
         .iter()
         .filter(|e| matches!(e, ValidationError::ExtendsMustBeFirst { .. }))
@@ -3154,10 +3168,10 @@ fn tag_before_extends_and_multiple_extends_s122_and_s123() {
 
 #[test]
 fn extends_inside_verbatim_after_content_does_not_need_to_be_first() {
-    let db = standard_db().expect("standard validation fixture should build");
+    let mut db = standard_db().expect("standard validation fixture should build");
     let source = r#"<p>body</p>{% verbatim %}{% extends "base.html" %}{% endverbatim %}"#;
-    let errors =
-        collect_all_errors(&db, source).expect("template validation errors should be collected");
+    let errors = collect_all_errors(&mut db, source)
+        .expect("template validation errors should be collected");
     let s122: Vec<_> = errors
         .iter()
         .filter(|e| matches!(e, ValidationError::ExtendsMustBeFirst { .. }))
@@ -3171,10 +3185,10 @@ fn extends_inside_verbatim_after_content_does_not_need_to_be_first() {
 
 #[test]
 fn multiple_extends_inside_comment_do_not_count_as_multiple_extends() {
-    let db = standard_db().expect("standard validation fixture should build");
+    let mut db = standard_db().expect("standard validation fixture should build");
     let source = r#"{% comment %}{% extends "a.html" %}{% extends "b.html" %}{% endcomment %}"#;
-    let errors =
-        collect_all_errors(&db, source).expect("template validation errors should be collected");
+    let errors = collect_all_errors(&mut db, source)
+        .expect("template validation errors should be collected");
     let s123: Vec<_> = errors
         .iter()
         .filter(|e| matches!(e, ValidationError::MultipleExtends { .. }))
@@ -3188,11 +3202,11 @@ fn multiple_extends_inside_comment_do_not_count_as_multiple_extends() {
 
 #[test]
 fn opaque_extends_after_active_extends_does_not_count_as_second_extends() {
-    let db = standard_db().expect("standard validation fixture should build");
+    let mut db = standard_db().expect("standard validation fixture should build");
     let source =
         r#"{% extends "base.html" %}{% verbatim %}{% extends "ignored.html" %}{% endverbatim %}"#;
-    let errors =
-        collect_all_errors(&db, source).expect("template validation errors should be collected");
+    let errors = collect_all_errors(&mut db, source)
+        .expect("template validation errors should be collected");
     let s123: Vec<_> = errors
         .iter()
         .filter(|e| matches!(e, ValidationError::MultipleExtends { .. }))
@@ -3723,7 +3737,7 @@ fn corpus_eventsignal_rejects_extra_positional_arguments() {
 fn corpus_activity_stream_curried_registration() {
     let corpus = Corpus::require().expect("synced corpus should be available");
     let root = corpus.root().join("repos/django-activity-stream");
-    let extraction_db = djls_testing::OsTestDatabase::new();
+    let extraction_db = djls_testing::OsTestDatabase::with_disk_roots([root.clone()]);
     let file = djls_source::path_to_file(
         &extraction_db,
         &root.join("actstream/templatetags/activity_tags.py"),

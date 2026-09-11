@@ -50,5 +50,6 @@ pub use mdtest::ScenarioFile;
 pub use mdtest::render_validation_scenario;
 pub use mdtest::run_suite;
 pub use mdtest::run_suite_with;
+pub use mdtest::run_validation_suite_with;
 pub use vendor::VendorSpecFixturesOptions;
 pub use vendor::vendor_spec_fixtures;

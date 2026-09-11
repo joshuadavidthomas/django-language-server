@@ -39,7 +39,7 @@ fn bootstrap_fixture(
     overrides: Option<serde_json::Map<String, serde_json::Value>>,
 ) -> TestResult<(OsTestDatabase, Project, Utf8PathBuf)> {
     let root = fixture_root(name)?;
-    let mut db = OsTestDatabase::new();
+    let mut db = OsTestDatabase::with_disk_roots([root.clone()]);
     let settings = djls_conf::Settings::new(root.as_path(), overrides)?;
     let project = Project::bootstrap(&db, root.as_path(), &settings);
     db.set_project(project);

@@ -12,49 +12,37 @@
 ✓ no diagnostics
 ```
 
-## Invalid
-
-### rejects missing arguments
+### uses default arguments
 
 ```htmldjango
 {% lorem %}
 ```
 
 ```snapshot
-error[S117]: Incorrect format for 'lorem' tag
- --> test.html:1:1
-  |
-1 | {% lorem %}
-  | ^^^^^^^^^^^
+✓ no diagnostics
 ```
 
-### rejects missing output method and randomness
+### accepts count only
 
 ```htmldjango
 {% lorem 3 %}
 ```
 
 ```snapshot
-error[S117]: Incorrect format for 'lorem' tag
- --> test.html:1:1
-  |
-1 | {% lorem 3 %}
-  | ^^^^^^^^^^^^^
+✓ no diagnostics
 ```
 
-### rejects missing randomness
+### accepts output method without randomness
 
 ```htmldjango
 {% lorem 3 p %}
 ```
 
 ```snapshot
-error[S117]: Incorrect format for 'lorem' tag
- --> test.html:1:1
-  |
-1 | {% lorem 3 p %}
-  | ^^^^^^^^^^^^^^^
+✓ no diagnostics
 ```
+
+## Invalid
 
 ### rejects too many arguments
 

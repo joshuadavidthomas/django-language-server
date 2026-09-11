@@ -79,7 +79,8 @@ pub fn django_facts_project(
     })?;
     let project_root = workspace.join(project_dir);
 
-    let mut db = OsTestDatabase::new();
+    let mut db =
+        OsTestDatabase::with_disk_roots([project_root.clone(), django_source_root.clone()]);
     let interpreter = Interpreter::VenvPath(corpus.root().join("hermetic-no-venv"));
     let pythonpath = vec![django_source_root.clone()];
     let search_paths = SearchPaths::from_paths(vec![

@@ -6,6 +6,7 @@ use std::ops::Range;
 use std::path::Path;
 
 use anyhow::Context as _;
+use camino::Utf8Path;
 use pulldown_cmark::CodeBlockKind;
 use pulldown_cmark::Event;
 use pulldown_cmark::HeadingLevel;
@@ -13,12 +14,13 @@ use pulldown_cmark::Parser as MarkdownParser;
 use pulldown_cmark::Tag;
 use pulldown_cmark::TagEnd;
 
-use crate::TestDatabase;
+use crate::OsTestDatabase;
 use crate::fixtures::snapshot_validate_files;
 use crate::fixtures::standard_validation_db;
 
 const UPDATE_ENV: &str = "DJLS_UPDATE_MDTEST_SNAPSHOTS";
 const NO_DIAGNOSTICS_SNAPSHOT: &str = "✓ no diagnostics";
+const VALIDATION_TEMPLATE_ROOT: &str = "/templates";
 
 #[derive(Debug)]
 pub struct Scenario {
@@ -47,10 +49,6 @@ impl Scenario {
                 self.primary_file_index
             )
         })
-    }
-
-    fn render_validation_snapshot(&self) -> anyhow::Result<String> {
-        render_validation_scenario(&standard_validation_db()?, self)
     }
 
     fn snapshot_update(&self, actual: String) -> SnapshotUpdate {
@@ -108,19 +106,33 @@ impl SnapshotUpdate {
 
 /// Render one validation scenario against a caller-supplied database.
 pub fn render_validation_scenario(
-    db: &TestDatabase,
+    db: &mut OsTestDatabase,
     scenario: &Scenario,
 ) -> anyhow::Result<String> {
     let primary = scenario.primary_file()?;
+    let scenario_files = scenario
+        .files
+        .iter()
+        .map(|file| {
+            djls_source::safe_join(Utf8Path::new(VALIDATION_TEMPLATE_ROOT), &file.path)
+                .map(|path| (path, file.source.as_str()))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let primary_database_path =
+        djls_source::safe_join(Utf8Path::new(VALIDATION_TEMPLATE_ROOT), &primary.path)?;
     let rendered = snapshot_validate_files(
         db,
+        primary_database_path.as_str(),
         primary.path.as_str(),
         primary.source.as_str(),
-        scenario
-            .files
+        scenario_files
             .iter()
-            .map(|file| (file.path.as_str(), file.source.as_str())),
-    )?;
+            .map(|(path, source)| (path.as_str(), *source)),
+    );
+    for (path, _) in &scenario_files {
+        db.remove_file(path.as_str())?;
+    }
+    let rendered = rendered?;
     Ok(if rendered.trim().is_empty() {
         NO_DIAGNOSTICS_SNAPSHOT.to_string()
     } else {
@@ -129,28 +141,41 @@ pub fn render_validation_scenario(
 }
 
 pub fn run_suite(dir: &Path) -> anyhow::Result<()> {
-    run_suite_with(dir, Scenario::render_validation_snapshot)
+    run_validation_suite_with(dir, standard_validation_db)
+}
+
+pub fn run_validation_suite_with(
+    dir: &Path,
+    database: fn() -> anyhow::Result<OsTestDatabase>,
+) -> anyhow::Result<()> {
+    MdtestRun::new(dir.to_path_buf(), Renderer::Validation(database)).run()
 }
 
 pub fn run_suite_with(
     dir: &Path,
     render: fn(&Scenario) -> anyhow::Result<String>,
 ) -> anyhow::Result<()> {
-    MdtestRun::new(dir.to_path_buf(), render).run()
+    MdtestRun::new(dir.to_path_buf(), Renderer::Scenario(render)).run()
+}
+
+#[derive(Clone, Copy)]
+enum Renderer {
+    Validation(fn() -> anyhow::Result<OsTestDatabase>),
+    Scenario(fn(&Scenario) -> anyhow::Result<String>),
 }
 
 struct MdtestRun {
     root: std::path::PathBuf,
-    render: fn(&Scenario) -> anyhow::Result<String>,
+    renderer: Renderer,
     update: bool,
     failures: Vec<String>,
 }
 
 impl MdtestRun {
-    fn new(root: std::path::PathBuf, render: fn(&Scenario) -> anyhow::Result<String>) -> Self {
+    fn new(root: std::path::PathBuf, renderer: Renderer) -> Self {
         Self {
             root,
-            render,
+            renderer,
             update: std::env::var_os(UPDATE_ENV).is_some_and(|value| value != "0"),
             failures: Vec::new(),
         }
@@ -165,8 +190,20 @@ impl MdtestRun {
             );
         }
 
-        for path in files {
-            self.run_file(&path)?;
+        match self.renderer {
+            Renderer::Validation(database) => {
+                let mut db = database()?;
+                let mut render =
+                    |scenario: &Scenario| render_validation_scenario(&mut db, scenario);
+                for path in files {
+                    self.run_file(&path, &mut render)?;
+                }
+            }
+            Renderer::Scenario(mut render) => {
+                for path in files {
+                    self.run_file(&path, &mut render)?;
+                }
+            }
         }
 
         if !self.failures.is_empty() {
@@ -205,7 +242,11 @@ impl MdtestRun {
         Ok(files)
     }
 
-    fn run_file(&mut self, path: &Path) -> anyhow::Result<()> {
+    fn run_file(
+        &mut self,
+        path: &Path,
+        render: &mut impl FnMut(&Scenario) -> anyhow::Result<String>,
+    ) -> anyhow::Result<()> {
         let markdown = std::fs::read_to_string(path)
             .with_context(|| format!("failed to read mdtest file `{}`", path.display()))?;
         let scenarios = match ScenarioCollector::new(&markdown).collect() {
@@ -223,16 +264,7 @@ impl MdtestRun {
             return Ok(());
         }
 
-        let mut updates = Vec::new();
-        for scenario in scenarios {
-            let actual = (self.render)(&scenario)
-                .with_context(|| format!("failed to render mdtest scenario `{}`", scenario.name))?;
-            if self.update {
-                updates.push(scenario.snapshot_update(actual));
-            } else {
-                self.check_snapshot(path, &scenario, &actual)?;
-            }
-        }
+        let updates = self.render_scenarios(path, &scenarios, render)?;
 
         if self.update {
             let rewritten_markdown = SnapshotUpdate::apply_all(&markdown, &updates);
@@ -244,6 +276,25 @@ impl MdtestRun {
             })?;
         }
         Ok(())
+    }
+
+    fn render_scenarios(
+        &mut self,
+        path: &Path,
+        scenarios: &[Scenario],
+        mut render: impl FnMut(&Scenario) -> anyhow::Result<String>,
+    ) -> anyhow::Result<Vec<SnapshotUpdate>> {
+        let mut updates = Vec::new();
+        for scenario in scenarios {
+            let actual = render(scenario)
+                .with_context(|| format!("failed to render mdtest scenario `{}`", scenario.name))?;
+            if self.update {
+                updates.push(scenario.snapshot_update(actual));
+            } else {
+                self.check_snapshot(path, scenario, &actual)?;
+            }
+        }
+        Ok(updates)
     }
 
     fn check_snapshot(
@@ -544,6 +595,19 @@ impl<'a> ScenarioCollector<'a> {
             "test.html".to_string()
         };
 
+        if Utf8Path::new(&file_path).is_absolute() {
+            return Err(format!(
+                "scenario '{}' template path '{}' must be relative",
+                current.name, file_path
+            ));
+        }
+        if current.files.iter().any(|file| file.path == file_path) {
+            return Err(format!(
+                "scenario '{}' has more than one template block for path '{}'",
+                current.name, file_path
+            ));
+        }
+
         current.files.push(ScenarioFile {
             path: file_path,
             source: block.content,
@@ -838,6 +902,52 @@ error[S102]: Orphaned tag
         assert_eq!(
             error,
             "scenario 'Inheritance / child and parent' has multiple template blocks but no unlabeled file under test"
+        );
+    }
+
+    #[test]
+    fn rejects_duplicate_template_paths() {
+        let markdown = r"## duplicate paths
+
+`test.html`:
+
+```html
+support
+```
+
+```htmldjango
+primary
+```
+";
+
+        let error = ScenarioCollector::new(markdown)
+            .collect()
+            .expect_err("duplicate template paths should be rejected");
+
+        assert_eq!(
+            error,
+            "scenario 'duplicate paths' has more than one template block for path 'test.html'"
+        );
+    }
+
+    #[test]
+    fn rejects_absolute_template_paths() {
+        let markdown = r"## absolute path
+
+`/templates/test.html`:
+
+```html
+source
+```
+";
+
+        let error = ScenarioCollector::new(markdown)
+            .collect()
+            .expect_err("absolute template paths should be rejected");
+
+        assert_eq!(
+            error,
+            "scenario 'absolute path' template path '/templates/test.html' must be relative"
         );
     }
 

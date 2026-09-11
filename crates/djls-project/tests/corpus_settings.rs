@@ -188,7 +188,7 @@ fn settings_extraction_snapshots() -> Result<(), Box<dyn std::error::Error>> {
         let project_root = &corpus_project.project_root;
 
         for settings_module in corpus_project.django_settings_modules {
-            let mut db = OsTestDatabase::new();
+            let mut db = OsTestDatabase::with_disk_roots([checkout_root.clone()]);
             let interpreter = Interpreter::VenvPath(corpus.root().join("hermetic-no-venv"));
             let pythonpath = Vec::new();
             let search_paths = SearchPaths::from_project_settings(
