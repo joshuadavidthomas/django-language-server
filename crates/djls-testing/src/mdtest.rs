@@ -149,7 +149,7 @@ pub fn render_validation_scenario(
     if settings_overridden {
         db.add_file(
             VALIDATION_SETTINGS_PATH,
-            &scenario.project_settings.render_settings_py()?,
+            &scenario.project_settings.settings_py(),
         )?;
     }
 
@@ -169,10 +169,7 @@ pub fn render_validation_scenario(
         db.remove_file(path.as_str())?;
     }
     if settings_overridden {
-        db.add_file(
-            VALIDATION_SETTINGS_PATH,
-            &default_settings.render_settings_py()?,
-        )?;
+        db.add_file(VALIDATION_SETTINGS_PATH, &default_settings.settings_py())?;
     }
 
     let rendered = rendered?;

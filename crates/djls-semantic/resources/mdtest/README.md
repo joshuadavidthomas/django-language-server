@@ -32,11 +32,14 @@ A `toml` fence replaces the inherited settings as one value. Omitted keys take t
 
 | Key | Type | Default |
 |---|---|---|
+| `installed-apps` | list of module paths | `[]` |
 | `dirs` | list of strings | `["/templates"]` |
 | `app-dirs` | boolean | `false` |
 | `builtins` | list of module paths | `[]` |
 | `libraries` | table from load name to module path | `{}` |
 | `partial` | boolean | `false` |
+
+The default project installs no apps, so a scenario that needs a contrib library declares it with `installed-apps`.
 
 ## Inheritance
 

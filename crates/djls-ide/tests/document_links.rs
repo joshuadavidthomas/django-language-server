@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use camino::Utf8Path;
 use djls_conf::TagDef;
 use djls_conf::TagLibraryDef;
@@ -7,6 +9,7 @@ use djls_ide::document_links as ide_document_links;
 use djls_source::File;
 use djls_source::PositionEncoding;
 use djls_testing::ProjectFixture;
+use djls_testing::ProjectSettings;
 use djls_testing::TestDatabase;
 use tower_lsp_server::ls_types;
 
@@ -38,11 +41,10 @@ fn document_links_resolve_absolute_references_from_originless_files() {
     let source = "{% include 'card.html' %}\n{% include './card.html' %}";
 
     ProjectFixture::new("/test/project")
-        .django_settings_module("testproject.settings")
-        .file(
-            "/test/project/testproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".into()],
+            ..ProjectSettings::default()
+        })
         .file("/test/project/scratch.html", source)
         .file("/test/project/templates/card.html", "card")
         .install(&mut db)
@@ -66,11 +68,10 @@ fn document_link_ranges_follow_position_encoding() {
     let template_path = "/test/project/templates/page.html";
     let source = "é😀 {% include \"card.html\" %}";
     ProjectFixture::new("/test/project")
-        .django_settings_module("project.settings")
-        .file(
-            "/test/project/project/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".into()],
+            ..ProjectSettings::default()
+        })
         .file(template_path, source)
         .file("/test/project/templates/card.html", "card")
         .install(&mut db)
@@ -114,11 +115,10 @@ fn document_links_resolve_template_references_with_interior_ranges() {
     );
 
     ProjectFixture::new("/test/project")
-        .django_settings_module("testproject.settings")
-        .file(
-            "/test/project/testproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".into()],
+            ..ProjectSettings::default()
+        })
         .file(child_path, source)
         .file(base_path, "base")
         .file(partial_path, "partial")
@@ -194,7 +194,6 @@ fn document_links_do_not_invent_origin_for_source_less_configured_library() {
     let mut db = TestDatabase::new();
     let template_path = "/test/project/templates/load.html";
     ProjectFixture::new("/test/project")
-        .django_settings_module("project.settings")
         .tag_specs(TagSpecDef {
             libraries: vec![TagLibraryDef {
                 module: "missing.panel_tags".to_string(),
@@ -211,10 +210,11 @@ fn document_links_do_not_invent_origin_for_source_less_configured_library() {
             }],
             ..TagSpecDef::default()
         })
-        .file(
-            "/test/project/project/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'panels': 'missing.panel_tags'}}}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".into()],
+            libraries: BTreeMap::from([("panels".into(), "missing.panel_tags".into())]),
+            ..ProjectSettings::default()
+        })
         .file(template_path, "{% load panels %}")
         .install(&mut db)
         .expect("configured-library project fixture should install");
@@ -257,11 +257,10 @@ fn document_links_resolve_relative_include_to_sibling_template() {
     let source = "{% include \"./x.html\" %}\n";
 
     ProjectFixture::new("/test/project")
-        .django_settings_module("testproject.settings")
-        .file(
-            "/test/project/testproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".into()],
+            ..ProjectSettings::default()
+        })
         .file(child_path, source)
         .file(target_path, "target")
         .install(&mut db)
@@ -299,11 +298,17 @@ fn document_links_resolve_load_libraries_with_argument_ranges() {
         "{% load djls_greeting from djls_app_tags %}\n",
     );
     ProjectFixture::new("/test/project")
-        .django_settings_module("project.settings")
-        .file(
-            "/test/project/project/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'djls_app_tags': 'djls_app.templatetags.djls_app_tags', 'extras': 'project.templatetags.extras'}}}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".into()],
+            libraries: BTreeMap::from([
+                (
+                    "djls_app_tags".into(),
+                    "djls_app.templatetags.djls_app_tags".into(),
+                ),
+                ("extras".into(), "project.templatetags.extras".into()),
+            ]),
+            ..ProjectSettings::default()
+        })
         .file(
             "/test/project/djls_app/templatetags/djls_app_tags.py",
             "from django import template\nregister = template.Library()\n@register.simple_tag\ndef djls_greeting(): pass\n",

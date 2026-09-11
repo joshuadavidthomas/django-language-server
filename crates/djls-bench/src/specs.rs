@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::io;
 use std::sync::Arc;
 use std::sync::OnceLock;
@@ -18,6 +19,7 @@ use djls_semantic::FilterAritySpecs;
 use djls_semantic::TagSpecs;
 use djls_source::Db as SourceDb;
 use djls_source::FileError;
+use djls_testing::ProjectSettings;
 use djls_testing::extract_bundle;
 
 use crate::Db;
@@ -155,7 +157,6 @@ fn install_template_library_fixture(
 ) -> Result<(), BenchmarkSetupError> {
     // Canonical builtin identities make extracted source facts fuse with semantic's hardcoded
     // Django roles and fallback grammar, matching production project analysis.
-    const SETTINGS: &str = "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'i18n': 'django.templatetags.i18n', 'static': 'django.templatetags.static'}}}]\n";
     const DEFAULTFILTERS: &str = concat!(
         "from django import template\nregister = template.Library()\n",
         "@register.filter\ndef title(value): pass\n",
@@ -178,9 +179,23 @@ fn install_template_library_fixture(
         "@register.tag\ndef include(parser, token): pass\n",
     );
 
+    db.add_fixture_source("/project/__init__.py", "");
+    db.add_fixture_source(
+        "/project/settings.py",
+        ProjectSettings {
+            libraries: BTreeMap::from([
+                ("i18n".to_string(), "django.templatetags.i18n".to_string()),
+                (
+                    "static".to_string(),
+                    "django.templatetags.static".to_string(),
+                ),
+            ]),
+            ..ProjectSettings::default()
+        }
+        .settings_py(),
+    );
+
     for (path, source) in [
-        ("/project/__init__.py", ""),
-        ("/project/settings.py", SETTINGS),
         ("/django/__init__.py", ""),
         ("/django/template/__init__.py", ""),
         ("/django/template/defaultfilters.py", DEFAULTFILTERS),

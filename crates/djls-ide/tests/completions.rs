@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 use std::fs;
 use std::io;
 
@@ -22,6 +23,7 @@ use djls_source::Offset;
 use djls_source::PositionEncoding;
 use djls_testing::Corpus;
 use djls_testing::ProjectFixture;
+use djls_testing::ProjectSettings;
 use djls_testing::SalsaEventLog;
 use djls_testing::TestDatabase;
 use tower_lsp_server::ls_types;
@@ -43,11 +45,13 @@ fn install_template_completion_project(
     source: &str,
 ) -> TestResult<()> {
     ProjectFixture::new("/test/project")
-        .django_settings_module("testproject.settings")
-        .file(
-            "/test/project/testproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates', '/test/project/app/templates'], 'APP_DIRS': False}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec![
+                "/test/project/templates".into(),
+                "/test/project/app/templates".into(),
+            ],
+            ..ProjectSettings::default()
+        })
         .file(child_path, source)
         .file("/test/project/templates/base.html", "base")
         .file("/test/project/templates/shared.html", "primary")
@@ -180,11 +184,12 @@ fn shadowed_normal_tag_named_load_gets_no_library_completion() {
     let (symbol_source, symbol_offset) = source_and_offset("{% load custom_§ from custom %}")
         .expect("symbol completion fixture should contain a valid cursor marker");
     ProjectFixture::new("/test/project")
-        .django_settings_module("testproject.settings")
-        .file(
-            "/test/project/testproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'builtins': ['custom_load'], 'libraries': {'custom': 'custom_tags'}}}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".into()],
+            builtins: vec!["custom_load".into()],
+            libraries: BTreeMap::from([("custom".into(), "custom_tags".into())]),
+            ..ProjectSettings::default()
+        })
         .file(
             "/test/project/custom_load.py",
             "from django import template\nregister = template.Library()\n@register.simple_tag(name='load')\ndef custom_load(value): pass\n",
@@ -495,11 +500,11 @@ fn project_backed_widthratio_completes_correlated_django_forms() {
         .collect::<Vec<_>>();
 
     let mut fixture = ProjectFixture::new("/test/project")
-        .django_settings_module("testproject.settings")
-        .file(
-            "/test/project/testproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'builtins': ['django.template.defaulttags']}}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".into()],
+            builtins: vec!["django.template.defaulttags".into()],
+            ..ProjectSettings::default()
+        })
         .file("/test/project/django/__init__.py", "")
         .file("/test/project/django/template/__init__.py", "")
         .file(
@@ -580,11 +585,11 @@ fn project_backed_for_completes_correlated_django_forms() {
         })
         .collect::<Vec<_>>();
     let mut fixture = ProjectFixture::new("/test/project")
-        .django_settings_module("testproject.settings")
-        .file(
-            "/test/project/testproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'builtins': ['django.template.defaulttags']}}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".into()],
+            builtins: vec!["django.template.defaulttags".into()],
+            ..ProjectSettings::default()
+        })
         .file("/test/project/django/__init__.py", "")
         .file("/test/project/django/template/__init__.py", "")
         .file(

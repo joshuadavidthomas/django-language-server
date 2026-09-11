@@ -14,6 +14,7 @@ use djls_source::File;
 use djls_source::Span;
 use djls_templates::parse_template;
 use djls_testing::ProjectFixture;
+use djls_testing::ProjectSettings;
 use djls_testing::Scenario;
 use djls_testing::ScenarioFileKind;
 use djls_testing::TestDatabase;
@@ -90,12 +91,10 @@ fn project_for_scenario(
     db: &TestDatabase,
     scenario: &Scenario,
 ) -> anyhow::Result<djls_project::Project> {
-    let settings_source = format!(
-        "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['{TEMPLATE_ROOT}'], 'APP_DIRS': False}}]\n"
-    );
-    let fixture = ProjectFixture::new(PROJECT_ROOT)
-        .django_settings_module("testproject.settings")
-        .file("/test/project/testproject/settings.py", settings_source);
+    let fixture = ProjectFixture::new(PROJECT_ROOT).settings(&ProjectSettings {
+        dirs: vec![TEMPLATE_ROOT.to_string()],
+        ..ProjectSettings::default()
+    });
 
     scenario
         .files

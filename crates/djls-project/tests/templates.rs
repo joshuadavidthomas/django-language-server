@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::ptr;
 
@@ -6,6 +7,7 @@ use djls_project::*;
 use djls_source::ChangeEvent;
 use djls_source::SourceChanges;
 use djls_testing::ProjectFixture;
+use djls_testing::ProjectSettings;
 use djls_testing::SalsaEventLog;
 use djls_testing::TestDatabase;
 use salsa::Database as _;
@@ -40,17 +42,11 @@ fn project_with_templates(
     template_dirs: Vec<&str>,
     templates: Vec<(&str, &str, &str)>,
 ) -> Result<Project, Box<dyn std::error::Error>> {
-    let dirs_literal = template_dirs
-        .into_iter()
-        .map(|dir| format!("'{dir}'"))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let settings_source = format!(
-        "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [{dirs_literal}], 'APP_DIRS': False}}]\n"
-    );
-    let fixture = ProjectFixture::new("/test/project")
-        .django_settings_module("testproject.settings")
-        .file("/test/project/testproject/settings.py", settings_source);
+    let settings = ProjectSettings {
+        dirs: template_dirs.into_iter().map(str::to_string).collect(),
+        ..ProjectSettings::default()
+    };
+    let fixture = ProjectFixture::new("/test/project").settings(&settings);
     Ok(templates
         .into_iter()
         .fold(fixture, |fixture, (_name, path, source)| {
@@ -170,10 +166,13 @@ fn project_inventory_preserves_backend_remainder_slot_order() {
 #[test]
 fn partial_known_backend_field_uncertainty_keeps_one_correlated_backend_alternative() {
     let db = TestDatabase::new();
-    let settings = "INSTALLED_APPS = []\nTEMPLATES = [\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', unknown_key: 'maybe', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'alpha_tags'}}},\n]\n";
     let project = ProjectFixture::new("/test/project")
-        .django_settings_module("testproject.settings")
-        .file("/test/project/testproject/settings.py", settings)
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".to_string()],
+            libraries: BTreeMap::from([("shared".to_string(), "alpha_tags".to_string())]),
+            partial: true,
+            ..ProjectSettings::default()
+        })
         .file(
             "/test/project/alpha_tags.py",
             "from django import template\nregister = template.Library()\n",
@@ -202,11 +201,13 @@ fn partial_known_backend_field_uncertainty_keeps_one_correlated_backend_alternat
 fn scoped_template_libraries_backend_index_invalidates_with_settings_evidence() {
     let events = SalsaEventLog::default();
     let mut db = TestDatabase::with_event_log(events.clone());
-    let settings_path = "/test/project/testproject/settings.py";
-    let settings = "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'alpha_tags'}}}]\n";
+    let settings_path = "/test/project/settings.py";
     let project = ProjectFixture::new("/test/project")
-        .django_settings_module("testproject.settings")
-        .file(settings_path, settings)
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".to_string()],
+            libraries: BTreeMap::from([("shared".to_string(), "alpha_tags".to_string())]),
+            ..ProjectSettings::default()
+        })
         .file(
             "/test/project/alpha_tags.py",
             "from django import template\nregister = template.Library()\n",
@@ -235,7 +236,12 @@ fn scoped_template_libraries_backend_index_invalidates_with_settings_evidence() 
 
     db.add_file(
         settings_path,
-        "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/other-templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'beta_tags'}}}]\n",
+        &ProjectSettings {
+            dirs: vec!["/test/project/other-templates".to_string()],
+            libraries: BTreeMap::from([("shared".to_string(), "beta_tags".to_string())]),
+            ..ProjectSettings::default()
+        }
+        .settings_py(),
     )
     .expect("updated settings fixture should be added to the test database");
     SourceChanges::new([ChangeEvent::ContentChanged(settings_path.into())]).apply(&mut db);
@@ -261,10 +267,12 @@ fn scoped_template_libraries_backend_index_invalidates_with_settings_evidence() 
 #[test]
 fn file_outside_template_roots_uses_open_project_inventory() {
     let db = TestDatabase::new();
-    let settings = "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'missing.shared_tags'}}}]\n";
     let project = ProjectFixture::new("/test/project")
-        .django_settings_module("testproject.settings")
-        .file("/test/project/testproject/settings.py", settings)
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".to_string()],
+            libraries: BTreeMap::from([("shared".to_string(), "missing.shared_tags".to_string())]),
+            ..ProjectSettings::default()
+        })
         .file("/test/project/outside.html", "{% load shared %}")
         .build(&db)
         .expect("outside-template project fixture should build");
@@ -1241,11 +1249,12 @@ fn later_dynamic_directory_does_not_weaken_an_earlier_winner() {
 fn later_uncertainty_does_not_weaken_an_earlier_winner() {
     let db = TestDatabase::new();
     let project = ProjectFixture::new("/test/project")
-        .django_settings_module("testproject.settings")
-        .file(
-            "/test/project/testproject/settings.py",
-            "INSTALLED_APPS = ['missing']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': True}]\n",
-        )
+        .settings(&ProjectSettings {
+            installed_apps: vec!["missing".to_string()],
+            dirs: vec!["/test/project/templates".to_string()],
+            app_dirs: true,
+            ..ProjectSettings::default()
+        })
         .file("/test/project/templates/base.html", "base")
         .build(&db)
         .expect("later-uncertainty project fixture should build");

@@ -1,9 +1,12 @@
+use std::collections::BTreeMap;
+
 use camino::Utf8Path;
 use djls_ide::hover as ide_hover;
 use djls_source::File;
 use djls_source::Offset;
 use djls_source::PositionEncoding;
 use djls_testing::ProjectFixture;
+use djls_testing::ProjectSettings;
 use djls_testing::TestDatabase;
 use tower_lsp_server::ls_types;
 
@@ -20,15 +23,22 @@ fn hover_markdown(hover: ls_types::Hover) -> Option<String> {
 
 fn collision_fixture(source: &str) -> Result<(TestDatabase, File), Box<dyn std::error::Error>> {
     let mut db = TestDatabase::new();
-    let settings = "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'builtins': ['builtin_tags'], 'libraries': {'alpha': 'alpha_tags', 'beta': 'beta_tags'}}}]\n";
+    let settings = ProjectSettings {
+        dirs: vec!["/test/project/templates".into()],
+        builtins: vec!["builtin_tags".into()],
+        libraries: BTreeMap::from([
+            ("alpha".into(), "alpha_tags".into()),
+            ("beta".into(), "beta_tags".into()),
+        ]),
+        ..ProjectSettings::default()
+    };
     let library_source = |doc: &str| {
         format!(
             "from django import template\nregister = template.Library()\n\n@register.simple_tag(name='shared')\ndef shared_tag():\n    \"\"\"{doc} tag.\"\"\"\n    return ''\n\n@register.filter(name='shared_filter')\ndef shared_filter(value):\n    \"\"\"{doc} filter.\"\"\"\n    return value\n"
         )
     };
     ProjectFixture::new("/test/project")
-        .django_settings_module("testproject.settings")
-        .file("/test/project/testproject/settings.py", settings)
+        .settings(&settings)
         .file(
             "/test/project/builtin_tags.py",
             library_source("Builtin definition"),
@@ -116,11 +126,11 @@ fn captured_if_else_does_not_hover_a_colliding_custom_definition() {
     let mut db = TestDatabase::new();
     let source = "{% load custom %}{% if condition %}{% else %}{% endif %}{% else %}";
     ProjectFixture::new("/test/project")
-        .django_settings_module("testproject.settings")
-        .file(
-            "/test/project/testproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'custom_tags'}}}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".into()],
+            libraries: BTreeMap::from([("custom".into(), "custom_tags".into())]),
+            ..ProjectSettings::default()
+        })
         .file(
             "/test/project/custom_tags.py",
             "from django import template\nregister = template.Library()\n\n@register.simple_tag(name='else')\ndef custom_else():\n    \"\"\"Custom else definition.\"\"\"\n    return ''\n",
@@ -283,11 +293,10 @@ fn template_hover_resolves_absolute_reference_from_originless_file() {
     let source = r#"{% extends "base.html" %}"#;
 
     ProjectFixture::new("/test/project")
-        .django_settings_module("testproject.settings")
-        .file(
-            "/test/project/testproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".into()],
+            ..ProjectSettings::default()
+        })
         .file("/test/project/scratch.html", source)
         .file("/test/project/templates/base.html", "base")
         .install(&mut db)
@@ -325,11 +334,10 @@ fn missing_template_hover_says_template_not_found() {
     let child_path = "/test/project/templates/child.html";
 
     ProjectFixture::new("/test/project")
-        .django_settings_module("testproject.settings")
-        .file(
-            "/test/project/testproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".into()],
+            ..ProjectSettings::default()
+        })
         .file(child_path, source)
         .install(&mut db)
         .expect("missing-template project fixture should install");

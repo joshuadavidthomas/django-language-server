@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use camino::Utf8Path;
 use djls_ide::find_references;
 use djls_ide::goto_definition as ide_goto_definition;
@@ -5,6 +7,7 @@ use djls_source::File;
 use djls_source::Offset;
 use djls_source::PositionEncoding;
 use djls_testing::ProjectFixture;
+use djls_testing::ProjectSettings;
 use djls_testing::TestDatabase;
 use tower_lsp_server::ls_types;
 
@@ -41,11 +44,11 @@ fn custom_symbol_navigation_fixture(
 ) -> Result<(TestDatabase, File), Box<dyn std::error::Error>> {
     let mut db = TestDatabase::new();
     ProjectFixture::new("/test/project")
-        .django_settings_module("testproject.settings")
-        .file(
-            "/test/project/testproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'custom_tags'}}}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".into()],
+            libraries: BTreeMap::from([("custom".into(), "custom_tags".into())]),
+            ..ProjectSettings::default()
+        })
         .file("/test/project/custom_tags.py", library_source)
         .file("/test/project/templates/page.html", template_source)
         .install(&mut db)?;
@@ -94,11 +97,10 @@ fn goto_definition_reports_location_link_with_origin_range() {
     let child_path = "/test/project/templates/child.html";
 
     ProjectFixture::new("/test/project")
-        .django_settings_module("testproject.settings")
-        .file(
-            "/test/project/testproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".into()],
+            ..ProjectSettings::default()
+        })
         .file(child_path, source)
         .file("/test/project/templates/base.html", "base")
         .install(&mut db)
@@ -144,11 +146,10 @@ fn goto_definition_encodes_existing_template_reference_origins() {
     let source = "😀{% extends \"base.html\" %}";
     let child_path = "/test/project/templates/child.html";
     ProjectFixture::new("/test/project")
-        .django_settings_module("testproject.settings")
-        .file(
-            "/test/project/testproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".into()],
+            ..ProjectSettings::default()
+        })
         .file(child_path, source)
         .file("/test/project/templates/base.html", "base")
         .install(&mut db)
@@ -184,11 +185,10 @@ fn goto_definition_resolves_absolute_reference_from_originless_file() {
     let source = r#"{% extends "base.html" %}"#;
 
     ProjectFixture::new("/test/project")
-        .django_settings_module("testproject.settings")
-        .file(
-            "/test/project/testproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".into()],
+            ..ProjectSettings::default()
+        })
         .file("/test/project/scratch.html", source)
         .file("/test/project/templates/base.html", "base")
         .install(&mut db)
@@ -230,11 +230,10 @@ fn goto_definition_leaves_relative_reference_from_originless_file_unresolved() {
     let source = r#"{% extends "./base.html" %}"#;
 
     ProjectFixture::new("/test/project")
-        .django_settings_module("testproject.settings")
-        .file(
-            "/test/project/testproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".into()],
+            ..ProjectSettings::default()
+        })
         .file("/test/project/scratch.html", source)
         .file("/test/project/templates/base.html", "base")
         .install(&mut db)
@@ -268,11 +267,10 @@ fn goto_definition_falls_back_to_location_without_link_support() {
     let child_path = "/test/project/templates/child.html";
 
     ProjectFixture::new("/test/project")
-        .django_settings_module("testproject.settings")
-        .file(
-            "/test/project/testproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".into()],
+            ..ProjectSettings::default()
+        })
         .file(child_path, source)
         .file("/test/project/templates/base.html", "base")
         .install(&mut db)
@@ -412,11 +410,10 @@ fn goto_definition_resolves_template_block_to_nearest_parent() {
     let parent_source = "{% block title %}Parent{% endblock %}";
     let child_source = "{% extends \"base.html\" %}\n{% block title %}Child{% endblock %}";
     ProjectFixture::new("/test/project")
-        .django_settings_module("testproject.settings")
-        .file(
-            "/test/project/testproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".into()],
+            ..ProjectSettings::default()
+        })
         .file("/test/project/templates/base.html", parent_source)
         .file("/test/project/templates/child.html", child_source)
         .install(&mut db)
@@ -536,11 +533,10 @@ fn goto_definition_encodes_template_block_targets_for_link_and_plain_clients() {
     let parent_source = "😀{% block title %}Parent{% endblock %}";
     let child_source = "{% extends \"base.html\" %}\n😀{% block title %}Child{% endblock %}";
     ProjectFixture::new("/test/project")
-        .django_settings_module("testproject.settings")
-        .file(
-            "/test/project/testproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".into()],
+            ..ProjectSettings::default()
+        })
         .file("/test/project/templates/base.html", parent_source)
         .file("/test/project/templates/child.html", child_source)
         .install(&mut db)
@@ -677,11 +673,10 @@ fn find_references_keeps_an_originless_local_override() {
     let mut db = TestDatabase::new();
     let source = "{% extends \"base.html\" %}\n{% block title %}Scratch{% endblock %}";
     ProjectFixture::new("/test/project")
-        .django_settings_module("testproject.settings")
-        .file(
-            "/test/project/testproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".into()],
+            ..ProjectSettings::default()
+        })
         .file(
             "/test/project/templates/base.html",
             "{% block title %}Base{% endblock %}",
@@ -738,11 +733,15 @@ fn goto_definition_resolves_django_load_and_static_tags() {
     let source = "{% load static %}\n{% static 'asset.css' %}";
     let mut db = TestDatabase::new();
     ProjectFixture::new("/test/project")
-        .django_settings_module("testproject.settings")
-        .file(
-            "/test/project/testproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'builtins': ['django.template.defaulttags'], 'libraries': {'static': 'django.templatetags.static'}}}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".into()],
+            builtins: vec!["django.template.defaulttags".into()],
+            libraries: BTreeMap::from([(
+                "static".into(),
+                "django.templatetags.static".into(),
+            )]),
+            ..ProjectSettings::default()
+        })
         .file("/test/project/django/__init__.py", "")
         .file("/test/project/django/template/__init__.py", "")
         .file(
@@ -962,11 +961,15 @@ fn goto_definition_follows_source_order_shadowing() {
         )
     };
     ProjectFixture::new("/test/project")
-        .django_settings_module("testproject.settings")
-        .file(
-            "/test/project/testproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'builtins': ['builtin_tags'], 'libraries': {'alpha': 'alpha_tags', 'beta': 'beta_tags'}}}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".into()],
+            builtins: vec!["builtin_tags".into()],
+            libraries: BTreeMap::from([
+                ("alpha".into(), "alpha_tags".into()),
+                ("beta".into(), "beta_tags".into()),
+            ]),
+            ..ProjectSettings::default()
+        })
         .file("/test/project/builtin_tags.py", library_source("builtin"))
         .file("/test/project/alpha_tags.py", library_source("alpha"))
         .file("/test/project/beta_tags.py", library_source("beta"))
@@ -1201,11 +1204,10 @@ fn find_references_resolves_extends_with_the_source_origin_skipped() {
     let child_path = "/test/project/first/base.html";
 
     ProjectFixture::new("/test/project")
-        .django_settings_module("testproject.settings")
-        .file(
-            "/test/project/testproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/first', '/test/project/second'], 'APP_DIRS': False}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/first".into(), "/test/project/second".into()],
+            ..ProjectSettings::default()
+        })
         .file(child_path, source)
         .file(
             "/test/project/first/include.html",
@@ -1255,11 +1257,14 @@ fn find_references_skips_the_source_file_across_template_name_aliases() {
     let source_path = "/test/project/templates/alias/base.html";
 
     ProjectFixture::new("/test/project")
-        .django_settings_module("testproject.settings")
-        .file(
-            "/test/project/testproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates', '/test/project/templates/alias', '/test/project/fallback'], 'APP_DIRS': False}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec![
+                "/test/project/templates".into(),
+                "/test/project/templates/alias".into(),
+                "/test/project/fallback".into(),
+            ],
+            ..ProjectSettings::default()
+        })
         .file(source_path, source)
         .file(
             "/test/project/templates/include.html",
@@ -1304,11 +1309,10 @@ fn find_references_reports_template_name_interior_range() {
     let child_path = "/test/project/templates/child.html";
 
     ProjectFixture::new("/test/project")
-        .django_settings_module("testproject.settings")
-        .file(
-            "/test/project/testproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".into()],
+            ..ProjectSettings::default()
+        })
         .file(child_path, source)
         .file("/test/project/templates/base.html", "base")
         .install(&mut db)

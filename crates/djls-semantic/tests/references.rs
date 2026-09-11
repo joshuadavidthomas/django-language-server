@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 
 use camino::Utf8Path;
 use djls_project::Project;
@@ -14,6 +15,7 @@ use djls_source::ChangeEvent;
 use djls_source::SourceChanges;
 use djls_source::Span;
 use djls_testing::ProjectFixture;
+use djls_testing::ProjectSettings;
 use djls_testing::TestDatabase;
 use rustc_hash::FxHashMap;
 
@@ -22,17 +24,11 @@ fn project_with_templates(
     template_dirs: Vec<&str>,
     templates: Vec<(&str, &str, &str)>,
 ) -> anyhow::Result<Project> {
-    let dirs_literal = template_dirs
-        .into_iter()
-        .map(|dir| format!("'{dir}'"))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let settings_source = format!(
-        "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [{dirs_literal}], 'APP_DIRS': False}}]\n"
-    );
-    let fixture = ProjectFixture::new("/test/project")
-        .django_settings_module("testproject.settings")
-        .file("/test/project/testproject/settings.py", settings_source);
+    let settings = ProjectSettings {
+        dirs: template_dirs.into_iter().map(str::to_string).collect(),
+        ..ProjectSettings::default()
+    };
+    let fixture = ProjectFixture::new("/test/project").settings(&settings);
     templates
         .into_iter()
         .fold(fixture, |fixture, (_name, path, source)| {
@@ -110,11 +106,11 @@ fn template_references_record_extends_and_include_kinds() {
 fn later_load_only_shadows_template_reference_occurrences_after_it() {
     let mut db = TestDatabase::new();
     let project = ProjectFixture::new("/test/project")
-        .django_settings_module("testproject.settings")
-        .file(
-            "/test/project/testproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'custom_tags'}}}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".to_string()],
+            libraries: BTreeMap::from([("custom".to_string(), "custom_tags".to_string())]),
+            ..ProjectSettings::default()
+        })
         .file(
             "/test/project/custom_tags.py",
             "from django import template\nregister = template.Library()\n@register.simple_tag(name='include')\ndef custom_include(value):\n    pass\n",
@@ -224,11 +220,11 @@ fn template_references_ignore_include_inside_verbatim() {
 fn extracted_verbatim_suppresses_references_while_custom_mixed_body_stays_active() {
     let mut db = TestDatabase::new();
     let project = ProjectFixture::new("/test/project")
-        .django_settings_module("testproject.settings")
-        .file(
-            "/test/project/testproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'custom_tags'}}}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".to_string()],
+            libraries: BTreeMap::from([("custom".to_string(), "custom_tags".to_string())]),
+            ..ProjectSettings::default()
+        })
         .file(
             "/test/project/django/template/defaulttags.py",
             include_str!(
@@ -376,10 +372,14 @@ fn template_references_are_omitted_when_target_exists_only_in_another_backend() 
 #[test]
 fn relative_references_normalize_for_every_name_of_the_source_file() {
     let mut db = TestDatabase::new();
-    let settings = "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates', '/test/project/templates/alias'], 'APP_DIRS': False}]\n";
     let project = ProjectFixture::new("/test/project")
-        .django_settings_module("testproject.settings")
-        .file("/test/project/testproject/settings.py", settings)
+        .settings(&ProjectSettings {
+            dirs: vec![
+                "/test/project/templates".to_string(),
+                "/test/project/templates/alias".to_string(),
+            ],
+            ..ProjectSettings::default()
+        })
         .file(
             "/test/project/templates/alias/child.html",
             "{% include './parent.html' %}",
@@ -397,10 +397,13 @@ fn relative_references_normalize_for_every_name_of_the_source_file() {
 #[test]
 fn custom_shadowed_load_tag_creates_no_library_reference() {
     let mut db = TestDatabase::new();
-    let settings = "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'builtins': ['custom_load'], 'libraries': {'custom': 'custom_tags'}}}]\n";
     let _project = ProjectFixture::new("/test/project")
-        .django_settings_module("testproject.settings")
-        .file("/test/project/testproject/settings.py", settings)
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".to_string()],
+            builtins: vec!["custom_load".to_string()],
+            libraries: BTreeMap::from([("custom".to_string(), "custom_tags".to_string())]),
+            ..ProjectSettings::default()
+        })
         .file(
             "/test/project/custom_load.py",
             "from django import template\nregister = template.Library()\n@register.simple_tag(name='load')\ndef custom_load(value): pass\n",
@@ -426,10 +429,13 @@ fn custom_shadowed_load_tag_creates_no_library_reference() {
 #[test]
 fn shadowed_load_does_not_bootstrap_loaded_opaque_grammar() {
     let mut db = TestDatabase::new();
-    let settings = "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'builtins': ['custom_load'], 'libraries': {'custom': 'custom_tags'}}}]\n";
     let project = ProjectFixture::new("/test/project")
-        .django_settings_module("testproject.settings")
-        .file("/test/project/testproject/settings.py", settings)
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".to_string()],
+            builtins: vec!["custom_load".to_string()],
+            libraries: BTreeMap::from([("custom".to_string(), "custom_tags".to_string())]),
+            ..ProjectSettings::default()
+        })
         .file(
             "/test/project/custom_load.py",
             "from django import template\nregister = template.Library()\n@register.simple_tag(name='load')\ndef custom_load(value): pass\n",

@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::io;
 
 use djls_conf::TagDef;
@@ -28,6 +29,7 @@ use djls_project::testing::TemplateBackendLibrariesInput;
 use djls_project::testing::TemplateLibraryInput;
 use djls_source::Span;
 use djls_testing::ProjectFixture;
+use djls_testing::ProjectSettings;
 use djls_testing::TestDatabase;
 
 type TestResult<T> = Result<T, Box<dyn std::error::Error>>;
@@ -304,8 +306,14 @@ fn symbol_join_distinguishes_unanimous_and_partial_ambiguous_libraries() {
 fn symbol_lookup_keeps_known_providers_beside_open_loadable_libraries() {
     let mut db = TestDatabase::new();
     let project = ProjectFixture::new("/proj")
-        .django_settings_module("settings")
-        .file("/proj/settings.py", "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'OPTIONS': {'libraries': {'known': 'known_tags', 'open': 'open_tags'}}}]\n")
+        .settings(&ProjectSettings {
+            dirs: vec!["/proj/templates".to_string()],
+            libraries: BTreeMap::from([
+                ("known".to_string(), "known_tags".to_string()),
+                ("open".to_string(), "open_tags".to_string()),
+            ]),
+            ..ProjectSettings::default()
+        })
         .file("/proj/known_tags.py", "from django import template\nregister = template.Library()\n@register.simple_tag\ndef known_tag(): pass\n")
         .file("/proj/open_tags.py", "from django import template\nregister = template.Library()\ndef other_tag(context): pass\nregister.simple_tag(takes_context=True)(globals()['other_tag'])\n")
         .file("/proj/django/template/defaultfilters.py", "from django import template\nregister = template.Library()\n")
@@ -458,7 +466,6 @@ fn effective_definition_preserves_absence_and_load_precedence_per_backend() {
 fn source_less_configured_library_keeps_keyed_structural_facts_without_origin() {
     let db = TestDatabase::new();
     let project = ProjectFixture::new("/project")
-        .django_settings_module("project.settings")
         .tag_specs(TagSpecDef {
             libraries: vec![TagLibraryDef {
                 module: "missing.panel_tags".to_string(),
@@ -475,10 +482,10 @@ fn source_less_configured_library_keeps_keyed_structural_facts_without_origin() 
             }],
             ..TagSpecDef::default()
         })
-        .file(
-            "/project/project/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'libraries': {'panels': 'missing.panel_tags'}}}]\n",
-        )
+        .settings(&ProjectSettings {
+            libraries: BTreeMap::from([("panels".to_string(), "missing.panel_tags".to_string())]),
+            ..ProjectSettings::default()
+        })
         .build(&db)
         .expect("missing-library project fixture should build");
 
@@ -501,11 +508,13 @@ fn source_less_configured_library_keeps_keyed_structural_facts_without_origin() 
 fn source_less_alias_keeps_missing_same_named_available_in_app_symbols_inconclusive() {
     let db = TestDatabase::new();
     let project = ProjectFixture::new("/project")
-        .django_settings_module("project.settings")
-        .file(
-            "/project/project/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'libraries': {'shared': 'missing.shared'}}}]\n",
-        )
+        .settings(&ProjectSettings {
+            libraries: BTreeMap::from([(
+                "shared".to_string(),
+                "missing.shared".to_string(),
+            )]),
+            ..ProjectSettings::default()
+        })
         .file("/project/available_in_app/__init__.py", "")
         .file("/project/available_in_app/templatetags/__init__.py", "")
         .file(
@@ -804,11 +813,15 @@ fn resolved_library_inventory_deduplicates_identical_builtin_identity() {
 fn imported_register_opens_only_its_symbol_inventory_and_keeps_known_symbols() {
     let db = TestDatabase::new();
     let project = ProjectFixture::new("/project")
-        .django_settings_module("project.settings")
-        .file(
-            "/project/project/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'libraries': {'open': 'open_tags', 'closed': 'closed_tags', 'recovered': 'recovered_tags'}, 'builtins': ['open_builtin_tags']}}]\n",
-        )
+        .settings(&ProjectSettings {
+            builtins: vec!["open_builtin_tags".to_string()],
+            libraries: BTreeMap::from([
+                ("open".to_string(), "open_tags".to_string()),
+                ("closed".to_string(), "closed_tags".to_string()),
+                ("recovered".to_string(), "recovered_tags".to_string()),
+            ]),
+            ..ProjectSettings::default()
+        })
         .file("/project/django/template/defaulttags.py", "from django import template\nregister = template.Library()\n")
         .file("/project/django/template/defaultfilters.py", "from django import template\nregister = template.Library()\n")
         .file("/project/django/template/loader_tags.py", "from django import template\nregister = template.Library()\n")

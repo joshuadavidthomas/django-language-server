@@ -18,6 +18,7 @@ use djls_source::InMemoryFileSystem;
 use djls_source::OsFileSystem;
 use djls_testing::OsTestDatabase;
 use djls_testing::ProjectFixture;
+use djls_testing::ProjectSettings;
 use djls_testing::SalsaEventLog;
 use djls_testing::TestDatabase;
 use salsa::Database as _;
@@ -80,14 +81,13 @@ fn project_with_template_settings(
     db: &mut TestDatabase,
     root: &str,
     search_paths: SearchPaths,
-    settings_source: impl Into<String>,
+    settings: &ProjectSettings,
 ) -> Result<Project, Box<dyn std::error::Error>> {
     Ok(ProjectFixture::new(root)
         .search_paths(search_paths)
         .interpreter(Interpreter::Auto)
         .register_roots(false)
-        .django_settings_module("settings")
-        .file(format!("{root}/settings.py"), settings_source)
+        .settings(settings)
         .build(db)?)
 }
 
@@ -165,24 +165,6 @@ fn assert_no_will_execute_events(events: &[salsa::Event]) {
 fn set_project_search_paths(db: &mut TestDatabase, project: Project, search_paths: SearchPaths) {
     search_paths.register_roots(db);
     project.set_search_paths(db).to(search_paths);
-}
-
-fn django_template_settings(installed_apps: &[&str], builtins: &[&str]) -> String {
-    let installed_apps = installed_apps
-        .iter()
-        .map(|app| format!("'{app}'"))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let builtins = builtins
-        .iter()
-        .map(|module| format!("'{module}'"))
-        .collect::<Vec<_>>()
-        .join(", ");
-    format!(
-        "INSTALLED_APPS = [{installed_apps}]\n\
-         TEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', \
-         'DIRS': [], 'APP_DIRS': True, 'OPTIONS': {{'builtins': [{builtins}]}}}}]\n"
-    )
 }
 
 #[test]
@@ -509,7 +491,11 @@ fn template_library_sources_tolerate_unregistered_search_paths() {
         &mut db,
         "/project",
         search_paths,
-        django_template_settings(&[], &[]),
+        &ProjectSettings {
+            dirs: Vec::new(),
+            app_dirs: true,
+            ..ProjectSettings::default()
+        },
     )
     .expect("template-settings project fixture should build");
 
@@ -548,7 +534,11 @@ fn template_library_source_resolution_uses_project_venv_site_packages_root() {
         &mut db,
         "/project",
         search_paths,
-        django_template_settings(&[], &[]),
+        &ProjectSettings {
+            dirs: Vec::new(),
+            app_dirs: true,
+            ..ProjectSettings::default()
+        },
     )
     .expect("template-settings project fixture should build");
 
@@ -601,7 +591,11 @@ fn template_library_source_resolution_prefers_first_party_module_shadowing_depen
         &mut db,
         "/project",
         search_paths,
-        django_template_settings(&[], &[]),
+        &ProjectSettings {
+            dirs: Vec::new(),
+            app_dirs: true,
+            ..ProjectSettings::default()
+        },
     )
     .expect("template-settings project fixture should build");
 
@@ -645,7 +639,15 @@ fn active_template_library_sources_preserve_builtin_order_across_roots() {
         &mut db,
         "/project",
         search_paths,
-        django_template_settings(&[], &["a.templatetags.tags", "z.templatetags.tags"]),
+        &ProjectSettings {
+            dirs: Vec::new(),
+            app_dirs: true,
+            builtins: vec![
+                "a.templatetags.tags".to_string(),
+                "z.templatetags.tags".to_string(),
+            ],
+            ..ProjectSettings::default()
+        },
     )
     .expect("template-settings project fixture should build");
 
@@ -686,8 +688,14 @@ fn active_template_library_sources_yield_loadable_before_builtins() {
         &mut db,
         "/project",
         search_paths,
-        "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'installed_tags'}, 'builtins': ['builtin_tags']}}]\n",
-    ).expect("template-settings project fixture should build");
+        &ProjectSettings {
+            dirs: Vec::new(),
+            builtins: vec!["builtin_tags".to_string()],
+            libraries: BTreeMap::from([("custom".to_string(), "installed_tags".to_string())]),
+            ..ProjectSettings::default()
+        },
+    )
+    .expect("template-settings project fixture should build");
 
     let libraries = template_library_catalog(&db, project);
     let module_names: Vec<_> = ScopedTemplateLibraries::from_project_inventory(libraries)
@@ -739,7 +747,12 @@ def duplicate(value, arg):
         &mut db,
         "/project",
         search_paths,
-        django_template_settings(&[], &["z_first", "a_second"]),
+        &ProjectSettings {
+            dirs: Vec::new(),
+            app_dirs: true,
+            builtins: vec!["z_first".to_string(), "a_second".to_string()],
+            ..ProjectSettings::default()
+        },
     )
     .expect("template-settings project fixture should build");
 

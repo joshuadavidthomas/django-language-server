@@ -169,11 +169,11 @@ fn for_reversed_forms_validate_dynamic_in_position() {
         ("invalid-too-short.html", "{% for x in %}{% endfor %}"),
     ];
     let mut fixture = ProjectFixture::new("/project")
-        .django_settings_module("project.settings")
-        .file(
-            "/project/project/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'builtins': ['django.template.defaulttags']}}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/project/templates".to_string()],
+            builtins: vec!["django.template.defaulttags".to_string()],
+            ..ProjectSettings::default()
+        })
         .file("/project/django/__init__.py", "")
         .file("/project/django/template/__init__.py", "")
         .file(
@@ -260,11 +260,11 @@ fn for_reversed_forms_validate_dynamic_in_position() {
 fn branch_specific_form_diagnostics_use_the_matching_execution_path() {
     let mut db = TestDatabase::new();
     ProjectFixture::new("/project")
-        .django_settings_module("project.settings")
-        .file(
-            "/project/project/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'builtins': ['routed_tags']}}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/project/templates".to_string()],
+            builtins: vec!["routed_tags".to_string()],
+            ..ProjectSettings::default()
+        })
         .file(
             "/project/routed_tags.py",
             r#"from django import template
@@ -319,11 +319,11 @@ def compile_routed(parser, token):
 fn token_contents_diagnostic_uses_registration_alias_and_normalized_bits() {
     let mut db = TestDatabase::new();
     ProjectFixture::new("/project")
-        .django_settings_module("project.settings")
-        .file(
-            "/project/project/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'builtins': ['loop_tags']}}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/project/templates".to_string()],
+            builtins: vec!["loop_tags".to_string()],
+            ..ProjectSettings::default()
+        })
         .file(
             "/project/loop_tags.py",
             r#"from django import template
@@ -407,16 +407,16 @@ fn repeated_project_symbols_keep_occurrence_diagnostics_across_load_prefixes() {
         "{{ fourth|needs_arg }}\n",
     );
     ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
         .tag_specs(configured_tag_specs(&[(
             "custom_tags",
             "custom",
             TagTypeDef::Standalone,
         )]))
-        .file(
-            "/proj/myproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'extras': 'custom_tags'}}}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/proj/templates".to_string()],
+            libraries: BTreeMap::from([("extras".to_string(), "custom_tags".to_string())]),
+            ..ProjectSettings::default()
+        })
         .file(
             "/proj/custom_tags.py",
             "from django import template\nregister = template.Library()\n@register.simple_tag\ndef custom(value):\n    pass\n@register.filter\ndef needs_arg(value, arg):\n    return value\n",
@@ -605,10 +605,13 @@ fn dynamic_installed_apps_suppress_guidance_without_template_backends() {
 #[test]
 fn partial_django_backend_keeps_configured_library_validation_inconclusive() {
     let mut db = TestDatabase::new();
-    let settings = "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'custom_tags'}}, unknown_key: 'maybe'}]\n";
     ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
-        .file("/proj/myproject/settings.py", settings)
+        .settings(&ProjectSettings {
+            dirs: vec!["/proj/templates".to_string()],
+            libraries: BTreeMap::from([("custom".to_string(), "custom_tags".to_string())]),
+            partial: true,
+            ..ProjectSettings::default()
+        })
         .file(
             "/proj/custom_tags.py",
             "from django import template\nregister = template.Library()\n@register.simple_tag\ndef configured(value):\n    pass\n",
@@ -712,16 +715,16 @@ fn conflicting_backend_specs_do_not_produce_argument_arity_or_structure_diagnost
 fn source_less_configured_library_preserves_block_structure() {
     let mut db = TestDatabase::new();
     ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
         .tag_specs(configured_tag_specs(&[(
             "missing.panel_tags",
             "panel",
             TagTypeDef::Block,
         )]))
-        .file(
-            "/proj/myproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'panels': 'missing.panel_tags'}}}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/proj/templates".to_string()],
+            libraries: BTreeMap::from([("panels".to_string(), "missing.panel_tags".to_string())]),
+            ..ProjectSettings::default()
+        })
         .file(
             "/proj/templates/page.html",
             "{% load panels %}{% panel %}body",
@@ -750,11 +753,11 @@ fn source_less_configured_library_preserves_block_structure() {
 fn loaded_source_less_alias_suppresses_same_named_available_in_app_guidance() {
     let mut db = TestDatabase::new();
     ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
-        .file(
-            "/proj/myproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'missing.shared'}}}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/proj/templates".to_string()],
+            libraries: BTreeMap::from([("shared".to_string(), "missing.shared".to_string())]),
+            ..ProjectSettings::default()
+        })
         .file("/proj/available_in_app/__init__.py", "")
         .file("/proj/available_in_app/templatetags/__init__.py", "")
         .file(
@@ -793,16 +796,16 @@ fn loaded_source_less_alias_suppresses_same_named_available_in_app_guidance() {
 fn source_less_default_builtins_keep_django_grammar_and_load_configured_library() {
     let mut db = TestDatabase::new();
     let project = ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
         .tag_specs(configured_tag_specs(&[(
             "missing.panel_tags",
             "panel",
             TagTypeDef::Standalone,
         )]))
-        .file(
-            "/proj/myproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'panels': 'missing.panel_tags'}}}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/proj/templates".to_string()],
+            libraries: BTreeMap::from([("panels".to_string(), "missing.panel_tags".to_string())]),
+            ..ProjectSettings::default()
+        })
         .file(
             "/proj/templates/page.html",
             "{% load panels %}{% panel %}{% if condition %}{% for item in items %}{% comment %}{% endfor %}{% endif %}{% endcomment %}{% empty %}empty{% endfor %}{% else %}fallback{% endif %}",
@@ -878,15 +881,18 @@ fn source_less_default_builtins_keep_django_grammar_and_load_configured_library(
 fn configured_same_name_specs_remain_keyed_by_library() {
     let mut db = TestDatabase::new();
     let project = ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
         .tag_specs(configured_tag_specs(&[
             ("alpha_tags", "shared", TagTypeDef::Block),
             ("beta_tags", "shared", TagTypeDef::Standalone),
         ]))
-        .file(
-            "/proj/myproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'alpha': 'alpha_tags', 'beta': 'beta_tags'}}}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/proj/templates".to_string()],
+            libraries: BTreeMap::from([
+                ("alpha".to_string(), "alpha_tags".to_string()),
+                ("beta".to_string(), "beta_tags".to_string()),
+            ]),
+            ..ProjectSettings::default()
+        })
         .file(
             "/proj/alpha_tags.py",
             "from django import template\nregister = template.Library()\n",
@@ -931,16 +937,16 @@ fn configured_same_name_specs_remain_keyed_by_library() {
 fn configured_source_registration_is_available_through_its_library_catalog() {
     let mut db = TestDatabase::new();
     let project = ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
         .tag_specs(configured_tag_specs(&[(
             "dynamic_tags",
             "dynamic_panel",
             TagTypeDef::Block,
         )]))
-        .file(
-            "/proj/myproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'dynamic': 'dynamic_tags'}}}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/proj/templates".to_string()],
+            libraries: BTreeMap::from([("dynamic".to_string(), "dynamic_tags".to_string())]),
+            ..ProjectSettings::default()
+        })
         .file(
             "/proj/dynamic_tags.py",
             "from django import template\nregister = template.Library()\n@register.simple_tag\ndef sourced_tag():\n    return ''\ndef compile_panel(parser, token):\n    return Node()\ntag_name = 'dynamic_panel'\nregister.tag(tag_name, compile_panel)\n",
@@ -1010,12 +1016,12 @@ fn configured_arguments_fill_a_kwargs_only_simple_tag() {
     }))
     .expect("configured argument fixture should deserialize");
     let project = ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
         .tag_specs(tag_specs)
-        .file(
-            "/proj/myproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'dynamic': 'dynamic_tags'}}}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/proj/templates".to_string()],
+            libraries: BTreeMap::from([("dynamic".to_string(), "dynamic_tags".to_string())]),
+            ..ProjectSettings::default()
+        })
         .file(
             "/proj/dynamic_tags.py",
             "from django import template\nregister = template.Library()\n@register.simple_tag\ndef configured(**kwargs):\n    return ''\n",
@@ -1080,12 +1086,12 @@ fn configured_fallback_does_not_weaken_empty_trusted_signatures() {
     }))
     .expect("strict configured fallback fixture should deserialize");
     let project = ProjectFixture::new("/proj")
-        .django_settings_module("project.settings")
         .tag_specs(tag_specs)
-        .file(
-            "/proj/project/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'strict': 'strict_tags'}}}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/proj/templates".to_string()],
+            libraries: BTreeMap::from([("strict".to_string(), "strict_tags".to_string())]),
+            ..ProjectSettings::default()
+        })
         .file(
             "/proj/strict_tags.py",
             "from django import template\nregister = template.Library()\n@register.simple_tag\ndef empty_helper(): return ''\n@register.simple_tag\ndef kwargs_helper(**options): return options\n",
@@ -1145,11 +1151,14 @@ fn configured_fallback_does_not_weaken_empty_trusted_signatures() {
 fn loaded_imported_signature_rebinds_after_source_invalidation() {
     let mut db = TestDatabase::new();
     let project = ProjectFixture::new("/proj")
-        .django_settings_module("project.settings")
-        .file(
-            "/proj/project/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'authored': 'app.templatetags.authored'}}}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/proj/templates".to_string()],
+            libraries: BTreeMap::from([(
+                "authored".to_string(),
+                "app.templatetags.authored".to_string(),
+            )]),
+            ..ProjectSettings::default()
+        })
         .file(
             "/proj/app/templatetags/authored.py",
             "from django import template\nfrom app.implementation import imported\nregister = template.Library()\nregister.simple_tag(imported, name='loaded_imported')\n",
@@ -1237,11 +1246,11 @@ fn loaded_imported_signature_rebinds_after_source_invalidation() {
 fn semantic_grammar_vocabulary_indexes_definition_identities_and_openness() {
     let mut db = TestDatabase::new();
     let project = ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
-        .file(
-            "/proj/myproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'panels': 'panel_tags'}}}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/proj/templates".to_string()],
+            libraries: BTreeMap::from([("panels".to_string(), "panel_tags".to_string())]),
+            ..ProjectSettings::default()
+        })
         .file(
             "/proj/django/template/defaultfilters.py",
             "from django import template\nregister = template.Library()\n@register.filter\ndef title(value): return value\n",
@@ -1275,10 +1284,15 @@ fn semantic_grammar_vocabulary_indexes_definition_identities_and_openness() {
 #[test]
 fn unloaded_custom_collision_does_not_override_builtin_if_grammar() {
     let mut db = TestDatabase::new();
-    let settings = "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'collisions': 'collision_tags'}}}]\n";
     ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
-        .file("/proj/myproject/settings.py", settings)
+        .settings(&ProjectSettings {
+            dirs: vec!["/proj/templates".to_string()],
+            libraries: BTreeMap::from([(
+                "collisions".to_string(),
+                "collision_tags".to_string(),
+            )]),
+            ..ProjectSettings::default()
+        })
         .file(
             "/proj/collision_tags.py",
             "from django import template\nregister = template.Library()\n@register.tag(name='if')\ndef custom_if(parser, token):\n    body = parser.parse(('endcustom',))\n    return Node(body)\n",
@@ -1318,11 +1332,11 @@ fn unloaded_custom_collision_does_not_override_builtin_if_grammar() {
 fn unloaded_custom_closer_still_reports_unknown_tag() {
     let mut db = TestDatabase::new();
     ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
-        .file(
-            "/proj/myproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'panels': 'panel_tags'}}}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/proj/templates".to_string()],
+            libraries: BTreeMap::from([("panels".to_string(), "panel_tags".to_string())]),
+            ..ProjectSettings::default()
+        })
         .file(
             "/proj/panel_tags.py",
             "from django import template\nregister = template.Library()\n@register.tag(name='panel')\ndef panel(parser, token):\n    body = parser.parse(('endpanel',))\n    return Node(body)\n",
@@ -1391,11 +1405,10 @@ fn feasible_backend_builtin_if_collision_stays_semantically_inconclusive() {
 fn project_fixture_registers_builtin_for_structure() {
     let mut db = TestDatabase::new();
     ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
-        .file(
-            "/proj/myproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/proj/templates".to_string()],
+            ..ProjectSettings::default()
+        })
         .file(
             "/proj/templates/valid.html",
             "{% for item in items %}{{ item }}{% empty %}empty{% endfor %}",
@@ -1431,10 +1444,15 @@ fn project_fixture_registers_builtin_for_structure() {
 #[test]
 fn loaded_library_contract_wins_over_conflicting_unloaded_library() {
     let mut db = TestDatabase::new();
-    let settings = "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'alpha': 'alpha_tags', 'beta': 'beta_tags'}}}]\n";
     ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
-        .file("/proj/myproject/settings.py", settings)
+        .settings(&ProjectSettings {
+            dirs: vec!["/proj/templates".to_string()],
+            libraries: BTreeMap::from([
+                ("alpha".to_string(), "alpha_tags".to_string()),
+                ("beta".to_string(), "beta_tags".to_string()),
+            ]),
+            ..ProjectSettings::default()
+        })
         .file(
             "/proj/alpha_tags.py",
             "from django import template\nregister = template.Library()\n@register.simple_tag(name='shared_tag')\ndef alpha(value):\n    pass\n",
@@ -1496,11 +1514,11 @@ fn shadowed_template_file_keeps_its_origin_backend_environment() {
 fn later_load_does_not_change_an_open_block_contract() {
     let mut db = TestDatabase::new();
     ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
-        .file(
-            "/proj/myproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'custom_tags'}}}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/proj/templates".to_string()],
+            libraries: BTreeMap::from([("custom".to_string(), "custom_tags".to_string())]),
+            ..ProjectSettings::default()
+        })
         .file(
             "/proj/custom_tags.py",
             "from django import template\nregister = template.Library()\n@register.simple_tag(name='if')\ndef custom_if(value):\n    pass\n",
@@ -1538,11 +1556,11 @@ fn later_load_does_not_change_an_open_block_contract() {
 fn opening_contract_keeps_later_intermediate_valid_after_shadowing() {
     let mut db = TestDatabase::new();
     ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
-        .file(
-            "/proj/myproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'custom_tags'}}}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/proj/templates".to_string()],
+            libraries: BTreeMap::from([("custom".to_string(), "custom_tags".to_string())]),
+            ..ProjectSettings::default()
+        })
         .file(
             "/proj/custom_tags.py",
             "from django import template\nregister = template.Library()\n@register.simple_tag(name='if')\ndef custom_if(value): pass\n",
@@ -1681,11 +1699,15 @@ fn captured_intermediate_does_not_apply_a_colliding_standalone_contract() {
 fn load_discovery_rebuilds_structure_until_later_load_is_visible() {
     let mut db = TestDatabase::new();
     ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
-        .file(
-            "/proj/myproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'builtins': ['opaque_tags'], 'libraries': {'first': 'first_tags', 'second': 'second_tags'}}}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/proj/templates".to_string()],
+            builtins: vec!["opaque_tags".to_string()],
+            libraries: BTreeMap::from([
+                ("first".to_string(), "first_tags".to_string()),
+                ("second".to_string(), "second_tags".to_string()),
+            ]),
+            ..ProjectSettings::default()
+        })
         .file(
             "/proj/opaque_tags.py",
             "from django import template\nregister = template.Library()\n@register.tag(name='shadow')\ndef shadow(parser, token):\n    parser.skip_past('endshadow')\n    return Node()\n",
@@ -1722,11 +1744,14 @@ fn load_discovery_rebuilds_structure_until_later_load_is_visible() {
 fn newly_revealed_opaque_grammar_discards_hidden_loads_and_pass_diagnostics() {
     let mut db = TestDatabase::new();
     ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
-        .file(
-            "/proj/myproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'gates': 'gate_tags', 'hidden': 'hidden_tags'}}}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/proj/templates".to_string()],
+            libraries: BTreeMap::from([
+                ("gates".to_string(), "gate_tags".to_string()),
+                ("hidden".to_string(), "hidden_tags".to_string()),
+            ]),
+            ..ProjectSettings::default()
+        })
         .file(
             "/proj/gate_tags.py",
             "from django import template\nregister = template.Library()\n@register.tag\ndef gate(parser, token):\n    parser.skip_past('endgate')\n    return Node()\n",
@@ -1764,11 +1789,11 @@ fn newly_revealed_opaque_grammar_discards_hidden_loads_and_pass_diagnostics() {
 fn structural_diagnostics_accumulate_once_after_load_fixed_point_converges() {
     let mut db = TestDatabase::new();
     ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
-        .file(
-            "/proj/myproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'custom_tags'}}}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/proj/templates".to_string()],
+            libraries: BTreeMap::from([("custom".to_string(), "custom_tags".to_string())]),
+            ..ProjectSettings::default()
+        })
         .file(
             "/proj/custom_tags.py",
             "from django import template\nregister = template.Library()\n@register.tag\ndef customblock(parser, token):\n    parser.parse(('endcustomblock',))\n    return Node()\n",
@@ -1802,18 +1827,14 @@ fn load_discovery_converges_through_more_than_eight_grammar_changes() {
         assert!(REVEAL_COUNT > 8);
     }
 
-    let mut settings_libraries = String::new();
+    let mut settings_libraries = BTreeMap::new();
     let mut opaque_tags =
         "from django import template\nregister = template.Library()\n".to_string();
     let mut template = "{% load chain_0 %}".to_string();
-    let mut fixture = ProjectFixture::new("/proj").django_settings_module("myproject.settings");
+    let mut fixture = ProjectFixture::new("/proj");
 
     for index in 0..REVEAL_COUNT {
-        if index > 0 {
-            settings_libraries.push_str(", ");
-        }
-        write!(settings_libraries, "'chain_{index}': 'chain_{index}_tags'")
-            .expect("writing a library entry to a String should succeed");
+        settings_libraries.insert(format!("chain_{index}"), format!("chain_{index}_tags"));
         write!(
             opaque_tags,
             "@register.tag(name='gate_{index}')\ndef gate_{index}(parser, token):\n    parser.skip_past('endgate_{index}')\n    return Node()\n"
@@ -1833,19 +1854,18 @@ fn load_discovery_converges_through_more_than_eight_grammar_changes() {
         );
     }
 
-    write!(
-        settings_libraries,
-        ", 'chain_{REVEAL_COUNT}': 'chain_{REVEAL_COUNT}_tags'"
-    )
-    .expect("writing the final library entry to a String should succeed");
+    settings_libraries.insert(
+        format!("chain_{REVEAL_COUNT}"),
+        format!("chain_{REVEAL_COUNT}_tags"),
+    );
     template.push_str("{% revealed %}");
     fixture = fixture
-        .file(
-            "/proj/myproject/settings.py",
-            format!(
-                "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {{'builtins': ['opaque_tags'], 'libraries': {{{settings_libraries}}}}}}}]\n"
-            ),
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/proj/templates".to_string()],
+            builtins: vec!["opaque_tags".to_string()],
+            libraries: settings_libraries,
+            ..ProjectSettings::default()
+        })
         .file("/proj/opaque_tags.py", opaque_tags)
         .file(
             format!("/proj/chain_{REVEAL_COUNT}_tags.py"),
@@ -1874,11 +1894,11 @@ fn load_discovery_converges_through_more_than_eight_grammar_changes() {
 fn custom_tag_named_if_does_not_run_builtin_if_expression_validation() {
     let mut db = TestDatabase::new();
     ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
-        .file(
-            "/proj/myproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'custom_tags'}}}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/proj/templates".to_string()],
+            libraries: BTreeMap::from([("custom".to_string(), "custom_tags".to_string())]),
+            ..ProjectSettings::default()
+        })
         .file(
             "/proj/custom_tags.py",
             "from django import template\nregister = template.Library()\n@register.simple_tag(name='if')\ndef custom_if(*args):\n    pass\n",
@@ -1997,7 +2017,12 @@ fn mixed_authoritative_alias_shadowing_makes_available_in_app_guidance_inconclus
 fn extracted_block_db(source: &str) -> anyhow::Result<TestDatabase> {
     let mut db = TestDatabase::new();
     let project = ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
+        .settings(&ProjectSettings {
+            installed_apps: vec!["blog".to_string()],
+            dirs: Vec::new(),
+            app_dirs: true,
+            ..ProjectSettings::default()
+        })
         .file("/proj/blog/__init__.py", "")
         .file("/proj/blog/templatetags/__init__.py", "")
         .file("/proj/blog/templatetags/ambiguous.py", source)
@@ -2010,10 +2035,6 @@ fn extracted_block_db(source: &str) -> anyhow::Result<TestDatabase> {
         .file(
             "/proj/django/template/loader_tags.py",
             "from django import template\nregister = template.Library()\n@register.tag\ndef block(parser, token): pass\n@register.tag\ndef extends(parser, token): pass\n@register.tag\ndef include(parser, token): pass\n",
-        )
-        .file(
-            "/proj/myproject/settings.py",
-            "INSTALLED_APPS = ['blog']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
         )
         .install(&mut db)?;
 
@@ -2678,11 +2699,11 @@ fn opaque_region_suppresses_all_validation() {
 fn extracted_verbatim_policy_stays_opaque_while_custom_mixed_body_is_analyzed() {
     let mut db = TestDatabase::new();
     ProjectFixture::new("/proj")
-        .django_settings_module("myproject.settings")
-        .file(
-            "/proj/myproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'custom_tags'}}}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/proj/templates".to_string()],
+            libraries: BTreeMap::from([("custom".to_string(), "custom_tags".to_string())]),
+            ..ProjectSettings::default()
+        })
         .file(
             "/proj/django/template/defaulttags.py",
             include_str!(
@@ -3351,11 +3372,14 @@ fn loaded_unreadable_library_reports_each_load_argument_without_changing_validat
     let selective_template = "{% load known_tag from open %}";
     let repeated_template = "{% load open open %}";
     ProjectFixture::new("/proj")
-        .django_settings_module("project.settings")
-        .file(
-            "/proj/project/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'known': 'known_tags', 'open': 'open_tags'}}}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/proj/templates".to_string()],
+            libraries: BTreeMap::from([
+                ("known".to_string(), "known_tags".to_string()),
+                ("open".to_string(), "open_tags".to_string()),
+            ]),
+            ..ProjectSettings::default()
+        })
         .file(
             "/proj/known_tags.py",
             "from django import template\nregister = template.Library()\n@register.simple_tag\ndef known_tag(): pass\n",
@@ -3474,11 +3498,11 @@ fn loaded_unreadable_library_reports_each_load_argument_without_changing_validat
 fn imported_register_keeps_known_symbols_and_makes_only_symbol_misses_inconclusive() {
     let mut db = TestDatabase::new();
     ProjectFixture::new("/proj")
-        .django_settings_module("project.settings")
-        .file(
-            "/proj/project/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'open': 'open_tags'}}}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/proj/templates".to_string()],
+            libraries: BTreeMap::from([("open".to_string(), "open_tags".to_string())]),
+            ..ProjectSettings::default()
+        })
         .file("/proj/django/template/defaulttags.py", "from django import template\nregister = template.Library()\n@register.tag\ndef load(parser, token): pass\n")
         .file("/proj/django/template/defaultfilters.py", "from django import template\nregister = template.Library()\n")
         .file("/proj/django/template/loader_tags.py", "from django import template\nregister = template.Library()\n")
@@ -3539,11 +3563,11 @@ fn unloaded_tag_diagnostic_depends_on_whether_the_open_library_is_loaded() {
 fn closed_registration_source_still_produces_symbol_negatives() {
     let mut db = TestDatabase::new();
     ProjectFixture::new("/proj")
-        .django_settings_module("project.settings")
-        .file(
-            "/proj/project/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'closed': 'closed_tags'}}}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/proj/templates".to_string()],
+            libraries: BTreeMap::from([("closed".to_string(), "closed_tags".to_string())]),
+            ..ProjectSettings::default()
+        })
         .file("/proj/django/template/defaulttags.py", "from django import template\nregister = template.Library()\n@register.tag\ndef load(parser, token): pass\n")
         .file("/proj/django/template/defaultfilters.py", "from django import template\nregister = template.Library()\n")
         .file("/proj/django/template/loader_tags.py", "from django import template\nregister = template.Library()\n")
