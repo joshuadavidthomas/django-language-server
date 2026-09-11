@@ -172,6 +172,16 @@ INSTALLED_APPS = []
 TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/templates'], 'APP_DIRS': False, 'OPTIONS': {'builtins': [], 'libraries': {'shared': 'missing.shared'}}}]
 ```
 
+`available_in_app/__init__.py`:
+
+```py
+```
+
+`available_in_app/templatetags/__init__.py`:
+
+```py
+```
+
 `available_in_app/templatetags/shared.py`:
 
 ```py
@@ -185,6 +195,236 @@ def shared_filter(value): return value
 
 ```htmldjango
 {% load shared %}{% shared_tag %}{{ value|shared_filter }}
+```
+
+```snapshot
+✓ no diagnostics
+```
+
+## authoritative aliases on every feasible backend suppress unavailable-app guidance
+
+`settings.py`:
+
+```py
+INSTALLED_APPS = []
+if FLAG:
+    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/templates/shared'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'alias_tags'}}}]
+else:
+    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/templates/shared'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'alias_tags'}}}]
+```
+
+`alias_tags.py`:
+
+```py
+from django import template
+register = template.Library()
+```
+
+`available/__init__.py`:
+
+```py
+```
+
+`available/templatetags/__init__.py`:
+
+```py
+```
+
+`available/templatetags/shared.py`:
+
+```py
+from django import template
+register = template.Library()
+@register.simple_tag
+def candidate_tag():
+    pass
+@register.filter
+def candidate_filter(value):
+    return value
+```
+
+`shared/page.html`:
+
+```htmldjango
+{% candidate_tag %}{{ value|candidate_filter }}
+```
+
+```snapshot
+error[S108]: Unknown tag 'candidate_tag'
+ --> shared/page.html:1:1
+  |
+1 | {% candidate_tag %}{{ value|candidate_filter }}
+  | ^^^^^^^^^^^^^^^^^^^
+error[S111]: Unknown filter 'candidate_filter'
+ --> shared/page.html:1:29
+  |
+1 | {% candidate_tag %}{{ value|candidate_filter }}
+  |                             ^^^^^^^^^^^^^^^^
+```
+
+## mixed alias shadowing keeps unavailable-app guidance inconclusive
+
+`settings.py`:
+
+```py
+INSTALLED_APPS = []
+if FLAG:
+    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/templates/shared'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'alias_tags'}}}]
+else:
+    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/templates/shared'], 'APP_DIRS': False}]
+```
+
+`alias_tags.py`:
+
+```py
+from django import template
+register = template.Library()
+```
+
+`available/__init__.py`:
+
+```py
+```
+
+`available/templatetags/__init__.py`:
+
+```py
+```
+
+`available/templatetags/shared.py`:
+
+```py
+from django import template
+register = template.Library()
+@register.simple_tag
+def candidate_tag():
+    pass
+@register.filter
+def candidate_filter(value):
+    return value
+```
+
+`shared/page.html`:
+
+```htmldjango
+{% candidate_tag %}{{ value|candidate_filter }}
+```
+
+```snapshot
+✓ no diagnostics
+```
+
+## unknown configured aliases suppress unavailable-app guidance
+
+`settings.py`:
+
+```py
+INSTALLED_APPS = []
+TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {**UNKNOWN}}}]
+```
+
+`crispy/__init__.py`:
+
+```py
+```
+
+`crispy/templatetags/__init__.py`:
+
+```py
+```
+
+`crispy/templatetags/shared.py`:
+
+```py
+from django import template
+register = template.Library()
+@register.simple_tag
+def crispy_tag():
+    pass
+@register.filter
+def crispy_filter(value):
+    return value
+```
+
+```htmldjango
+{% crispy_tag %}{{ value|crispy_filter }}{% load shared %}
+```
+
+```snapshot
+✓ no diagnostics
+```
+
+## dynamic installed apps suppress guidance without template backends
+
+### with an empty TEMPLATES list
+
+`settings.py`:
+
+```py
+INSTALLED_APPS = [UNKNOWN]
+TEMPLATES = []
+```
+
+`crispy/__init__.py`:
+
+```py
+```
+
+`crispy/templatetags/__init__.py`:
+
+```py
+```
+
+`crispy/templatetags/crispy.py`:
+
+```py
+from django import template
+register = template.Library()
+@register.simple_tag
+def crispy_tag(): pass
+@register.filter
+def crispy_filter(value): return value
+```
+
+```htmldjango
+{% crispy_tag %}{{ value|crispy_filter }}{% load crispy %}
+```
+
+```snapshot
+✓ no diagnostics
+```
+
+### with TEMPLATES omitted
+
+`settings.py`:
+
+```py
+INSTALLED_APPS = [UNKNOWN]
+```
+
+`crispy/__init__.py`:
+
+```py
+```
+
+`crispy/templatetags/__init__.py`:
+
+```py
+```
+
+`crispy/templatetags/crispy.py`:
+
+```py
+from django import template
+register = template.Library()
+@register.simple_tag
+def crispy_tag(): pass
+@register.filter
+def crispy_filter(value): return value
+```
+
+```htmldjango
+{% crispy_tag %}{{ value|crispy_filter }}{% load crispy %}
 ```
 
 ```snapshot
