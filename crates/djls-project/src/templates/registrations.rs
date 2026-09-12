@@ -3,7 +3,6 @@ use std::collections::BTreeMap;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprAttribute;
 use ruff_python_ast::ExprCall;
-use ruff_python_ast::Keyword;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtExpr;
 use ruff_python_ast::StmtFunctionDef;
@@ -32,15 +31,63 @@ use crate::python::RecoveredPythonModule;
 use crate::python::import::DirectImportClause;
 use crate::python::import::FromImportSyntax;
 
-/// Decorator helper names on `django.template.Library` that register filters.
-const FILTER_DECORATORS: &[&str] = &["filter"];
-
 /// Information about a single tag or filter registration found in source code.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RegistrationInfo {
     name: String,
     kind: RegistrationKind,
     callable: RegistrationCallable,
+    options: RegistrationOptions,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RegistrationOptions {
+    pub(crate) context: ContextProvision,
+    pub(crate) block_end: Option<RegisteredEnd>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ContextProvision {
+    None,
+    Context,
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum RegisteredEnd {
+    Default,
+    Named(String),
+    Unknown,
+}
+
+impl RegistrationOptions {
+    fn resolve(
+        kind: RegistrationKind,
+        takes_context: Option<&Expr>,
+        end_name: Option<&Expr>,
+        mut python_facts: Option<&mut PythonSourceLookup<'_>>,
+    ) -> Self {
+        let context = match takes_context {
+            None | Some(Expr::NoneLiteral(_)) => ContextProvision::None,
+            Some(value) => match value.bool_literal().or_else(|| {
+                python_facts
+                    .as_mut()
+                    .and_then(|facts| facts.exact_bool(value))
+            }) {
+                Some(true) => ContextProvision::Context,
+                Some(false) => ContextProvision::None,
+                None => ContextProvision::Unknown,
+            },
+        };
+        let block_end = matches!(kind, RegistrationKind::SimpleBlockTag).then(|| match end_name {
+            None | Some(Expr::NoneLiteral(_)) => RegisteredEnd::Default,
+            Some(value) => python_facts
+                .and_then(|facts| facts.exact_string(value))
+                .or_else(|| value.string_literal().map(str::to_string))
+                .map_or(RegisteredEnd::Unknown, RegisteredEnd::Named),
+        });
+        Self { context, block_end }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -203,7 +250,7 @@ fn collect_from_class_body(body: &[Stmt], analysis: &mut RegistrationSourceAnaly
         if let Stmt::FunctionDef(function) = stmt
             && register_is_module_binding
         {
-            collect_from_decorated_function(function, None, analysis);
+            collect_from_decorated_function(function, None, None, analysis);
             if body_contains_register(&function.body) {
                 analysis.open_inventory();
             }
@@ -489,7 +536,12 @@ fn analyze_registrations_from_body_in_module(
                     analysis.open_inventory();
                 }
                 let local_source = LocalFunctionSource::from_function(function);
-                collect_from_decorated_function(function, Some(local_source), &mut analysis);
+                collect_from_decorated_function(
+                    function,
+                    Some(local_source),
+                    python_facts.as_deref_mut(),
+                    &mut analysis,
+                );
                 if body_contains_register(&function.body) {
                     analysis.open_inventory();
                 }
@@ -636,19 +688,12 @@ fn collect_func_defs(body: &[Stmt]) -> Vec<&StmtFunctionDef> {
 }
 
 /// Extract registrations from a decorated function definition.
-///
-/// Handles patterns like:
-/// - `@register.tag` (bare decorator)
-/// - `@register.simple_tag(name="alias")`
-/// - `@register.tag("name")`
-/// - `@register.filter`
 fn collect_from_decorated_function(
     func_def: &StmtFunctionDef,
     local_source: Option<LocalFunctionSource>,
+    mut python_facts: Option<&mut PythonSourceLookup<'_>>,
     analysis: &mut RegistrationSourceAnalysis,
 ) {
-    let func_name = func_def.name.as_str();
-
     // Decorators execute from the function outward, so registrations must be recorded bottom-up.
     for (index, decorator) in func_def.decorator_list.iter().enumerate().rev() {
         let expression = &decorator.expression;
@@ -660,41 +705,26 @@ fn collect_from_decorated_function(
         }
         analysis.observe_register_use();
 
-        if registration_decorator_has_dynamic_name(expression) {
-            analysis.open_inventory();
-            continue;
-        }
-
-        let registration_source = local_source.filter(|_| {
+        let navigation = local_source.filter(|_| {
             func_def.decorator_list[index + 1..]
                 .iter()
                 .all(|decorator| registration_decorator_rooted_at_register(&decorator.expression))
         });
-
-        if let Some((name, kind)) = tag_name_from_decorator(expression, func_name) {
-            analysis.registrations.push(RegistrationInfo {
-                name,
-                kind,
-                callable: RegistrationCallable::DecoratedLocal {
-                    function_name: func_name.to_string(),
-                    navigation: registration_source,
-                },
-            });
-            continue;
-        }
-
-        if let Some(name) = filter_name_from_decorator(expression, func_name) {
-            analysis.registrations.push(RegistrationInfo {
-                name,
-                kind: RegistrationKind::Filter,
-                callable: RegistrationCallable::DecoratedLocal {
-                    function_name: func_name.to_string(),
-                    navigation: registration_source,
-                },
-            });
-        } else {
+        let applied = LoweredCallable::Decorated {
+            function: func_def,
+            navigation,
+        };
+        let Some(lowered) = lower_registration_expression(expression, Some(applied)) else {
             analysis.open_inventory();
-        }
+            continue;
+        };
+        let Some(registration) =
+            registration_from_lowered(lowered, &BTreeMap::new(), python_facts.as_deref_mut())
+        else {
+            analysis.open_inventory();
+            continue;
+        };
+        analysis.registrations.push(registration);
     }
 }
 
@@ -705,6 +735,17 @@ fn direct_register_helper(expr: &Expr) -> Option<&str> {
     (value.name_target() == Some("register")).then_some(attr.as_str())
 }
 
+fn registration_kind(helper: &str) -> Option<RegistrationKind> {
+    match helper {
+        "tag" => Some(RegistrationKind::Tag),
+        "simple_tag" => Some(RegistrationKind::SimpleTag),
+        "inclusion_tag" => Some(RegistrationKind::InclusionTag),
+        "simple_block_tag" => Some(RegistrationKind::SimpleBlockTag),
+        "filter" => Some(RegistrationKind::Filter),
+        _ => None,
+    }
+}
+
 fn registration_decorator_rooted_at_register(expr: &Expr) -> bool {
     let helper = if matches!(expr, Expr::Attribute(_)) {
         direct_register_helper(expr)
@@ -713,87 +754,71 @@ fn registration_decorator_rooted_at_register(expr: &Expr) -> bool {
     } else {
         None
     };
-    helper.is_some_and(|helper| {
-        tag_decorator_kind(helper).is_some() || FILTER_DECORATORS.contains(&helper)
-    })
-}
-
-fn has_dynamic_name_keyword(keywords: &[Keyword]) -> bool {
-    keywords.iter().any(|keyword| {
-        keyword.arg.as_ref().is_some_and(|arg| arg == "name")
-            && keyword.value.string_literal().is_none()
-    })
-}
-
-fn registration_arguments_are_unsupported(helper: &str, call: &ExprCall) -> bool {
-    if call
-        .arguments
-        .args
-        .iter()
-        .any(|arg| matches!(arg, Expr::Starred(_)))
-    {
-        return true;
-    }
-    call.arguments.keywords.iter().any(|keyword| {
-        let Some(name) = keyword
-            .arg
-            .as_ref()
-            .map(ruff_python_ast::Identifier::as_str)
-        else {
-            return true;
-        };
-        match helper {
-            "tag" => !matches!(name, "name" | "compile_function" | "func"),
-            "filter" => false,
-            "simple_tag" => !matches!(name, "func" | "takes_context" | "name"),
-            "inclusion_tag" => !matches!(name, "filename" | "func" | "takes_context" | "name"),
-            "simple_block_tag" => !matches!(name, "func" | "takes_context" | "name" | "end_name"),
-            _ => true,
-        }
-    })
-}
-
-fn registration_decorator_has_dynamic_name(expr: &Expr) -> bool {
-    let Expr::Call(call) = expr else {
-        return false;
-    };
-    if has_dynamic_name_keyword(&call.arguments.keywords) {
-        return true;
-    }
-    direct_register_helper(&call.func).is_some_and(|helper| {
-        if registration_arguments_are_unsupported(helper, call) {
-            return true;
-        }
-        let args = &call.arguments.args;
-        match helper {
-            "tag" | "filter" => {
-                args.len() > 1
-                    || args
-                        .first()
-                        .is_some_and(|arg| arg.string_literal().is_none())
-            }
-            "simple_tag" | "simple_block_tag" => !args.is_empty(),
-            "inclusion_tag" => args.len() > 1,
-            _ => true,
-        }
-    })
+    helper.and_then(registration_kind).is_some()
 }
 
 #[derive(Clone, Copy, Debug)]
-struct LoweredRegistrationCall<'a> {
-    kind: RegistrationKind,
-    name: Option<&'a Expr>,
-    callable: Option<&'a Expr>,
+enum LoweredCallable<'a> {
+    Expression(&'a Expr),
+    Decorated {
+        function: &'a StmtFunctionDef,
+        navigation: Option<LocalFunctionSource>,
+    },
 }
 
-fn lower_registration_call(call: &ExprCall) -> Option<LoweredRegistrationCall<'_>> {
+#[derive(Clone, Copy, Debug)]
+struct LoweredRegistration<'a> {
+    kind: RegistrationKind,
+    name: Option<&'a Expr>,
+    callable: Option<LoweredCallable<'a>>,
+    takes_context: Option<&'a Expr>,
+    end_name: Option<&'a Expr>,
+}
+
+fn lower_registration_expression<'a>(
+    expression: &'a Expr,
+    applied: Option<LoweredCallable<'a>>,
+) -> Option<LoweredRegistration<'a>> {
+    let mut lowered = if matches!(expression, Expr::Attribute(_)) {
+        let helper = direct_register_helper(expression)?;
+        let kind = registration_kind(helper)?;
+        if matches!(kind, RegistrationKind::InclusionTag) {
+            return None;
+        }
+        LoweredRegistration {
+            kind,
+            name: None,
+            callable: None,
+            takes_context: None,
+            end_name: None,
+        }
+    } else if let Expr::Call(call) = expression {
+        lower_registration_call(call, applied.is_some())?
+    } else {
+        return None;
+    };
+    if let Some(applied) = applied {
+        if lowered.callable.is_some() {
+            return None;
+        }
+        lowered.callable = Some(applied);
+    }
+    Some(lowered)
+}
+
+#[allow(clippy::too_many_lines)]
+fn lower_registration_call(
+    call: &ExprCall,
+    has_applied_callable: bool,
+) -> Option<LoweredRegistration<'_>> {
     let helper = direct_register_helper(&call.func)?;
     let args = &call.arguments.args;
     let keywords = &call.arguments.keywords;
-    let has_starred = args
+    if args
         .iter()
-        .any(|argument| matches!(argument, Expr::Starred(_)));
-    if has_starred || keywords.iter().any(|keyword| keyword.arg.is_none()) {
+        .any(|argument| matches!(argument, Expr::Starred(_)))
+        || keywords.iter().any(|keyword| keyword.arg.is_none())
+    {
         return None;
     }
 
@@ -805,20 +830,27 @@ fn lower_registration_call(call: &ExprCall) -> Option<LoweredRegistrationCall<'_
     };
     let keywords_are_supported = |supported: &[&str]| {
         keywords.iter().all(|keyword| {
-            let Some(name) = keyword.arg.as_ref() else {
-                return false;
-            };
-            supported.contains(&name.as_str())
+            keyword
+                .arg
+                .as_ref()
+                .is_some_and(|name| supported.contains(&name.as_str()))
         })
     };
 
     let (kind, name, callable) = match helper {
-        "tag" if keywords_are_supported(&["name", "compile_function", "func"]) => {
+        "tag" if keywords_are_supported(&["name", "compile_function"]) => {
             let name_keyword = keyword(&["name"]);
-            let callable_keyword = keyword(&["compile_function", "func"]);
+            let callable_keyword = keyword(&["compile_function"]);
             match &args[..] {
-                [name, callable] if name_keyword.is_none() && callable_keyword.is_none() => {
+                [name, callable]
+                    if name_keyword.is_none()
+                        && callable_keyword.is_none()
+                        && !matches!(name, Expr::NoneLiteral(_)) =>
+                {
                     (RegistrationKind::Tag, Some(name), Some(callable))
+                }
+                [name] if has_applied_callable && name_keyword.is_none() => {
+                    (RegistrationKind::Tag, Some(name), callable_keyword)
                 }
                 [name] if name.string_literal().is_some() && name_keyword.is_none() => {
                     (RegistrationKind::Tag, Some(name), callable_keyword)
@@ -842,13 +874,13 @@ fn lower_registration_call(call: &ExprCall) -> Option<LoweredRegistrationCall<'_
         "inclusion_tag"
             if keywords_are_supported(&["filename", "func", "takes_context", "name"]) =>
         {
-            let callable_keyword = keyword(&["func"]);
-            let callable = match &args[..] {
-                [_template, callable] if callable_keyword.is_none() => Some(callable),
-                [_] | [] => callable_keyword,
-                _ => return None,
-            };
-            (RegistrationKind::InclusionTag, keyword(&["name"]), callable)
+            let filename_keyword = keyword(&["filename"]);
+            if !matches!((&args[..], filename_keyword), ([_], None) | ([], Some(_))) {
+                return None;
+            }
+            // Django accepts `func` in this signature but never reads it. The returned
+            // decorator always registers the function to which it is later applied.
+            (RegistrationKind::InclusionTag, keyword(&["name"]), None)
         }
         "simple_block_tag"
             if keywords_are_supported(&["func", "takes_context", "name", "end_name"]) =>
@@ -865,12 +897,22 @@ fn lower_registration_call(call: &ExprCall) -> Option<LoweredRegistrationCall<'_
                 callable,
             )
         }
+        // Library.filter accepts arbitrary registration flags such as is_safe and
+        // needs_autoescape in both direct and decorator forms.
         "filter" => {
             let name_keyword = keyword(&["name"]);
-            let callable_keyword = keyword(&["filter_func", "func"]);
+            let callable_keyword = keyword(&["filter_func"]);
+            let func_flag = keyword(&["func"]);
             match &args[..] {
-                [name, callable] if name_keyword.is_none() && callable_keyword.is_none() => {
+                [name, callable]
+                    if name_keyword.is_none()
+                        && callable_keyword.is_none()
+                        && !matches!(name, Expr::NoneLiteral(_)) =>
+                {
                     (RegistrationKind::Filter, Some(name), Some(callable))
+                }
+                [name] if has_applied_callable && name_keyword.is_none() => {
+                    (RegistrationKind::Filter, Some(name), callable_keyword)
                 }
                 [name] if name.string_literal().is_some() && name_keyword.is_none() => {
                     (RegistrationKind::Filter, Some(name), callable_keyword)
@@ -878,208 +920,202 @@ fn lower_registration_call(call: &ExprCall) -> Option<LoweredRegistrationCall<'_
                 [callable] if name_keyword.is_none() => {
                     (RegistrationKind::Filter, None, Some(callable))
                 }
-                [] => (RegistrationKind::Filter, name_keyword, callable_keyword),
+                [] if !(has_applied_callable
+                    && func_flag.is_some()
+                    && name_keyword.is_none_or(|name| matches!(name, Expr::NoneLiteral(_)))) =>
+                {
+                    (RegistrationKind::Filter, name_keyword, callable_keyword)
+                }
                 _ => return None,
             }
         }
         _ => return None,
     };
 
-    Some(LoweredRegistrationCall {
+    if matches!(kind, RegistrationKind::Tag | RegistrationKind::Filter)
+        && args.is_empty()
+        && callable.is_some()
+        && name.is_none_or(|name| matches!(name, Expr::NoneLiteral(_)))
+    {
+        // Unlike simple_tag, these helpers require a name with their callable keyword.
+        return None;
+    }
+
+    Some(LoweredRegistration {
         kind,
         name,
-        callable,
+        callable: callable.map(LoweredCallable::Expression),
+        takes_context: keyword(&["takes_context"]),
+        end_name: keyword(&["end_name"]),
     })
 }
 
-/// Extract a tag name from a decorator expression.
-///
-/// Returns `Some((name, kind))` if the decorator is a tag registration.
-fn tag_name_from_decorator(expr: &Expr, func_name: &str) -> Option<(String, RegistrationKind)> {
-    // Bare decorator: `@register.tag`
-    if let Some(attr) = direct_register_helper(expr)
-        && let Some(kind) = tag_decorator_kind(attr)
-    {
-        return Some((func_name.to_string(), kind));
-    }
-
-    // Call decorator: `@register.tag(...)` or `@register.simple_tag(name="alias")`
-    if let Expr::Call(ExprCall {
-        func, arguments, ..
-    }) = expr
-        && let Some(attr) = direct_register_helper(func)
-        && let Some(kind) = tag_decorator_kind(attr)
-    {
-        // Priority: name= kwarg > first positional string (for @register.tag only) > func_name
-        let name_override = kw_name_from(&arguments.keywords);
-
-        let positional_name = if attr == "tag" {
-            first_string_arg(&arguments.args)
-        } else {
-            None
-        };
-
-        let name = name_override
-            .or(positional_name)
-            .unwrap_or_else(|| func_name.to_string());
-
-        return Some((name, kind));
-    }
-
-    None
-}
-
-/// Extract a filter name from a decorator expression.
-///
-/// Returns `Some(name)` if the decorator is a filter registration.
-fn filter_name_from_decorator(expr: &Expr, func_name: &str) -> Option<String> {
-    // Bare decorator: `@register.filter`
-    if let Some(attr) = direct_register_helper(expr)
-        && FILTER_DECORATORS.contains(&attr)
-    {
-        return Some(func_name.to_string());
-    }
-
-    // Call decorator: `@register.filter(name="alias")` or `@register.filter("alias")`
-    if let Expr::Call(ExprCall {
-        func, arguments, ..
-    }) = expr
-        && let Some(attr) = direct_register_helper(func)
-        && FILTER_DECORATORS.contains(&attr)
-    {
-        let name_override = kw_name_from(&arguments.keywords);
-        let positional_name = first_string_arg(&arguments.args);
-        let name = name_override
-            .or(positional_name)
-            .unwrap_or_else(|| func_name.to_string());
-        return Some(name);
-    }
-
-    None
-}
-
 /// Extract registrations from a call expression statement.
-///
-/// Handles patterns like:
-/// - `register.tag("name", compile_func)`
-/// - `register.tag("name", SomeNode.handle)`
-/// - `register.filter("name", filter_func)`
-/// - `register.simple_tag(func, name="alias")`
 fn collect_from_call_statement(
     call: &ExprCall,
     transparent_decorated_functions: &BTreeMap<String, LocalFunctionSource>,
     python_facts: Option<&mut PythonSourceLookup<'_>>,
     analysis: &mut RegistrationSourceAnalysis,
 ) {
-    if !call_rooted_at_register(call) {
-        if call_escapes_register(call) {
-            analysis.open_inventory();
-        }
+    let lowered = if call_rooted_at_register(call) {
+        lower_registration_call(call, false)
+    } else if call.arguments.args.len() == 1 && call.arguments.keywords.is_empty() {
+        lower_registration_expression(
+            &call.func,
+            call.arguments.args.first().map(LoweredCallable::Expression),
+        )
+    } else {
+        None
+    };
+    if lowered.is_none() && !call_escapes_register(call) {
         return;
     }
     analysis.observe_register_use();
 
-    let Some(call) = lower_registration_call(call) else {
+    let Some(lowered) = lowered else {
         analysis.open_inventory();
         return;
     };
-    if let Some(python_facts) = python_facts
-        && let Some(registration) = resolved_python_registration(call, python_facts)
-    {
-        analysis.registrations.push(registration);
+    if lowered.callable.is_none() {
+        // Calling a decorator factory without applying the returned decorator does not
+        // mutate the library. This includes `filter(func=...)`, where `func` is only an
+        // ignored flag captured by `**flags`.
         return;
     }
-
-    let Some(registration) = unresolved_registration(call, transparent_decorated_functions) else {
+    let Some(registration) =
+        registration_from_lowered(lowered, transparent_decorated_functions, python_facts)
+    else {
         analysis.open_inventory();
         return;
     };
     analysis.registrations.push(registration);
 }
 
-fn resolved_python_registration(
-    call: LoweredRegistrationCall<'_>,
-    python_facts: &mut PythonSourceLookup<'_>,
-) -> Option<RegistrationInfo> {
-    let function = python_facts.function(call.callable?)?;
-    let name = call.name.map_or_else(
-        || Some(function.name().to_string()),
-        |expression| python_facts.exact_string(expression),
-    )?;
-    Some(RegistrationInfo {
-        name,
-        kind: call.kind,
-        callable: RegistrationCallable::ResolvedFunction(function),
-    })
-}
-
-fn unresolved_registration(
-    call: LoweredRegistrationCall<'_>,
-    transparent_decorated_functions: &BTreeMap<String, LocalFunctionSource>,
-) -> Option<RegistrationInfo> {
-    let function_name = call.callable.and_then(callable_name);
-    let local_source = function_name
-        .as_deref()
-        .and_then(|name| transparent_decorated_functions.get(name))
-        .copied();
-    let name = if let Some(name) = call.name {
-        name.string_literal()?.to_string()
-    } else {
-        local_source?;
-        function_name.clone()?
+fn resolved_registration_name(
+    kind: RegistrationKind,
+    name: Option<&Expr>,
+    callable_name: Option<&str>,
+    resolve_string: impl FnOnce(&Expr) -> Option<String>,
+) -> Option<String> {
+    let Some(name) = name else {
+        return callable_name.map(str::to_string);
     };
-    let callable = function_name.map_or(RegistrationCallable::Unresolved(None), |function_name| {
-        if let Some(navigation) = local_source {
-            RegistrationCallable::DecoratedLocal {
-                function_name,
-                navigation: Some(navigation),
+    if matches!(name, Expr::NoneLiteral(_)) {
+        return callable_name.map(str::to_string);
+    }
+    let resolved = resolve_string(name)?;
+    if resolved.is_empty()
+        && matches!(
+            kind,
+            RegistrationKind::SimpleTag
+                | RegistrationKind::InclusionTag
+                | RegistrationKind::SimpleBlockTag
+        )
+    {
+        callable_name.map(str::to_string)
+    } else {
+        Some(resolved)
+    }
+}
+
+fn registration_from_lowered(
+    lowered: LoweredRegistration<'_>,
+    transparent_decorated_functions: &BTreeMap<String, LocalFunctionSource>,
+    mut python_facts: Option<&mut PythonSourceLookup<'_>>,
+) -> Option<RegistrationInfo> {
+    let callable = lowered.callable?;
+    match callable {
+        LoweredCallable::Decorated {
+            function,
+            navigation,
+        } => {
+            let name = resolved_registration_name(
+                lowered.kind,
+                lowered.name,
+                Some(function.name.as_str()),
+                |expression| {
+                    python_facts
+                        .as_deref_mut()
+                        .and_then(|facts| facts.exact_string(expression))
+                        .or_else(|| expression.string_literal().map(str::to_string))
+                },
+            )?;
+            let options = RegistrationOptions::resolve(
+                lowered.kind,
+                lowered.takes_context,
+                lowered.end_name,
+                python_facts,
+            );
+            Some(RegistrationInfo {
+                name,
+                kind: lowered.kind,
+                callable: RegistrationCallable::DecoratedLocal {
+                    function_name: function.name.to_string(),
+                    navigation,
+                },
+                options,
+            })
+        }
+        LoweredCallable::Expression(expression) => {
+            if let Some(facts) = python_facts
+                && let Some(function) = facts.function(expression)
+            {
+                let name = resolved_registration_name(
+                    lowered.kind,
+                    lowered.name,
+                    Some(function.name()),
+                    |expression| facts.exact_string(expression),
+                )?;
+                let options = RegistrationOptions::resolve(
+                    lowered.kind,
+                    lowered.takes_context,
+                    lowered.end_name,
+                    Some(facts),
+                );
+                return Some(RegistrationInfo {
+                    name,
+                    kind: lowered.kind,
+                    callable: RegistrationCallable::ResolvedFunction(function),
+                    options,
+                });
             }
-        } else {
-            RegistrationCallable::Unresolved(Some(function_name))
-        }
-    });
-    Some(RegistrationInfo {
-        name,
-        kind: call.kind,
-        callable,
-    })
-}
 
-/// Map decorator attr name to `RegistrationKind`.
-fn tag_decorator_kind(attr: &str) -> Option<RegistrationKind> {
-    match attr {
-        "tag" => Some(RegistrationKind::Tag),
-        "simple_tag" => Some(RegistrationKind::SimpleTag),
-        "inclusion_tag" => Some(RegistrationKind::InclusionTag),
-        "simple_block_tag" => Some(RegistrationKind::SimpleBlockTag),
-        _ => None,
+            let function_name = callable_name(expression);
+            let navigation = function_name
+                .as_deref()
+                .and_then(|name| transparent_decorated_functions.get(name))
+                .copied();
+            let callable_name = navigation.and(function_name.as_deref());
+            let name = resolved_registration_name(
+                lowered.kind,
+                lowered.name,
+                callable_name,
+                |expression| expression.string_literal().map(str::to_string),
+            )?;
+            let callable =
+                function_name.map_or(RegistrationCallable::Unresolved(None), |function_name| {
+                    if let Some(navigation) = navigation {
+                        RegistrationCallable::DecoratedLocal {
+                            function_name,
+                            navigation: Some(navigation),
+                        }
+                    } else {
+                        RegistrationCallable::Unresolved(Some(function_name))
+                    }
+                });
+            Some(RegistrationInfo {
+                name,
+                kind: lowered.kind,
+                callable,
+                options: RegistrationOptions::resolve(
+                    lowered.kind,
+                    lowered.takes_context,
+                    lowered.end_name,
+                    None,
+                ),
+            })
+        }
     }
-}
-
-/// Extract the `name=` keyword argument value as a string.
-fn kw_name_from(keywords: &[Keyword]) -> Option<String> {
-    kw_constant_str(keywords, "name")
-}
-
-/// Extract a keyword argument's string constant value by argument name.
-fn kw_constant_str(keywords: &[Keyword], name: &str) -> Option<String> {
-    for kw in keywords {
-        let Some(arg) = &kw.arg else { continue };
-        if arg.as_str() != name {
-            continue;
-        }
-        if let Some(s) = kw.value.string_literal() {
-            return Some(s.to_string());
-        }
-    }
-    None
-}
-
-/// Extract the first positional argument's string value.
-fn first_string_arg(args: &[Expr]) -> Option<String> {
-    args.first()
-        .and_then(ExprExt::string_literal)
-        .map(str::to_string)
 }
 
 /// Best-effort callable name extraction for debugging / registration mapping.
@@ -1385,10 +1421,14 @@ fn template_library_source_analysis<'db>(
                 db,
                 imported.then_some(implementation_file),
                 func,
+                &registration.options,
             ) {
                 tag_rules.insert(symbol_key.clone(), rule.into());
             }
-            if let Some(block_spec) = registration.kind.extract_block_spec(func) {
+            if let Some(block_spec) = registration
+                .kind
+                .extract_block_spec(func, &registration.options)
+            {
                 let end_tag = match block_spec.end_tag {
                     EndTagEvidence::Literal(end_tag) => Some(end_tag),
                     EndTagEvidence::SelfNamed => Some(format!("end{}", symbol_key.name)),
@@ -1879,6 +1919,240 @@ register.simple_tag(my_func, name="alias")
     }
 
     #[test]
+    fn direct_and_curried_helpers_share_registration_options() {
+        let source = r#"
+from django import template
+register = template.Library()
+
+def direct(context, value): pass
+register.simple_tag(direct, takes_context=True, name="direct_alias")
+
+def curried(context, value): pass
+register.simple_tag(takes_context=True, name="curried_alias")(curried)
+"#;
+        let regs = collect_registrations(source);
+        for name in ["direct_alias", "curried_alias"] {
+            let registration = find_reg(&regs, name);
+            assert_eq!(registration.options.context, ContextProvision::Context);
+        }
+    }
+
+    #[test]
+    fn simple_block_options_retain_static_and_dynamic_end_names() {
+        let source = r#"
+from django import template
+register = template.Library()
+
+@register.simple_block_tag(name="panel", end_name="closepanel", takes_context=True)
+def panel_impl(context, content): pass
+
+@register.simple_block_tag(end_name=dynamic)
+def uncertain(content): pass
+
+@register.simple_block_tag(name="defaulted", end_name=None)
+def defaulted_impl(content): pass
+"#;
+        let regs = collect_registrations(source);
+        assert_eq!(
+            find_reg(&regs, "panel").options,
+            RegistrationOptions {
+                context: ContextProvision::Context,
+                block_end: Some(RegisteredEnd::Named("closepanel".to_string())),
+            }
+        );
+        assert_eq!(
+            find_reg(&regs, "uncertain").options.block_end,
+            Some(RegisteredEnd::Unknown)
+        );
+        assert_eq!(
+            find_reg(&regs, "defaulted").options.block_end,
+            Some(RegisteredEnd::Default)
+        );
+    }
+
+    #[test]
+    fn filter_registration_flags_work_in_decorator_and_direct_forms() {
+        let source = r#"
+from django import template
+register = template.Library()
+
+@register.filter(is_safe=True, needs_autoescape=True)
+def decorated(value, autoescape=None): pass
+
+def direct(value): pass
+register.filter("direct", direct, expects_localtime=True)
+"#;
+        let analysis = analyze_registrations(source);
+        assert!(!analysis.inventory_is_open());
+        assert_eq!(
+            analysis
+                .registrations
+                .iter()
+                .map(|registration| registration.name.as_str())
+                .collect::<Vec<_>>(),
+            ["decorated", "direct"]
+        );
+    }
+
+    #[test]
+    fn direct_filter_func_flag_is_a_known_noop() {
+        let source = r"
+from django import template
+register = template.Library()
+
+def unused(value): pass
+register.filter(func=unused)
+";
+        let analysis = analyze_registrations(source);
+        assert!(!analysis.inventory_is_open());
+        assert!(analysis.registrations.is_empty());
+    }
+
+    #[test]
+    fn filter_func_flag_is_not_a_callable_alias() {
+        let source = r#"
+from django import template
+register = template.Library()
+
+def ignored(value): pass
+
+def unused(value): pass
+register.filter(func=unused)
+
+@register.filter(func=ignored)
+def invalid(value): pass
+
+@register.filter(name="decorated", func=ignored)
+def decorated(value): pass
+"#;
+        let analysis = analyze_registrations(source);
+        assert!(analysis.inventory_is_open());
+        assert_eq!(analysis.registrations.len(), 1);
+        let registration = &analysis.registrations[0];
+        assert_eq!(registration.name, "decorated");
+        assert_eq!(registration.func_name(), Some("decorated"));
+    }
+
+    #[test]
+    fn tag_func_keyword_does_not_invent_a_callable_alias() {
+        let source = r"
+from django import template
+register = template.Library()
+
+def invented(parser, token): pass
+register.tag(func=invented)
+";
+        let analysis = analyze_registrations(source);
+        assert!(analysis.registrations.is_empty());
+        assert!(analysis.inventory_is_open());
+    }
+
+    #[test]
+    fn inclusion_func_argument_is_ignored_by_the_returned_decorator() {
+        let source = r#"
+from django import template
+register = template.Library()
+
+def ignored(value): pass
+register.inclusion_tag("unused.html", func=ignored)
+
+@register.inclusion_tag("included.html", func=ignored)
+def included(value): pass
+"#;
+        let analysis = analyze_registrations(source);
+        assert!(!analysis.inventory_is_open());
+        assert_eq!(analysis.registrations.len(), 1);
+        let registration = &analysis.registrations[0];
+        assert_eq!(registration.name, "included");
+        assert_eq!(registration.func_name(), Some("included"));
+    }
+
+    #[test]
+    fn django_name_fallbacks_keep_none_empty_and_dynamic_names_distinct() {
+        let source = r#"
+from django import template
+register = template.Library()
+
+@register.tag(name=None)
+def none_tag(parser, token): pass
+
+@register.filter(name=None)
+def none_filter(value): pass
+
+@register.simple_tag(name=None)
+def none_simple(): pass
+
+@register.inclusion_tag("included.html", name=None)
+def none_inclusion(): pass
+
+@register.simple_block_tag(name=None)
+def none_block(content): pass
+
+@register.tag(name="")
+def empty_tag(parser, token): pass
+
+@register.filter(name="")
+def empty_filter(value): pass
+
+@register.simple_tag(name="")
+def empty_simple(): pass
+
+@register.inclusion_tag("included.html", name="")
+def empty_inclusion(): pass
+
+@register.simple_block_tag(name="")
+def empty_block(content): pass
+
+@register.simple_tag(name=dynamic_name)
+def dynamic_simple(): pass
+"#;
+        let analysis = analyze_registrations(source);
+        assert!(analysis.inventory_is_open());
+        assert_eq!(
+            analysis
+                .registrations
+                .iter()
+                .map(|registration| registration.name.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "none_tag",
+                "none_filter",
+                "none_simple",
+                "none_inclusion",
+                "none_block",
+                "",
+                "",
+                "empty_simple",
+                "empty_inclusion",
+                "empty_block",
+            ]
+        );
+    }
+
+    #[test]
+    fn malformed_registration_decorators_open_inventory_without_symbols() {
+        for decorator in [
+            "@register.simple_tag(unsupported=True)",
+            "@register.inclusion_tag",
+            "@register.inclusion_tag()",
+            "@register.simple_tag(other)",
+        ] {
+            let source = format!(
+                "from django import template\nregister = template.Library()\n{decorator}\ndef invented(value): pass\n"
+            );
+            let analysis = analyze_registrations(&source);
+            assert!(
+                analysis.inventory_is_open(),
+                "malformed decorator should open inventory: {decorator}"
+            );
+            assert!(
+                analysis.registrations.is_empty(),
+                "malformed decorator must not invent a registration: {decorator}"
+            );
+        }
+    }
+
+    #[test]
     fn empty_source() {
         let regs = collect_registrations("");
         assert!(regs.is_empty());
@@ -1928,10 +2202,8 @@ register.filter(my_filter_func)
         assert!(analysis.inventory_is_open());
     }
 
-    // Edge case: name kwarg overrides positional string arg.
-    // Tests priority: name= kwarg wins over positional string.
     #[test]
-    fn name_kwarg_overrides_positional_for_tag() {
+    fn duplicate_positional_and_keyword_names_open_inventory() {
         let source = r#"
 from django import template
 register = template.Library()
@@ -1940,9 +2212,9 @@ register = template.Library()
 def my_tag(parser, token):
     pass
 "#;
-        let regs = collect_registrations(source);
-        assert_eq!(regs.len(), 1);
-        assert_eq!(regs[0].name, "kwarg_name");
+        let analysis = analyze_registrations(source);
+        assert!(analysis.registrations.is_empty());
+        assert!(analysis.inventory_is_open());
     }
 
     #[test]
@@ -2041,7 +2313,6 @@ def my_tag(parser, token):
             "register.tags.update(dynamic_tags)",
             "register.tags['dynamic'] = func",
             "del register.filters['dynamic']",
-            "register.tag()",
             "register.tag('invented', name=dynamic_name)",
             "register.filter('invented', name=dynamic_name)",
             "register.tag('invented', name='duplicate', compile_function=func)",

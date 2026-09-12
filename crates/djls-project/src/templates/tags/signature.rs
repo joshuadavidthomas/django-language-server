@@ -1,8 +1,7 @@
-use ruff_python_ast::Expr;
-use ruff_python_ast::ExprCall;
 use ruff_python_ast::StmtFunctionDef;
 
-use crate::ast::ExprExt;
+use crate::templates::RegistrationKind;
+use crate::templates::registrations::ContextProvision;
 use crate::templates::tags::types::ArgumentCountConstraint;
 use crate::templates::tags::types::AsVar;
 use crate::templates::tags::types::ParameterRequirement;
@@ -20,15 +19,41 @@ use crate::templates::tags::types::TagRule;
 /// `as_var` controls whether Django's framework strips trailing
 /// `as <varname>` before argument validation.
 #[must_use]
-pub(crate) fn extract_parse_bits_rule(func: &StmtFunctionDef, as_var: AsVar) -> TagRule {
+pub(crate) fn extract_parse_bits_rule(
+    func: &StmtFunctionDef,
+    kind: RegistrationKind,
+    context: ContextProvision,
+    as_var: AsVar,
+) -> Option<TagRule> {
     let params = &func.parameters;
-
-    let takes_context = has_takes_context(func);
-
-    let skip = usize::from(takes_context);
-
-    let effective_params: Vec<&ruff_python_ast::ParameterWithDefault> =
-        params.args.iter().skip(skip).collect();
+    let required_framework_names: &[&str] = match (kind, context) {
+        (_, ContextProvision::Unknown) | (RegistrationKind::Tag | RegistrationKind::Filter, _) => {
+            return None;
+        }
+        (RegistrationKind::SimpleTag | RegistrationKind::InclusionTag, ContextProvision::None) => {
+            &[]
+        }
+        (
+            RegistrationKind::SimpleTag | RegistrationKind::InclusionTag,
+            ContextProvision::Context,
+        ) => &["context"],
+        (RegistrationKind::SimpleBlockTag, ContextProvision::None) => &["content"],
+        (RegistrationKind::SimpleBlockTag, ContextProvision::Context) => &["context", "content"],
+    };
+    let combined: Vec<&ruff_python_ast::ParameterWithDefault> =
+        params.posonlyargs.iter().chain(&params.args).collect();
+    if !combined
+        .iter()
+        .zip(required_framework_names)
+        .all(|(parameter, required)| parameter.parameter.name.as_str() == *required)
+        || combined.len() < required_framework_names.len()
+    {
+        return None;
+    }
+    let effective_params: Vec<_> = combined
+        .into_iter()
+        .skip(required_framework_names.len())
+        .collect();
 
     let num_defaults = effective_params
         .iter()
@@ -93,7 +118,7 @@ pub(crate) fn extract_parse_bits_rule(func: &StmtFunctionDef, as_var: AsVar) -> 
         });
     }
 
-    TagRule {
+    Some(TagRule {
         arg_constraints,
         required_keywords: Vec::new(),
         choice_at_constraints: Vec::new(),
@@ -101,24 +126,7 @@ pub(crate) fn extract_parse_bits_rule(func: &StmtFunctionDef, as_var: AsVar) -> 
         diagnostic_messages: None,
         argument_syntax: TagArgumentSyntax::Parameters(extracted_args),
         as_var,
-    }
-}
-
-/// Check if a function's decorator includes `takes_context=True`.
-fn has_takes_context(func: &StmtFunctionDef) -> bool {
-    for decorator in &func.decorator_list {
-        if let Expr::Call(ExprCall { arguments, .. }) = &decorator.expression {
-            for kw in &arguments.keywords {
-                if let Some(arg) = &kw.arg
-                    && arg.as_str() == "takes_context"
-                    && kw.value.bool_literal() == Some(true)
-                {
-                    return true;
-                }
-            }
-        }
-    }
-    false
+    })
 }
 
 #[cfg(test)]
@@ -133,7 +141,13 @@ mod tests {
     fn simple_tag_no_params() {
         let func = django_function("tests/template_tests/templatetags/custom.py", "no_params")
             .expect("expected Django fixture function should exist");
-        let rule = extract_parse_bits_rule(&func, AsVar::Strip);
+        let rule = extract_parse_bits_rule(
+            &func,
+            RegistrationKind::SimpleTag,
+            ContextProvision::None,
+            AsVar::Strip,
+        )
+        .expect("simple tag signature should be trusted");
         assert!(
             rule.arg_constraints
                 .iter()
@@ -150,7 +164,13 @@ mod tests {
             "simple_two_params",
         )
         .expect("expected Django fixture function should exist");
-        let rule = extract_parse_bits_rule(&func, AsVar::Strip);
+        let rule = extract_parse_bits_rule(
+            &func,
+            RegistrationKind::SimpleTag,
+            ContextProvision::None,
+            AsVar::Strip,
+        )
+        .expect("simple tag signature should be trusted");
         assert!(
             rule.arg_constraints
                 .contains(&ArgumentCountConstraint::Min(3))
@@ -166,7 +186,13 @@ mod tests {
             "simple_one_default",
         )
         .expect("expected Django fixture function should exist");
-        let rule = extract_parse_bits_rule(&func, AsVar::Strip);
+        let rule = extract_parse_bits_rule(
+            &func,
+            RegistrationKind::SimpleTag,
+            ContextProvision::None,
+            AsVar::Strip,
+        )
+        .expect("simple tag signature should be trusted");
         assert!(
             rule.arg_constraints
                 .contains(&ArgumentCountConstraint::Min(2))
@@ -190,12 +216,64 @@ def concat(*args):
 ";
         let func = find_function_in_source(source, "concat")
             .expect("expected function should exist in test source");
-        let rule = extract_parse_bits_rule(&func, AsVar::Strip);
+        let rule = extract_parse_bits_rule(
+            &func,
+            RegistrationKind::SimpleTag,
+            ContextProvision::None,
+            AsVar::Strip,
+        )
+        .expect("simple tag signature should be trusted");
         assert!(
             !rule
                 .arg_constraints
                 .iter()
                 .any(|c| matches!(c, ArgumentCountConstraint::Max(_)))
+        );
+    }
+
+    #[test]
+    fn block_tag_removes_framework_parameters() {
+        let source = r"
+def panel(context, content, title='Title'):
+    pass
+";
+        let func = find_function_in_source(source, "panel").expect("function should exist");
+        let rule = extract_parse_bits_rule(
+            &func,
+            RegistrationKind::SimpleBlockTag,
+            ContextProvision::Context,
+            AsVar::Strip,
+        )
+        .expect("framework parameters should match");
+        let parameters = rule
+            .argument_syntax
+            .parameters()
+            .expect("signature parameters");
+        assert_eq!(parameters.len(), 1);
+        assert_eq!(parameters[0].name, "title");
+    }
+
+    #[test]
+    fn malformed_or_unknown_framework_parameters_have_no_rule() {
+        let source = "def panel(body, title): pass";
+        let func = find_function_in_source(source, "panel").expect("function should exist");
+        assert!(
+            extract_parse_bits_rule(
+                &func,
+                RegistrationKind::SimpleBlockTag,
+                ContextProvision::None,
+                AsVar::Strip,
+            )
+            .is_none()
+        );
+        assert!(
+            extract_parse_bits_rule(
+                &func,
+                RegistrationKind::SimpleBlockTag,
+                ContextProvision::Unknown,
+                AsVar::Strip,
+            )
+            .is_none()
         );
     }
 
@@ -209,7 +287,13 @@ def concat(*args):
             "add_preserved_filters",
         )
         .expect("expected Django fixture function should exist");
-        let rule = extract_parse_bits_rule(&func, AsVar::Strip);
+        let rule = extract_parse_bits_rule(
+            &func,
+            RegistrationKind::SimpleTag,
+            ContextProvision::Context,
+            AsVar::Strip,
+        )
+        .expect("context simple tag signature should be trusted");
         assert!(
             rule.arg_constraints
                 .contains(&ArgumentCountConstraint::Min(2))

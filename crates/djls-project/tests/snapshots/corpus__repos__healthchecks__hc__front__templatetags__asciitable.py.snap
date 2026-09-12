@@ -1,10 +1,36 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
-tag_rules: {}
+tag_rules:
+  "hc.front.templatetags.asciitable::tag::cell":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Parameters: []
+    as_var: strip
+  "hc.front.templatetags.asciitable::tag::row":
+    arg_constraints:
+      - Max: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Parameters: []
+    as_var: strip
 filter_arities: {}
 block_specs:
+  "hc.front.templatetags.asciitable::tag::cell":
+    body_analysis_evidence: not_detected
+    end_tag: endcell
+    intermediates: []
+  "hc.front.templatetags.asciitable::tag::row":
+    body_analysis_evidence: not_detected
+    end_tag: endrow
+    intermediates: []
   "hc.front.templatetags.asciitable::tag::table":
     body_analysis_evidence: not_detected
     end_tag: endtable

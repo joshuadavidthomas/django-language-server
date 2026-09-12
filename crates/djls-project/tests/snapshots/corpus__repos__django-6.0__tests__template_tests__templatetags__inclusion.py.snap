@@ -201,25 +201,7 @@ tag_rules:
           requirement: required
           kind: Variable
     as_var: keep
-  "tests.template_tests.templatetags.inclusion::tag::inclusion_tag_takes_context_without_params":
-    arg_constraints:
-      - Max: 1
-    required_keywords: []
-    choice_at_constraints: []
-    known_options: ~
-    argument_syntax:
-      Parameters: []
-    as_var: keep
   "tests.template_tests.templatetags.inclusion::tag::inclusion_tag_use_l10n":
-    arg_constraints:
-      - Max: 1
-    required_keywords: []
-    choice_at_constraints: []
-    known_options: ~
-    argument_syntax:
-      Parameters: []
-    as_var: keep
-  "tests.template_tests.templatetags.inclusion::tag::inclusion_tag_without_context_parameter":
     arg_constraints:
       - Max: 1
     required_keywords: []

@@ -34,16 +34,13 @@ tag_rules:
     as_var: strip
   "cms.templatetags.cms_tags::tag::show_placeholder":
     arg_constraints:
-      - Min: 4
-      - Max: 7
+      - Min: 3
+      - Max: 6
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
       Parameters:
-        - name: context
-          requirement: required
-          kind: Variable
         - name: placeholder_name
           requirement: required
           kind: Variable
@@ -62,16 +59,13 @@ tag_rules:
     as_var: strip
   "cms.templatetags.cms_tags::tag::show_placeholder_by_id":
     arg_constraints:
-      - Min: 4
-      - Max: 7
+      - Min: 3
+      - Max: 6
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
       Parameters:
-        - name: context
-          requirement: required
-          kind: Variable
         - name: placeholder_name
           requirement: required
           kind: Variable
@@ -89,31 +83,23 @@ tag_rules:
           kind: Variable
     as_var: strip
   "cms.templatetags.cms_tags::tag::show_uncached_placeholder":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
       Parameters:
-        - name: context
-          requirement: required
-          kind: Variable
         - name: args
           requirement: optional
           kind: VarArgs
     as_var: strip
   "cms.templatetags.cms_tags::tag::show_uncached_placeholder_by_id":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
       Parameters:
-        - name: context
-          requirement: required
-          kind: Variable
         - name: args
           requirement: optional
           kind: VarArgs

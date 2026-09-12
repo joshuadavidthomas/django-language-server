@@ -12,8 +12,6 @@ use djls_testing::django_facts_project;
 
 /// Django compiles these templates; DJLS reports a diagnostic. Every entry is a bug.
 const FALSE_POSITIVES: &[&str] = &[
-    // direct registration loses takes_context, so context counts as a template argument
-    "direct_context_valid",
     // conditional argument pops are extracted as an unconditional count
     "lorem_no_arguments",
     "lorem_words",
@@ -29,16 +27,12 @@ const MISSED_DIAGNOSTICS: &[&str] = &[
     "authored_repeated_keyword",
     // class constructors are not resolved as parser functions for rule extraction
     "class_missing",
-    // curried registration leaves the library inventory open without an argument rule
-    "curried_context_missing",
     // split-sequence truthiness guards do not produce argument-count constraints
     "firstof_missing",
     // the conditional expression choosing the in-keyword index evaluates to Unknown
     "for_wrong_separator",
     // option extraction records names but not the assignments required after with
     "include_missing_assignment",
-    // simple_block_tag bodies use manual-parser analysis instead of signature extraction
-    "simple_block_missing",
     // registration is curried through functools.partial; there is no standard-library search root and no model of partial, so the library is open
     "stdlib_partial_context_invalid",
     // callable is wrapped by a functools.wraps decorator; the wrapper is unresolvable and the library is open

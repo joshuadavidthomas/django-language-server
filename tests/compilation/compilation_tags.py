@@ -25,6 +25,16 @@ def authored_default(one, two="default"):
     return f"{one}:{two}"
 
 
+@register.simple_tag(name=None)
+def none_named_simple(value):
+    return value
+
+
+@register.simple_tag(name="")
+def empty_named_simple(value):
+    return value
+
+
 @register.simple_tag(takes_context=True)
 def decorator_context(context, value):
     return value
@@ -46,6 +56,50 @@ register.simple_tag(takes_context=True)(curried_context)
 
 @register.simple_block_tag
 def authored_panel(content, title):
+    return f"{title}:{content}"
+
+
+@register.simple_block_tag(
+    takes_context=True,
+    name="context_panel",
+    end_name="close_context_panel",
+)
+def context_panel_impl(context, content, title):
+    return f"{title}:{content}"
+
+
+@register.simple_block_tag(name="default_panel", end_name=None)
+def default_panel_impl(content, title):
+    return f"{title}:{content}"
+
+
+def curried_inclusion(value):
+    return {"value": value}
+
+
+register.inclusion_tag("included.html", name="curried_inclusion")(curried_inclusion)
+
+
+@register.inclusion_tag("included.html", name="")
+def empty_named_inclusion(value):
+    return {"value": value}
+
+
+def ignored_inclusion(value):
+    return {"ignored": value}
+
+
+@register.inclusion_tag(
+    "included.html",
+    func=ignored_inclusion,
+    name="inclusion_func_is_ignored",
+)
+def inclusion_func_is_ignored(value):
+    return {"value": value}
+
+
+@register.simple_block_tag(name="")
+def empty_named_panel(content, title):
     return f"{title}:{content}"
 
 
