@@ -554,12 +554,6 @@ pub fn standard_validation_db() -> anyhow::Result<OsTestDatabase> {
     validation_db(&ProjectSettings::default().settings_py())
 }
 
-pub fn partial_validation_db() -> anyhow::Result<OsTestDatabase> {
-    validation_db(
-        "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/templates'], 'APP_DIRS': False, 'OPTIONS': {'builtins': [], 'libraries': {}}, UNKNOWN: 'maybe'}]\n",
-    )
-}
-
 pub fn validation_db(settings_py: &str) -> anyhow::Result<OsTestDatabase> {
     let corpus = Corpus::require()?;
     let django_source_root = corpus.root().join("repos/django-5.2");

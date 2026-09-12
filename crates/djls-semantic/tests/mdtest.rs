@@ -1,33 +1,233 @@
-use std::path::Path;
+use camino::Utf8Path;
+use djls_semantic::BlockSite;
+use djls_semantic::ChainEnd;
+use djls_semantic::ExtendsTarget;
+use djls_semantic::TemplateInheritance;
+use djls_semantic::block_overrides;
+use djls_semantic::inherited_blocks;
+use djls_semantic::parent_block;
+use djls_semantic::template_inheritance;
+use djls_semantic::template_symbols;
+use djls_source::File;
+use djls_source::Span;
+use djls_templates::parse_template;
+use djls_testing::ProjectFixture;
+use djls_testing::ProjectSettings;
+use djls_testing::Scenario;
+use djls_testing::ScenarioFileKind;
+use djls_testing::TestDatabase;
 
-#[test]
-fn mdtest() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/mdtest");
-    let mut actual = claimed_mdtest_suites(&root).expect("mdtest suites should be readable");
-    actual.sort();
+const PROJECT_ROOT: &str = "/test/project";
+const TEMPLATE_ROOT: &str = "/test/project/templates";
 
-    let mut expected = vec![
-        "diagnostics".to_string(),
-        "inheritance".to_string(),
-        "tags".to_string(),
-    ];
-    expected.sort();
-
-    assert_eq!(
-        actual, expected,
-        "resources/mdtest contains unregistered suites; register new suites in semantic mdtest tests"
-    );
-    djls_testing::run_suite(&root.join("diagnostics")).expect("diagnostic mdtest suite should run");
-    djls_testing::run_suite(&root.join("tags")).expect("tag mdtest suite should run");
+#[expect(clippy::needless_pass_by_value)]
+fn diagnostics_mdtest(fixture_path: &Utf8Path, content: String) -> datatest_stable::Result<()> {
+    run_validation_mdtest(fixture_path, &content)
 }
 
-fn claimed_mdtest_suites(root: &Path) -> std::io::Result<Vec<String>> {
-    let mut suites = Vec::new();
-    for entry in std::fs::read_dir(root)? {
-        let entry = entry?;
-        if entry.path().is_dir() {
-            suites.push(entry.file_name().to_string_lossy().into_owned());
+#[expect(clippy::needless_pass_by_value)]
+fn tags_mdtest(fixture_path: &Utf8Path, content: String) -> datatest_stable::Result<()> {
+    run_validation_mdtest(fixture_path, &content)
+}
+
+fn run_validation_mdtest(fixture_path: &Utf8Path, content: &str) -> datatest_stable::Result<()> {
+    let absolute_path = Utf8Path::new(env!("CARGO_MANIFEST_DIR")).join(fixture_path);
+    djls_testing::run_file(&absolute_path, content)?;
+    Ok(())
+}
+
+#[expect(clippy::needless_pass_by_value)]
+fn inheritance_mdtest(fixture_path: &Utf8Path, content: String) -> datatest_stable::Result<()> {
+    let absolute_path = Utf8Path::new(env!("CARGO_MANIFEST_DIR")).join(fixture_path);
+    djls_testing::run_file_with(&absolute_path, &content, render_inheritance)?;
+    Ok(())
+}
+
+fn render_inheritance(scenario: &Scenario) -> anyhow::Result<String> {
+    let db = TestDatabase::new();
+    let project = project_for_scenario(&db, scenario)?;
+
+    let primary = scenario.primary_file()?;
+    let primary_path = template_path(&primary.path);
+    let file = db.file(Utf8Path::new(&primary_path))?;
+    let nodelist = match parse_template(&db, file) {
+        djls_templates::TemplateParseResult::Parsed(nodelist) => nodelist,
+        djls_templates::TemplateParseResult::NotTemplate => {
+            return Ok("file is not a template".to_string());
+        }
+        djls_templates::TemplateParseResult::Unreadable(error) => {
+            return Ok(format!("template could not be read: {error}"));
+        }
+    };
+    let symbols = template_symbols(&db, file, nodelist);
+    let inheritance = template_inheritance(&db, project, file);
+
+    let mut output = vec![
+        format!("extends: {}", render_extends(symbols.extends())),
+        "blocks:".to_string(),
+    ];
+    if symbols.blocks().is_empty() {
+        output.push("  none".to_string());
+    } else {
+        for block in symbols.blocks() {
+            output.push(format!(
+                "  - {} name@{} full@{}",
+                block.name,
+                render_span(block.name_span),
+                render_span(block.full_span)
+            ));
         }
     }
-    Ok(suites)
+    output.push("partials:".to_string());
+    if symbols.partials().is_empty() {
+        output.push("  none".to_string());
+    } else {
+        for partial in symbols.partials() {
+            output.push(format!(
+                "  - {} name@{} full@{}",
+                partial.name,
+                render_span(partial.name_span),
+                render_span(partial.full_span)
+            ));
+        }
+    }
+    output.push("chain:".to_string());
+    render_chain(&mut output, &db, inheritance);
+    output.push("block queries:".to_string());
+    render_block_queries(&mut output, &db, project, file, symbols.blocks());
+
+    Ok(output.join("\n"))
+}
+
+fn project_for_scenario(
+    db: &TestDatabase,
+    scenario: &Scenario,
+) -> anyhow::Result<djls_project::Project> {
+    let fixture = ProjectFixture::new(PROJECT_ROOT).settings(&ProjectSettings {
+        dirs: vec![TEMPLATE_ROOT.to_string()],
+        ..ProjectSettings::default()
+    });
+
+    scenario
+        .files
+        .iter()
+        .fold(fixture, |fixture, file| match file.kind {
+            ScenarioFileKind::Template => {
+                fixture.file(template_path(&file.path), file.source.clone())
+            }
+            ScenarioFileKind::Python => fixture,
+        })
+        .build(db)
+}
+
+fn template_path(relative_path: &str) -> String {
+    format!("{TEMPLATE_ROOT}/{relative_path}")
+}
+
+fn render_chain(output: &mut Vec<String>, db: &TestDatabase, inheritance: TemplateInheritance<'_>) {
+    if inheritance.ancestors(db).is_empty() {
+        output.push("  ancestors: none".to_string());
+    } else {
+        output.push("  ancestors:".to_string());
+        for ancestor in inheritance.ancestors(db) {
+            let name = ancestor.template_name(db).name(db);
+            output.push(format!("    - {name}"));
+        }
+    }
+    output.push(format!("  end: {}", render_chain_end(inheritance.end(db))));
+}
+
+fn render_block_queries(
+    output: &mut Vec<String>,
+    db: &TestDatabase,
+    project: djls_project::Project,
+    file: File,
+    blocks: &[djls_semantic::BlockDef],
+) {
+    output.push("  parent blocks:".to_string());
+    if blocks.is_empty() {
+        output.push("    none".to_string());
+    } else {
+        for block in blocks {
+            let parent = parent_block(db, project, file, &block.name)
+                .map_or_else(|| "none".to_string(), |site| render_block_site(db, site));
+            output.push(format!("    - {} -> {parent}", block.name));
+        }
+    }
+
+    output.push("  inherited blocks:".to_string());
+    let inherited = inherited_blocks(db, project, file);
+    if inherited.is_empty() {
+        output.push("    none".to_string());
+    } else {
+        for (name, site) in inherited {
+            output.push(format!("    - {name} -> {}", render_block_site(db, site)));
+        }
+    }
+
+    output.push("  overrides:".to_string());
+    if blocks.is_empty() {
+        output.push("    none".to_string());
+    } else {
+        for block in blocks {
+            let overrides = block_overrides(db, project, file, &block.name);
+            if overrides.is_empty() {
+                output.push(format!("    - {}: none", block.name));
+            } else {
+                output.push(format!("    - {}:", block.name));
+                for site in overrides {
+                    output.push(format!("      - {}", render_block_site(db, site)));
+                }
+            }
+        }
+    }
+}
+
+fn render_extends(target: Option<&ExtendsTarget>) -> String {
+    match target {
+        Some(ExtendsTarget::Literal { name, span }) => {
+            format!("literal {name:?} @{}", render_span(*span))
+        }
+        Some(ExtendsTarget::Dynamic { span }) => format!("dynamic @{}", render_span(*span)),
+        None => "none".to_string(),
+    }
+}
+
+fn render_chain_end(end: ChainEnd) -> String {
+    match end {
+        ChainEnd::Root => "root".to_string(),
+        ChainEnd::Dynamic { span } => format!("dynamic @{}", render_span(span)),
+        ChainEnd::Unresolved { name } => format!("unresolved {name:?}"),
+        ChainEnd::InconclusiveParent { name } => {
+            format!("inconclusive-parent {name:?}")
+        }
+        ChainEnd::Cycle => "cycle".to_string(),
+    }
+}
+
+fn render_span(span: Span) -> String {
+    format!("{}..{}", span.start_usize(), span.end_usize())
+}
+
+fn render_block_site(db: &TestDatabase, site: BlockSite) -> String {
+    format!(
+        "{} name@{} full@{}",
+        render_file(db, site.file),
+        render_span(site.name_span),
+        render_span(site.full_span)
+    )
+}
+
+fn render_file(db: &TestDatabase, file: File) -> String {
+    file.path(db)
+        .strip_prefix(TEMPLATE_ROOT)
+        .map_or_else(|_| file.path(db).as_str(), Utf8Path::as_str)
+        .trim_start_matches('/')
+        .to_string()
+}
+
+datatest_stable::harness! {
+    { test = diagnostics_mdtest, root = "./resources/mdtest/diagnostics", pattern = r"\.md$" },
+    { test = tags_mdtest, root = "./resources/mdtest/tags", pattern = r"\.md$" },
+    { test = inheritance_mdtest, root = "./resources/mdtest/inheritance", pattern = r"\.md$" },
 }
