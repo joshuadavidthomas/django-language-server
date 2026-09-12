@@ -39,6 +39,7 @@ pub use fixtures::builtin_filter;
 pub use fixtures::builtin_tag;
 pub use fixtures::collect_argument_validation_errors_with_revision;
 pub use fixtures::collect_errors;
+pub use fixtures::corpus_project_database;
 pub use fixtures::library_filter;
 pub use fixtures::library_tag;
 pub use fixtures::make_template_library_catalog;

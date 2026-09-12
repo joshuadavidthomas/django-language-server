@@ -554,7 +554,11 @@ pub fn standard_validation_db() -> anyhow::Result<OsTestDatabase> {
     validation_db(&ProjectSettings::default().settings_py())
 }
 
-pub fn validation_db(settings_py: &str) -> anyhow::Result<OsTestDatabase> {
+pub fn corpus_project_database(
+    project_root: Utf8PathBuf,
+    disk_roots: impl IntoIterator<Item = Utf8PathBuf>,
+    settings_module: &str,
+) -> anyhow::Result<(OsTestDatabase, Project, Utf8PathBuf)> {
     let corpus = Corpus::require()?;
     let django_source_root = corpus.root().join("repos/django-5.2");
     anyhow::ensure!(
@@ -562,29 +566,35 @@ pub fn validation_db(settings_py: &str) -> anyhow::Result<OsTestDatabase> {
         "pinned Django 5.2 corpus source is missing"
     );
 
-    let project_root = Utf8PathBuf::from("/fixture");
+    let mut disk_roots = disk_roots.into_iter().collect::<Vec<_>>();
+    disk_roots.push(django_source_root.clone());
+    let mut db = OsTestDatabase::with_disk_roots(disk_roots);
     let interpreter = Interpreter::VenvPath(corpus.root().join("hermetic-no-venv"));
     let pythonpath = vec![django_source_root.clone()];
     let search_paths = SearchPaths::from_paths(vec![
         SearchPath::FirstParty(project_root.clone()),
         SearchPath::SitePackages(django_source_root.clone()),
     ]);
-
-    let mut db = OsTestDatabase::with_disk_roots([django_source_root]);
     search_paths.register_roots(&db);
-    db.add_file("/fixture/settings.py", settings_py)?;
-
     let project = Project::new(
         &db,
         project_root,
         search_paths,
         interpreter,
-        Some(PythonModuleName::parse("settings")?),
+        Some(PythonModuleName::parse(settings_module)?),
         pythonpath,
         Vec::new(),
         Settings::default().tagspecs().clone(),
     );
     db.set_project(project);
+
+    Ok((db, project, django_source_root))
+}
+
+pub fn validation_db(settings_py: &str) -> anyhow::Result<OsTestDatabase> {
+    let project_root = Utf8PathBuf::from("/fixture");
+    let (mut db, _, _) = corpus_project_database(project_root, [], "settings")?;
+    db.add_file("/fixture/settings.py", settings_py)?;
     Ok(db)
 }
 

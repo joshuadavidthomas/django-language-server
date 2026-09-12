@@ -378,6 +378,12 @@ impl OsTestDatabase {
         self
     }
 
+    #[must_use]
+    pub fn with_projectless_tag_specs(mut self, specs: TagSpecs) -> Self {
+        self.projectless_tag_specs = specs;
+        self
+    }
+
     /// Add an in-memory file above the database's disk filesystem.
     pub fn add_file(&mut self, path: &str, content: &str) -> anyhow::Result<File> {
         let path = Utf8PathBuf::from(path);
