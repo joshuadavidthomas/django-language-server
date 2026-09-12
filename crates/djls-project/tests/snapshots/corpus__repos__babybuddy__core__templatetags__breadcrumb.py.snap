@@ -4,20 +4,21 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "core.templatetags.breadcrumb::tag::child_quick_switch":
-    arg_constraints:
-      - Min: 3
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: current_child
-          requirement: required
-          kind: Variable
-        - name: target_url
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: current_child
+            requirement: required
+            kind: Variable
+          - name: target_url
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
 filter_arities: {}
 block_specs: {}

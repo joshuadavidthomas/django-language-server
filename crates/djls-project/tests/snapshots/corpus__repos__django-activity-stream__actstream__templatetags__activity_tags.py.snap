@@ -4,19 +4,21 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "actstream.templatetags.activity_tags::tag::activity_stream":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: stream_type
-          requirement: required
-          kind: Variable
-        - name: args
-          requirement: optional
-          kind: VarArgs
+      Signature:
+        parameters:
+          - name: stream_type
+            requirement: required
+            kind: Variable
+          - name: args
+            requirement: optional
+            kind: VarArgs
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "actstream.templatetags.activity_tags::tag::actor_url":
     arg_constraints:

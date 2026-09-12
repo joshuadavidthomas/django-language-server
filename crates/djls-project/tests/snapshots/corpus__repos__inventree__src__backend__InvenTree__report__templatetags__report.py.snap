@@ -4,460 +4,510 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "src.backend.InvenTree.report.templatetags.report::tag::add":
-    arg_constraints:
-      - Min: 3
-      - Max: 4
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: x
-          requirement: required
-          kind: Variable
-        - name: y
-          requirement: required
-          kind: Variable
-        - name: cast
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: x
+            requirement: required
+            kind: Variable
+          - name: y
+            requirement: required
+            kind: Variable
+          - name: cast
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::asset":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: filename
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: filename
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::company_image":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: company
-          requirement: required
-          kind: Variable
-        - name: preview
-          requirement: optional
-          kind: Variable
-        - name: thumbnail
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: company
+            requirement: required
+            kind: Variable
+          - name: preview
+            requirement: optional
+            kind: Variable
+          - name: thumbnail
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::convert_currency":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: money
-          requirement: required
-          kind: Variable
-        - name: currency
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: money
+            requirement: required
+            kind: Variable
+          - name: currency
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::create_currency":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: amount
-          requirement: required
-          kind: Variable
-        - name: currency
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: amount
+            requirement: required
+            kind: Variable
+          - name: currency
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::divide":
-    arg_constraints:
-      - Min: 3
-      - Max: 4
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: x
-          requirement: required
-          kind: Variable
-        - name: y
-          requirement: required
-          kind: Variable
-        - name: cast
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: x
+            requirement: required
+            kind: Variable
+          - name: y
+            requirement: required
+            kind: Variable
+          - name: cast
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::encode_svg_image":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: filename
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: filename
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::filter_db_model":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: model_name
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: model_name
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::filter_queryset":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: queryset
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: queryset
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::format_date":
-    arg_constraints:
-      - Min: 2
-      - Max: 4
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: dt
-          requirement: required
-          kind: Variable
-        - name: timezone
-          requirement: optional
-          kind: Variable
-        - name: fmt
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: dt
+            requirement: required
+            kind: Variable
+          - name: timezone
+            requirement: optional
+            kind: Variable
+          - name: fmt
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::format_datetime":
-    arg_constraints:
-      - Min: 2
-      - Max: 4
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: dt
-          requirement: required
-          kind: Variable
-        - name: timezone
-          requirement: optional
-          kind: Variable
-        - name: fmt
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: dt
+            requirement: required
+            kind: Variable
+          - name: timezone
+            requirement: optional
+            kind: Variable
+          - name: fmt
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::format_number":
-    arg_constraints:
-      - Min: 2
-      - Max: 7
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: number
-          requirement: required
-          kind: Variable
-        - name: decimal_places
-          requirement: optional
-          kind: Variable
-        - name: multiplier
-          requirement: optional
-          kind: Variable
-        - name: integer
-          requirement: optional
-          kind: Variable
-        - name: leading
-          requirement: optional
-          kind: Variable
-        - name: separator
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: number
+            requirement: required
+            kind: Variable
+          - name: decimal_places
+            requirement: optional
+            kind: Variable
+          - name: multiplier
+            requirement: optional
+            kind: Variable
+          - name: integer
+            requirement: optional
+            kind: Variable
+          - name: leading
+            requirement: optional
+            kind: Variable
+          - name: separator
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::getindex":
-    arg_constraints:
-      - Min: 3
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: container
-          requirement: required
-          kind: Variable
-        - name: index
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: container
+            requirement: required
+            kind: Variable
+          - name: index
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::getkey":
-    arg_constraints:
-      - Min: 3
-      - Max: 4
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: container
-          requirement: required
-          kind: Variable
-        - name: key
-          requirement: required
-          kind: Variable
-        - name: backup_value
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: container
+            requirement: required
+            kind: Variable
+          - name: key
+            requirement: required
+            kind: Variable
+          - name: backup_value
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::icon":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: name
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: name
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::include_icon_fonts":
-    arg_constraints:
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: ttf
-          requirement: optional
-          kind: Variable
-        - name: woff
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: ttf
+            requirement: optional
+            kind: Variable
+          - name: woff
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::internal_link":
-    arg_constraints:
-      - Min: 3
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: link
-          requirement: required
-          kind: Variable
-        - name: text
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: link
+            requirement: required
+            kind: Variable
+          - name: text
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+  "src.backend.InvenTree.report.templatetags.report::tag::logo_image":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::modulo":
-    arg_constraints:
-      - Min: 3
-      - Max: 4
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: x
-          requirement: required
-          kind: Variable
-        - name: y
-          requirement: required
-          kind: Variable
-        - name: cast
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: x
+            requirement: required
+            kind: Variable
+          - name: y
+            requirement: required
+            kind: Variable
+          - name: cast
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::multiply":
-    arg_constraints:
-      - Min: 3
-      - Max: 4
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: x
-          requirement: required
-          kind: Variable
-        - name: y
-          requirement: required
-          kind: Variable
-        - name: cast
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: x
+            requirement: required
+            kind: Variable
+          - name: y
+            requirement: required
+            kind: Variable
+          - name: cast
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::order_queryset":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: queryset
-          requirement: required
-          kind: Variable
-        - name: args
-          requirement: optional
-          kind: VarArgs
+      Signature:
+        parameters:
+          - name: queryset
+            requirement: required
+            kind: Variable
+          - name: args
+            requirement: optional
+            kind: VarArgs
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::parameter":
-    arg_constraints:
-      - Min: 3
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: instance
-          requirement: required
-          kind: Variable
-        - name: parameter_name
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: instance
+            requirement: required
+            kind: Variable
+          - name: parameter_name
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::part_image":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: part
-          requirement: required
-          kind: Variable
-        - name: preview
-          requirement: optional
-          kind: Variable
-        - name: thumbnail
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: part
+            requirement: required
+            kind: Variable
+          - name: preview
+            requirement: optional
+            kind: Variable
+          - name: thumbnail
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::part_parameter":
-    arg_constraints:
-      - Min: 3
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: instance
-          requirement: required
-          kind: Variable
-        - name: parameter_name
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: instance
+            requirement: required
+            kind: Variable
+          - name: parameter_name
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::render_currency":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: money
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: money
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::render_html_text":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: text
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: text
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::subtract":
-    arg_constraints:
-      - Min: 3
-      - Max: 4
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: x
-          requirement: required
-          kind: Variable
-        - name: y
-          requirement: required
-          kind: Variable
-        - name: cast
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: x
+            requirement: required
+            kind: Variable
+          - name: y
+            requirement: required
+            kind: Variable
+          - name: cast
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.backend.InvenTree.report.templatetags.report::tag::uploaded_image":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: filename
-          requirement: required
-          kind: Variable
-        - name: replace_missing
-          requirement: optional
-          kind: Variable
-        - name: replacement_file
-          requirement: optional
-          kind: Variable
-        - name: validate
-          requirement: optional
-          kind: Variable
-        - name: width
-          requirement: optional
-          kind: Variable
-        - name: height
-          requirement: optional
-          kind: Variable
-        - name: rotate
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: filename
+            requirement: required
+            kind: Variable
+          - name: replace_missing
+            requirement: optional
+            kind: Variable
+          - name: replacement_file
+            requirement: optional
+            kind: Variable
+          - name: validate
+            requirement: optional
+            kind: Variable
+          - name: width
+            requirement: optional
+            kind: Variable
+          - name: height
+            requirement: optional
+            kind: Variable
+          - name: rotate
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
 filter_arities: {}
 block_specs: {}

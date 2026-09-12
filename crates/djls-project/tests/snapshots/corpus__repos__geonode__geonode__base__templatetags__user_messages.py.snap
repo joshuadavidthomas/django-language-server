@@ -4,77 +4,83 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "geonode.base.templatetags.user_messages::tag::format_senders":
-    arg_constraints:
-      - Min: 3
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: thread
-          requirement: required
-          kind: Variable
-        - name: current_user
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: thread
+            requirement: required
+            kind: Variable
+          - name: current_user
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "geonode.base.templatetags.user_messages::tag::get_item":
-    arg_constraints:
-      - Min: 3
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: dictionary
-          requirement: required
-          kind: Variable
-        - name: key
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: dictionary
+            requirement: required
+            kind: Variable
+          - name: key
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "geonode.base.templatetags.user_messages::tag::is_unread":
-    arg_constraints:
-      - Min: 3
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: thread
-          requirement: required
-          kind: Variable
-        - name: user
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: thread
+            requirement: required
+            kind: Variable
+          - name: user
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "geonode.base.templatetags.user_messages::tag::random_uuid":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "geonode.base.templatetags.user_messages::tag::show_notification":
-    arg_constraints:
-      - Min: 3
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: notice_type_label
-          requirement: required
-          kind: Variable
-        - name: current_user
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: notice_type_label
+            requirement: required
+            kind: Variable
+          - name: current_user
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
 filter_arities: {}
 block_specs: {}

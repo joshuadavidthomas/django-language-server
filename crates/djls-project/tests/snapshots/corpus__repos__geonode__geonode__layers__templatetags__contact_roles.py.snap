@@ -4,20 +4,21 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "geonode.layers.templatetags.contact_roles::tag::getattribute":
-    arg_constraints:
-      - Min: 3
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: form
-          requirement: required
-          kind: Variable
-        - name: contact
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: form
+            requirement: required
+            kind: Variable
+          - name: contact
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
 filter_arities:
   "geonode.layers.templatetags.contact_roles::filter::get_contact_role_id": required_argument

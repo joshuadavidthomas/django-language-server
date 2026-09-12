@@ -167,10 +167,13 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: args
-          requirement: optional
-          kind: VarArgs
+      Signature:
+        parameters:
+          - name: args
+            requirement: optional
+            kind: VarArgs
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "django.template.defaulttags::tag::regroup":
     arg_constraints:

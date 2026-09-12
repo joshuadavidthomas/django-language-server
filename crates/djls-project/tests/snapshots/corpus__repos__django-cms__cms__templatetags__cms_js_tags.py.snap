@@ -4,33 +4,35 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "cms.templatetags.cms_js_tags::tag::render_cms_structure_js":
-    arg_constraints:
-      - Min: 3
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: renderer
-          requirement: required
-          kind: Variable
-        - name: obj
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: renderer
+            requirement: required
+            kind: Variable
+          - name: obj
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "cms.templatetags.cms_js_tags::tag::render_plugin_init_js":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: plugin
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: plugin
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
 filter_arities:
   "cms.templatetags.cms_js_tags::filter::bool": no_argument

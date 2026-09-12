@@ -4,203 +4,218 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "dashboard.templatetags.cards::tag::card_breastfeeding":
-    arg_constraints:
-      - Min: 2
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: child
-          requirement: required
-          kind: Variable
-        - name: date
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: child
+            requirement: required
+            kind: Variable
+          - name: date
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "dashboard.templatetags.cards::tag::card_diaperchange_last":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: child
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: child
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "dashboard.templatetags.cards::tag::card_diaperchange_types":
-    arg_constraints:
-      - Min: 2
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: child
-          requirement: required
-          kind: Variable
-        - name: date
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: child
+            requirement: required
+            kind: Variable
+          - name: date
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "dashboard.templatetags.cards::tag::card_feeding_last":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: child
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: child
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "dashboard.templatetags.cards::tag::card_feeding_last_method":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: child
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: child
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "dashboard.templatetags.cards::tag::card_feeding_recent":
-    arg_constraints:
-      - Min: 2
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: child
-          requirement: required
-          kind: Variable
-        - name: end_date
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: child
+            requirement: required
+            kind: Variable
+          - name: end_date
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "dashboard.templatetags.cards::tag::card_pumping_last":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: child
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: child
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "dashboard.templatetags.cards::tag::card_sleep_last":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: child
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: child
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "dashboard.templatetags.cards::tag::card_sleep_naps_day":
-    arg_constraints:
-      - Min: 2
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: child
-          requirement: required
-          kind: Variable
-        - name: date
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: child
+            requirement: required
+            kind: Variable
+          - name: date
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "dashboard.templatetags.cards::tag::card_sleep_recent":
-    arg_constraints:
-      - Min: 2
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: child
-          requirement: required
-          kind: Variable
-        - name: end_date
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: child
+            requirement: required
+            kind: Variable
+          - name: end_date
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "dashboard.templatetags.cards::tag::card_statistics":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: child
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: child
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "dashboard.templatetags.cards::tag::card_timer_list":
-    arg_constraints:
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: child
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: child
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "dashboard.templatetags.cards::tag::card_tummytime_day":
-    arg_constraints:
-      - Min: 2
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: child
-          requirement: required
-          kind: Variable
-        - name: date
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: child
+            requirement: required
+            kind: Variable
+          - name: date
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "dashboard.templatetags.cards::tag::card_tummytime_last":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: child
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: child
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
 filter_arities: {}
 block_specs: {}

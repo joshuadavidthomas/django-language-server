@@ -134,10 +134,13 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: query_dict
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: query_dict
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "django.template.defaulttags::tag::regroup":
     arg_constraints:

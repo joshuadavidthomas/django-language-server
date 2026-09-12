@@ -4,110 +4,133 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "src.sentry.templatetags.sentry_helpers::tag::get_sentry_version":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.sentry.templatetags.sentry_helpers::tag::loading_message":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.sentry.templatetags.sentry_helpers::tag::org_url":
-    arg_constraints:
-      - Min: 3
-      - Max: 5
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: organization
-          requirement: required
-          kind: Variable
-        - name: path
-          requirement: required
-          kind: Variable
-        - name: query
-          requirement: optional
-          kind: Variable
-        - name: fragment
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: organization
+            requirement: required
+            kind: Variable
+          - name: path
+            requirement: required
+            kind: Variable
+          - name: query
+            requirement: optional
+            kind: Variable
+          - name: fragment
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.sentry.templatetags.sentry_helpers::tag::percent":
-    arg_constraints:
-      - Min: 3
-      - Max: 4
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: value
-          requirement: required
-          kind: Variable
-        - name: total
-          requirement: required
-          kind: Variable
-        - name: format
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: value
+            requirement: required
+            kind: Variable
+          - name: total
+            requirement: required
+            kind: Variable
+          - name: format
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+  "src.sentry.templatetags.sentry_helpers::tag::querystring":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "src.sentry.templatetags.sentry_helpers::tag::random_int":
-    arg_constraints:
-      - Min: 2
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: a
-          requirement: required
-          kind: Variable
-        - name: b
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: a
+            requirement: required
+            kind: Variable
+          - name: b
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.sentry.templatetags.sentry_helpers::tag::security_contact":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.sentry.templatetags.sentry_helpers::tag::serialize":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: value
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: value
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.sentry.templatetags.sentry_helpers::tag::system_origin":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
 filter_arities:
   "src.sentry.templatetags.sentry_helpers::filter::absolute_value": no_argument

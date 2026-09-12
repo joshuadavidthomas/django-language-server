@@ -4,135 +4,145 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "blog.templatetags.blog_tags::tag::add_qsarg":
-    arg_constraints:
-      - Min: 3
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: name
-          requirement: required
-          kind: Variable
-        - name: value
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: name
+            requirement: required
+            kind: Variable
+          - name: value
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "blog.templatetags.blog_tags::tag::blog_mixed_list":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: items
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: items
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "blog.templatetags.blog_tags::tag::blog_mixed_list_with_dates":
-    arg_constraints:
-      - Min: 2
-      - Max: 5
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: items
-          requirement: required
-          kind: Variable
-        - name: year_headers
-          requirement: optional
-          kind: Variable
-        - name: day_headers
-          requirement: optional
-          kind: Variable
-        - name: day_links
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: items
+            requirement: required
+            kind: Variable
+          - name: year_headers
+            requirement: optional
+            kind: Variable
+          - name: day_headers
+            requirement: optional
+            kind: Variable
+          - name: day_links
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "blog.templatetags.blog_tags::tag::comments_list":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: comments
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: comments
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "blog.templatetags.blog_tags::tag::comments_list_with_headers":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: comments
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: comments
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "blog.templatetags.blog_tags::tag::page_href":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: page
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: page
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "blog.templatetags.blog_tags::tag::remove_id_filters":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "blog.templatetags.blog_tags::tag::remove_qsarg":
-    arg_constraints:
-      - Min: 3
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: name
-          requirement: required
-          kind: Variable
-        - name: value
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: name
+            requirement: required
+            kind: Variable
+          - name: value
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "blog.templatetags.blog_tags::tag::replace_qsarg":
-    arg_constraints:
-      - Min: 3
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: name
-          requirement: required
-          kind: Variable
-        - name: value
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: name
+            requirement: required
+            kind: Variable
+          - name: value
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
 filter_arities:
   "blog.templatetags.blog_tags::filter::markdownify": no_argument

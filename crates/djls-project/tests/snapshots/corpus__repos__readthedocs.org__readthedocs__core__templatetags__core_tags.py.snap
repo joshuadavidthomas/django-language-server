@@ -4,53 +4,58 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "readthedocs.core.templatetags.core_tags::tag::doc_url":
-    arg_constraints:
-      - Min: 2
-      - Max: 5
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: project
-          requirement: required
-          kind: Variable
-        - name: version
-          requirement: optional
-          kind: Variable
-        - name: page
-          requirement: optional
-          kind: Variable
-        - name: path
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: project
+            requirement: required
+            kind: Variable
+          - name: version
+            requirement: optional
+            kind: Variable
+          - name: page
+            requirement: optional
+            kind: Variable
+          - name: path
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "readthedocs.core.templatetags.core_tags::tag::readthedocs_version":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "readthedocs.core.templatetags.core_tags::tag::url_replace":
-    arg_constraints:
-      - Min: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: request
-          requirement: required
-          kind: Variable
-        - name: field
-          requirement: required
-          kind: Variable
-        - name: values
-          requirement: optional
-          kind: VarArgs
+      Signature:
+        parameters:
+          - name: request
+            requirement: required
+            kind: Variable
+          - name: field
+            requirement: required
+            kind: Variable
+          - name: values
+            requirement: optional
+            kind: VarArgs
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
 filter_arities:
   "readthedocs.core.templatetags.core_tags::filter::escapejson": optional_argument

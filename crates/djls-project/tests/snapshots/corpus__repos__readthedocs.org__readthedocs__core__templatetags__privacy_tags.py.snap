@@ -4,17 +4,18 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "readthedocs.core.templatetags.privacy_tags::tag::get_public_projects":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: user
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: user
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
 filter_arities:
   "readthedocs.core.templatetags.privacy_tags::filter::is_admin": required_argument

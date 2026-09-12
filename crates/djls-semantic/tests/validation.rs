@@ -17,6 +17,7 @@ use djls_project::TemplateSymbolKind;
 use djls_project::template_library_catalog;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::TagArgumentKind;
+use djls_semantic::TagArgumentSyntax;
 use djls_semantic::TagRole;
 use djls_semantic::TagSpec;
 use djls_semantic::TagSpecs;
@@ -28,6 +29,8 @@ use djls_semantic::semantic_grammar_vocabulary;
 use djls_semantic::tag_spec_at;
 use djls_semantic::tag_specs_for_file;
 use djls_semantic::validate_template_file;
+use djls_source::ChangeEvent;
+use djls_source::SourceChanges;
 use djls_templates::parse_template;
 use djls_testing::ProjectFixture;
 use djls_testing::TestDatabase;
@@ -777,7 +780,10 @@ fn configured_arguments_fill_a_kwargs_only_simple_tag() {
             "/proj/dynamic_tags.py",
             "from django import template\nregister = template.Library()\n@register.simple_tag\ndef configured(**kwargs):\n    return ''\n",
         )
-        .file("/proj/templates/page.html", "{% load dynamic %}")
+        .file(
+            "/proj/templates/page.html",
+            "{% load dynamic %}{% configured small as selected %}",
+        )
         .install(&mut db)
         .expect("configured kwargs project fixture should install");
 
@@ -796,10 +802,194 @@ fn configured_arguments_fill_a_kwargs_only_simple_tag() {
         .parameters()
         .expect("configured arguments should replace empty signature evidence");
 
+    assert!(matches!(
+        spec.argument_syntax(),
+        TagArgumentSyntax::Parameters(_)
+    ));
     assert_eq!(parameters.len(), 1);
     assert_eq!(
         parameters[0].kind,
         TagArgumentKind::Choice(vec!["small".to_string(), "large".to_string()])
+    );
+    assert!(
+        collect_file_errors(&db, "/proj/templates/page.html")
+            .expect("configured fallback template should validate")
+            .is_empty()
+    );
+}
+
+#[test]
+fn configured_fallback_does_not_weaken_empty_trusted_signatures() {
+    let mut db = TestDatabase::new();
+    let tag_specs: TagSpecDef = serde_json::from_value(serde_json::json!({
+        "libraries": [{
+            "module": "strict_tags",
+            "tags": [
+                {
+                    "name": "empty_helper",
+                    "type": "standalone",
+                    "args": [{"name": "invented", "kind": "variable"}]
+                },
+                {
+                    "name": "kwargs_helper",
+                    "type": "standalone",
+                    "args": []
+                }
+            ]
+        }]
+    }))
+    .expect("strict configured fallback fixture should deserialize");
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("project.settings")
+        .tag_specs(tag_specs)
+        .file(
+            "/proj/project/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'strict': 'strict_tags'}}}]\n",
+        )
+        .file(
+            "/proj/strict_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef empty_helper(): return ''\n@register.simple_tag\ndef kwargs_helper(**options): return options\n",
+        )
+        .file(
+            "/proj/templates/page.html",
+            "{% load strict %}{% empty_helper invented %}{% kwargs_helper positional %}",
+        )
+        .install(&mut db)
+        .expect("strict configured fallback project should install");
+
+    let library =
+        ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
+            .resolved_libraries()
+            .into_iter()
+            .find(|library| library.module_name_str() == "strict_tags")
+            .expect("strict Template Library should resolve");
+    let specs = library_tag_specs(&db, project, library.id());
+    assert!(matches!(
+        specs
+            .get("empty_helper")
+            .expect("empty helper should have a spec")
+            .argument_syntax(),
+        TagArgumentSyntax::Signature {
+            parameters,
+            variadic_keyword: None,
+            ..
+        } if parameters.is_empty()
+    ));
+    assert!(matches!(
+        specs
+            .get("kwargs_helper")
+            .expect("kwargs helper should have a spec")
+            .argument_syntax(),
+        TagArgumentSyntax::Signature {
+            parameters,
+            variadic_keyword: Some(name),
+            ..
+        } if parameters.is_empty() && name == "options"
+    ));
+
+    let errors = collect_file_errors(&db, "/proj/templates/page.html")
+        .expect("strict configured fallback template should validate");
+    assert!(errors.iter().any(|error| matches!(
+        error,
+        ValidationError::ExtractedRuleViolation { tag, message, .. }
+            if tag == "empty_helper" && message.contains("too many positional")
+    )));
+    assert!(errors.iter().any(|error| matches!(
+        error,
+        ValidationError::ExtractedRuleViolation { tag, message, .. }
+            if tag == "kwargs_helper" && message.contains("too many positional")
+    )));
+}
+
+#[test]
+fn loaded_imported_signature_rebinds_after_source_invalidation() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("project.settings")
+        .file(
+            "/proj/project/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'authored': 'app.templatetags.authored'}}}]\n",
+        )
+        .file(
+            "/proj/app/templatetags/authored.py",
+            "from django import template\nfrom app.implementation import imported\nregister = template.Library()\nregister.simple_tag(imported, name='loaded_imported')\n",
+        )
+        .file(
+            "/proj/app/implementation.py",
+            "def imported(value): return value\n",
+        )
+        .file(
+            "/proj/templates/page.html",
+            "{% load authored %}{% loaded_imported %}",
+        )
+        .install(&mut db)
+        .expect("loaded imported signature fixture should install");
+
+    let library =
+        ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
+            .resolved_libraries()
+            .into_iter()
+            .find(|library| library.module_name_str() == "app.templatetags.authored")
+            .expect("authored Template Library should resolve");
+    let before = library_tag_specs(&db, project, library.id())
+        .get("loaded_imported")
+        .cloned()
+        .expect("imported tag should have a semantic spec");
+    assert!(matches!(
+        before.argument_syntax(),
+        TagArgumentSyntax::Signature { parameters, variadic_keyword: None, .. }
+            if parameters.len() == 1
+                && parameters[0].name == "value"
+                && parameters[0].requirement.is_required()
+    ));
+    assert!(
+        collect_file_errors(&db, "/proj/templates/page.html")
+            .expect("missing imported argument should validate")
+            .iter()
+            .any(|error| matches!(
+                error,
+                ValidationError::ExtractedRuleViolation { tag, message, .. }
+                    if tag == "loaded_imported" && message.contains("'value'")
+            ))
+    );
+    drop(before);
+
+    let implementation_path = Utf8Path::new("/proj/app/implementation.py");
+    db.add_file(
+        implementation_path.as_str(),
+        "def imported(value=None, **options): return value, options\n",
+    )
+    .expect("updated imported callable should be written");
+    SourceChanges::new([ChangeEvent::ContentChanged(
+        implementation_path.to_path_buf(),
+    )])
+    .apply(&mut db);
+
+    let updated_library =
+        ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
+            .resolved_libraries()
+            .into_iter()
+            .find(|library| library.module_name_str() == "app.templatetags.authored")
+            .expect("updated authored Template Library should resolve");
+    let after = library_tag_specs(&db, project, updated_library.id())
+        .get("loaded_imported")
+        .cloned()
+        .expect("updated imported tag should keep its semantic spec");
+    assert!(matches!(
+        after.argument_syntax(),
+        TagArgumentSyntax::Signature {
+            parameters,
+            variadic_keyword: Some(name),
+            ..
+        } if parameters.len() == 1
+            && parameters[0].name == "value"
+            && !parameters[0].requirement.is_required()
+            && name == "options"
+    ));
+    assert!(
+        collect_file_errors(&db, "/proj/templates/page.html")
+            .expect("updated imported argument should validate")
+            .is_empty()
     );
 }
 
@@ -3123,16 +3313,20 @@ fn corpus_eventsignal_rejects_extra_positional_arguments() {
         .expect("template validation should run"),
         []
     );
-    // Missed diagnostic: **kwargs erases the positional maximum. Django's
-    // parse_bits raises "received too many positional arguments".
-    assert_eq!(
-        collect_errors(
-            &db,
-            "/invalid.html",
-            "{% eventsignal event 'signal.name' extra %}"
-        )
-        .expect("template validation should run"),
-        []
+    // Django's parse_bits rejects extra positional arguments even with **kwargs.
+    let errors = collect_errors(
+        &db,
+        "/invalid.html",
+        "{% eventsignal event 'signal.name' extra %}",
+    )
+    .expect("template validation should run");
+    assert!(
+        matches!(
+            errors.as_slice(),
+            [ValidationError::ExtractedRuleViolation { tag, message, .. }]
+                if tag == "eventsignal" && message.contains("received too many positional arguments")
+        ),
+        "{errors:?}"
     );
 }
 

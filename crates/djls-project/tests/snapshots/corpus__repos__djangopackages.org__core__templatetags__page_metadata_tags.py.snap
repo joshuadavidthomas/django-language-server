@@ -4,25 +4,27 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "core.templatetags.page_metadata_tags::tag::page_metadata":
-    arg_constraints:
-      - Max: 5
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: page_title
-          requirement: optional
-          kind: Variable
-        - name: page_description
-          requirement: optional
-          kind: Variable
-        - name: page_keywords
-          requirement: optional
-          kind: Variable
-        - name: og_image_url
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: page_title
+            requirement: optional
+            kind: Variable
+          - name: page_description
+            requirement: optional
+            kind: Variable
+          - name: page_keywords
+            requirement: optional
+            kind: Variable
+          - name: og_image_url
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
 filter_arities: {}
 block_specs: {}

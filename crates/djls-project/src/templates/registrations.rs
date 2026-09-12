@@ -44,6 +44,7 @@ pub(crate) struct RegistrationInfo {
 pub(crate) struct RegistrationOptions {
     pub(crate) context: ContextProvision,
     pub(crate) block_end: Option<RegisteredEnd>,
+    source_is_exact: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,6 +68,9 @@ impl RegistrationOptions {
         end_name: Option<&Expr>,
         mut python_facts: Option<&mut PythonSourceLookup<'_>>,
     ) -> Self {
+        let recovered_lookups_before = python_facts
+            .as_deref()
+            .map_or(0, PythonSourceLookup::recovered_source_lookups);
         let context = match takes_context {
             None | Some(Expr::NoneLiteral(_)) => ContextProvision::None,
             Some(value) => match value.bool_literal().or_else(|| {
@@ -82,11 +86,19 @@ impl RegistrationOptions {
         let block_end = matches!(kind, RegistrationKind::SimpleBlockTag).then(|| match end_name {
             None | Some(Expr::NoneLiteral(_)) => RegisteredEnd::Default,
             Some(value) => python_facts
+                .as_deref_mut()
                 .and_then(|facts| facts.exact_string(value))
                 .or_else(|| value.string_literal().map(str::to_string))
                 .map_or(RegisteredEnd::Unknown, RegisteredEnd::Named),
         });
-        Self { context, block_end }
+        let source_is_exact = python_facts
+            .as_deref()
+            .is_none_or(|facts| facts.recovered_source_lookups() == recovered_lookups_before);
+        Self {
+            context,
+            block_end,
+            source_is_exact,
+        }
     }
 }
 
@@ -96,7 +108,10 @@ enum RegistrationCallable {
         function_name: String,
         navigation: Option<LocalFunctionSource>,
     },
-    ResolvedFunction(PythonFunctionDefinition),
+    ResolvedFunction {
+        definition: PythonFunctionDefinition,
+        resolution_is_exact: bool,
+    },
     Unresolved(Option<String>),
 }
 
@@ -105,7 +120,7 @@ impl RegistrationInfo {
     fn func_name(&self) -> Option<&str> {
         match &self.callable {
             RegistrationCallable::DecoratedLocal { function_name, .. } => Some(function_name),
-            RegistrationCallable::ResolvedFunction(_) => None,
+            RegistrationCallable::ResolvedFunction { .. } => None,
             RegistrationCallable::Unresolved(function_name) => function_name.as_deref(),
         }
     }
@@ -114,7 +129,9 @@ impl RegistrationInfo {
     fn local_source(&self) -> Option<LocalFunctionSource> {
         match self.callable {
             RegistrationCallable::DecoratedLocal { navigation, .. } => navigation,
-            RegistrationCallable::ResolvedFunction(_) | RegistrationCallable::Unresolved(_) => None,
+            RegistrationCallable::ResolvedFunction { .. } | RegistrationCallable::Unresolved(_) => {
+                None
+            }
         }
     }
 }
@@ -654,7 +671,7 @@ fn for_each_registration<'db>(
                 })
                 .copied()
                 .map(|function| (function, registration_file, false)),
-            RegistrationCallable::ResolvedFunction(definition) => {
+            RegistrationCallable::ResolvedFunction { definition, .. } => {
                 definition.statement(db).map(|function| {
                     let file = definition.file();
                     (function, file, file != registration_file)
@@ -1057,27 +1074,33 @@ fn registration_from_lowered(
             })
         }
         LoweredCallable::Expression(expression) => {
-            if let Some(facts) = python_facts
-                && let Some(function) = facts.function(expression)
-            {
-                let name = resolved_registration_name(
-                    lowered.kind,
-                    lowered.name,
-                    Some(function.name()),
-                    |expression| facts.exact_string(expression),
-                )?;
-                let options = RegistrationOptions::resolve(
-                    lowered.kind,
-                    lowered.takes_context,
-                    lowered.end_name,
-                    Some(facts),
-                );
-                return Some(RegistrationInfo {
-                    name,
-                    kind: lowered.kind,
-                    callable: RegistrationCallable::ResolvedFunction(function),
-                    options,
-                });
+            if let Some(facts) = python_facts {
+                let recovered_lookups_before = facts.recovered_source_lookups();
+                if let Some(function) = facts.function(expression) {
+                    let resolution_is_exact =
+                        facts.recovered_source_lookups() == recovered_lookups_before;
+                    let name = resolved_registration_name(
+                        lowered.kind,
+                        lowered.name,
+                        Some(function.name()),
+                        |expression| facts.exact_string(expression),
+                    )?;
+                    let options = RegistrationOptions::resolve(
+                        lowered.kind,
+                        lowered.takes_context,
+                        lowered.end_name,
+                        Some(facts),
+                    );
+                    return Some(RegistrationInfo {
+                        name,
+                        kind: lowered.kind,
+                        callable: RegistrationCallable::ResolvedFunction {
+                            definition: function,
+                            resolution_is_exact,
+                        },
+                        options,
+                    });
+                }
             }
 
             let function_name = callable_name(expression);
@@ -1382,7 +1405,7 @@ fn template_library_source_analysis<'db>(
                     && !used_recovered_source
                     && !registration_analysis.inventory_is_open())
                 .then(|| match &registration.callable {
-                    RegistrationCallable::ResolvedFunction(_) => {
+                    RegistrationCallable::ResolvedFunction { .. } => {
                         func.map(|(function, implementation_file, _)| {
                             TemplateSymbolSource::new(
                                 implementation_file,
@@ -1417,11 +1440,22 @@ fn template_library_source_analysis<'db>(
             let Some((func, implementation_file, imported)) = func else {
                 return;
             };
+            let trusted_callable = parse_quality == TemplateLibraryParseQuality::Exact
+                && registration.options.source_is_exact
+                && match &registration.callable {
+                    RegistrationCallable::DecoratedLocal { navigation, .. } => navigation.is_some(),
+                    RegistrationCallable::ResolvedFunction {
+                        definition,
+                        resolution_is_exact,
+                    } => *resolution_is_exact && definition.source_is_exact(db),
+                    RegistrationCallable::Unresolved(_) => false,
+                };
             if let Some(rule) = registration.kind.extract_tag_rule(
                 db,
                 imported.then_some(implementation_file),
                 func,
                 &registration.options,
+                trusted_callable,
             ) {
                 tag_rules.insert(symbol_key.clone(), rule.into());
             }
@@ -1958,6 +1992,7 @@ def defaulted_impl(content): pass
             RegistrationOptions {
                 context: ContextProvision::Context,
                 block_end: Some(RegisteredEnd::Named("closepanel".to_string())),
+                source_is_exact: true,
             }
         );
         assert_eq!(

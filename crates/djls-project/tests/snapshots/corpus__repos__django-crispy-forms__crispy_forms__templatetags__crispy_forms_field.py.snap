@@ -4,26 +4,27 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "crispy_forms.templatetags.crispy_forms_field::tag::crispy_addon":
-    arg_constraints:
-      - Min: 2
-      - Max: 5
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: field
-          requirement: required
-          kind: Variable
-        - name: append
-          requirement: optional
-          kind: Variable
-        - name: prepend
-          requirement: optional
-          kind: Variable
-        - name: form_show_labels
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: field
+            requirement: required
+            kind: Variable
+          - name: append
+            requirement: optional
+            kind: Variable
+          - name: prepend
+            requirement: optional
+            kind: Variable
+          - name: form_show_labels
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
 filter_arities:
   "crispy_forms.templatetags.crispy_forms_field::filter::classes": no_argument

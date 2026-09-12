@@ -4,121 +4,133 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "geonode.base.templatetags.base_tags::tag::display_change_perms_button":
-    arg_constraints:
-      - Min: 4
-      - Max: 4
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: resource
-          requirement: required
-          kind: Variable
-        - name: user
-          requirement: required
-          kind: Variable
-        - name: perms
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: resource
+            requirement: required
+            kind: Variable
+          - name: user
+            requirement: required
+            kind: Variable
+          - name: perms
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "geonode.base.templatetags.base_tags::tag::display_edit_request_button":
-    arg_constraints:
-      - Min: 4
-      - Max: 4
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: resource
-          requirement: required
-          kind: Variable
-        - name: user
-          requirement: required
-          kind: Variable
-        - name: perms
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: resource
+            requirement: required
+            kind: Variable
+          - name: user
+            requirement: required
+            kind: Variable
+          - name: perms
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "geonode.base.templatetags.base_tags::tag::facets":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "geonode.base.templatetags.base_tags::tag::fullurl":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: url
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: url
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "geonode.base.templatetags.base_tags::tag::get_context_resourcetype":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "geonode.base.templatetags.base_tags::tag::get_current_path":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "geonode.base.templatetags.base_tags::tag::get_menu":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: placeholder_name
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: placeholder_name
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "geonode.base.templatetags.base_tags::tag::get_visibile_resources":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: user
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: user
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "geonode.base.templatetags.base_tags::tag::render_nav_menu":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: placeholder_name
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: placeholder_name
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
 filter_arities:
   "geonode.base.templatetags.base_tags::filter::get_item": required_argument

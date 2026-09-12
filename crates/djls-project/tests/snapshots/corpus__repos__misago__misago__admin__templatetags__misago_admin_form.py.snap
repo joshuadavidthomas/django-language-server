@@ -4,137 +4,144 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "misago.admin.templatetags.misago_admin_form::tag::form_checkbox_row":
-    arg_constraints:
-      - Min: 2
-      - Max: 4
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: field
-          requirement: required
-          kind: Variable
-        - name: label_class
-          requirement: optional
-          kind: Variable
-        - name: field_class
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: field
+            requirement: required
+            kind: Variable
+          - name: label_class
+            requirement: optional
+            kind: Variable
+          - name: field_class
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "misago.admin.templatetags.misago_admin_form::tag::form_dimensions_row":
-    arg_constraints:
-      - Min: 3
-      - Max: 5
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: field_width
-          requirement: required
-          kind: Variable
-        - name: field_height
-          requirement: required
-          kind: Variable
-        - name: label_class
-          requirement: optional
-          kind: Variable
-        - name: field_class
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: field_width
+            requirement: required
+            kind: Variable
+          - name: field_height
+            requirement: required
+            kind: Variable
+          - name: label_class
+            requirement: optional
+            kind: Variable
+          - name: field_class
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "misago.admin.templatetags.misago_admin_form::tag::form_image_row":
-    arg_constraints:
-      - Min: 2
-      - Max: 8
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: field
-          requirement: required
-          kind: Variable
-        - name: label_class
-          requirement: optional
-          kind: Variable
-        - name: field_class
-          requirement: optional
-          kind: Variable
-        - name: image_class
-          requirement: optional
-          kind: Variable
-        - name: delete_field
-          requirement: optional
-          kind: Variable
-        - name: size
-          requirement: optional
-          kind: Variable
-        - name: dimensions
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: field
+            requirement: required
+            kind: Variable
+          - name: label_class
+            requirement: optional
+            kind: Variable
+          - name: field_class
+            requirement: optional
+            kind: Variable
+          - name: image_class
+            requirement: optional
+            kind: Variable
+          - name: delete_field
+            requirement: optional
+            kind: Variable
+          - name: size
+            requirement: optional
+            kind: Variable
+          - name: dimensions
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "misago.admin.templatetags.misago_admin_form::tag::form_input":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: field
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: field
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "misago.admin.templatetags.misago_admin_form::tag::form_row":
-    arg_constraints:
-      - Min: 2
-      - Max: 4
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: field
-          requirement: required
-          kind: Variable
-        - name: label_class
-          requirement: optional
-          kind: Variable
-        - name: field_class
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: field
+            requirement: required
+            kind: Variable
+          - name: label_class
+            requirement: optional
+            kind: Variable
+          - name: field_class
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "misago.admin.templatetags.misago_admin_form::tag::render_attrs":
-    arg_constraints:
-      - Min: 2
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: attrs
-          requirement: required
-          kind: Variable
-        - name: class_name
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: attrs
+            requirement: required
+            kind: Variable
+          - name: class_name
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "misago.admin.templatetags.misago_admin_form::tag::render_bool_attrs":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: attrs
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: attrs
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
 filter_arities:
   "misago.admin.templatetags.misago_admin_form::filter::get_options": no_argument

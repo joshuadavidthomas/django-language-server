@@ -4,186 +4,199 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "netbox.utilities.templatetags.buttons::tag::action_buttons":
-    arg_constraints:
-      - Min: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: actions
-          requirement: required
-          kind: Variable
-        - name: obj
-          requirement: required
-          kind: Variable
-        - name: multi
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: actions
+            requirement: required
+            kind: Variable
+          - name: obj
+            requirement: required
+            kind: Variable
+          - name: multi
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "netbox.utilities.templatetags.buttons::tag::add_button":
-    arg_constraints:
-      - Min: 2
-      - Max: 4
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: model
-          requirement: required
-          kind: Variable
-        - name: action
-          requirement: optional
-          kind: Variable
-        - name: return_url
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: model
+            requirement: required
+            kind: Variable
+          - name: action
+            requirement: optional
+            kind: Variable
+          - name: return_url
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "netbox.utilities.templatetags.buttons::tag::bookmark_button":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: instance
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: instance
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "netbox.utilities.templatetags.buttons::tag::bulk_delete_button":
-    arg_constraints:
-      - Min: 2
-      - Max: 4
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: model
-          requirement: required
-          kind: Variable
-        - name: action
-          requirement: optional
-          kind: Variable
-        - name: query_params
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: model
+            requirement: required
+            kind: Variable
+          - name: action
+            requirement: optional
+            kind: Variable
+          - name: query_params
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "netbox.utilities.templatetags.buttons::tag::bulk_edit_button":
-    arg_constraints:
-      - Min: 2
-      - Max: 4
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: model
-          requirement: required
-          kind: Variable
-        - name: action
-          requirement: optional
-          kind: Variable
-        - name: query_params
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: model
+            requirement: required
+            kind: Variable
+          - name: action
+            requirement: optional
+            kind: Variable
+          - name: query_params
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "netbox.utilities.templatetags.buttons::tag::clone_button":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: instance
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: instance
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "netbox.utilities.templatetags.buttons::tag::delete_button":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: instance
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: instance
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "netbox.utilities.templatetags.buttons::tag::edit_button":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: instance
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: instance
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "netbox.utilities.templatetags.buttons::tag::export_button":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: model
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: model
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "netbox.utilities.templatetags.buttons::tag::import_button":
-    arg_constraints:
-      - Min: 2
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: model
-          requirement: required
-          kind: Variable
-        - name: action
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: model
+            requirement: required
+            kind: Variable
+          - name: action
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "netbox.utilities.templatetags.buttons::tag::subscribe_button":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: instance
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: instance
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "netbox.utilities.templatetags.buttons::tag::sync_button":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: instance
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: instance
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
 filter_arities: {}
 block_specs: {}

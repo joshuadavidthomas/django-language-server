@@ -36,16 +36,18 @@ tag_rules:
           kind: Variable
     as_var: keep
   "django.template.defaulttags::tag::csp_nonce_attr":
-    arg_constraints:
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: media
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: media
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "django.template.defaulttags::tag::cycle":
     arg_constraints:
@@ -179,10 +181,13 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: args
-          requirement: optional
-          kind: VarArgs
+      Signature:
+        parameters:
+          - name: args
+            requirement: optional
+            kind: VarArgs
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "django.template.defaulttags::tag::regroup":
     arg_constraints:

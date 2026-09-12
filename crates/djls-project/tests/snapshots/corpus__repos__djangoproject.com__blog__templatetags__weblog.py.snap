@@ -4,35 +4,38 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "blog.templatetags.weblog::tag::render_latest_blog_entries":
-    arg_constraints:
-      - Min: 2
-      - Max: 5
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: num
-          requirement: required
-          kind: Variable
-        - name: summary_first
-          requirement: optional
-          kind: Variable
-        - name: hide_readmore
-          requirement: optional
-          kind: Variable
-        - name: header_tag
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: num
+            requirement: required
+            kind: Variable
+          - name: summary_first
+            requirement: optional
+            kind: Variable
+          - name: hide_readmore
+            requirement: optional
+            kind: Variable
+          - name: header_tag
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "blog.templatetags.weblog::tag::render_month_links":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
 filter_arities: {}
 block_specs: {}

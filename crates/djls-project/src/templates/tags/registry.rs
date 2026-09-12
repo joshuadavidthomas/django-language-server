@@ -44,16 +44,26 @@ impl RegistrationKind {
         implementation_file: Option<File>,
         func: &StmtFunctionDef,
         options: &RegistrationOptions,
+        trusted_callable: bool,
     ) -> Option<Box<TagRule>> {
         match self {
             Self::Filter => None,
             Self::SimpleTag | Self::InclusionTag | Self::SimpleBlockTag => {
-                let rule = signature::extract_parse_bits_rule(
+                let mut rule = signature::extract_parse_bits_rule(
                     func,
                     self,
                     options.context,
                     self.var_assignment(),
                 )?;
+                if !trusted_callable
+                    && let crate::templates::tags::types::TagArgumentSyntax::Signature {
+                        parameters,
+                        ..
+                    } = rule.argument_syntax
+                {
+                    rule.argument_syntax =
+                        crate::templates::tags::types::TagArgumentSyntax::Parameters(parameters);
+                }
                 rule.has_content().then(|| Box::new(rule))
             }
             Self::Tag => {

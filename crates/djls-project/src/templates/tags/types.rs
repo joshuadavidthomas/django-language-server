@@ -111,6 +111,7 @@ impl TagRule {
                 .as_ref()
                 .is_some_and(|messages| !messages.is_empty())
             || match &self.argument_syntax {
+                TagArgumentSyntax::Signature { .. } => true,
                 TagArgumentSyntax::Parameters(parameters) => !parameters.is_empty(),
                 TagArgumentSyntax::Forms { forms, .. } => !forms.is_empty(),
                 TagArgumentSyntax::Unknown => false,
@@ -299,7 +300,19 @@ pub enum TagArgumentSyntax {
     /// No useful argument syntax was found.
     #[default]
     Unknown,
-    /// A signature or configured parameter sequence, including optional parameters.
+    /// A trusted callable contract consumed by Django's `parse_bits()`.
+    ///
+    /// `parameters` is the single source for both completion presentation and
+    /// binding. Positional parameters come first, followed by an optional
+    /// `VarArgs` parameter and keyword-only parameters. `positional_only`
+    /// preserves the Python source distinction even though `parse_bits()`
+    /// accepts those names as template keywords.
+    Signature {
+        parameters: Vec<TagArgument>,
+        positional_only: usize,
+        variadic_keyword: Option<String>,
+    },
+    /// A configured or manually inferred parameter sequence used as a hint.
     Parameters(Vec<TagArgument>),
     /// Correlated fixed-length forms found in a manual compile function.
     Forms {
@@ -312,7 +325,7 @@ impl TagArgumentSyntax {
     #[must_use]
     pub fn parameters(&self) -> Option<&[TagArgument]> {
         match self {
-            Self::Parameters(parameters) => Some(parameters),
+            Self::Signature { parameters, .. } | Self::Parameters(parameters) => Some(parameters),
             Self::Unknown | Self::Forms { .. } => None,
         }
     }
@@ -321,7 +334,7 @@ impl TagArgumentSyntax {
     pub fn forms(&self) -> Option<(&[TagArgumentForm], ArgumentFormCoverage)> {
         match self {
             Self::Forms { forms, coverage } => Some((forms, *coverage)),
-            Self::Unknown | Self::Parameters(_) => None,
+            Self::Unknown | Self::Signature { .. } | Self::Parameters(_) => None,
         }
     }
 }

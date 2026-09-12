@@ -4,56 +4,63 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "src.backend.InvenTree.report.templatetags.barcode::tag::barcode":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: data
-          requirement: required
-          kind: Variable
-        - name: barcode_class
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: data
+            requirement: required
+            kind: Variable
+          - name: barcode_class
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "src.backend.InvenTree.report.templatetags.barcode::tag::clean_barcode":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: data
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: data
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "src.backend.InvenTree.report.templatetags.barcode::tag::datamatrix":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: data
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: data
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "src.backend.InvenTree.report.templatetags.barcode::tag::qrcode":
-    arg_constraints:
-      - Min: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: data
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: data
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
 filter_arities: {}
 block_specs: {}

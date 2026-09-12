@@ -4,83 +4,87 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "cms.templatetags.cms_tags::tag::render_extra_menu_items":
-    arg_constraints:
-      - Min: 2
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: obj
-          requirement: required
-          kind: Variable
-        - name: template
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: obj
+            requirement: required
+            kind: Variable
+          - name: template
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "cms.templatetags.cms_tags::tag::render_plugin":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: plugin
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: plugin
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "cms.templatetags.cms_tags::tag::show_placeholder":
-    arg_constraints:
-      - Min: 3
-      - Max: 6
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: placeholder_name
-          requirement: required
-          kind: Variable
-        - name: reverse_id
-          requirement: required
-          kind: Variable
-        - name: lang
-          requirement: optional
-          kind: Variable
-        - name: site
-          requirement: optional
-          kind: Variable
-        - name: use_cache
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: placeholder_name
+            requirement: required
+            kind: Variable
+          - name: reverse_id
+            requirement: required
+            kind: Variable
+          - name: lang
+            requirement: optional
+            kind: Variable
+          - name: site
+            requirement: optional
+            kind: Variable
+          - name: use_cache
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "cms.templatetags.cms_tags::tag::show_placeholder_by_id":
-    arg_constraints:
-      - Min: 3
-      - Max: 6
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: placeholder_name
-          requirement: required
-          kind: Variable
-        - name: reverse_id
-          requirement: required
-          kind: Variable
-        - name: lang
-          requirement: optional
-          kind: Variable
-        - name: site
-          requirement: optional
-          kind: Variable
-        - name: use_cache
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: placeholder_name
+            requirement: required
+            kind: Variable
+          - name: reverse_id
+            requirement: required
+            kind: Variable
+          - name: lang
+            requirement: optional
+            kind: Variable
+          - name: site
+            requirement: optional
+            kind: Variable
+          - name: use_cache
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "cms.templatetags.cms_tags::tag::show_uncached_placeholder":
     arg_constraints: []
@@ -88,10 +92,13 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: args
-          requirement: optional
-          kind: VarArgs
+      Signature:
+        parameters:
+          - name: args
+            requirement: optional
+            kind: VarArgs
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "cms.templatetags.cms_tags::tag::show_uncached_placeholder_by_id":
     arg_constraints: []
@@ -99,10 +106,13 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: args
-          requirement: optional
-          kind: VarArgs
+      Signature:
+        parameters:
+          - name: args
+            requirement: optional
+            kind: VarArgs
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
 filter_arities: {}
 block_specs: {}

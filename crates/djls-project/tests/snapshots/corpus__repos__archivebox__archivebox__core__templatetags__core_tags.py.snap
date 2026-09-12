@@ -4,99 +4,121 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "archivebox.core.templatetags.core_tags::tag::admin_base_url":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "archivebox.core.templatetags.core_tags::tag::api_token":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "archivebox.core.templatetags.core_tags::tag::plugin_card":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: result
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: result
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "archivebox.core.templatetags.core_tags::tag::plugin_full":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: result
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: result
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "archivebox.core.templatetags.core_tags::tag::plugin_icon":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: plugin
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: plugin
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "archivebox.core.templatetags.core_tags::tag::snapshot_base_url":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: snapshot
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: snapshot
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "archivebox.core.templatetags.core_tags::tag::snapshot_url":
-    arg_constraints:
-      - Min: 2
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: snapshot
-          requirement: required
-          kind: Variable
-        - name: path
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: snapshot
+            requirement: required
+            kind: Variable
+          - name: path
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+  "archivebox.core.templatetags.core_tags::tag::url_replace":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: kwargs
     as_var: strip
   "archivebox.core.templatetags.core_tags::tag::web_base_url":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
 filter_arities:
   "archivebox.core.templatetags.core_tags::filter::file_size": no_argument

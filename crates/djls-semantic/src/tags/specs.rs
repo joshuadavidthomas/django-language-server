@@ -163,8 +163,34 @@ impl TagSpecs {
                         existing.intermediate_tags = fallback_spec.intermediate_tags;
                     }
 
-                    if existing.extracted_rules.is_none() {
-                        existing.extracted_rules = fallback_spec.extracted_rules;
+                    let kwargs_only_signature_as_var = existing
+                        .extracted_rules
+                        .as_deref()
+                        .and_then(|rules| match &rules.argument_syntax {
+                            TagArgumentSyntax::Signature {
+                                parameters,
+                                variadic_keyword: Some(_),
+                                ..
+                            } if parameters.is_empty() => Some(rules.as_var),
+                            TagArgumentSyntax::Unknown
+                            | TagArgumentSyntax::Signature { .. }
+                            | TagArgumentSyntax::Parameters(_)
+                            | TagArgumentSyntax::Forms { .. } => None,
+                        });
+                    match (
+                        existing.extracted_rules.is_none(),
+                        fallback_spec.extracted_rules.take(),
+                        kwargs_only_signature_as_var,
+                    ) {
+                        (true, configured_rules, _) => {
+                            existing.extracted_rules = configured_rules;
+                        }
+                        (false, Some(configured_rules), Some(as_var)) => {
+                            let mut configured_rules = configured_rules.as_ref().clone();
+                            configured_rules.as_var = as_var;
+                            existing.extracted_rules = Some(configured_rules.into());
+                        }
+                        (false, None | Some(_), None) | (false, None, Some(_)) => {}
                     }
                 }
             }

@@ -4,20 +4,21 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "wagtail.templatetags.wagtailcore_tags::tag::fullpageurl":
-    arg_constraints:
-      - Min: 2
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: page
-          requirement: required
-          kind: Variable
-        - name: fallback
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: page
+            requirement: required
+            kind: Variable
+          - name: fallback
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "wagtail.templatetags.wagtailcore_tags::tag::include_block":
     arg_constraints: []
@@ -31,87 +32,101 @@ tag_rules:
           kind: Variable
     as_var: keep
   "wagtail.templatetags.wagtailcore_tags::tag::pageurl":
-    arg_constraints:
-      - Min: 2
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: page
-          requirement: required
-          kind: Variable
-        - name: fallback
-          requirement: optional
-          kind: Variable
+      Signature:
+        parameters:
+          - name: page
+            requirement: required
+            kind: Variable
+          - name: fallback
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "wagtail.templatetags.wagtailcore_tags::tag::slugurl":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: slug
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: slug
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "wagtail.templatetags.wagtailcore_tags::tag::wagtail_documentation_path":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "wagtail.templatetags.wagtailcore_tags::tag::wagtail_feature_release_editor_guide_link":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "wagtail.templatetags.wagtailcore_tags::tag::wagtail_feature_release_whats_new_link":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "wagtail.templatetags.wagtailcore_tags::tag::wagtail_release_notes_path":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "wagtail.templatetags.wagtailcore_tags::tag::wagtail_site":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "wagtail.templatetags.wagtailcore_tags::tag::wagtail_version":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
 filter_arities:
   "wagtail.templatetags.wagtailcore_tags::filter::richtext": no_argument

@@ -4,20 +4,21 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "import_export.templatetags.import_export_tags::tag::compare_values":
-    arg_constraints:
-      - Min: 3
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: value1
-          requirement: required
-          kind: Variable
-        - name: value2
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: value1
+            requirement: required
+            kind: Variable
+          - name: value2
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
 filter_arities: {}
 block_specs: {}

@@ -4,13 +4,15 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "hyperkitty.templatetags.hk_generic::tag::export_allowed":
-    arg_constraints:
-      - Max: 1
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters: []
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "hyperkitty.templatetags.hk_generic::tag::gravatar":
     arg_constraints: []
@@ -18,39 +20,44 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: args
-          requirement: optional
-          kind: VarArgs
+      Signature:
+        parameters:
+          - name: args
+            requirement: optional
+            kind: VarArgs
+        positional_only: 0
+        variadic_keyword: kw
     as_var: strip
   "hyperkitty.templatetags.hk_generic::tag::is_message_new":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: refdate
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: refdate
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
   "hyperkitty.templatetags.hk_generic::tag::settings_value_equals":
-    arg_constraints:
-      - Min: 3
-      - Max: 3
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: name
-          requirement: required
-          kind: Variable
-        - name: value
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: name
+            requirement: required
+            kind: Variable
+          - name: value
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: strip
 filter_arities:
   "hyperkitty.templatetags.hk_generic::filter::date_with_senders_timezone": no_argument

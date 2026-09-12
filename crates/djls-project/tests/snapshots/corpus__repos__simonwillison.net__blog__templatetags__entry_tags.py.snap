@@ -4,30 +4,32 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "blog.templatetags.entry_tags::tag::entry_footer":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: entry
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: entry
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
   "blog.templatetags.entry_tags::tag::entry_footer_no_date":
-    arg_constraints:
-      - Min: 2
-      - Max: 2
+    arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: entry
-          requirement: required
-          kind: Variable
+      Signature:
+        parameters:
+          - name: entry
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
     as_var: keep
 filter_arities:
   "blog.templatetags.entry_tags::filter::break_up_long_words": required_argument
