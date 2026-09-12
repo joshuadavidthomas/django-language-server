@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::collections::HashMap;
 
 use anyhow::Context as _;
@@ -337,6 +338,13 @@ impl ProjectFixture {
 
     pub fn build(self, db: &TestDatabase) -> anyhow::Result<Project> {
         let django_settings_module = self.django_settings_module?;
+        let mut paths = BTreeSet::new();
+        for (path, _) in &self.files {
+            anyhow::ensure!(
+                paths.insert(path),
+                "fixture file `{path}` was added more than once"
+            );
+        }
         for (path, source) in self.files {
             db.add_file(path.as_str(), &source)
                 .with_context(|| format!("failed to add fixture file `{path}`"))?;
@@ -366,35 +374,7 @@ impl ProjectFixture {
         ))
     }
 
-    pub fn install(mut self, db: &mut TestDatabase) -> anyhow::Result<Project> {
-        // Template-analysis fixtures model an installed Django package so project-scoped builtin
-        // meaning is definite rather than supplied by a global fallback. Project-discovery-only
-        // fixtures intentionally retain full control over their discovered file inventory.
-        let has_templates = self
-            .files
-            .iter()
-            .any(|(path, _)| path.extension() == Some("html"));
-        let builtin_files = has_templates.then(|| {
-            let django = self.root.join("django");
-            let template = django.join("template");
-            [
-            (django.join("__init__.py"), ""),
-            (template.join("__init__.py"), ""),
-            (
-                template.join("defaulttags.py"),
-                "from django import template\nregister = template.Library()\n@register.tag\ndef autoescape(parser, token): pass\n@register.tag\ndef comment(parser, token): pass\n@register.tag\ndef csrf_token(parser, token): pass\n@register.tag\ndef cycle(parser, token): pass\n@register.tag\ndef debug(parser, token): pass\n@register.tag\ndef filter(parser, token): pass\n@register.tag\ndef firstof(parser, token): pass\n@register.tag(name='for')\ndef for_tag(parser, token): pass\n@register.tag(name='if')\ndef if_tag(parser, token): pass\n@register.tag\ndef ifchanged(parser, token): pass\n@register.tag\ndef load(parser, token): pass\n@register.tag\ndef lorem(parser, token): pass\n@register.tag\ndef now(parser, token): pass\n@register.tag\ndef regroup(parser, token): pass\n@register.tag\ndef spaceless(parser, token): pass\n@register.tag\ndef templatetag(parser, token): pass\n@register.tag\ndef url(parser, token): pass\n@register.tag\ndef verbatim(parser, token): pass\n@register.tag\ndef widthratio(parser, token): pass\n@register.tag(name='with')\ndef with_tag(parser, token): pass\n",
-            ),
-            (
-                template.join("loader_tags.py"),
-                "from django import template\nregister = template.Library()\n@register.tag\ndef block(parser, token): pass\n@register.tag\ndef extends(parser, token): pass\n@register.tag\ndef include(parser, token): pass\n",
-            ),
-            ]
-        });
-        for (path, source) in builtin_files.into_iter().flatten() {
-            if !self.files.iter().any(|(candidate, _)| candidate == &path) {
-                self.files.push((path, source.to_string()));
-            }
-        }
+    pub fn install(self, db: &mut TestDatabase) -> anyhow::Result<Project> {
         let project = self.build(db)?;
         db.set_project(project);
         Ok(project)
@@ -411,17 +391,6 @@ pub fn collect_errors(db: &dyn djls_semantic::Db, file: File) -> Vec<ValidationE
         .collect()
 }
 
-#[must_use]
-pub fn is_argument_validation_error(err: &ValidationError) -> bool {
-    matches!(
-        err,
-        ValidationError::ExpressionSyntaxError { .. }
-            | ValidationError::FilterMissingArgument { .. }
-            | ValidationError::FilterUnexpectedArgument { .. }
-            | ValidationError::ExtractedRuleViolation { .. }
-    )
-}
-
 pub fn collect_argument_validation_errors_with_revision(
     db: &TestDatabase,
     path: &str,
@@ -433,11 +402,19 @@ pub fn collect_argument_validation_errors_with_revision(
 
     Ok(collect_errors(db, file)
         .into_iter()
-        .filter(is_argument_validation_error)
+        .filter(|error| {
+            matches!(
+                error,
+                ValidationError::ExpressionSyntaxError { .. }
+                    | ValidationError::FilterMissingArgument { .. }
+                    | ValidationError::FilterUnexpectedArgument { .. }
+                    | ValidationError::ExtractedRuleViolation { .. }
+            )
+        })
         .collect())
 }
 
-pub fn extract_and_merge(
+fn extract_and_merge(
     _corpus: &Corpus,
     dir: &Utf8Path,
     specs: &mut TagSpecs,
@@ -493,7 +470,7 @@ pub fn build_entry_specs(
 }
 
 /// Render validation errors into a plain-text diagnostic snapshot.
-pub fn render_diagnostic_snapshot(
+fn render_diagnostic_snapshot(
     path: &str,
     source: &str,
     errors: &[ValidationError],
@@ -596,15 +573,4 @@ pub fn validation_db(settings_py: &str) -> anyhow::Result<OsTestDatabase> {
     let (mut db, _, _) = corpus_project_database(project_root, [], "settings")?;
     db.add_file("/fixture/settings.py", settings_py)?;
     Ok(db)
-}
-
-pub fn render_validate_snapshot(
-    db: &mut OsTestDatabase,
-    path: &str,
-    source: &str,
-) -> anyhow::Result<String> {
-    let file = db.add_file(path, source)?;
-    let mut errors = collect_errors(db, file);
-    errors.sort_by_key(|error| error.primary_span().map_or(0, Span::start));
-    render_diagnostic_snapshot(path, source, &errors)
 }

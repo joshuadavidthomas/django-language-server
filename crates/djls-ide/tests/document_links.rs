@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use camino::Utf8Path;
+use camino::Utf8PathBuf;
 use djls_conf::TagDef;
 use djls_conf::TagLibraryDef;
 use djls_conf::TagSpecDef;
@@ -11,9 +12,10 @@ use djls_source::PositionEncoding;
 use djls_testing::ProjectFixture;
 use djls_testing::ProjectSettings;
 use djls_testing::TestDatabase;
+use djls_testing::corpus_project_database;
 use tower_lsp_server::ls_types;
 
-fn document_links(db: &TestDatabase, file: File) -> Vec<ls_types::DocumentLink> {
+fn document_links(db: &dyn djls_semantic::Db, file: File) -> Vec<ls_types::DocumentLink> {
     ide_document_links(db, file, PositionEncoding::Utf16)
 }
 
@@ -291,37 +293,18 @@ fn document_links_resolve_relative_include_to_sibling_template() {
 
 #[test]
 fn document_links_resolve_load_libraries_with_argument_ranges() {
-    let mut db = TestDatabase::new();
-    let template_path = "/test/project/templates/load.html";
-    let source = concat!(
-        "{% load djls_app_tags extras missing %}\n",
-        "{% load djls_greeting from djls_app_tags %}\n",
-    );
-    ProjectFixture::new("/test/project")
-        .settings(&ProjectSettings {
-            dirs: vec!["/test/project/templates".into()],
-            libraries: BTreeMap::from([
-                (
-                    "djls_app_tags".into(),
-                    "djls_app.templatetags.djls_app_tags".into(),
-                ),
-                ("extras".into(), "project.templatetags.extras".into()),
-            ]),
-            ..ProjectSettings::default()
-        })
-        .file(
-            "/test/project/djls_app/templatetags/djls_app_tags.py",
-            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef djls_greeting(): pass\n",
-        )
-        .file(
-            "/test/project/project/templatetags/extras.py",
-            "from django import template\nregister = template.Library()\n",
-        )
-        .file(template_path, source)
-        .install(&mut db)
-        .expect("template-library project fixture should install");
+    let project_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("resources/projects/document-links-load")
+        .canonicalize()
+        .expect("document-links project fixture should resolve");
+    let project_root = Utf8PathBuf::from_path_buf(project_root)
+        .expect("document-links project fixture path should be UTF-8");
+    let (db, _, _) =
+        corpus_project_database(project_root.clone(), [project_root.clone()], "settings")
+            .expect("template-library project fixture should install");
+    let template_path = project_root.join("templates/load.html");
     let file = db
-        .file(Utf8Path::new(template_path))
+        .file(&template_path)
         .expect("load template fixture should exist");
     let links = document_links(&db, file);
 
@@ -334,9 +317,12 @@ fn document_links_resolve_load_libraries_with_argument_ranges() {
                     ls_types::Position::new(0, 21),
                 ),
                 target: Some(
-                    "file:///test/project/djls_app/templatetags/djls_app_tags.py"
-                        .parse()
-                        .expect("test URI should parse"),
+                    ls_types::Uri::from_file_path(
+                        project_root
+                            .join("djls_app/templatetags/djls_app_tags.py")
+                            .as_std_path(),
+                    )
+                    .expect("app tag path should convert to a file URI"),
                 ),
                 tooltip: None,
                 data: None,
@@ -347,9 +333,12 @@ fn document_links_resolve_load_libraries_with_argument_ranges() {
                     ls_types::Position::new(0, 28),
                 ),
                 target: Some(
-                    "file:///test/project/project/templatetags/extras.py"
-                        .parse()
-                        .expect("test URI should parse"),
+                    ls_types::Uri::from_file_path(
+                        project_root
+                            .join("project/templatetags/extras.py")
+                            .as_std_path(),
+                    )
+                    .expect("extra tag path should convert to a file URI"),
                 ),
                 tooltip: None,
                 data: None,
@@ -360,9 +349,12 @@ fn document_links_resolve_load_libraries_with_argument_ranges() {
                     ls_types::Position::new(1, 40),
                 ),
                 target: Some(
-                    "file:///test/project/djls_app/templatetags/djls_app_tags.py"
-                        .parse()
-                        .expect("test URI should parse"),
+                    ls_types::Uri::from_file_path(
+                        project_root
+                            .join("djls_app/templatetags/djls_app_tags.py")
+                            .as_std_path(),
+                    )
+                    .expect("app tag path should convert to a file URI"),
                 ),
                 tooltip: None,
                 data: None,
