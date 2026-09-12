@@ -2,6 +2,35 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::escapejson":
+    kind: filter
+    has_doc: false
+  "filter::get_key_or_none":
+    kind: filter
+    has_doc: false
+  "filter::get_project":
+    kind: filter
+    has_doc: false
+  "filter::get_version":
+    kind: filter
+    has_doc: false
+  "filter::is_rich_select":
+    kind: filter
+    has_doc: false
+  "filter::key":
+    kind: filter
+    has_doc: false
+  "tag::doc_url":
+    kind: tag
+    has_doc: false
+  "tag::readthedocs_version":
+    kind: tag
+    has_doc: false
+  "tag::url_replace":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "readthedocs.core.templatetags.core_tags::tag::doc_url":
     arg_constraints: []

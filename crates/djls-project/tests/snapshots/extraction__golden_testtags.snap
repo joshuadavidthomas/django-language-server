@@ -1,7 +1,15 @@
 ---
 source: crates/djls-project/tests/extraction.rs
-expression: sorted_snapshot(&result)
+expression: "sorted_snapshot(&result).expect(\"call-style tag extraction snapshot should serialize\")"
 ---
+definitions:
+  "tag::echo":
+    kind: tag
+    has_doc: false
+  "tag::other_echo":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules: {}
 filter_arities: {}
 block_specs: {}

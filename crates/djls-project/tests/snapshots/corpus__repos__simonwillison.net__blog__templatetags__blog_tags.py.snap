@@ -2,6 +2,38 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::markdownify":
+    kind: filter
+    has_doc: false
+  "tag::add_qsarg":
+    kind: tag
+    has_doc: false
+  "tag::blog_mixed_list":
+    kind: tag
+    has_doc: false
+  "tag::blog_mixed_list_with_dates":
+    kind: tag
+    has_doc: false
+  "tag::comments_list":
+    kind: tag
+    has_doc: false
+  "tag::comments_list_with_headers":
+    kind: tag
+    has_doc: false
+  "tag::page_href":
+    kind: tag
+    has_doc: false
+  "tag::remove_id_filters":
+    kind: tag
+    has_doc: false
+  "tag::remove_qsarg":
+    kind: tag
+    has_doc: false
+  "tag::replace_qsarg":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "blog.templatetags.blog_tags::tag::add_qsarg":
     arg_constraints: []

@@ -2,6 +2,104 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::add6days":
+    kind: filter
+    has_doc: false
+  "filter::break_underscore":
+    kind: filter
+    has_doc: false
+  "filter::decode":
+    kind: filter
+    has_doc: false
+  "filter::down_title":
+    kind: filter
+    has_doc: false
+  "filter::first5":
+    kind: filter
+    has_doc: false
+  "filter::format_headers":
+    kind: filter
+    has_doc: false
+  "filter::format_ping_endpoint":
+    kind: filter
+    has_doc: false
+  "filter::guess_schedule":
+    kind: filter
+    has_doc: false
+  "filter::hc_approx_duration":
+    kind: filter
+    has_doc: false
+  "filter::hc_duration":
+    kind: filter
+    has_doc: false
+  "filter::hms":
+    kind: filter
+    has_doc: false
+  "filter::mangle_link":
+    kind: filter
+    has_doc: false
+  "filter::mask_key":
+    kind: filter
+    has_doc: false
+  "filter::mask_phone":
+    kind: filter
+    has_doc: false
+  "filter::mask_ro_key":
+    kind: filter
+    has_doc: false
+  "filter::mask_rw_key":
+    kind: filter
+    has_doc: false
+  "filter::num_down_title":
+    kind: filter
+    has_doc: false
+  "filter::pct":
+    kind: filter
+    has_doc: false
+  "filter::sortbydowntime":
+    kind: filter
+    has_doc: false
+  "filter::sortchecks":
+    kind: filter
+    has_doc: false
+  "filter::timestamp":
+    kind: filter
+    has_doc: false
+  "filter::underline":
+    kind: filter
+    has_doc: false
+  "filter::uppercase_if_down":
+    kind: filter
+    has_doc: false
+  "tag::absolute_site_logo_url":
+    kind: tag
+    has_doc: false
+  "tag::debug_warning":
+    kind: tag
+    has_doc: false
+  "tag::now_isoformat":
+    kind: tag
+    has_doc: false
+  "tag::site_hostname":
+    kind: tag
+    has_doc: false
+  "tag::site_name":
+    kind: tag
+    has_doc: false
+  "tag::site_root":
+    kind: tag
+    has_doc: false
+  "tag::site_version":
+    kind: tag
+    has_doc: false
+  "tag::sort_url":
+    kind: tag
+    has_doc: false
+  "tag::support_email":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: true
 tag_rules:
   "hc.front.templatetags.hc_extras::tag::absolute_site_logo_url":
     arg_constraints: []

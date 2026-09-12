@@ -2,6 +2,83 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::app_is_installed":
+    kind: filter
+    has_doc: false
+  "filter::as_json":
+    kind: filter
+    has_doc: false
+  "filter::can_view_self":
+    kind: filter
+    has_doc: false
+  "filter::debug":
+    kind: filter
+    has_doc: false
+  "filter::has_fieldsets":
+    kind: filter
+    has_doc: false
+  "filter::has_jazzmin_setting":
+    kind: filter
+    has_doc: false
+  "filter::remove_lang":
+    kind: filter
+    has_doc: false
+  "filter::style_bold_first_word":
+    kind: filter
+    has_doc: false
+  "filter::unicode_slugify":
+    kind: filter
+    has_doc: false
+  "tag::action_message_to_list":
+    kind: tag
+    has_doc: false
+  "tag::admin_extra_filters":
+    kind: tag
+    has_doc: false
+  "tag::get_changeform_template":
+    kind: tag
+    has_doc: false
+  "tag::get_jazzmin_settings":
+    kind: tag
+    has_doc: false
+  "tag::get_jazzmin_ui_tweaks":
+    kind: tag
+    has_doc: false
+  "tag::get_jazzmin_version":
+    kind: tag
+    has_doc: false
+  "tag::get_sections":
+    kind: tag
+    has_doc: false
+  "tag::get_side_menu":
+    kind: tag
+    has_doc: false
+  "tag::get_top_menu":
+    kind: tag
+    has_doc: false
+  "tag::get_user_avatar":
+    kind: tag
+    has_doc: false
+  "tag::get_user_menu":
+    kind: tag
+    has_doc: false
+  "tag::header_class":
+    kind: tag
+    has_doc: false
+  "tag::jazzmin_list_filter":
+    kind: tag
+    has_doc: false
+  "tag::jazzmin_paginator_number":
+    kind: tag
+    has_doc: false
+  "tag::jazzy_admin_url":
+    kind: tag
+    has_doc: false
+  "tag::sidebar_status":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "jazzmin.templatetags.jazzmin::tag::action_message_to_list":
     arg_constraints: []

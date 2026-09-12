@@ -1,7 +1,39 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::add_bootstrap_class":
+    kind: filter
+    has_doc: false
+  "filter::add_item_url":
+    kind: filter
+    has_doc: false
+  "filter::autocomplete":
+    kind: filter
+    has_doc: false
+  "filter::get_range":
+    kind: filter
+    has_doc: false
+  "filter::is_checkbox":
+    kind: filter
+    has_doc: false
+  "filter::is_file":
+    kind: filter
+    has_doc: false
+  "filter::is_multiple_checkbox":
+    kind: filter
+    has_doc: false
+  "filter::is_number":
+    kind: filter
+    has_doc: false
+  "filter::is_radio":
+    kind: filter
+    has_doc: false
+  "filter::wrapper_classes":
+    kind: filter
+    has_doc: false
+symbols_are_unobserved: true
 tag_rules: {}
 filter_arities:
   "horizon.templatetags.form_helpers::filter::add_bootstrap_class": no_argument

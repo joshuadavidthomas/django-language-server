@@ -30,12 +30,14 @@
 //! - `djls-server` — integration tests: parse real templates, validate
 //!   against extracted rules, assert zero false positives
 
+use anyhow::Context as _;
 use camino::Utf8Component;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use ignore::WalkBuilder;
 
 pub(crate) mod archive;
+pub mod census;
 mod lock;
 mod manifest;
 mod sync;
@@ -48,7 +50,6 @@ pub use sync::clean_entries;
 pub use sync::sync_corpus;
 
 const CORPUS_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/.corpus");
-const LOCKFILE_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/manifest.lock");
 const MANIFEST_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/manifest.toml");
 
 /// A validated corpus root directory.
@@ -58,7 +59,15 @@ const MANIFEST_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/manifest.toml"
 /// the lifetime of the value.
 pub struct Corpus {
     root: Utf8PathBuf,
+    manifest_path: Utf8PathBuf,
     lockfile: lock::Lockfile,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CorpusExtractionTarget {
+    pub member: String,
+    pub relative_path: Utf8PathBuf,
+    pub path: Utf8PathBuf,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -87,16 +96,30 @@ impl Corpus {
         Utf8Path::new(CORPUS_DIR).as_std_path().exists()
     }
 
-    /// Get the corpus after checking it against the lockfile.
+    /// Get the default corpus after checking it against the lockfile.
     pub fn require() -> anyhow::Result<Self> {
-        if !Self::is_available() {
-            anyhow::bail!("Corpus not synced. Run: cargo run -p djls-testing --bin corpus -- sync");
+        Self::require_from_manifest(Utf8Path::new(MANIFEST_PATH))
+    }
+
+    /// Get the corpus described by `manifest_path` after checking its lockfile.
+    pub fn require_from_manifest(manifest_path: &Utf8Path) -> anyhow::Result<Self> {
+        let manifest = Manifest::load(manifest_path)
+            .with_context(|| format!("corpus manifest `{manifest_path}` is missing or invalid"))?;
+        let manifest_dir = manifest_path
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("corpus manifest `{manifest_path}` has no parent"))?;
+        let root = manifest.corpus_root(manifest_dir);
+        if !root.as_std_path().is_dir() {
+            anyhow::bail!(
+                "Corpus not synced at `{root}`. Run: cargo run -p djls-testing --bin corpus -- --manifest {manifest_path} sync"
+            );
         }
-        let lockfile = lock::Lockfile::load(Utf8Path::new(LOCKFILE_PATH)).map_err(|error| {
-            anyhow::anyhow!("Corpus lockfile missing or invalid. Run: just corpus lock: {error}")
-        })?;
+        let lockfile_path = manifest_path.with_extension("lock");
+        let lockfile = lock::Lockfile::load(&lockfile_path)
+            .with_context(|| format!("corpus lockfile `{lockfile_path}` is missing or invalid"))?;
         let corpus = Self {
-            root: Utf8PathBuf::from(CORPUS_DIR),
+            root,
+            manifest_path: manifest_path.to_owned(),
             lockfile,
         };
         sync::validate_synced_corpus(&corpus.lockfile, corpus.root())?;
@@ -117,7 +140,7 @@ impl Corpus {
     }
 
     pub fn repo_settings_projects(&self) -> anyhow::Result<Vec<CorpusSettingsProject>> {
-        let manifest = Manifest::load(Utf8Path::new(MANIFEST_PATH))?;
+        let manifest = Manifest::load(&self.manifest_path)?;
         manifest
             .repo_settings_projects()
             .into_iter()
@@ -294,12 +317,41 @@ impl Corpus {
     /// All extraction target files in the entire corpus.
     #[must_use]
     pub fn extraction_targets(&self) -> Vec<Utf8PathBuf> {
-        let mut files = self
+        let mut targets = self
             .locked_repo_dirs()
-            .flat_map(|dir| Self::extraction_targets_in(&dir))
+            .flat_map(|member_root| Self::extraction_targets_in(&member_root))
             .collect::<Vec<_>>();
-        files.sort();
-        files
+        targets.sort();
+        targets
+    }
+
+    pub fn extraction_target_members(&self) -> anyhow::Result<Vec<CorpusExtractionTarget>> {
+        let mut targets = Vec::new();
+        for repo in &self.lockfile.repos {
+            let member_root = self.root.join("repos").join(&repo.name);
+            for path in Self::extraction_targets_in(&member_root) {
+                let relative_path = path.strip_prefix(&member_root).with_context(|| {
+                    format!(
+                        "extraction target `{path}` escaped locked member `{}`",
+                        repo.name
+                    )
+                })?;
+                targets.push(CorpusExtractionTarget {
+                    member: repo.name.clone(),
+                    relative_path: relative_path
+                        .components()
+                        .map(|component| component.as_str())
+                        .collect::<Vec<_>>()
+                        .join("/")
+                        .into(),
+                    path,
+                });
+            }
+        }
+        targets.sort_by(|left, right| {
+            (&left.member, &left.relative_path).cmp(&(&right.member, &right.relative_path))
+        });
+        Ok(targets)
     }
 
     /// Extraction target files under a specific directory.
@@ -326,7 +378,9 @@ impl Corpus {
             }
 
             let is_py = path.extension().is_some_and(|ext| ext == "py");
-            let is_core_template_module = path_str.contains("/template/")
+            let is_core_template_module = path
+                .components()
+                .any(|component| component.as_str() == "template")
                 && matches!(
                     path.file_name(),
                     Some("defaulttags.py" | "defaultfilters.py" | "loader_tags.py")
@@ -334,7 +388,10 @@ impl Corpus {
 
             if is_py
                 && path.file_name() != Some("__init__.py")
-                && (path_str.contains("/templatetags/") || is_core_template_module)
+                && (path
+                    .components()
+                    .any(|component| component.as_str() == "templatetags")
+                    || is_core_template_module)
             {
                 files.push(path.to_owned());
             }
@@ -550,6 +607,7 @@ mod tests {
         }
 
         let corpus = Corpus {
+            manifest_path: root.join("manifest.toml"),
             root,
             lockfile: Lockfile {
                 repos: vec![LockedRepo {
@@ -561,8 +619,40 @@ mod tests {
             },
         };
 
-        assert_eq!(corpus.extraction_targets(), vec![registered_tags]);
+        assert_eq!(corpus.extraction_targets(), vec![registered_tags.clone()]);
+        let targets = corpus
+            .extraction_target_members()
+            .expect("locked extraction targets should have relative identities");
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].member, "djangopackages.org");
+        assert_eq!(
+            targets[0].relative_path.as_str(),
+            "package/templatetags/package_tags.py"
+        );
+        assert_eq!(targets[0].path, registered_tags);
         assert_eq!(corpus.model_files(), vec![registered_models]);
+    }
+
+    #[test]
+    fn extraction_selects_native_template_directory_components() {
+        let tempdir = tempfile::tempdir().expect("temporary corpus root should be created");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf())
+            .expect("temporary corpus path should be UTF-8");
+        let template_dir = root.join("django").join("template");
+        let similar_dir = root.join("django").join("other_template");
+        for directory in [&template_dir, &similar_dir] {
+            std::fs::create_dir_all(directory).expect("source directory should be created");
+        }
+        let selected = template_dir.join("defaulttags.py");
+        for file in [
+            &selected,
+            &template_dir.join("unrelated.py"),
+            &similar_dir.join("defaulttags.py"),
+        ] {
+            std::fs::write(file, "").expect("source file should be created");
+        }
+
+        assert_eq!(Corpus::extraction_targets_in(&root), vec![selected]);
     }
 
     #[test]

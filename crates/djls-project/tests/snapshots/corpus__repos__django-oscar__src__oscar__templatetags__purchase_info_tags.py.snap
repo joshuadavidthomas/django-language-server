@@ -2,6 +2,14 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "tag::purchase_info_for_line":
+    kind: tag
+    has_doc: false
+  "tag::purchase_info_for_product":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "src.oscar.templatetags.purchase_info_tags::tag::purchase_info_for_line":
     arg_constraints: []

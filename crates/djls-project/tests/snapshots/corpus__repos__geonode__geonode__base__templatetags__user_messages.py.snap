@@ -2,6 +2,23 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "tag::format_senders":
+    kind: tag
+    has_doc: false
+  "tag::get_item":
+    kind: tag
+    has_doc: false
+  "tag::is_unread":
+    kind: tag
+    has_doc: false
+  "tag::random_uuid":
+    kind: tag
+    has_doc: false
+  "tag::show_notification":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "geonode.base.templatetags.user_messages::tag::format_senders":
     arg_constraints: []

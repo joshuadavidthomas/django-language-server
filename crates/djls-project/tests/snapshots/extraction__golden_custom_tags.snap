@@ -2,6 +2,26 @@
 source: crates/djls-project/tests/extraction.rs
 expression: "sorted_snapshot(&result).expect(\"custom-tag extraction snapshot should serialize\")"
 ---
+definitions:
+  "tag::div":
+    kind: tag
+    has_doc: false
+  "tag::no_params":
+    kind: tag
+    has_doc: false
+  "tag::no_params_with_context":
+    kind: tag
+    has_doc: false
+  "tag::one_param":
+    kind: tag
+    has_doc: false
+  "tag::simple_one_default":
+    kind: tag
+    has_doc: false
+  "tag::simple_two_params":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "tests.template_tests.templatetags.custom::tag::div":
     arg_constraints: []

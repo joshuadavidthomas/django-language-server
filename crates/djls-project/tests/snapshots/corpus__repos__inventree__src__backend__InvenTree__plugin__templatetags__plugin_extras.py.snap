@@ -2,6 +2,26 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "tag::inactive_plugin_list":
+    kind: tag
+    has_doc: false
+  "tag::mixin_available":
+    kind: tag
+    has_doc: false
+  "tag::mixin_enabled":
+    kind: tag
+    has_doc: false
+  "tag::plugin_list":
+    kind: tag
+    has_doc: false
+  "tag::plugin_settings":
+    kind: tag
+    has_doc: false
+  "tag::safe_url":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "src.backend.InvenTree.plugin.templatetags.plugin_extras::tag::inactive_plugin_list":
     arg_constraints: []

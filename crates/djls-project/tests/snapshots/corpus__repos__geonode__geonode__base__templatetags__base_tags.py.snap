@@ -2,6 +2,41 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::get_item":
+    kind: filter
+    has_doc: false
+  "filter::template_trans":
+    kind: filter
+    has_doc: false
+  "tag::display_change_perms_button":
+    kind: tag
+    has_doc: false
+  "tag::display_edit_request_button":
+    kind: tag
+    has_doc: false
+  "tag::facets":
+    kind: tag
+    has_doc: false
+  "tag::fullurl":
+    kind: tag
+    has_doc: false
+  "tag::get_context_resourcetype":
+    kind: tag
+    has_doc: false
+  "tag::get_current_path":
+    kind: tag
+    has_doc: false
+  "tag::get_menu":
+    kind: tag
+    has_doc: false
+  "tag::get_visibile_resources":
+    kind: tag
+    has_doc: false
+  "tag::render_nav_menu":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "geonode.base.templatetags.base_tags::tag::display_change_perms_button":
     arg_constraints: []

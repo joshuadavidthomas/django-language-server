@@ -2,6 +2,11 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "tag::get_react_config":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "src.sentry.templatetags.sentry_react::tag::get_react_config":
     arg_constraints: []

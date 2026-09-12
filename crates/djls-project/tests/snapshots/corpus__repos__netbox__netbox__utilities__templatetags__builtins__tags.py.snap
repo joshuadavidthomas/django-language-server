@@ -2,6 +2,35 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "tag::badge":
+    kind: tag
+    has_doc: false
+  "tag::checkmark":
+    kind: tag
+    has_doc: false
+  "tag::copy_content":
+    kind: tag
+    has_doc: false
+  "tag::customfield_value":
+    kind: tag
+    has_doc: false
+  "tag::formaction":
+    kind: tag
+    has_doc: false
+  "tag::htmx_table":
+    kind: tag
+    has_doc: false
+  "tag::render":
+    kind: tag
+    has_doc: false
+  "tag::static_with_params":
+    kind: tag
+    has_doc: false
+  "tag::tag":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "netbox.utilities.templatetags.builtins.tags::tag::badge":
     arg_constraints: []

@@ -2,6 +2,44 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "tag::action_buttons":
+    kind: tag
+    has_doc: false
+  "tag::add_button":
+    kind: tag
+    has_doc: false
+  "tag::bookmark_button":
+    kind: tag
+    has_doc: false
+  "tag::bulk_delete_button":
+    kind: tag
+    has_doc: false
+  "tag::bulk_edit_button":
+    kind: tag
+    has_doc: false
+  "tag::clone_button":
+    kind: tag
+    has_doc: false
+  "tag::delete_button":
+    kind: tag
+    has_doc: false
+  "tag::edit_button":
+    kind: tag
+    has_doc: false
+  "tag::export_button":
+    kind: tag
+    has_doc: false
+  "tag::import_button":
+    kind: tag
+    has_doc: false
+  "tag::subscribe_button":
+    kind: tag
+    has_doc: false
+  "tag::sync_button":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "netbox.utilities.templatetags.buttons::tag::action_buttons":
     arg_constraints: []

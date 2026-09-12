@@ -2,6 +2,26 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "tag::absolute_asset_url":
+    kind: tag
+    has_doc: false
+  "tag::asset_url":
+    kind: tag
+    has_doc: false
+  "tag::crossorigin":
+    kind: tag
+    has_doc: false
+  "tag::frontend_app_asset_url":
+    kind: tag
+    has_doc: false
+  "tag::injected_script_assets":
+    kind: tag
+    has_doc: false
+  "tag::script":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "src.sentry.templatetags.sentry_assets::tag::absolute_asset_url":
     arg_constraints: []

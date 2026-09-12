@@ -2,6 +2,98 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "tag::qr_for_contact":
+    kind: tag
+    has_doc: false
+  "tag::qr_for_email":
+    kind: tag
+    has_doc: false
+  "tag::qr_for_epc":
+    kind: tag
+    has_doc: false
+  "tag::qr_for_event":
+    kind: tag
+    has_doc: false
+  "tag::qr_for_geolocation":
+    kind: tag
+    has_doc: false
+  "tag::qr_for_google_maps":
+    kind: tag
+    has_doc: false
+  "tag::qr_for_google_play":
+    kind: tag
+    has_doc: false
+  "tag::qr_for_mecard":
+    kind: tag
+    has_doc: false
+  "tag::qr_for_sms":
+    kind: tag
+    has_doc: false
+  "tag::qr_for_tel":
+    kind: tag
+    has_doc: false
+  "tag::qr_for_vcard":
+    kind: tag
+    has_doc: false
+  "tag::qr_for_wifi":
+    kind: tag
+    has_doc: false
+  "tag::qr_for_youtube":
+    kind: tag
+    has_doc: false
+  "tag::qr_from_data":
+    kind: tag
+    has_doc: false
+  "tag::qr_from_text":
+    kind: tag
+    has_doc: false
+  "tag::qr_url_for_contact":
+    kind: tag
+    has_doc: false
+  "tag::qr_url_for_email":
+    kind: tag
+    has_doc: false
+  "tag::qr_url_for_epc":
+    kind: tag
+    has_doc: false
+  "tag::qr_url_for_event":
+    kind: tag
+    has_doc: false
+  "tag::qr_url_for_geolocation":
+    kind: tag
+    has_doc: false
+  "tag::qr_url_for_google_maps":
+    kind: tag
+    has_doc: false
+  "tag::qr_url_for_google_play":
+    kind: tag
+    has_doc: false
+  "tag::qr_url_for_mecard":
+    kind: tag
+    has_doc: false
+  "tag::qr_url_for_sms":
+    kind: tag
+    has_doc: false
+  "tag::qr_url_for_tel":
+    kind: tag
+    has_doc: false
+  "tag::qr_url_for_vcard":
+    kind: tag
+    has_doc: false
+  "tag::qr_url_for_wifi":
+    kind: tag
+    has_doc: false
+  "tag::qr_url_for_youtube":
+    kind: tag
+    has_doc: false
+  "tag::qr_url_from_data":
+    kind: tag
+    has_doc: false
+  "tag::qr_url_from_text":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "qr_code.templatetags.qr_code::tag::qr_for_contact":
     arg_constraints: []

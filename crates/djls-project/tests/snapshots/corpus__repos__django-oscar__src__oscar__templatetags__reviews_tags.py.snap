@@ -1,7 +1,18 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::as_stars":
+    kind: filter
+    has_doc: false
+  "filter::is_review_permitted":
+    kind: filter
+    has_doc: false
+  "filter::may_vote":
+    kind: filter
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules: {}
 filter_arities:
   "src.oscar.templatetags.reviews_tags::filter::as_stars": no_argument

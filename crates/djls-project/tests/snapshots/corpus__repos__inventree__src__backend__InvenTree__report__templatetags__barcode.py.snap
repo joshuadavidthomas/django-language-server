@@ -2,6 +2,20 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "tag::barcode":
+    kind: tag
+    has_doc: false
+  "tag::clean_barcode":
+    kind: tag
+    has_doc: false
+  "tag::datamatrix":
+    kind: tag
+    has_doc: false
+  "tag::qrcode":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "src.backend.InvenTree.report.templatetags.barcode::tag::barcode":
     arg_constraints: []

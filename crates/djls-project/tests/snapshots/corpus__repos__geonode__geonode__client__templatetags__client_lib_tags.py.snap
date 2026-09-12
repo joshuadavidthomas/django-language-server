@@ -2,6 +2,116 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "tag::dataset_detail_url":
+    kind: tag
+    has_doc: false
+  "tag::dataset_list_url":
+    kind: tag
+    has_doc: false
+  "tag::dataset_upload_url":
+    kind: tag
+    has_doc: false
+  "tag::document_detail_url":
+    kind: tag
+    has_doc: false
+  "tag::document_list_url":
+    kind: tag
+    has_doc: false
+  "tag::geoapp_detail_url":
+    kind: tag
+    has_doc: false
+  "tag::geoapp_list_url":
+    kind: tag
+    has_doc: false
+  "tag::get_dataset_detail":
+    kind: tag
+    has_doc: false
+  "tag::get_dataset_download":
+    kind: tag
+    has_doc: false
+  "tag::get_dataset_edit":
+    kind: tag
+    has_doc: false
+  "tag::get_dataset_embed":
+    kind: tag
+    has_doc: false
+  "tag::get_dataset_list":
+    kind: tag
+    has_doc: false
+  "tag::get_dataset_new":
+    kind: tag
+    has_doc: false
+  "tag::get_dataset_style_edit":
+    kind: tag
+    has_doc: false
+  "tag::get_dataset_update":
+    kind: tag
+    has_doc: false
+  "tag::get_dataset_view":
+    kind: tag
+    has_doc: false
+  "tag::get_geoapp_detail":
+    kind: tag
+    has_doc: false
+  "tag::get_geoapp_download":
+    kind: tag
+    has_doc: false
+  "tag::get_geoapp_edit":
+    kind: tag
+    has_doc: false
+  "tag::get_geoapp_embed":
+    kind: tag
+    has_doc: false
+  "tag::get_geoapp_list":
+    kind: tag
+    has_doc: false
+  "tag::get_geoapp_new":
+    kind: tag
+    has_doc: false
+  "tag::get_geoapp_update":
+    kind: tag
+    has_doc: false
+  "tag::get_geoapp_view":
+    kind: tag
+    has_doc: false
+  "tag::get_map_detail":
+    kind: tag
+    has_doc: false
+  "tag::get_map_edit":
+    kind: tag
+    has_doc: false
+  "tag::get_map_embed":
+    kind: tag
+    has_doc: false
+  "tag::get_map_list":
+    kind: tag
+    has_doc: false
+  "tag::get_map_new":
+    kind: tag
+    has_doc: false
+  "tag::get_map_update":
+    kind: tag
+    has_doc: false
+  "tag::get_map_view":
+    kind: tag
+    has_doc: false
+  "tag::get_resourcebase_embed":
+    kind: tag
+    has_doc: false
+  "tag::google_api_key":
+    kind: tag
+    has_doc: false
+  "tag::map_detail_url":
+    kind: tag
+    has_doc: false
+  "tag::map_list_url":
+    kind: tag
+    has_doc: false
+  "tag::mapbox_access_token":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "geonode.client.templatetags.client_lib_tags::tag::dataset_detail_url":
     arg_constraints: []

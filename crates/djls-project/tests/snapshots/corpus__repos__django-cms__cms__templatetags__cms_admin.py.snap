@@ -2,6 +2,29 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::boolean_icon":
+    kind: filter
+    has_doc: false
+  "filter::placeholder_is_immutable":
+    kind: filter
+    has_doc: false
+  "tag::admin_static_url":
+    kind: tag
+    has_doc: false
+  "tag::get_page_display_name":
+    kind: tag
+    has_doc: false
+  "tag::render_filter_field":
+    kind: tag
+    has_doc: false
+  "tag::show_admin_menu_for_pages":
+    kind: tag
+    has_doc: false
+  "tag::submit_row_plugin":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: true
 tag_rules:
   "cms.templatetags.cms_admin::tag::admin_static_url":
     arg_constraints: []

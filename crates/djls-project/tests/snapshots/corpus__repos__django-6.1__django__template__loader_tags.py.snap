@@ -2,6 +2,17 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "tag::block":
+    kind: tag
+    has_doc: false
+  "tag::extends":
+    kind: tag
+    has_doc: false
+  "tag::include":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "django.template.loader_tags::tag::block":
     arg_constraints:

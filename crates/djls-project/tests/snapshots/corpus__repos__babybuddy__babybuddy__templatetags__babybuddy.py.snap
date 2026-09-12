@@ -2,6 +2,41 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "tag::axes_lockout_message":
+    kind: tag
+    has_doc: false
+  "tag::confirm_delete_text":
+    kind: tag
+    has_doc: false
+  "tag::confirm_unlock_text":
+    kind: tag
+    has_doc: false
+  "tag::get_child_count":
+    kind: tag
+    has_doc: false
+  "tag::get_current_locale":
+    kind: tag
+    has_doc: false
+  "tag::get_current_timezone":
+    kind: tag
+    has_doc: false
+  "tag::make_absolute_url":
+    kind: tag
+    has_doc: false
+  "tag::relative_url":
+    kind: tag
+    has_doc: false
+  "tag::user_is_locked":
+    kind: tag
+    has_doc: false
+  "tag::user_is_read_only":
+    kind: tag
+    has_doc: false
+  "tag::version_string":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "babybuddy.templatetags.babybuddy::tag::axes_lockout_message":
     arg_constraints: []

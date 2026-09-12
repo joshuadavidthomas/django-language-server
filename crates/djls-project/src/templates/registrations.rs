@@ -1226,12 +1226,12 @@ impl<'db> TemplateLibraryDefinitionFacts<'db> {
     }
 
     #[must_use]
-    pub(crate) fn source_failed(&self) -> bool {
+    pub fn source_failed(&self) -> bool {
         matches!(self.state, TemplateLibraryDefinitionState::Failed)
     }
 
     #[must_use]
-    pub(crate) fn symbols_are_unobserved(&self) -> bool {
+    pub fn symbols_are_unobserved(&self) -> bool {
         matches!(
             self.state,
             TemplateLibraryDefinitionState::Library {
@@ -1241,7 +1241,9 @@ impl<'db> TemplateLibraryDefinitionFacts<'db> {
         )
     }
 
-    pub(crate) fn symbols(&self) -> impl Iterator<Item = &TemplateSymbol<'db>> {
+    /// Observed definitions. Missing symbols remain uncertain when
+    /// [`Self::symbols_are_unobserved`] is true.
+    pub fn symbols(&self) -> impl Iterator<Item = &TemplateSymbol<'db>> {
         self.tags.values().chain(self.filters.values())
     }
 

@@ -2,6 +2,11 @@
 source: crates/djls-project/tests/extraction.rs
 expression: "sorted_snapshot(&result).expect(\"Django admin URL extraction snapshot should serialize\")"
 ---
+definitions:
+  "tag::add_preserved_filters":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "django.contrib.admin.templatetags.admin_urls::tag::add_preserved_filters":
     arg_constraints: []

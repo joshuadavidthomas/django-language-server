@@ -2,6 +2,74 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "tag::autoescape":
+    kind: tag
+    has_doc: false
+  "tag::comment":
+    kind: tag
+    has_doc: false
+  "tag::csrf_token":
+    kind: tag
+    has_doc: false
+  "tag::cycle":
+    kind: tag
+    has_doc: false
+  "tag::debug":
+    kind: tag
+    has_doc: false
+  "tag::filter":
+    kind: tag
+    has_doc: false
+  "tag::firstof":
+    kind: tag
+    has_doc: false
+  "tag::for":
+    kind: tag
+    has_doc: false
+  "tag::if":
+    kind: tag
+    has_doc: false
+  "tag::ifchanged":
+    kind: tag
+    has_doc: false
+  "tag::load":
+    kind: tag
+    has_doc: false
+  "tag::lorem":
+    kind: tag
+    has_doc: false
+  "tag::now":
+    kind: tag
+    has_doc: false
+  "tag::querystring":
+    kind: tag
+    has_doc: false
+  "tag::regroup":
+    kind: tag
+    has_doc: false
+  "tag::resetcycle":
+    kind: tag
+    has_doc: false
+  "tag::spaceless":
+    kind: tag
+    has_doc: false
+  "tag::templatetag":
+    kind: tag
+    has_doc: false
+  "tag::url":
+    kind: tag
+    has_doc: false
+  "tag::verbatim":
+    kind: tag
+    has_doc: false
+  "tag::widthratio":
+    kind: tag
+    has_doc: false
+  "tag::with":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "django.template.defaulttags::tag::autoescape":
     arg_constraints:

@@ -2,6 +2,26 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "tag::avatar":
+    kind: tag
+    has_doc: false
+  "tag::avatar_for_email":
+    kind: tag
+    has_doc: false
+  "tag::email_avatar":
+    kind: tag
+    has_doc: false
+  "tag::gravatar_url":
+    kind: tag
+    has_doc: false
+  "tag::letter_avatar_svg":
+    kind: tag
+    has_doc: false
+  "tag::profile_photo_url":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "src.sentry.templatetags.sentry_avatars::tag::avatar":
     arg_constraints: []

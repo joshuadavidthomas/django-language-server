@@ -1,7 +1,18 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::checkedhtml":
+    kind: filter
+    has_doc: false
+  "filter::requiredhtml":
+    kind: filter
+    has_doc: false
+  "filter::selectedhtml":
+    kind: filter
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules: {}
 filter_arities:
   "misago.forms.templatetags.misago_forms::filter::checkedhtml": no_argument

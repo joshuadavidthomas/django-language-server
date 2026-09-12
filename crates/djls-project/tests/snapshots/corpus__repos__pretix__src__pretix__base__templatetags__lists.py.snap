@@ -1,7 +1,15 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::joinlines":
+    kind: filter
+    has_doc: false
+  "filter::splitlines":
+    kind: filter
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules: {}
 filter_arities:
   "src.pretix.base.templatetags.lists::filter::joinlines": no_argument

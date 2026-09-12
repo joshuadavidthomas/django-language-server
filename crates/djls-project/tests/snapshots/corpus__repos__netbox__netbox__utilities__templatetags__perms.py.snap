@@ -1,7 +1,27 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::can_add":
+    kind: filter
+    has_doc: false
+  "filter::can_change":
+    kind: filter
+    has_doc: false
+  "filter::can_delete":
+    kind: filter
+    has_doc: false
+  "filter::can_run":
+    kind: filter
+    has_doc: false
+  "filter::can_sync":
+    kind: filter
+    has_doc: false
+  "filter::can_view":
+    kind: filter
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules: {}
 filter_arities:
   "netbox.utilities.templatetags.perms::filter::can_add": required_argument

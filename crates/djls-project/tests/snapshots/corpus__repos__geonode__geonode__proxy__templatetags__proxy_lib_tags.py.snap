@@ -2,6 +2,11 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "tag::original_link_available":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "geonode.proxy.templatetags.proxy_lib_tags::tag::original_link_available":
     arg_constraints: []

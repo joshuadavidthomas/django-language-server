@@ -2,6 +2,53 @@
 source: crates/djls-project/tests/extraction.rs
 expression: "sorted_snapshot(&result).expect(\"default-tags extraction snapshot should serialize\")"
 ---
+definitions:
+  "tag::autoescape":
+    kind: tag
+    has_doc: false
+  "tag::comment":
+    kind: tag
+    has_doc: false
+  "tag::cycle":
+    kind: tag
+    has_doc: false
+  "tag::for":
+    kind: tag
+    has_doc: false
+  "tag::if":
+    kind: tag
+    has_doc: false
+  "tag::now":
+    kind: tag
+    has_doc: false
+  "tag::partial":
+    kind: tag
+    has_doc: false
+  "tag::partialdef":
+    kind: tag
+    has_doc: false
+  "tag::querystring":
+    kind: tag
+    has_doc: false
+  "tag::regroup":
+    kind: tag
+    has_doc: false
+  "tag::spaceless":
+    kind: tag
+    has_doc: false
+  "tag::templatetag":
+    kind: tag
+    has_doc: false
+  "tag::url":
+    kind: tag
+    has_doc: false
+  "tag::verbatim":
+    kind: tag
+    has_doc: false
+  "tag::widthratio":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "django.template.defaulttags::tag::autoescape":
     arg_constraints:

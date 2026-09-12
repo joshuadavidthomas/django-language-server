@@ -2,6 +2,29 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::localize":
+    kind: filter
+    has_doc: false
+  "filter::table_page_range":
+    kind: filter
+    has_doc: false
+  "filter::unlocalize":
+    kind: filter
+    has_doc: false
+  "tag::export_url":
+    kind: tag
+    has_doc: false
+  "tag::querystring":
+    kind: tag
+    has_doc: false
+  "tag::render_attrs":
+    kind: tag
+    has_doc: false
+  "tag::render_table":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "django_tables2.templatetags.django_tables2::tag::export_url":
     arg_constraints: []

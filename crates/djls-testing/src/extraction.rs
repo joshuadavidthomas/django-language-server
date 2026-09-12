@@ -10,13 +10,22 @@ use djls_project::TagRule;
 use djls_project::TagRuleMap;
 use djls_project::TemplateLibraryId;
 use djls_project::TemplateSymbolKind;
+use djls_project::template_library_definition_facts;
 use djls_project::template_library_filter_facts;
 use djls_project::template_library_tag_facts;
 use djls_source::File;
 use serde::Serialize;
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ExtractedDefinition {
+    pub kind: TemplateSymbolKind,
+    pub has_doc: bool,
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ExtractionBundle {
+    pub definitions: BTreeMap<String, ExtractedDefinition>,
+    pub symbols_are_unobserved: bool,
     pub tag_rules: TagRuleMap,
     pub filter_arities: FilterArityMap,
     pub block_specs: BlockSpecs,
@@ -36,6 +45,24 @@ pub fn extract_bundle(
     registration_module: PythonModuleName,
 ) -> ExtractionBundle {
     let key = TemplateLibraryId::new(db, Some(file), registration_module);
+    let definition_facts = template_library_definition_facts(db, key);
+    let definitions = definition_facts
+        .symbols()
+        .map(|symbol| {
+            // A library can export a tag and a filter with the same name.
+            let kind = match symbol.kind {
+                TemplateSymbolKind::Tag => "tag",
+                TemplateSymbolKind::Filter => "filter",
+            };
+            (
+                format!("{kind}::{}", symbol.name()),
+                ExtractedDefinition {
+                    kind: symbol.kind,
+                    has_doc: symbol.doc().is_some(),
+                },
+            )
+        })
+        .collect();
     let tag_facts = template_library_tag_facts(db, key);
     let filter_facts = template_library_filter_facts(db, key);
     let tag_rules = tag_facts.tag_rules().to_owned();
@@ -43,6 +70,8 @@ pub fn extract_bundle(
     let block_specs = tag_facts.block_specs().to_owned();
 
     ExtractionBundle {
+        definitions,
+        symbols_are_unobserved: definition_facts.symbols_are_unobserved(),
         tag_rules,
         filter_arities,
         block_specs,
@@ -51,6 +80,8 @@ pub fn extract_bundle(
 
 #[derive(Debug, Serialize)]
 pub struct SortedExtractionResult {
+    definitions: BTreeMap<String, ExtractedDefinition>,
+    symbols_are_unobserved: bool,
     tag_rules: BTreeMap<String, TagRule>,
     filter_arities: BTreeMap<String, FilterArity>,
     block_specs: BTreeMap<String, serde_json::Value>,
@@ -59,6 +90,8 @@ pub struct SortedExtractionResult {
 /// Convert an extraction bundle into deterministic snapshot data.
 pub fn sorted_snapshot(bundle: &ExtractionBundle) -> serde_json::Result<SortedExtractionResult> {
     Ok(SortedExtractionResult {
+        definitions: bundle.definitions.clone(),
+        symbols_are_unobserved: bundle.symbols_are_unobserved,
         tag_rules: bundle
             .tag_rules
             .iter()

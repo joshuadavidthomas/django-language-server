@@ -2,6 +2,11 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "tag::model_view_tabs":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "netbox.utilities.templatetags.tabs::tag::model_view_tabs":
     arg_constraints: []

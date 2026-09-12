@@ -2,6 +2,23 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::fragment":
+    kind: filter
+    has_doc: false
+  "tag::code_links":
+    kind: tag
+    has_doc: false
+  "tag::get_all_doc_versions":
+    kind: tag
+    has_doc: false
+  "tag::pygment":
+    kind: tag
+    has_doc: false
+  "tag::search_form":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "docs.templatetags.docs::tag::code_links":
     arg_constraints: []

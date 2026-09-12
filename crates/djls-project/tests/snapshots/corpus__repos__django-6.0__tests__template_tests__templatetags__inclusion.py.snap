@@ -2,6 +2,83 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "tag::inclusion_explicit_no_context":
+    kind: tag
+    has_doc: false
+  "tag::inclusion_explicit_no_context_from_template":
+    kind: tag
+    has_doc: false
+  "tag::inclusion_extends1":
+    kind: tag
+    has_doc: false
+  "tag::inclusion_extends2":
+    kind: tag
+    has_doc: false
+  "tag::inclusion_keyword_only_default":
+    kind: tag
+    has_doc: false
+  "tag::inclusion_no_params":
+    kind: tag
+    has_doc: false
+  "tag::inclusion_no_params_from_template":
+    kind: tag
+    has_doc: false
+  "tag::inclusion_no_params_with_context":
+    kind: tag
+    has_doc: false
+  "tag::inclusion_no_params_with_context_from_template":
+    kind: tag
+    has_doc: false
+  "tag::inclusion_one_default":
+    kind: tag
+    has_doc: false
+  "tag::inclusion_one_default_from_template":
+    kind: tag
+    has_doc: false
+  "tag::inclusion_one_param":
+    kind: tag
+    has_doc: false
+  "tag::inclusion_one_param_from_template":
+    kind: tag
+    has_doc: false
+  "tag::inclusion_only_unlimited_args":
+    kind: tag
+    has_doc: false
+  "tag::inclusion_only_unlimited_args_from_template":
+    kind: tag
+    has_doc: false
+  "tag::inclusion_params_and_context":
+    kind: tag
+    has_doc: false
+  "tag::inclusion_params_and_context_from_template":
+    kind: tag
+    has_doc: false
+  "tag::inclusion_tag_takes_context_without_params":
+    kind: tag
+    has_doc: false
+  "tag::inclusion_tag_use_l10n":
+    kind: tag
+    has_doc: false
+  "tag::inclusion_tag_without_context_parameter":
+    kind: tag
+    has_doc: false
+  "tag::inclusion_two_params":
+    kind: tag
+    has_doc: false
+  "tag::inclusion_two_params_from_template":
+    kind: tag
+    has_doc: false
+  "tag::inclusion_unlimited_args":
+    kind: tag
+    has_doc: false
+  "tag::inclusion_unlimited_args_from_template":
+    kind: tag
+    has_doc: false
+  "tag::inclusion_unlimited_args_kwargs":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "tests.template_tests.templatetags.inclusion::tag::inclusion_explicit_no_context":
     arg_constraints: []

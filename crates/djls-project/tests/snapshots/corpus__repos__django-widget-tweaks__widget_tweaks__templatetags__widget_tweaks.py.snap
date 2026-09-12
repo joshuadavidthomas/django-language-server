@@ -1,7 +1,45 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::add_class":
+    kind: filter
+    has_doc: false
+  "filter::add_error_attr":
+    kind: filter
+    has_doc: false
+  "filter::add_error_class":
+    kind: filter
+    has_doc: false
+  "filter::add_label_class":
+    kind: filter
+    has_doc: false
+  "filter::add_required_class":
+    kind: filter
+    has_doc: false
+  "filter::append_attr":
+    kind: filter
+    has_doc: false
+  "filter::attr":
+    kind: filter
+    has_doc: false
+  "filter::field_type":
+    kind: filter
+    has_doc: false
+  "filter::remove_attr":
+    kind: filter
+    has_doc: false
+  "filter::set_data":
+    kind: filter
+    has_doc: false
+  "filter::widget_type":
+    kind: filter
+    has_doc: false
+  "tag::render_field":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules: {}
 filter_arities:
   "widget_tweaks.templatetags.widget_tweaks::filter::add_class": required_argument

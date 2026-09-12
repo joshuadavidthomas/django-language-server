@@ -2,6 +2,32 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::activity_stream":
+    kind: filter
+    has_doc: false
+  "filter::is_following":
+    kind: filter
+    has_doc: false
+  "tag::activity_stream":
+    kind: tag
+    has_doc: false
+  "tag::actor_url":
+    kind: tag
+    has_doc: false
+  "tag::display_action":
+    kind: tag
+    has_doc: false
+  "tag::follow_all_url":
+    kind: tag
+    has_doc: false
+  "tag::follow_url":
+    kind: tag
+    has_doc: false
+  "tag::is_following":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "actstream.templatetags.activity_tags::tag::activity_stream":
     arg_constraints: []

@@ -1,7 +1,51 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::enumerate_cves":
+    kind: filter
+    has_doc: false
+  "filter::enumerate_items":
+    kind: filter
+    has_doc: false
+  "filter::format_release_for_cve":
+    kind: filter
+    has_doc: false
+  "filter::format_releases_for_cves":
+    kind: filter
+    has_doc: false
+  "filter::format_version_for_blogpost":
+    kind: filter
+    has_doc: false
+  "filter::format_version_tuple":
+    kind: filter
+    has_doc: false
+  "filter::format_versions_for_blogpost":
+    kind: filter
+    has_doc: false
+  "filter::next_feature_version":
+    kind: filter
+    has_doc: false
+  "filter::next_release_date":
+    kind: filter
+    has_doc: false
+  "filter::next_version":
+    kind: filter
+    has_doc: false
+  "filter::next_version_tuple":
+    kind: filter
+    has_doc: false
+  "filter::rst_backticks":
+    kind: filter
+    has_doc: false
+  "filter::rst_underline_for_headline":
+    kind: filter
+    has_doc: false
+  "filter::stub_release_notes_title":
+    kind: filter
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules: {}
 filter_arities:
   "checklists.templatetags.checklist_extras::filter::enumerate_cves": optional_argument

@@ -1,7 +1,18 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::diskgbformat":
+    kind: filter
+    has_doc: false
+  "filter::mb_float_format":
+    kind: filter
+    has_doc: false
+  "filter::mbformat":
+    kind: filter
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules: {}
 filter_arities:
   "horizon.templatetags.sizeformat::filter::diskgbformat": no_argument

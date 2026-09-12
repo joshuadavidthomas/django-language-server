@@ -1,7 +1,30 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::background_margin":
+    kind: filter
+    has_doc: false
+  "filter::html_thumbnails":
+    kind: filter
+    has_doc: false
+  "filter::is_portrait":
+    kind: filter
+    has_doc: false
+  "filter::margin":
+    kind: filter
+    has_doc: false
+  "filter::markdown_thumbnails":
+    kind: filter
+    has_doc: false
+  "filter::resolution":
+    kind: filter
+    has_doc: false
+  "tag::thumbnail":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules: {}
 filter_arities:
   "sorl.thumbnail.templatetags.thumbnail::filter::background_margin": required_argument

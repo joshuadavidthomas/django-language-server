@@ -2,6 +2,29 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::to_json":
+    kind: filter
+    has_doc: false
+  "tag::baton_ai_stats":
+    kind: tag
+    has_doc: false
+  "tag::baton_config":
+    kind: tag
+    has_doc: false
+  "tag::baton_config_value":
+    kind: tag
+    has_doc: false
+  "tag::baton_theme":
+    kind: tag
+    has_doc: false
+  "tag::call_model_admin_method":
+    kind: tag
+    has_doc: false
+  "tag::footer":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "baton.templatetags.baton_tags::tag::baton_ai_stats":
     arg_constraints: []

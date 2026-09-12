@@ -2,6 +2,89 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::absolute_value":
+    kind: filter
+    has_doc: false
+  "filter::as_sorted":
+    kind: filter
+    has_doc: false
+  "filter::as_tag_alias":
+    kind: filter
+    has_doc: false
+  "filter::basename":
+    kind: filter
+    has_doc: false
+  "filter::date":
+    kind: filter
+    has_doc: false
+  "filter::duration":
+    kind: filter
+    has_doc: false
+  "filter::get_item":
+    kind: filter
+    has_doc: false
+  "filter::is_url":
+    kind: filter
+    has_doc: false
+  "filter::multiply":
+    kind: filter
+    has_doc: false
+  "filter::sanitize_periods":
+    kind: filter
+    has_doc: false
+  "filter::small_count":
+    kind: filter
+    has_doc: false
+  "filter::soft_break":
+    kind: filter
+    has_doc: false
+  "filter::split":
+    kind: filter
+    has_doc: false
+  "filter::timesince":
+    kind: filter
+    has_doc: false
+  "filter::titleize":
+    kind: filter
+    has_doc: false
+  "filter::to_json":
+    kind: filter
+    has_doc: false
+  "filter::urlquote":
+    kind: filter
+    has_doc: false
+  "tag::absolute_uri":
+    kind: tag
+    has_doc: false
+  "tag::get_sentry_version":
+    kind: tag
+    has_doc: false
+  "tag::loading_message":
+    kind: tag
+    has_doc: false
+  "tag::org_url":
+    kind: tag
+    has_doc: false
+  "tag::percent":
+    kind: tag
+    has_doc: false
+  "tag::querystring":
+    kind: tag
+    has_doc: false
+  "tag::random_int":
+    kind: tag
+    has_doc: false
+  "tag::security_contact":
+    kind: tag
+    has_doc: false
+  "tag::serialize":
+    kind: tag
+    has_doc: false
+  "tag::system_origin":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: true
 tag_rules:
   "src.sentry.templatetags.sentry_helpers::tag::get_sentry_version":
     arg_constraints: []

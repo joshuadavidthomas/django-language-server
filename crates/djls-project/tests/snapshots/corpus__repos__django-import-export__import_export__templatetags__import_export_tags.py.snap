@@ -2,6 +2,11 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "tag::compare_values":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "import_export.templatetags.import_export_tags::tag::compare_values":
     arg_constraints: []

@@ -2,6 +2,11 @@
 source: crates/djls-project/tests/extraction.rs
 expression: "sorted_snapshot(&result).expect(\"custom parser extraction snapshot should serialize\")"
 ---
+definitions:
+  "tag::custom_tag":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "app.templatetags.custom::tag::custom_tag":
     arg_constraints:

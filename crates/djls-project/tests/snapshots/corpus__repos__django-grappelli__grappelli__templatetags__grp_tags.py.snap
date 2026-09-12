@@ -2,6 +2,56 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::classname":
+    kind: filter
+    has_doc: false
+  "filter::classpath":
+    kind: filter
+    has_doc: false
+  "filter::formsetsort":
+    kind: filter
+    has_doc: false
+  "filter::prettylabel":
+    kind: filter
+    has_doc: false
+  "tag::admin_list_filter":
+    kind: tag
+    has_doc: false
+  "tag::get_admin_title":
+    kind: tag
+    has_doc: false
+  "tag::get_admin_url":
+    kind: tag
+    has_doc: false
+  "tag::get_content_types":
+    kind: tag
+    has_doc: false
+  "tag::get_date_format":
+    kind: tag
+    has_doc: false
+  "tag::get_datetime_format":
+    kind: tag
+    has_doc: false
+  "tag::get_lang":
+    kind: tag
+    has_doc: false
+  "tag::get_site_title":
+    kind: tag
+    has_doc: false
+  "tag::get_time_format":
+    kind: tag
+    has_doc: false
+  "tag::grappelli_admin_title":
+    kind: tag
+    has_doc: false
+  "tag::grappelli_clean_input_types":
+    kind: tag
+    has_doc: false
+  "tag::switch_user_dropdown":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: true
 tag_rules:
   "grappelli.templatetags.grp_tags::tag::admin_list_filter":
     arg_constraints: []

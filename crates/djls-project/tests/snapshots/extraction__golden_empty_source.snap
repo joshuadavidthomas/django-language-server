@@ -1,7 +1,9 @@
 ---
 source: crates/djls-project/tests/extraction.rs
-expression: sorted_snapshot(&result)
+expression: "sorted_snapshot(&result).expect(\"empty extraction snapshot should serialize\")"
 ---
+definitions: {}
+symbols_are_unobserved: false
 tag_rules: {}
 filter_arities: {}
 block_specs: {}

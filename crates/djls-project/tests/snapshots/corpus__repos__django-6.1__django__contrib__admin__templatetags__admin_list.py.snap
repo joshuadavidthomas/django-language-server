@@ -2,6 +2,32 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "tag::admin_actions":
+    kind: tag
+    has_doc: false
+  "tag::admin_list_filter":
+    kind: tag
+    has_doc: false
+  "tag::change_list_object_tools":
+    kind: tag
+    has_doc: false
+  "tag::date_hierarchy":
+    kind: tag
+    has_doc: false
+  "tag::pagination":
+    kind: tag
+    has_doc: false
+  "tag::paginator_number":
+    kind: tag
+    has_doc: false
+  "tag::result_list":
+    kind: tag
+    has_doc: false
+  "tag::search_form":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "django.contrib.admin.templatetags.admin_list::tag::admin_list_filter":
     arg_constraints: []

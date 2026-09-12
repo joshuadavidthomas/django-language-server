@@ -1,7 +1,36 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::crmadmin_urlname":
+    kind: filter
+    has_doc: false
+  "filter::get_url":
+    kind: filter
+    has_doc: false
+  "filter::param":
+    kind: filter
+    has_doc: false
+  "filter::priority":
+    kind: filter
+    has_doc: false
+  "filter::replace_lang":
+    kind: filter
+    has_doc: false
+  "filter::responsible_list":
+    kind: filter
+    has_doc: false
+  "filter::stage":
+    kind: filter
+    has_doc: false
+  "filter::task_completed_button":
+    kind: filter
+    has_doc: false
+  "filter::verbose_name":
+    kind: filter
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules: {}
 filter_arities:
   "common.templatetags.util::filter::crmadmin_urlname": required_argument

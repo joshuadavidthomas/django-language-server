@@ -1,7 +1,60 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: snapshot(result)
+expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "filter::bettertitle":
+    kind: filter
+    has_doc: false
+  "filter::content_type":
+    kind: filter
+    has_doc: false
+  "filter::content_type_id":
+    kind: filter
+    has_doc: false
+  "filter::fgcolor":
+    kind: filter
+    has_doc: false
+  "filter::getattr":
+    kind: filter
+    has_doc: false
+  "filter::isodate":
+    kind: filter
+    has_doc: false
+  "filter::isodatetime":
+    kind: filter
+    has_doc: false
+  "filter::isotime":
+    kind: filter
+    has_doc: false
+  "filter::json":
+    kind: filter
+    has_doc: false
+  "filter::linkify":
+    kind: filter
+    has_doc: false
+  "filter::markdown":
+    kind: filter
+    has_doc: false
+  "filter::meta":
+    kind: filter
+    has_doc: false
+  "filter::placeholder":
+    kind: filter
+    has_doc: false
+  "filter::split":
+    kind: filter
+    has_doc: false
+  "filter::truncate_middle":
+    kind: filter
+    has_doc: false
+  "filter::tzoffset":
+    kind: filter
+    has_doc: false
+  "filter::yaml":
+    kind: filter
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules: {}
 filter_arities:
   "netbox.utilities.templatetags.builtins.filters::filter::bettertitle": no_argument

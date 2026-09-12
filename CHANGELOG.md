@@ -22,6 +22,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 - Added a "Why a language server?" docs page.
 - **Internal**: Compare DJLS template tag validation against Django's template compilation on a dedicated fixture project.
+- **Internal**: Extraction snapshots now record library symbol inventories and whether they are open; a corpus census counts registration sites and records candidates that cannot be matched to extracted definitions.
 
 ### Changed
 

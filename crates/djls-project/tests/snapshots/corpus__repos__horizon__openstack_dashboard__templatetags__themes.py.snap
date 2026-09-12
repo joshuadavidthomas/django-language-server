@@ -2,6 +2,23 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
+definitions:
+  "tag::current_theme":
+    kind: tag
+    has_doc: false
+  "tag::themable_asset":
+    kind: tag
+    has_doc: false
+  "tag::theme_cookie":
+    kind: tag
+    has_doc: false
+  "tag::theme_dir":
+    kind: tag
+    has_doc: false
+  "tag::themes":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules:
   "openstack_dashboard.templatetags.themes::tag::current_theme":
     arg_constraints: []
