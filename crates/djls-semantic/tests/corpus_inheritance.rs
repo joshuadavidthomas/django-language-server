@@ -8,6 +8,7 @@ use djls_semantic::template_inheritance;
 use djls_templates::parse_template;
 use djls_testing::Corpus;
 use djls_testing::ProjectFixture;
+use djls_testing::ProjectSettings;
 use djls_testing::TestDatabase;
 
 #[test]
@@ -32,18 +33,10 @@ fn corpus_template_inheritance_terminates() {
             continue;
         }
 
-        let settings_source = format!(
-            "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [{}], 'APP_DIRS': False}}]\n",
-            template_roots
-                .iter()
-                .map(|root| format!("'{root}'"))
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
-        let settings_path = entry_dir.join("djls_corpus_settings.py");
-        let fixture = ProjectFixture::new(entry_dir.clone())
-            .django_settings_module("djls_corpus_settings")
-            .file(settings_path, settings_source);
+        let fixture = ProjectFixture::new(entry_dir.clone()).settings(&ProjectSettings {
+            dirs: template_roots.iter().map(ToString::to_string).collect(),
+            ..ProjectSettings::default()
+        });
         let db = TestDatabase::new();
 
         let mut fixture = fixture;

@@ -288,6 +288,13 @@ impl ProjectFixture {
         self
     }
 
+    #[must_use]
+    pub fn settings(self, settings: &ProjectSettings) -> Self {
+        let path = self.root.join("settings.py");
+        self.file(path, settings.settings_py())
+            .django_settings_module("settings")
+    }
+
     /// Set the fixture's Django settings module.
     #[must_use]
     pub fn django_settings_module(mut self, module: impl Into<String>) -> Self {
@@ -572,7 +579,7 @@ pub fn validation_db(settings: &ProjectSettings) -> anyhow::Result<OsTestDatabas
 
     let mut db = OsTestDatabase::with_disk_roots([django_source_root]);
     search_paths.register_roots(&db);
-    db.add_file("/fixture/settings.py", &settings.render_settings_py()?)?;
+    db.add_file("/fixture/settings.py", &settings.settings_py())?;
 
     let project = Project::new(
         &db,

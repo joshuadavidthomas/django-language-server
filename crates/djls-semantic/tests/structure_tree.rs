@@ -22,6 +22,7 @@ use djls_templates::Node;
 use djls_templates::TagBit;
 use djls_templates::parse_template;
 use djls_testing::ProjectFixture;
+use djls_testing::ProjectSettings;
 use djls_testing::SalsaEventLog;
 use djls_testing::TestDatabase;
 use rustc_hash::FxHashMap;
@@ -357,11 +358,10 @@ fn project_backed_structure_queries_use_correlated_template_analysis() {
     let event_log = SalsaEventLog::default();
     let mut db = TestDatabase::with_event_log(event_log.clone());
     ProjectFixture::new("/project")
-        .django_settings_module("project.settings")
-        .file(
-            "/project/project/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/project/templates'], 'APP_DIRS': False}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/project/templates".to_string()],
+            ..ProjectSettings::default()
+        })
         .file(
             "/project/templates/tree.html",
             "{% if value %}body{% endif %}",

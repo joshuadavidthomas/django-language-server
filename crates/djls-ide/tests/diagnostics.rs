@@ -1,7 +1,10 @@
+use std::collections::BTreeMap;
+
 use camino::Utf8Path;
 use djls_ide::collect_diagnostics;
 use djls_source::PositionEncoding;
 use djls_testing::ProjectFixture;
+use djls_testing::ProjectSettings;
 use djls_testing::TestDatabase;
 use tower_lsp_server::ls_types;
 
@@ -15,11 +18,11 @@ fn unreadable_library_diagnostic_is_a_hint_with_python_source_information() {
         "register.simple_tag(takes_context=True)(globals()['other_tag'])\n",
     );
     ProjectFixture::new("/proj")
-        .django_settings_module("project.settings")
-        .file(
-            "/proj/project/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'open': 'open_tags'}}}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/proj/templates".into()],
+            libraries: BTreeMap::from([("open".into(), "open_tags".into())]),
+            ..ProjectSettings::default()
+        })
         .file("/proj/open_tags.py", library_source)
         .file("/proj/templates/page.html", "{% load open %}")
         .install(&mut db)

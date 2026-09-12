@@ -25,6 +25,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - **Internal**: Compare DJLS template tag validation against Django's template compilation on a dedicated fixture project.
 - **Internal**: Validated markdown diagnostic snapshots against the pinned Django corpus source.
 - **Internal**: Added `py` and `toml` mdtest fences for scenario-owned tag libraries and settings.
+- **Internal**: Test fixtures now render `settings.py` from a typed `ProjectSettings` value.
 - **Internal**: Extraction snapshots now record library symbol inventories and whether they are open; a corpus census counts registration sites and records candidates that cannot be matched to extracted definitions.
 - **Internal**: Added cold settings-analysis benchmarks for conditional bindings and corpus projects.
 

@@ -24,6 +24,7 @@ use djls_source::SourceChanges;
 use djls_source::Span;
 use djls_templates::parse_template;
 use djls_testing::ProjectFixture;
+use djls_testing::ProjectSettings;
 use djls_testing::TestDatabase;
 use rustc_hash::FxHashMap;
 
@@ -32,17 +33,11 @@ fn project_with_templates(
     template_dirs: Vec<&str>,
     templates: Vec<(&str, &str)>,
 ) -> anyhow::Result<Project> {
-    let dirs_literal = template_dirs
-        .into_iter()
-        .map(|dir| format!("'{dir}'"))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let settings_source = format!(
-        "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [{dirs_literal}], 'APP_DIRS': False}}]\n"
-    );
-    let fixture = ProjectFixture::new("/test/project")
-        .django_settings_module("testproject.settings")
-        .file("/test/project/testproject/settings.py", settings_source)
+    let settings = ProjectSettings {
+        dirs: template_dirs.into_iter().map(str::to_string).collect(),
+        ..ProjectSettings::default()
+    };
+    let fixture = ProjectFixture::new("/test/project").settings(&settings)
         .file("/test/project/django/__init__.py", "")
         .file("/test/project/django/template/__init__.py", "")
         .file(
@@ -140,11 +135,10 @@ fn absent_effective_tag_does_not_fall_back_to_project_global_specs() {
     );
     let mut db = TestDatabase::new().with_projectless_tag_specs(specs);
     let project = ProjectFixture::new("/test/project")
-        .django_settings_module("testproject.settings")
-        .file(
-            "/test/project/testproject/settings.py",
-            "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".to_string()],
+            ..ProjectSettings::default()
+        })
         .file(
             "/test/project/templates/child.html",
             "{% overextends 'base.html' %}",
@@ -322,15 +316,11 @@ fn self_extends_skips_visited_origin_and_uses_shadowed_template() {
 fn originless_template_inheritance_resolves_absolute_extends_from_project_inventory() {
     let mut db = TestDatabase::new();
     let project = ProjectFixture::new("/test/project")
-        .django_settings_module("testproject.settings")
-        .file(
-            "/test/project/testproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False}]\n",
-        )
-        .file(
-            "/test/project/scratch.html",
-            "{% extends 'base.html' %}",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".to_string()],
+            ..ProjectSettings::default()
+        })
+        .file("/test/project/scratch.html", "{% extends 'base.html' %}")
         .file(
             "/test/project/templates/base.html",
             "{% block content %}Base{% endblock %}",
@@ -381,15 +371,11 @@ fn originless_template_inheritance_preserves_project_resolution_alternatives() {
 fn originless_template_inheritance_leaves_relative_extends_unresolved() {
     let mut db = TestDatabase::new();
     let project = ProjectFixture::new("/test/project")
-        .django_settings_module("testproject.settings")
-        .file(
-            "/test/project/testproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False}]\n",
-        )
-        .file(
-            "/test/project/scratch.html",
-            "{% extends './base.html' %}",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".to_string()],
+            ..ProjectSettings::default()
+        })
+        .file("/test/project/scratch.html", "{% extends './base.html' %}")
         .file("/test/project/templates/base.html", "base")
         .install(&mut db)
         .expect("project fixture should install into the test database");
@@ -439,10 +425,14 @@ fn template_inheritance_resolves_relative_sibling_extends() {
 #[test]
 fn template_inheritance_joins_relative_targets_for_every_source_name() {
     let mut db = TestDatabase::new();
-    let settings = "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates', '/test/project/templates/alias'], 'APP_DIRS': False}]\n";
     let project = ProjectFixture::new("/test/project")
-        .django_settings_module("testproject.settings")
-        .file("/test/project/testproject/settings.py", settings)
+        .settings(&ProjectSettings {
+            dirs: vec![
+                "/test/project/templates".to_string(),
+                "/test/project/templates/alias".to_string(),
+            ],
+            ..ProjectSettings::default()
+        })
         .file(
             "/test/project/templates/alias/child.html",
             "{% extends './parent.html' %}",
@@ -524,10 +514,14 @@ fn block_overrides_accepts_relative_winning_extends_target() {
 #[test]
 fn reverse_inheritance_starts_from_secondary_names_and_dedupes_physical_sites() {
     let mut db = TestDatabase::new();
-    let settings = "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates', '/test/project/templates/alias'], 'APP_DIRS': False}]\n";
     let project = ProjectFixture::new("/test/project")
-        .django_settings_module("testproject.settings")
-        .file("/test/project/testproject/settings.py", settings)
+        .settings(&ProjectSettings {
+            dirs: vec![
+                "/test/project/templates".to_string(),
+                "/test/project/templates/alias".to_string(),
+            ],
+            ..ProjectSettings::default()
+        })
         .file(
             "/test/project/templates/alias/base.html",
             "{% block content %}Base{% endblock %}",
@@ -554,10 +548,14 @@ fn reverse_inheritance_starts_from_secondary_names_and_dedupes_physical_sites() 
 #[test]
 fn originless_inheritance_keeps_the_exact_resolved_origin_for_relative_parents() {
     let mut db = TestDatabase::new();
-    let settings = "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates', '/test/project/templates/alias'], 'APP_DIRS': False}]\n";
     let project = ProjectFixture::new("/test/project")
-        .django_settings_module("testproject.settings")
-        .file("/test/project/testproject/settings.py", settings)
+        .settings(&ProjectSettings {
+            dirs: vec![
+                "/test/project/templates".to_string(),
+                "/test/project/templates/alias".to_string(),
+            ],
+            ..ProjectSettings::default()
+        })
         .file(
             "/test/project/scratch.html",
             "{% extends 'alias/dir/parent.html' %}",

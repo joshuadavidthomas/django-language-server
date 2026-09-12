@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use camino::Utf8Path;
 use djls_project::TemplateName;
 use djls_semantic::SemanticOffsetContext;
@@ -5,6 +7,7 @@ use djls_semantic::TemplateReferenceKind;
 use djls_source::Offset;
 use djls_source::Span;
 use djls_testing::ProjectFixture;
+use djls_testing::ProjectSettings;
 use djls_testing::TestDatabase;
 
 fn offset_of(source: &str, needle: &str) -> Option<Offset> {
@@ -50,11 +53,11 @@ fn template_reference_context_follows_load_position() {
     let mut db = TestDatabase::new();
     let source = "{% include 'before.html' %}{% load custom %}{% include 'after.html' %}";
     let project = ProjectFixture::new("/test/project")
-        .django_settings_module("myproject.settings")
-        .file(
-            "/test/project/myproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'custom_tags'}}}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".to_string()],
+            libraries: BTreeMap::from([("custom".to_string(), "custom_tags".to_string())]),
+            ..ProjectSettings::default()
+        })
         .file(
             "/test/project/custom_tags.py",
             "from django import template\nregister = template.Library()\n@register.simple_tag(name='include')\ndef custom_include(value):\n    pass\n",

@@ -194,13 +194,21 @@ fn unloaded_tag_action_inserts_load_at_top_without_header() {
 #[test]
 fn unloaded_filter_action_inserts_required_library() {
     let source = "{{ value|intcomma }}\n";
-    let db = db_with_source(source).expect("validation fixture should build");
+    let settings = ProjectSettings {
+        installed_apps: vec!["django.contrib.humanize".into()],
+        ..ProjectSettings::default()
+    };
+    let mut db = validation_db(&settings).expect("validation fixture should build");
+    db.add_file(TEMPLATE_PATH, source)
+        .expect("template fixture should be added");
     let actions = collect_actions(&db, request_at(source, "intcomma"))
         .expect("unloaded filter should produce a code action response");
     let action = only_action(actions).expect("unloaded filter should produce one action");
     let edit = only_edit(&action).expect("unloaded filter action should contain one edit");
-    let edited_db =
-        db_with_source(&apply_edit(source, edit)).expect("edited validation fixture should build");
+    let mut edited_db = validation_db(&settings).expect("edited validation fixture should build");
+    edited_db
+        .add_file(TEMPLATE_PATH, &apply_edit(source, edit))
+        .expect("edited template fixture should be added");
 
     assert_eq!(action.title, "Add '{% load humanize %}'");
     assert_eq!(edit.range.start, ls_types::Position::new(0, 0));
@@ -353,11 +361,11 @@ fn unreadable_library_action_reports_resolved_module_and_first_statement() {
     let library_path = "/test/project/open_tags.py";
     let mut db = TestDatabase::new();
     ProjectFixture::new("/test/project")
-        .django_settings_module("project.settings")
-        .file(
-            "/test/project/project/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'open': 'open_tags'}}}]\n",
-        )
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".into()],
+            libraries: BTreeMap::from([("open".into(), "open_tags".into())]),
+            ..ProjectSettings::default()
+        })
         .file(
             library_path,
             concat!(

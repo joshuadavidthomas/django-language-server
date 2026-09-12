@@ -86,6 +86,10 @@ error[S111]: Unknown filter 'completelymadetupfilter'
 
 ## filter requires load when not configured as a builtin
 
+```toml
+installed-apps = ["django.contrib.humanize"]
+```
+
 ```htmldjango
 {{ value|intcomma }}
 ```
