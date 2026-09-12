@@ -10,6 +10,7 @@ fn mdtest() {
         "diagnostics".to_string(),
         "inheritance".to_string(),
         "tags".to_string(),
+        "unreadable-library".to_string(),
     ];
     expected.sort();
 
@@ -19,6 +20,13 @@ fn mdtest() {
     );
     djls_testing::run_suite(&root.join("diagnostics")).expect("diagnostic mdtest suite should run");
     djls_testing::run_suite(&root.join("tags")).expect("tag mdtest suite should run");
+    djls_testing::run_suite_with(&root.join("unreadable-library"), render_unreadable_library)
+        .expect("unreadable-library mdtest suite should run");
+}
+
+fn render_unreadable_library(scenario: &djls_testing::Scenario) -> anyhow::Result<String> {
+    let db = djls_testing::unreadable_validation_db()?;
+    djls_testing::render_validation_scenario(&db, scenario)
 }
 
 fn claimed_mdtest_suites(root: &Path) -> std::io::Result<Vec<String>> {

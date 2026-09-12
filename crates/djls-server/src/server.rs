@@ -1,13 +1,22 @@
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
+use djls_ide::REPORT_UNREADABLE_REGISTRATION_COMMAND;
+use djls_ide::ReportUnreadableRegistrationParams;
+use djls_project::ScopedTemplateLibraries;
+use djls_project::template_library_catalog;
+use djls_project::template_library_definition_facts;
 use djls_source::FileKind;
+use djls_source::Span;
 use djls_source::path_to_file;
+use percent_encoding::NON_ALPHANUMERIC;
+use percent_encoding::utf8_percent_encode;
 use salsa::Cancelled;
 use tokio::sync::Mutex;
 use tokio::task::spawn_blocking;
 use tower_lsp_server::Client;
 use tower_lsp_server::LanguageServer;
+use tower_lsp_server::jsonrpc::Error as LspError;
 use tower_lsp_server::jsonrpc::Result as LspResult;
 use tower_lsp_server::ls_types;
 use tracing::debug;
@@ -259,6 +268,130 @@ async fn await_ready_session_snapshot(session: &Arc<Mutex<Session>>) -> Option<S
     }
 }
 
+const ISSUE_URL: &str = "https://github.com/joshuadavidthomas/django-language-server/issues/new";
+const MAX_STATEMENT_LINES: usize = 40;
+const MAX_ENCODED_ISSUE_BODY_BYTES: usize = 6_000;
+
+fn parse_report_unreadable_registration_params(
+    arguments: &[serde_json::Value],
+) -> Result<ReportUnreadableRegistrationParams, String> {
+    let [argument] = arguments else {
+        return Err("reportUnreadableRegistration expects exactly one argument".to_string());
+    };
+    let params = ReportUnreadableRegistrationParams::from_lsp_value(argument)
+        .map_err(|error| format!("invalid reportUnreadableRegistration argument: {error}"))?;
+    if params.line == 0 {
+        return Err("reportUnreadableRegistration line must be one-based".to_string());
+    }
+    if params.count == 0 {
+        return Err("reportUnreadableRegistration count must be positive".to_string());
+    }
+    if params.shape.is_empty() {
+        return Err("reportUnreadableRegistration shape must not be empty".to_string());
+    }
+    Ok(params)
+}
+
+fn statement_text(source: &str, span: Span) -> Option<String> {
+    let statement = source.get(span.start_usize()..span.end_usize())?;
+    Some(
+        statement
+            .lines()
+            .take(MAX_STATEMENT_LINES)
+            .collect::<Vec<_>>()
+            .join("\n"),
+    )
+}
+
+fn report_unreadable_registration_issue_uri(
+    db: &dyn djls_project::Db,
+    params: &ReportUnreadableRegistrationParams,
+) -> Option<ls_types::Uri> {
+    let path = params.file.to_utf8_path_buf()?;
+    let project = db.project()?;
+    let library =
+        ScopedTemplateLibraries::from_project_inventory(template_library_catalog(db, project))
+            .resolved_libraries()
+            .into_iter()
+            .find(|library| {
+                library.module_name_str() == params.module
+                    && library
+                        .source_file()
+                        .is_some_and(|file| file.path(db).as_path() == path.as_path())
+            })?;
+    let file = library.source_file()?;
+    let source = file.try_source(db).ok()?;
+    if *source.kind() != FileKind::Python {
+        return None;
+    }
+
+    let facts = template_library_definition_facts(db, library.id());
+    let unread = facts.unread_registrations();
+    if u32::try_from(unread.len()).ok()? != params.count {
+        return None;
+    }
+    let registration = unread.first()?;
+    let (line, _) = file
+        .line_index(db)
+        .to_line_col(registration.span.start_offset())
+        .into();
+    if line.saturating_add(1) != params.line || registration.shape.to_string() != params.shape {
+        return None;
+    }
+
+    let statement = statement_text(source.as_str(), registration.span)?;
+    unreadable_registration_issue_uri(params, &statement)
+}
+
+fn unreadable_registration_issue_body(
+    params: &ReportUnreadableRegistrationParams,
+    statement: Option<&str>,
+) -> String {
+    let statement_section = statement.map_or_else(
+        || {
+            format!(
+                "- Statement (line {}): statement omitted, too long",
+                params.line
+            )
+        },
+        |statement| {
+            format!(
+                "- Statement (line {}):\n\n```python\n{}\n```",
+                params.line, statement
+            )
+        },
+    );
+    format!(
+        "DJLS could not read a registration in `{}`, so unrecognized tags and filters from that library are not reported.\n\n- DJLS version: {}\n- Shape: {}\n{}\n\n<!-- Check the snippet for anything private before submitting. -->",
+        params.module,
+        env!("DJLS_VERSION"),
+        params.shape,
+        statement_section,
+    )
+}
+
+fn unreadable_registration_issue_uri(
+    params: &ReportUnreadableRegistrationParams,
+    statement: &str,
+) -> Option<ls_types::Uri> {
+    let title = format!("Unreadable tag registration: {}", params.shape);
+    let mut body = unreadable_registration_issue_body(params, Some(statement));
+    let encoded_body = utf8_percent_encode(&body, NON_ALPHANUMERIC).to_string();
+    let encoded_body = if encoded_body.len() > MAX_ENCODED_ISSUE_BODY_BYTES {
+        body = unreadable_registration_issue_body(params, None);
+        utf8_percent_encode(&body, NON_ALPHANUMERIC).to_string()
+    } else {
+        encoded_body
+    };
+    if encoded_body.len() > MAX_ENCODED_ISSUE_BODY_BYTES {
+        return None;
+    }
+    let encoded_title = utf8_percent_encode(&title, NON_ALPHANUMERIC);
+    format!("{ISSUE_URL}?title={encoded_title}&body={encoded_body}")
+        .parse()
+        .ok()
+}
+
 impl LanguageServer for DjangoLanguageServer {
     async fn initialize(
         &self,
@@ -319,6 +452,10 @@ impl LanguageServer for DjangoLanguageServer {
                         resolve_provider: Some(false),
                     },
                 )),
+                execute_command_provider: Some(ls_types::ExecuteCommandOptions {
+                    commands: vec![REPORT_UNREADABLE_REGISTRATION_COMMAND.to_string()],
+                    work_done_progress_options: ls_types::WorkDoneProgressOptions::default(),
+                }),
                 folding_range_provider: Some(ls_types::FoldingRangeProviderCapability::Simple(
                     true,
                 )),
@@ -422,6 +559,41 @@ impl LanguageServer for DjangoLanguageServer {
             .await;
 
         Ok(response)
+    }
+
+    async fn execute_command(
+        &self,
+        params: ls_types::ExecuteCommandParams,
+    ) -> LspResult<Option<serde_json::Value>> {
+        if params.command != REPORT_UNREADABLE_REGISTRATION_COMMAND {
+            return Err(LspError::invalid_params(format!(
+                "unknown command: {}",
+                params.command
+            )));
+        }
+        let report = parse_report_unreadable_registration_params(&params.arguments)
+            .map_err(LspError::invalid_params)?;
+        let issue_uri = self
+            .with_ready_snapshot(move |snapshot| {
+                report_unreadable_registration_issue_uri(snapshot.db(), &report)
+            })
+            .await
+            .ok_or_else(|| {
+                LspError::invalid_params(
+                    "reportUnreadableRegistration arguments do not match an unread registration",
+                )
+            })?;
+
+        self.client
+            .show_document(ls_types::ShowDocumentParams {
+                uri: issue_uri,
+                external: Some(true),
+                take_focus: None,
+                selection: None,
+            })
+            .await?;
+
+        Ok(None)
     }
 
     async fn completion(
@@ -721,11 +893,119 @@ mod tests {
 
     use camino::Utf8PathBuf;
     use djls_ide::prime_template_library_products;
+    use percent_encoding::percent_decode_str;
     use tokio::spawn as spawn_task;
     use tokio::time::timeout;
 
     use super::*;
     use crate::session::ProjectWork;
+
+    fn report_params() -> ReportUnreadableRegistrationParams {
+        ReportUnreadableRegistrationParams {
+            module: "app.templatetags.open_tags".to_string(),
+            file: "file:///tmp/open_tags.py"
+                .parse()
+                .expect("test file URI should parse"),
+            line: 7,
+            shape: "the registered name cannot be resolved".to_string(),
+            count: 1,
+        }
+    }
+
+    fn issue_query_value(uri: &ls_types::Uri, name: &str) -> String {
+        let query = uri
+            .as_str()
+            .split_once('?')
+            .map(|(_, query)| query)
+            .expect("issue URI should contain a query");
+        let encoded = query
+            .split('&')
+            .find_map(|field| field.strip_prefix(&format!("{name}=")))
+            .expect("issue URI should contain the requested query field");
+        percent_decode_str(encoded)
+            .decode_utf8()
+            .expect("issue query should contain UTF-8")
+            .into_owned()
+    }
+
+    #[test]
+    fn unreadable_registration_issue_uri_encodes_markdown_query_values() {
+        let uri = unreadable_registration_issue_uri(&report_params(), "# heading & detail\nnext")
+            .expect("issue URI should build");
+
+        assert!(uri.as_str().contains("%23"));
+        assert!(uri.as_str().contains("%26"));
+        assert!(uri.as_str().contains("%0A"));
+        assert_eq!(
+            issue_query_value(&uri, "title"),
+            "Unreadable tag registration: the registered name cannot be resolved"
+        );
+        let body = issue_query_value(&uri, "body");
+        assert!(body.contains("# heading & detail\nnext"));
+        assert!(body.contains("unrecognized tags and filters from that library are not reported"));
+    }
+
+    #[test]
+    fn unreadable_registration_issue_uri_omits_overlong_encoded_statement() {
+        let statement = "# &\n".repeat(2_000);
+        let uri = unreadable_registration_issue_uri(&report_params(), &statement)
+            .expect("issue URI should build");
+        let body = issue_query_value(&uri, "body");
+
+        assert!(body.contains("statement omitted, too long"));
+        assert!(!body.contains("# &\n# &"));
+        let encoded_body = uri
+            .as_str()
+            .split_once("&body=")
+            .map(|(_, body)| body)
+            .expect("issue URI should contain an encoded body");
+        assert!(encoded_body.len() <= MAX_ENCODED_ISSUE_BODY_BYTES);
+    }
+
+    #[test]
+    fn unreadable_registration_issue_uri_rejects_overlong_metadata_body() {
+        let mut params = report_params();
+        params.module = "m".repeat(MAX_ENCODED_ISSUE_BODY_BYTES);
+
+        assert!(unreadable_registration_issue_uri(&params, "short statement").is_none());
+    }
+
+    #[test]
+    fn statement_text_uses_only_the_statement_span_and_clamps_to_forty_lines() {
+        let source = format!("before\n{}after\n", "part\n".repeat(45));
+        let start = "before\n".len();
+        let length = "part\n".repeat(45).len();
+        let span = Span::saturating_from_parts_usize(start, length);
+        let statement = statement_text(&source, span).expect("statement span should be valid");
+
+        assert_eq!(statement.lines().count(), MAX_STATEMENT_LINES);
+        assert!(statement.lines().all(|line| line == "part"));
+        assert!(!statement.contains("before"));
+        assert!(!statement.contains("after"));
+    }
+
+    #[test]
+    fn report_unreadable_registration_params_reject_bad_arguments() {
+        assert!(parse_report_unreadable_registration_params(&[]).is_err());
+        assert!(
+            parse_report_unreadable_registration_params(&[serde_json::json!("not an object")])
+                .is_err()
+        );
+        assert!(
+            parse_report_unreadable_registration_params(&[serde_json::json!({
+                "module": "app.tags",
+                "file": "file:///tmp/tags.py",
+                "line": 1,
+                "shape": "unknown",
+                "count": 1,
+                "extra": true,
+            })])
+            .is_err()
+        );
+        let mut invalid_line = report_params().into_lsp_value();
+        invalid_line["line"] = serde_json::json!(0);
+        assert!(parse_report_unreadable_registration_params(&[invalid_line]).is_err());
+    }
 
     #[tokio::test]
     async fn syntax_only_request_task_panic_returns_default() {

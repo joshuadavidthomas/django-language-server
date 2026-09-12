@@ -9,6 +9,8 @@ use djls_source::PositionEncoding;
 use djls_source::Span;
 use tower_lsp_server::ls_types;
 
+use crate::commands::REPORT_UNREADABLE_REGISTRATION_COMMAND;
+use crate::commands::ReportUnreadableRegistrationParams;
 use crate::ext::DiagnosticExt;
 use crate::ext::QuickFixActionExt;
 use crate::ext::SpanExt;
@@ -72,7 +74,7 @@ pub fn code_actions(
             ValidationError::UnloadedTag { library, .. }
             | ValidationError::UnloadedFilter { library, .. } => {
                 let Some(diagnostic) =
-                    error.to_lsp_diagnostic(source_text, line_index, encoding, &config)
+                    error.to_lsp_diagnostic_in_db(db, source_text, line_index, encoding, &config)
                 else {
                     continue;
                 };
@@ -90,7 +92,7 @@ pub fn code_actions(
             ValidationError::AmbiguousUnloadedTag { libraries, .. }
             | ValidationError::AmbiguousUnloadedFilter { libraries, .. } => {
                 let Some(diagnostic) =
-                    error.to_lsp_diagnostic(source_text, line_index, encoding, &config)
+                    error.to_lsp_diagnostic_in_db(db, source_text, line_index, encoding, &config)
                 else {
                     continue;
                 };
@@ -115,7 +117,7 @@ pub fn code_actions(
                 expected, got_span, ..
             } => {
                 let Some(diagnostic) =
-                    error.to_lsp_diagnostic(source_text, line_index, encoding, &config)
+                    error.to_lsp_diagnostic_in_db(db, source_text, line_index, encoding, &config)
                 else {
                     continue;
                 };
@@ -128,6 +130,60 @@ pub fn code_actions(
                     format!("Rename closing block to '{expected}'"),
                     diagnostic,
                     Some(true),
+                ));
+            }
+            ValidationError::UnreadableLibrary {
+                library,
+                registration_file,
+                first_line,
+                unread,
+                ..
+            } => {
+                let Some(diagnostic) =
+                    error.to_lsp_diagnostic_in_db(db, source_text, line_index, encoding, &config)
+                else {
+                    continue;
+                };
+                let Some(resolved_library) =
+                    djls_semantic::scoped_template_libraries_for_file(db, file)
+                        .loadable_library_str(library)
+                        .found()
+                else {
+                    continue;
+                };
+                if resolved_library.source_file() != Some(*registration_file) {
+                    continue;
+                }
+                let Some(first) = unread.first() else {
+                    continue;
+                };
+                let Ok(count) = u32::try_from(unread.len()) else {
+                    continue;
+                };
+                let argument = ReportUnreadableRegistrationParams {
+                    module: resolved_library.module_name_str().to_string(),
+                    file: registration_file.path(db).to_lsp_uri()?,
+                    line: *first_line,
+                    shape: first.shape.to_string(),
+                    count,
+                }
+                .into_lsp_value();
+                let title = "Report unreadable registration to django-language-server".to_string();
+                actions.push(ls_types::CodeActionOrCommand::CodeAction(
+                    ls_types::CodeAction {
+                        title: title.clone(),
+                        kind: Some(ls_types::CodeActionKind::QUICKFIX),
+                        diagnostics: Some(vec![diagnostic]),
+                        edit: None,
+                        command: Some(ls_types::Command {
+                            title,
+                            command: REPORT_UNREADABLE_REGISTRATION_COMMAND.to_string(),
+                            arguments: Some(vec![argument]),
+                        }),
+                        is_preferred: None,
+                        disabled: None,
+                        data: None,
+                    },
                 ));
             }
             ValidationError::UnclosedTag { .. }

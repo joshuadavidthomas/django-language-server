@@ -1,3 +1,6 @@
+use djls_project::UnreadRegistration;
+use djls_project::UnreadShape;
+use djls_source::File;
 use djls_source::Span;
 use serde::Serialize;
 use thiserror::Error;
@@ -125,6 +128,39 @@ pub enum ValidationError {
         span: Span,
     },
 
+    /// A loaded library has registrations DJLS could not read; unrecognized
+    /// tags and filters from that library are not reported.
+    #[error(
+        "{}",
+        unreadable_library_message(
+            library,
+            file_name,
+            *first_line,
+            *first_shape,
+            unread.len()
+        )
+    )]
+    UnreadableLibrary {
+        /// Load name as written in the Template.
+        library: String,
+        /// Span of that load argument.
+        span: Span,
+        /// The Template Library's Python file.
+        ///
+        /// This is not named `source` because `thiserror` reserves that field
+        /// name for an underlying error.
+        #[serde(skip)]
+        registration_file: File,
+        /// Basename of the Template Library's Python file.
+        file_name: String,
+        /// One-based line of the first unread statement.
+        first_line: u32,
+        /// Shape of the first unread statement.
+        first_shape: UnreadShape,
+        /// Every unread statement in the Template Library.
+        unread: Vec<UnreadRegistration>,
+    },
+
     #[error("The 'extends' tag must be the first tag in the template")]
     ExtendsMustBeFirst { span: Span },
 
@@ -138,6 +174,24 @@ fn format_library_list(libraries: &[String]) -> String {
         .map(|library| format!("'{library}'"))
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+fn unreadable_library_message(
+    library: &str,
+    file_name: &str,
+    first_line: u32,
+    first_shape: UnreadShape,
+    unread_count: usize,
+) -> String {
+    if unread_count == 1 {
+        format!(
+            "DJLS could not read a registration in `{file_name}` at line {first_line} ({first_shape}), so unrecognized tags and filters from `{library}` are not reported"
+        )
+    } else {
+        format!(
+            "DJLS could not read {unread_count} registrations in `{file_name}` (first at line {first_line}: {first_shape}), so unrecognized tags and filters from `{library}` are not reported"
+        )
+    }
 }
 
 impl ValidationError {
@@ -164,7 +218,36 @@ impl ValidationError {
             Self::LibraryNotInInstalledApps { .. } => "S121",
             Self::ExtendsMustBeFirst { .. } => "S122",
             Self::MultipleExtends { .. } => "S123",
+            Self::UnreadableLibrary { .. } => "S124",
         }
+    }
+
+    pub(crate) fn unreadable_library(
+        db: &dyn crate::Db,
+        library: String,
+        span: Span,
+        registration_file: File,
+        unread: Vec<UnreadRegistration>,
+    ) -> Option<Self> {
+        let first = unread.first()?;
+        let file_name = registration_file
+            .path(db)
+            .file_name()
+            .unwrap_or_else(|| registration_file.path(db).as_str())
+            .to_string();
+        let (line, _) = registration_file
+            .line_index(db)
+            .to_line_col(first.span.start_offset())
+            .into();
+        Some(Self::UnreadableLibrary {
+            library,
+            span,
+            registration_file,
+            file_name,
+            first_line: line.saturating_add(1),
+            first_shape: first.shape,
+            unread,
+        })
     }
 
     #[must_use]
@@ -189,6 +272,7 @@ impl ValidationError {
             | Self::ExtractedRuleViolation { span, .. }
             | Self::UnknownLibrary { span, .. }
             | Self::LibraryNotInInstalledApps { span, .. }
+            | Self::UnreadableLibrary { span, .. }
             | Self::ExtendsMustBeFirst { span, .. }
             | Self::MultipleExtends { span, .. } => Some(*span),
         }

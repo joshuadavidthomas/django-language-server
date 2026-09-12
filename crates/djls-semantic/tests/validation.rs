@@ -14,6 +14,8 @@ use djls_project::ScopedTemplateLibraries;
 use djls_project::SymbolDefinition;
 use djls_project::TagRule;
 use djls_project::TemplateSymbolKind;
+use djls_project::UnreadRegistration;
+use djls_project::UnreadShape;
 use djls_project::template_library_catalog;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::TagArgumentKind;
@@ -3298,6 +3300,144 @@ fn corpus_templates_have_no_argument_false_positives() {
         failures.is_empty(),
         "Corpus templates have false positives:\n{}",
         format_failures(&failures).expect("corpus failures should format")
+    );
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn loaded_unreadable_library_reports_each_load_argument_without_changing_validation() {
+    let mut db = TestDatabase::new();
+    let open_source = concat!(
+        "from django import template\n",
+        "register = template.Library()\n",
+        "def other_tag(context): pass\n",
+        "register.simple_tag(takes_context=True)(globals()['other_tag'])\n",
+        "@register.simple_tag\n",
+        "def known_tag(): pass\n",
+    );
+    let unread_statement = "register.simple_tag(takes_context=True)(globals()['other_tag'])";
+    let open_template = "{% load open %}{% known_tag %}";
+    let known_template = "{% load known %}{% known_tag %}";
+    let mixed_template = "{% load known open %}";
+    let selective_template = "{% load known_tag from open %}";
+    let repeated_template = "{% load open open %}";
+    ProjectFixture::new("/proj")
+        .django_settings_module("project.settings")
+        .file(
+            "/proj/project/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'known': 'known_tags', 'open': 'open_tags'}}}]\n",
+        )
+        .file(
+            "/proj/known_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef known_tag(): pass\n",
+        )
+        .file("/proj/open_tags.py", open_source)
+        .file("/proj/templates/open.html", open_template)
+        .file("/proj/templates/known.html", known_template)
+        .file("/proj/templates/mixed.html", mixed_template)
+        .file("/proj/templates/selective.html", selective_template)
+        .file("/proj/templates/repeated.html", repeated_template)
+        .install(&mut db)
+        .expect("unreadable-library fixture should install");
+
+    let open_file = db
+        .file(Utf8Path::new("/proj/open_tags.py"))
+        .expect("open Template Library source should exist");
+    let unread_start = open_source
+        .find(unread_statement)
+        .expect("open source should contain the unread statement");
+    let expected_unread = vec![UnreadRegistration {
+        span: djls_source::Span::saturating_from_bounds_usize(
+            unread_start,
+            unread_start + unread_statement.len(),
+        ),
+        shape: UnreadShape::RegistrationNameUnresolved,
+    }];
+
+    let open_errors =
+        collect_file_errors(&db, "/proj/templates/open.html").expect("open load should validate");
+    let [
+        ValidationError::UnreadableLibrary {
+            library,
+            span,
+            registration_file,
+            unread,
+            ..
+        },
+    ] = open_errors.as_slice()
+    else {
+        panic!("expected one unreadable-library hint, got {open_errors:#?}");
+    };
+    assert_eq!(library, "open");
+    assert_eq!(
+        *span,
+        djls_source::Span::saturating_from_bounds_usize(
+            open_template
+                .find("open")
+                .expect("open load name should exist"),
+            open_template
+                .find("open")
+                .expect("open load name should exist")
+                + "open".len(),
+        )
+    );
+    assert_eq!(*registration_file, open_file);
+    assert_eq!(unread, &expected_unread);
+    assert_eq!(
+        open_errors[0].to_string(),
+        "DJLS could not read a registration in `open_tags.py` at line 4 (the registered name cannot be resolved), so unrecognized tags and filters from `open` are not reported"
+    );
+
+    let known_errors =
+        collect_file_errors(&db, "/proj/templates/known.html").expect("known load should validate");
+    assert!(known_errors.is_empty(), "{known_errors:#?}");
+
+    let mixed_errors = collect_file_errors(&db, "/proj/templates/mixed.html")
+        .expect("mixed full load should validate");
+    let [ValidationError::UnreadableLibrary { span, .. }] = mixed_errors.as_slice() else {
+        panic!("expected one hint for the open argument, got {mixed_errors:#?}");
+    };
+    let mixed_open = mixed_template
+        .find("open")
+        .expect("mixed load should contain open");
+    assert_eq!(
+        *span,
+        djls_source::Span::saturating_from_bounds_usize(mixed_open, mixed_open + "open".len())
+    );
+
+    let selective_errors = collect_file_errors(&db, "/proj/templates/selective.html")
+        .expect("selective load should validate");
+    let [ValidationError::UnreadableLibrary { span, .. }] = selective_errors.as_slice() else {
+        panic!("expected one hint for a selective load, got {selective_errors:#?}");
+    };
+    let selective_open = selective_template
+        .find("open")
+        .expect("selective load should contain open");
+    assert_eq!(
+        *span,
+        djls_source::Span::saturating_from_bounds_usize(
+            selective_open,
+            selective_open + "open".len()
+        )
+    );
+
+    let repeated_errors = collect_file_errors(&db, "/proj/templates/repeated.html")
+        .expect("repeated loads should validate");
+    let repeated_starts = repeated_errors
+        .iter()
+        .map(|error| {
+            let ValidationError::UnreadableLibrary { span, .. } = error else {
+                panic!("expected only unreadable-library hints, got {error:#?}");
+            };
+            span.start()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        repeated_starts,
+        repeated_template
+            .match_indices("open")
+            .map(|(start, _)| u32::try_from(start).expect("template offset should fit in u32"))
+            .collect::<Vec<_>>()
     );
 }
 

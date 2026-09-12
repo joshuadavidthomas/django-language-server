@@ -12,6 +12,8 @@ use djls_project::TemplateLibraryId;
 use djls_project::TemplateSymbolAvailability;
 use djls_project::TemplateSymbolCandidate;
 use djls_project::TemplateSymbolKind;
+use djls_project::UnreadRegistration;
+use djls_project::template_library_definition_facts;
 use djls_source::File;
 use djls_source::Span;
 use djls_templates::Filter;
@@ -110,9 +112,16 @@ struct ContextualFilterFact {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct UnreadableLibraryFact {
+    pub(crate) registration_file: File,
+    pub(crate) unread: Vec<UnreadRegistration>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct LoaderArgumentFact {
     pub(crate) argument: LoadArgument,
     pub(crate) availability: MissingTemplateLibraryLookup,
+    pub(crate) unreadable: Option<UnreadableLibraryFact>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -269,23 +278,38 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
                                 scoped_libraries,
                             ),
                         });
-                    let loader_arguments =
-                        if spec.and_then(TagSpec::role) == Some(TagRole::TemplateLibraryLoader) {
-                            LoadKind::from_loader_bits(tag.bits).map_or_else(Vec::new, |kind| {
-                                kind.into_library_arguments()
-                                    .into_iter()
-                                    .filter_map(|argument| {
-                                        let name = LibraryName::parse(argument.as_str()).ok()?;
-                                        Some(LoaderArgumentFact {
-                                            availability: scoped_libraries.missing_library(&name),
-                                            argument,
-                                        })
+                    let loader_arguments = if spec.and_then(TagSpec::role)
+                        == Some(TagRole::TemplateLibraryLoader)
+                    {
+                        LoadKind::from_loader_bits(tag.bits).map_or_else(Vec::new, |kind| {
+                            kind.into_library_arguments()
+                                .into_iter()
+                                .filter_map(|argument| {
+                                    let name = LibraryName::parse(argument.as_str()).ok()?;
+                                    let unreadable = scoped_libraries
+                                        .loadable_library(&name)
+                                        .found()
+                                        .and_then(|library| {
+                                            let registration_file = library.source_file()?;
+                                            let unread =
+                                                template_library_definition_facts(db, library.id())
+                                                    .unread_registrations();
+                                            (!unread.is_empty()).then(|| UnreadableLibraryFact {
+                                                registration_file,
+                                                unread: unread.to_vec(),
+                                            })
+                                        });
+                                    Some(LoaderArgumentFact {
+                                        availability: scoped_libraries.missing_library(&name),
+                                        argument,
+                                        unreadable,
                                     })
-                                    .collect()
-                            })
-                        } else {
-                            Vec::new()
-                        };
+                                })
+                                .collect()
+                        })
+                    } else {
+                        Vec::new()
+                    };
                     tag_facts.insert(
                         TagOccurrenceKey::from_name_span(tag.name_span),
                         ScopedTagFact {

@@ -4,6 +4,8 @@ use std::collections::HashMap;
 use anyhow::Context as _;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+use djls_conf::DiagnosticSeverity;
+use djls_conf::DiagnosticsConfig;
 use djls_conf::Settings;
 use djls_conf::TagSpecDef;
 use djls_project::Db as ProjectDb;
@@ -516,8 +518,15 @@ pub fn render_diagnostic_snapshot(
             .ok_or_else(|| anyhow::anyhow!("validation error `{err}` has no primary span"))?;
         let message = err.to_string();
         let code = err.code();
+        let severity = match DiagnosticsConfig::default().get_severity(code) {
+            DiagnosticSeverity::Off => continue,
+            DiagnosticSeverity::Error => Severity::Error,
+            DiagnosticSeverity::Warning => Severity::Warning,
+            DiagnosticSeverity::Info => Severity::Info,
+            DiagnosticSeverity::Hint => Severity::Hint,
+        };
 
-        let mut diag = Diagnostic::new(source, path, code, &message, Severity::Error, span, "");
+        let mut diag = Diagnostic::new(source, path, code, &message, severity, span, "");
 
         if let ValidationError::UnbalancedStructure {
             closing_span: Some(cs),
@@ -534,21 +543,21 @@ pub fn render_diagnostic_snapshot(
 }
 
 pub fn snapshot_validate_files<'a>(
+    db: &TestDatabase,
     primary_path: &str,
     primary_source: &str,
     files: impl IntoIterator<Item = (&'a str, &'a str)>,
 ) -> anyhow::Result<String> {
-    let db = standard_validation_db()?;
     for (path, source) in files {
         db.add_file(path, source)?;
     }
 
     let file = db.create_file_with_revision(Utf8Path::new(primary_path), 0)?;
 
-    validate_template_file(&db, file);
+    validate_template_file(db, file);
 
     let mut errors: Vec<ValidationError> =
-        validate_template_file::accumulated::<ValidationErrorAccumulator>(&db, file)
+        validate_template_file::accumulated::<ValidationErrorAccumulator>(db, file)
             .into_iter()
             .map(|acc| acc.0.clone())
             .collect();
@@ -564,23 +573,33 @@ pub fn snapshot_validate_files<'a>(
 /// a live Django project inspection fixture; add libraries, tags, and filters
 /// here when a scenario needs them.
 pub fn standard_validation_db() -> anyhow::Result<TestDatabase> {
-    validation_db(false)
+    validation_db(false, false)
 }
 
 pub fn partial_validation_db() -> anyhow::Result<TestDatabase> {
-    validation_db(true)
+    validation_db(true, false)
+}
+
+/// Curated validation fixture with one Template Library whose inventory is open.
+pub fn unreadable_validation_db() -> anyhow::Result<TestDatabase> {
+    validation_db(false, true)
 }
 
 #[allow(clippy::too_many_lines)]
-fn validation_db(partial: bool) -> anyhow::Result<TestDatabase> {
+fn validation_db(partial: bool, unreadable_library: bool) -> anyhow::Result<TestDatabase> {
     let mut db = TestDatabase::new();
     let open_key = if partial {
         ", UNKNOWN: 'maybe'"
     } else {
         Default::default()
     };
+    let unreadable_library_setting = if unreadable_library {
+        ", 'open': 'example.open.templatetags.open_tags'"
+    } else {
+        Default::default()
+    };
     let settings = format!(
-        "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/'], 'APP_DIRS': False, 'OPTIONS': {{'builtins': ['example.templatetags.custom'], 'libraries': {{'alpha': 'example.alpha.templatetags.alpha', 'beta': 'example.beta.templatetags.beta', 'cache': 'django.templatetags.cache', 'humanize': 'django.contrib.humanize.templatetags.humanize', 'i18n': 'django.templatetags.i18n', 'l10n': 'django.templatetags.l10n', 'static': 'django.templatetags.static', 'tz': 'django.templatetags.tz'}}}}{open_key}}}]\n"
+        "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/'], 'APP_DIRS': False, 'OPTIONS': {{'builtins': ['example.templatetags.custom'], 'libraries': {{'alpha': 'example.alpha.templatetags.alpha', 'beta': 'example.beta.templatetags.beta', 'cache': 'django.templatetags.cache', 'humanize': 'django.contrib.humanize.templatetags.humanize', 'i18n': 'django.templatetags.i18n', 'l10n': 'django.templatetags.l10n', 'static': 'django.templatetags.static', 'tz': 'django.templatetags.tz'{unreadable_library_setting}}}}}{open_key}}}]\n"
     );
     let register = "from django import template\nregister = template.Library()\n";
     let tags = |names: &[&str]| {
@@ -677,7 +696,7 @@ def widthratio(parser, token):
 "#,
     );
 
-    ProjectFixture::new("/")
+    let fixture = ProjectFixture::new("/")
         .django_settings_module("project.settings")
         .file("/project/settings.py", settings)
         .file("/project/__init__.py", "")
@@ -750,8 +769,21 @@ def widthratio(parser, token):
         .file(
             "/django/contrib/humanize/templatetags/humanize.py",
             format!("{register}{}", filters(&["intcomma"])),
-        )
-        .install(&mut db)?;
+        );
+    let fixture = if unreadable_library {
+        fixture
+            .file("/example/open/__init__.py", "")
+            .file("/example/open/templatetags/__init__.py", "")
+            .file(
+                "/example/open/templatetags/open_tags.py",
+                format!(
+                    "{register}@register.simple_tag\ndef known_tag(): pass\nregister.simple_tag(takes_context=True)(globals()['other_tag'])\n"
+                ),
+            )
+    } else {
+        fixture
+    };
+    fixture.install(&mut db)?;
     Ok(db)
 }
 

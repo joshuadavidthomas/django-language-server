@@ -35,7 +35,7 @@ pub fn collect_diagnostics(
 
     for error in collected.template_errors {
         if let Some(diagnostic) =
-            error.to_lsp_diagnostic(source.as_str(), line_index, encoding, &config)
+            error.to_lsp_diagnostic_in_db(db, source.as_str(), line_index, encoding, &config)
         {
             diagnostics.push(diagnostic);
         }
@@ -43,7 +43,7 @@ pub fn collect_diagnostics(
 
     for error in collected.validation_errors {
         if let Some(diagnostic) =
-            error.to_lsp_diagnostic(source.as_str(), line_index, encoding, &config)
+            error.to_lsp_diagnostic_in_db(db, source.as_str(), line_index, encoding, &config)
         {
             diagnostics.push(diagnostic);
         }
