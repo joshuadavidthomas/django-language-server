@@ -6,6 +6,7 @@ pub(crate) mod module;
 mod name;
 mod parse;
 mod path_eval;
+mod scope;
 mod search_paths;
 mod source_occurrences;
 
@@ -34,6 +35,7 @@ pub use parse::PythonSyntaxErrorClass;
 pub(crate) use parse::RecoveredPythonModule;
 pub(crate) use parse::python_syntax_errors;
 pub(crate) use path_eval::PythonPath;
+pub(crate) use scope::ScopeBindings;
 pub use search_paths::SearchPath;
 pub use search_paths::SearchPaths;
 pub(crate) use source_occurrences::PythonFunctionDefinition;

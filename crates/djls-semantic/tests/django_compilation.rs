@@ -33,8 +33,6 @@ const MISSED_DIAGNOSTICS: &[&str] = &[
     "stdlib_wrapped_invalid",
     // implicit-exception fallback enters finally with unknown bits and its return makes that path accepting
     "unhandled_exception_finally_missing",
-    // token_kwargs invalidates the remaining bits without modeling assignment parsing
-    "with_invalid_assignment",
 ];
 
 #[test]

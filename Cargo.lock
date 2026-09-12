@@ -991,6 +991,7 @@ dependencies = [
  "djls-testing",
  "dotenvy",
  "insta",
+ "regex",
  "rustc-hash",
  "salsa",
  "serde",

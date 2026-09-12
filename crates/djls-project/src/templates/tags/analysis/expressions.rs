@@ -12,7 +12,7 @@ use ruff_python_ast::Number;
 
 use crate::ast::ExprExt;
 use crate::templates::tags::analysis::CallContext;
-use crate::templates::tags::analysis::calls::resolve_call;
+use crate::templates::tags::analysis::calls::evaluate_source_call;
 use crate::templates::tags::analysis::mutations::PopPosition;
 use crate::templates::tags::analysis::state::AbstractValue;
 use crate::templates::tags::analysis::state::Env;
@@ -32,7 +32,7 @@ pub(crate) fn eval_expr(expr: &Expr, env: &mut Env) -> AbstractValue {
 pub(super) fn eval_expr_with_ctx(
     expr: &Expr,
     env: &mut Env,
-    ctx: Option<&mut CallContext<'_>>,
+    ctx: Option<&mut CallContext<'_, '_>>,
 ) -> AbstractValue {
     if let Some(name) = expr.name_target() {
         return env.get(name).clone();
@@ -84,6 +84,8 @@ pub(super) fn eval_expr_with_ctx(
                 | AbstractValue::SplitLength(_)
                 | AbstractValue::Str(_)
                 | AbstractValue::SplitPredicate(_)
+                | AbstractValue::AssignmentMap(_)
+                | AbstractValue::AssignmentRemainder(_)
                 | AbstractValue::Tuple(_) => AbstractValue::Unknown,
             }
         }
@@ -130,7 +132,7 @@ pub(super) fn eval_expr_with_ctx(
 fn eval_collection(
     elements: &[Expr],
     env: &mut Env,
-    mut ctx: Option<&mut CallContext<'_>>,
+    mut ctx: Option<&mut CallContext<'_, '_>>,
 ) -> AbstractValue {
     let mut values = Vec::with_capacity(elements.len());
     for element in elements {
@@ -154,7 +156,7 @@ pub(super) fn eval_membership_collection(expr: &Expr, env: &mut Env) -> Abstract
 fn eval_literal_collection(
     elements: &[Expr],
     env: &mut Env,
-    ctx: Option<&mut CallContext<'_>>,
+    ctx: Option<&mut CallContext<'_, '_>>,
 ) -> AbstractValue {
     if elements.is_empty() {
         return AbstractValue::Unknown;
@@ -177,10 +179,44 @@ fn eval_literal_collection(
 fn eval_call_with_ctx(
     call: &ExprCall,
     env: &mut Env,
-    mut ctx: Option<&mut CallContext<'_>>,
+    mut ctx: Option<&mut CallContext<'_, '_>>,
 ) -> AbstractValue {
-    if let Expr::Attribute(ExprAttribute { value, attr, .. }) = call.func.as_ref() {
-        let obj = eval_expr_with_ctx(value, env, ctx.as_deref_mut());
+    let receiver = if let Expr::Attribute(attribute) = call.func.as_ref() {
+        Some(eval_expr_with_ctx(
+            &attribute.value,
+            env,
+            ctx.as_deref_mut(),
+        ))
+    } else {
+        if call.func.name_target().is_none() {
+            eval_expr_with_ctx(&call.func, env, ctx.as_deref_mut());
+        }
+        None
+    };
+    let args = call
+        .arguments
+        .args
+        .iter()
+        .map(|argument| {
+            if let Expr::Starred(starred) = argument {
+                let value = eval_expr_with_ctx(&starred.value, env, ctx.as_deref_mut());
+                env.forget_aliases(&value);
+                AbstractValue::Unknown
+            } else {
+                eval_expr_with_ctx(argument, env, ctx.as_deref_mut())
+            }
+        })
+        .collect::<Vec<_>>();
+    let keywords = call
+        .arguments
+        .keywords
+        .iter()
+        .map(|keyword| eval_expr_with_ctx(&keyword.value, env, ctx.as_deref_mut()))
+        .collect::<Vec<_>>();
+
+    if let (Expr::Attribute(ExprAttribute { value, attr, .. }), Some(obj)) =
+        (call.func.as_ref(), receiver.as_ref())
+    {
         let method = attr.as_str();
 
         // token.split_contents()
@@ -205,7 +241,7 @@ fn eval_call_with_ctx(
         if method == "pop"
             && let AbstractValue::SplitResult(split) = obj
         {
-            return eval_pop(value, split, &call.arguments, env);
+            return eval_pop(value, *split, &call.arguments, env);
         }
 
         // token.contents.split(...)
@@ -232,55 +268,24 @@ fn eval_call_with_ctx(
             }
         }
 
-        return AbstractValue::Unknown;
-    }
-
-    // Builtin calls: len(), list()
-    if let Some(name) = call.func.name_target() {
-        // len() and list() with single argument. Bare names only identify
-        // builtins when module and function scope analysis proves they are
-        // visible.
-        if env.builtin_name_visible(name)
-            && let Some(arg) = call.arguments.args.first()
-        {
-            let val = eval_expr_with_ctx(arg, env, ctx.as_deref_mut());
-            match name {
-                "len" => {
-                    if let AbstractValue::SplitResult(split) = val {
-                        return AbstractValue::SplitLength(split);
-                    }
-                }
-                "list" => {
-                    if matches!(val, AbstractValue::SplitResult(_)) {
-                        return val;
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        // Hardcoded external summary: token_kwargs(bits, parser)
-        // Mutates bits → mark it Unknown, return Unknown
-        if name == "token_kwargs" {
-            if let Some(arg_name) = call.arguments.args.first().and_then(ExprExt::name_target) {
-                env.set(arg_name.to_string(), AbstractValue::Unknown);
-            }
+        if matches!(obj, AbstractValue::Str(_)) && method == "join" {
             return AbstractValue::Unknown;
         }
-
-        // Try module-local function resolution
-        if let Some(ctx) = ctx.as_mut() {
-            let args: Vec<AbstractValue> = call
-                .arguments
-                .args
-                .iter()
-                .map(|a| eval_expr_with_ctx(a, env, Some(*ctx)))
-                .collect();
-            return resolve_call(name, &args, ctx);
-        }
     }
 
-    AbstractValue::Unknown
+    if let Some(name @ ("len" | "list")) = call.func.name_target()
+        && env.builtin_name_visible(name)
+        && keywords.is_empty()
+        && let [value] = args.as_slice()
+    {
+        return match (name, value) {
+            ("len", AbstractValue::SplitResult(split)) => AbstractValue::SplitLength(*split),
+            ("list", AbstractValue::SplitResult(split)) => AbstractValue::SplitResult(*split),
+            _ => AbstractValue::Unknown,
+        };
+    }
+
+    evaluate_source_call(call, &args, &keywords, receiver.as_ref(), env, ctx)
 }
 
 fn eval_split_equality(compare: &ruff_python_ast::ExprCompare, env: &mut Env) -> AbstractValue {

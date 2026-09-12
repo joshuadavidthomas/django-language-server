@@ -1,4 +1,3 @@
-use djls_source::File;
 use ruff_python_ast::StmtFunctionDef;
 
 use crate::templates::FilterArity;
@@ -8,6 +7,7 @@ use crate::templates::filters;
 use crate::templates::registrations::RegisteredEnd;
 use crate::templates::registrations::RegistrationOptions;
 use crate::templates::tags::analysis;
+use crate::templates::tags::analysis::TagSourceContext;
 use crate::templates::tags::blocks;
 use crate::templates::tags::signature;
 use crate::templates::tags::types::AsVar;
@@ -40,8 +40,7 @@ impl RegistrationKind {
 
     pub(crate) fn extract_tag_rule(
         self,
-        db: &dyn djls_source::Db,
-        implementation_file: Option<File>,
+        source: Option<&mut TagSourceContext<'_>>,
         func: &StmtFunctionDef,
         options: &RegistrationOptions,
         trusted_callable: bool,
@@ -67,9 +66,9 @@ impl RegistrationKind {
                 rule.has_content().then(|| Box::new(rule))
             }
             Self::Tag => {
-                let mut rule = implementation_file.map_or_else(
+                let mut rule = source.map_or_else(
                     || analysis::analyze_compile_function(func),
-                    |file| analysis::analyze_compile_function_in_file(db, file, func),
+                    |source| analysis::analyze_compile_function_in_source(source, func),
                 );
                 if self.var_assignment().strips_suffix() {
                     rule.as_var = self.var_assignment();

@@ -47,10 +47,7 @@ pub(super) fn detect(
 
 fn analyze_env(body: &[Stmt], parser_var: &str, token_var: &str) -> Env {
     let mut env = Env::for_compile_function(parser_var, token_var);
-    let mut ctx = CallContext {
-        db: None,
-        file: None,
-    };
+    let mut ctx = CallContext { source: None };
     let _result = process_statements(body, &mut env, &mut ctx);
     env
 }

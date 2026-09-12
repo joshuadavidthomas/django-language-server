@@ -30,6 +30,7 @@ use crate::python::PythonSourceModule;
 use crate::python::RecoveredPythonModule;
 use crate::python::import::DirectImportClause;
 use crate::python::import::FromImportSyntax;
+use crate::templates::tags::TagSourceContext;
 
 /// Information about a single tag or filter registration found in source code.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -650,7 +651,11 @@ fn for_each_registration<'db>(
     body: &'db [Stmt],
     registration_file: djls_source::File,
     module_name: &str,
-    mut f: impl FnMut(&RegistrationInfo, Option<(&'db StmtFunctionDef, djls_source::File)>, SymbolKey),
+    mut f: impl FnMut(
+        &RegistrationInfo,
+        Option<(&'db StmtFunctionDef, djls_source::File, bool)>,
+        SymbolKey,
+    ),
 ) {
     let func_defs = collect_func_defs(body);
 
@@ -666,10 +671,13 @@ fn for_each_registration<'db>(
                         && navigation.is_none_or(|source| function.span() == source.definition_span)
                 })
                 .copied()
-                .map(|function| (function, registration_file)),
-            RegistrationCallable::ResolvedFunction { definition, .. } => definition
-                .statement(db)
-                .map(|function| (function, definition.file())),
+                .map(|function| (function, registration_file, false)),
+            RegistrationCallable::ResolvedFunction { definition, .. } => {
+                definition.statement(db).map(|function| {
+                    let file = definition.file();
+                    (function, file, file != registration_file)
+                })
+            }
             RegistrationCallable::Unresolved(_) => None,
         };
 
@@ -1367,7 +1375,7 @@ fn template_library_source_analysis<'db>(
         Some(&mut python_facts),
     );
     let used_recovered_source = python_facts.has_recovered_source();
-    let registration_dependencies = python_facts.consulted_files().to_vec();
+    let mut registration_dependencies = python_facts.consulted_files().to_vec();
     let mut symbols_unobserved = parse_quality == TemplateLibraryParseQuality::Recovered
         || used_recovered_source
         || registration_analysis.inventory_is_open();
@@ -1401,7 +1409,7 @@ fn template_library_source_analysis<'db>(
                     && !registration_analysis.inventory_is_open())
                 .then(|| match &registration.callable {
                     RegistrationCallable::ResolvedFunction { .. } => {
-                        func.map(|(function, implementation_file)| {
+                        func.map(|(function, implementation_file, _)| {
                             TemplateSymbolSource::new(
                                 implementation_file,
                                 function.span(),
@@ -1432,7 +1440,7 @@ fn template_library_source_analysis<'db>(
             block_specs.0.remove(&symbol_key);
             filter_arities.remove(&symbol_key);
 
-            let Some((func, implementation_file)) = func else {
+            let Some((func, _implementation_file, _imported)) = func else {
                 return;
             };
             let trusted_callable = parse_quality == TemplateLibraryParseQuality::Exact
@@ -1445,14 +1453,29 @@ fn template_library_source_analysis<'db>(
                     } => *resolution_is_exact && definition.source_is_exact(db),
                     RegistrationCallable::Unresolved(_) => false,
                 };
+            let definition = match &registration.callable {
+                RegistrationCallable::ResolvedFunction { definition, .. } => {
+                    Some(definition.clone())
+                }
+                RegistrationCallable::DecoratedLocal { .. } => Some(python_facts.definition(func)),
+                RegistrationCallable::Unresolved(_) => None,
+            };
+            let mut source = definition.map(|definition| TagSourceContext::new(db, definition));
             if let Some(rule) = registration.kind.extract_tag_rule(
-                db,
-                Some(implementation_file),
+                source.as_mut(),
                 func,
                 &registration.options,
                 trusted_callable,
             ) {
                 tag_rules.insert(symbol_key.clone(), rule.into());
+            }
+            if let Some(source) = source {
+                symbols_unobserved |= source.lookup.has_recovered_source();
+                for dependency in source.lookup.consulted_files() {
+                    if !registration_dependencies.contains(dependency) {
+                        registration_dependencies.push(*dependency);
+                    }
+                }
             }
             if let Some(block_spec) = registration
                 .kind

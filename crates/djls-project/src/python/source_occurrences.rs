@@ -17,6 +17,7 @@ use crate::python::PythonModule;
 use crate::python::PythonModuleName;
 use crate::python::PythonSourceModule;
 use crate::python::RecoveredPythonModule;
+use crate::python::ScopeBindings;
 use crate::python::import::DirectImportClause;
 use crate::python::import::FromImportSyntax;
 use crate::python::module::PythonImportChainResolution;
@@ -62,17 +63,34 @@ enum MemberLookup {
 /// The definition span, together with the file, distinguishes definitions that
 /// reuse a name. Python owns the AST lookup so consumers never repeat that
 /// identity check against a recovered parse.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum PythonFunctionOrigin {
+    Module(PythonSourceModule),
+    File(File),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct PythonFunctionDefinition {
-    file: File,
+    origin: PythonFunctionOrigin,
     definition_span: Span,
     name: String,
 }
 
 impl PythonFunctionDefinition {
+    pub(crate) fn new(origin: PythonFunctionOrigin, function: &StmtFunctionDef) -> Self {
+        Self {
+            origin,
+            definition_span: function.span(),
+            name: function.name.to_string(),
+        }
+    }
+
     #[must_use]
     pub(crate) fn file(&self) -> File {
-        self.file
+        match &self.origin {
+            PythonFunctionOrigin::Module(module) => module.file(),
+            PythonFunctionOrigin::File(file) => *file,
+        }
     }
 
     #[must_use]
@@ -81,8 +99,21 @@ impl PythonFunctionDefinition {
     }
 
     #[must_use]
+    pub(crate) fn definition_span(&self) -> Span {
+        self.definition_span
+    }
+
+    #[must_use]
+    pub(crate) fn module(&self) -> Option<&PythonSourceModule> {
+        match &self.origin {
+            PythonFunctionOrigin::Module(module) => Some(module),
+            PythonFunctionOrigin::File(_) => None,
+        }
+    }
+
+    #[must_use]
     pub(crate) fn source_is_exact(&self, db: &dyn ProjectDb) -> bool {
-        RecoveredPythonModule::from_file(db, self.file)
+        RecoveredPythonModule::from_file(db, self.file())
             .ok()
             .flatten()
             .is_some_and(|module| !module.has_ordinary_syntax_errors(db))
@@ -90,7 +121,7 @@ impl PythonFunctionDefinition {
 
     #[must_use]
     pub(crate) fn statement<'db>(&self, db: &'db dyn ProjectDb) -> Option<&'db StmtFunctionDef> {
-        let module = RecoveredPythonModule::from_file(db, self.file)
+        let module = RecoveredPythonModule::from_file(db, self.file())
             .ok()
             .flatten()?;
         module.body(db).iter().find_map(|statement| {
@@ -127,9 +158,15 @@ pub(crate) struct PythonSourceLookup<'db> {
     file: File,
     consulted_files: Vec<File>,
     recovered_source_lookups: usize,
+    module_scope: Option<SourceOccurrenceAnalysis<'db>>,
 }
 
 impl<'db> PythonSourceLookup<'db> {
+    #[must_use]
+    pub(crate) fn db(&self) -> &'db dyn ProjectDb {
+        self.db
+    }
+
     pub(crate) fn for_file(db: &'db dyn ProjectDb, file: File) -> Self {
         Self {
             db,
@@ -138,6 +175,7 @@ impl<'db> PythonSourceLookup<'db> {
             file,
             consulted_files: Vec::new(),
             recovered_source_lookups: 0,
+            module_scope: None,
         }
     }
 
@@ -153,6 +191,7 @@ impl<'db> PythonSourceLookup<'db> {
             module: Some(module),
             consulted_files: Vec::new(),
             recovered_source_lookups: 0,
+            module_scope: None,
         }
     }
 
@@ -190,6 +229,84 @@ impl<'db> PythonSourceLookup<'db> {
     }
 
     #[must_use]
+    pub(crate) fn definition(&self, function: &StmtFunctionDef) -> PythonFunctionDefinition {
+        let origin = self.module.clone().map_or(
+            PythonFunctionOrigin::File(self.file),
+            PythonFunctionOrigin::Module,
+        );
+        PythonFunctionDefinition::new(origin, function)
+    }
+
+    pub(crate) fn for_definition(
+        db: &'db dyn ProjectDb,
+        project: Option<Project>,
+        definition: &PythonFunctionDefinition,
+    ) -> Self {
+        definition.module().cloned().map_or_else(
+            || Self::for_file(db, definition.file()),
+            |module| {
+                project.map_or_else(
+                    || Self::for_file(db, definition.file()),
+                    |project| Self::for_module(db, project, module),
+                )
+            },
+        )
+    }
+
+    pub(crate) fn is_canonical_export(
+        &mut self,
+        definition: &PythonFunctionDefinition,
+        declared_name: &str,
+    ) -> bool {
+        let before = self.recovered_source_lookups;
+        let Ok(Some(module)) = RecoveredPythonModule::from_file(self.db, definition.file()) else {
+            return false;
+        };
+        if module.has_ordinary_syntax_errors(self.db) {
+            self.recovered_source_lookups += 1;
+            return false;
+        }
+        let mut matching = module.body(self.db).iter().filter_map(|statement| {
+            let Stmt::FunctionDef(function) = statement else {
+                return None;
+            };
+            (function.name.as_str() == declared_name && function.decorator_list.is_empty())
+                .then(|| self.definition_for_module(function, definition.module()))
+        });
+        let result = matching.next().as_ref() == Some(definition) && matching.next().is_none();
+        result && self.recovered_source_lookups == before
+    }
+
+    /// Resolve an exact final export from an absolute module identity.
+    pub(crate) fn exact_exported_function(
+        &mut self,
+        module_name: &str,
+        member: &str,
+    ) -> Option<PythonFunctionDefinition> {
+        let importer = self.module.clone()?;
+        let before = self.recovered_source_lookups;
+        let mut analysis =
+            SourceOccurrenceAnalysis::new(self.db, self.project, self.module.clone(), self.file);
+        let value = analysis
+            .resolve_import_from(&importer, 0, Some(module_name))
+            .and_then(|module| analysis.resolve_module_path(&module, &[member.to_string()], 0));
+        self.absorb_evidence(
+            &analysis.consulted_files,
+            usize::from(analysis.recovered_source),
+        );
+        if self.recovered_source_lookups != before {
+            return None;
+        }
+        match value {
+            Some(ResolvedValue::Function(definition)) => Some(definition),
+            Some(
+                ResolvedValue::Module(_) | ResolvedValue::String(_) | ResolvedValue::Boolean(_),
+            )
+            | None => None,
+        }
+    }
+
+    #[must_use]
     pub(crate) fn consulted_files(&self) -> &[File] {
         &self.consulted_files
     }
@@ -202,6 +319,143 @@ impl<'db> PythonSourceLookup<'db> {
     #[must_use]
     pub(crate) fn recovered_source_lookups(&self) -> usize {
         self.recovered_source_lookups
+    }
+
+    pub(crate) fn absorb_evidence(&mut self, consulted_files: &[File], recovered_lookups: usize) {
+        for file in consulted_files {
+            if !self.consulted_files.contains(file) {
+                self.consulted_files.push(*file);
+            }
+        }
+        self.recovered_source_lookups += recovered_lookups;
+    }
+
+    fn definition_for_module(
+        &self,
+        function: &StmtFunctionDef,
+        module: Option<&PythonSourceModule>,
+    ) -> PythonFunctionDefinition {
+        let origin = module.cloned().map_or(
+            PythonFunctionOrigin::File(self.file),
+            PythonFunctionOrigin::Module,
+        );
+        PythonFunctionDefinition::new(origin, function)
+    }
+
+    fn module_source_is_recovered(&mut self) -> bool {
+        let Ok(Some(module)) = RecoveredPythonModule::from_file(self.db, self.file) else {
+            self.recovered_source_lookups += 1;
+            return true;
+        };
+        let recovered = module.has_ordinary_syntax_errors(self.db);
+        self.recovered_source_lookups += usize::from(recovered);
+        recovered
+    }
+
+    /// Resolve a call target only when its scope and every source read are exact.
+    pub(crate) fn exact_function_at_call(
+        &mut self,
+        function: &StmtFunctionDef,
+        expression: &Expr,
+    ) -> Option<PythonFunctionDefinition> {
+        if self.module_source_is_recovered() {
+            return None;
+        }
+        expression.path_segments()?;
+        let call_index = function
+            .body
+            .iter()
+            .position(|statement| span_contains(statement.span(), expression.span()))?;
+        // Compound-statement calls have no position-specific mutation proof yet.
+        // Reject them before rebuilding bindings or consulting imported sources.
+        if matches!(
+            function.body[call_index],
+            Stmt::For(_)
+                | Stmt::While(_)
+                | Stmt::If(_)
+                | Stmt::With(_)
+                | Stmt::Match(_)
+                | Stmt::Try(_)
+        ) {
+            return None;
+        }
+        let scope = ScopeBindings::collect(&function.body);
+        if scope.has_unknown_star_import() {
+            return None;
+        }
+        let before = self.recovered_source_lookups;
+
+        // This lookup borrows one database snapshot. Module-final bindings stay
+        // fixed; only the function-local prefix differs between call sites.
+        if self.module_scope.is_none() {
+            let parsed = RecoveredPythonModule::from_file(self.db, self.file).ok()??;
+            let mut analysis = SourceOccurrenceAnalysis::new(
+                self.db,
+                self.project,
+                self.module.clone(),
+                self.file,
+            );
+            analysis.recovered_source = parsed.has_ordinary_syntax_errors(self.db);
+            for statement in parsed.body(self.db) {
+                analysis.apply_statement_effects(statement);
+            }
+            self.module_scope = Some(analysis);
+        }
+        let module_scope = self.module_scope.as_ref()?;
+        let parameters = function_parameter_names(function);
+        // Without a lexical binding or nonlocal write, the prefix cannot turn
+        // an unknown module-final name into an exact function.
+        if let Expr::Name(name) = expression
+            && matches!(
+                module_scope.bindings.get(name.id.as_str()),
+                Some(Binding::Unknown)
+            )
+            && !scope.writes.contains_key(name.id.as_str())
+            && !scope.nonlocals.contains(name.id.as_str())
+            && !parameters.contains(name.id.as_str())
+        {
+            let consulted_files = module_scope.consulted_files.clone();
+            let recovered = usize::from(module_scope.recovered_source);
+            self.absorb_evidence(&consulted_files, recovered);
+            return None;
+        }
+        let mut analysis = module_scope.clone();
+        for name in scope
+            .writes
+            .keys()
+            .filter(|name| !scope.globals.contains(*name))
+            .chain(parameters.iter())
+            .chain(scope.nonlocals.iter())
+        {
+            analysis.bindings.insert(name.clone(), Binding::Unknown);
+        }
+        for name in &scope.globals {
+            if scope.writes.contains_key(name) {
+                analysis.bindings.insert(name.clone(), Binding::Unknown);
+            }
+        }
+
+        for statement in &function.body[..call_index] {
+            if statement_contains_named_binding(statement) {
+                analysis.bindings.clear();
+            } else {
+                analysis.apply_statement_effects(statement);
+            }
+        }
+        let resolved = match analysis.resolve_expression(expression, 0) {
+            Some(ResolvedValue::Function(definition)) => Some(definition),
+            Some(
+                ResolvedValue::Module(_) | ResolvedValue::String(_) | ResolvedValue::Boolean(_),
+            )
+            | None => None,
+        };
+        self.absorb_evidence(
+            &analysis.consulted_files,
+            usize::from(analysis.recovered_source),
+        );
+        (self.recovered_source_lookups == before)
+            .then_some(resolved)
+            .flatten()
     }
 
     fn lookup(&mut self, expression: &Expr) -> Option<PythonOccurrenceValue> {
@@ -255,6 +509,7 @@ fn python_source_occurrence(
     analysis.finish(None)
 }
 
+#[derive(Clone)]
 struct SourceOccurrenceAnalysis<'db> {
     db: &'db dyn ProjectDb,
     project: Option<Project>,
@@ -344,7 +599,13 @@ impl<'db> SourceOccurrenceAnalysis<'db> {
             }
             Stmt::FunctionDef(function) => {
                 let binding = if function.decorator_list.is_empty() {
-                    Binding::Function(function_definition(self.file, function))
+                    Binding::Function(PythonFunctionDefinition::new(
+                        self.importer.clone().map_or(
+                            PythonFunctionOrigin::File(self.file),
+                            PythonFunctionOrigin::Module,
+                        ),
+                        function,
+                    ))
                 } else {
                     Binding::Unknown
                 };
@@ -400,6 +661,15 @@ impl<'db> SourceOccurrenceAnalysis<'db> {
         let escaped = self
             .bindings
             .iter()
+            .filter(|(_, binding)| match binding {
+                Binding::Module(_) | Binding::ModuleMember(_, _) | Binding::LazyFromImport(_) => {
+                    true
+                }
+                Binding::String(_)
+                | Binding::Boolean(_)
+                | Binding::Function(_)
+                | Binding::Unknown => false,
+            })
             .filter(|(name, _)| expression_escapes_name(expression, name))
             .map(|(_, binding)| binding.clone())
             .collect::<Vec<_>>();
@@ -683,8 +953,8 @@ impl<'db> SourceOccurrenceAnalysis<'db> {
                     enum_bindings.remove(function.name.as_str());
                     if function.name.as_str() == root {
                         value = if path.len() == 1 && function.decorator_list.is_empty() {
-                            Some(ResolvedValue::Function(function_definition(
-                                source.file(),
+                            Some(ResolvedValue::Function(PythonFunctionDefinition::new(
+                                PythonFunctionOrigin::Module(source.clone()),
                                 function,
                             )))
                         } else {
@@ -882,6 +1152,24 @@ impl<'db> SourceOccurrenceAnalysis<'db> {
     }
 }
 
+fn function_parameter_names(function: &StmtFunctionDef) -> std::collections::HashSet<String> {
+    let mut names = function
+        .parameters
+        .posonlyargs
+        .iter()
+        .chain(&function.parameters.args)
+        .chain(&function.parameters.kwonlyargs)
+        .map(|parameter| parameter.parameter.name.to_string())
+        .collect::<std::collections::HashSet<_>>();
+    if let Some(parameter) = &function.parameters.vararg {
+        names.insert(parameter.name.to_string());
+    }
+    if let Some(parameter) = &function.parameters.kwarg {
+        names.insert(parameter.name.to_string());
+    }
+    names
+}
+
 struct ExpressionFinder<'a> {
     target: Span,
     found: Option<&'a Expr>,
@@ -945,14 +1233,6 @@ fn binding_from_value(value: ResolvedValue) -> Binding {
         ResolvedValue::String(value) => Binding::String(value),
         ResolvedValue::Boolean(value) => Binding::Boolean(value),
         ResolvedValue::Function(function) => Binding::Function(function),
-    }
-}
-
-fn function_definition(file: File, function: &StmtFunctionDef) -> PythonFunctionDefinition {
-    PythonFunctionDefinition {
-        file,
-        definition_span: function.span(),
-        name: function.name.to_string(),
     }
 }
 

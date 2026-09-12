@@ -293,6 +293,12 @@ impl ProjectFixture {
     }
 
     #[must_use]
+    pub fn pythonpath(mut self, path: impl Into<Utf8PathBuf>) -> Self {
+        self.pythonpath.push(path.into());
+        self
+    }
+
+    #[must_use]
     pub fn tag_specs(mut self, tag_specs: TagSpecDef) -> Self {
         self.tag_specs = tag_specs;
         self

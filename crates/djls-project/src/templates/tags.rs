@@ -7,23 +7,20 @@ mod types;
 #[cfg(test)]
 pub(crate) mod testing;
 
-use std::ops::ControlFlow;
-
 use djls_source::File;
-use ruff_python_ast::Stmt;
-use ruff_python_ast::StmtFunctionDef;
 
-use crate::ast::Recurse;
-use crate::ast::walk_stmts;
-use crate::python::RecoveredPythonModule;
+use crate::python::PythonFunctionDefinition;
 use crate::templates::tags::analysis::AbstractValue;
 use crate::templates::tags::analysis::AbstractValueKey;
 use crate::templates::tags::analysis::CallContext;
 use crate::templates::tags::analysis::Env;
+pub(crate) use crate::templates::tags::analysis::TagSourceContext;
 use crate::templates::tags::analysis::process_statements;
 pub use crate::templates::tags::types::ArgumentCountConstraint;
 pub use crate::templates::tags::types::ArgumentFormCoverage;
 pub use crate::templates::tags::types::AsVar;
+pub use crate::templates::tags::types::AssignmentMode;
+pub use crate::templates::tags::types::AssignmentOperand;
 pub use crate::templates::tags::types::BlockSpec;
 pub use crate::templates::tags::types::BlockSpecs;
 pub use crate::templates::tags::types::BodyAnalysisEvidence;
@@ -38,6 +35,7 @@ pub use crate::templates::tags::types::FormContinuation;
 pub use crate::templates::tags::types::KnownOptions;
 pub use crate::templates::tags::types::OptionRejection;
 pub use crate::templates::tags::types::ParameterRequirement;
+pub use crate::templates::tags::types::RemainderPolicy;
 pub use crate::templates::tags::types::RequiredKeyword;
 pub use crate::templates::tags::types::SplitPosition;
 pub use crate::templates::tags::types::TagArgument;
@@ -50,20 +48,32 @@ pub use crate::templates::tags::types::TagArgumentPatternKind;
 pub use crate::templates::tags::types::TagArgumentSyntax;
 pub use crate::templates::tags::types::TagRule;
 pub use crate::templates::tags::types::TagRuleMap;
+pub use crate::templates::tags::types::UniqueKeyCardinality;
 
-/// Interned key for a helper function call.
-///
-/// Salsa uses interning to deduplicate identical helper calls: same file,
-/// same callee name, same abstract argument values produce the same
-/// `HelperCall` identity, enabling Salsa's built-in memoization.
+/// Interned key for an exact helper function call.
 #[salsa::interned]
 pub(crate) struct HelperCall<'db> {
-    #[returns(copy)]
-    pub file: File,
     #[returns(ref)]
-    pub callee_name: String,
+    pub definition: PythonFunctionDefinition,
     #[returns(ref)]
     pub args: Vec<AbstractValueKey>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct HelperOutcome {
+    pub value: AbstractValue,
+    pub consulted_files: Vec<File>,
+    pub recovered_lookups: usize,
+}
+
+impl HelperOutcome {
+    fn unknown() -> Self {
+        Self {
+            value: AbstractValue::Unknown,
+            consulted_files: Vec::new(),
+            recovered_lookups: 0,
+        }
+    }
 }
 
 /// Analyze a helper function call and return its abstract return value.
@@ -72,30 +82,23 @@ pub(crate) struct HelperCall<'db> {
 /// which calls A (directly or transitively), the cycle resolves to
 /// `AbstractValue::Unknown` instead of panicking.
 ///
-/// Looks up the callee by name in the parsed module's AST, binds
-/// parameters to the abstract argument values from `HelperCall`, runs
-/// the analyzer on the callee body, and extracts the return
-/// value.
+/// Looks up the exact definition in the parsed module, binds the abstract
+/// arguments, and returns the value with its consulted-source evidence.
 #[salsa::tracked(
     returns(clone),
     cycle_initial=analyze_helper_cycle_initial,
     cycle_fn=analyze_helper_cycle_recover,
 )]
-pub(crate) fn analyze_helper(db: &dyn djls_source::Db, call: HelperCall<'_>) -> AbstractValue {
-    let Ok(Some(module)) = RecoveredPythonModule::from_file(db, call.file(db)) else {
-        return AbstractValue::Unknown;
+pub(crate) fn analyze_helper(db: &dyn crate::db::Db, call: HelperCall<'_>) -> HelperOutcome {
+    let definition = call.definition(db);
+    let Some(callee) = definition.statement(db) else {
+        return HelperOutcome::unknown();
     };
-
-    let callee_name = call.callee_name(db);
     let args = call.args(db);
-
-    let Some(callee) = find_function_def(module.body(db), callee_name) else {
-        return AbstractValue::Unknown;
-    };
 
     let mut callee_env = Env::default();
     analysis::constants::seed_static_bindings(
-        analysis::constants::module_static_bindings(db, call.file(db)),
+        analysis::constants::module_static_bindings(db, definition.file()),
         callee,
         &mut callee_env,
     );
@@ -106,45 +109,34 @@ pub(crate) fn analyze_helper(db: &dyn djls_source::Db, call: HelperCall<'_>) -> 
         callee_env.set(param.parameter.name.to_string(), value);
     }
 
+    let mut source = analysis::TagSourceContext::new(db, definition.clone());
     let mut ctx = CallContext {
-        db: Some(db),
-        file: Some(call.file(db)),
+        source: Some(&mut source),
     };
 
     let (_, value) = process_statements(&callee.body, &mut callee_env, &mut ctx);
 
-    value
+    HelperOutcome {
+        value,
+        consulted_files: source.lookup.consulted_files().to_vec(),
+        recovered_lookups: source.lookup.recovered_source_lookups(),
+    }
 }
 
 fn analyze_helper_cycle_initial(
-    _db: &dyn djls_source::Db,
+    _db: &dyn crate::db::Db,
     _id: salsa::Id,
     _call: HelperCall<'_>,
-) -> AbstractValue {
-    AbstractValue::Unknown
+) -> HelperOutcome {
+    HelperOutcome::unknown()
 }
 
 fn analyze_helper_cycle_recover(
-    _db: &dyn djls_source::Db,
+    _db: &dyn crate::db::Db,
     _cycle: &salsa::Cycle,
-    _last_provisional: &AbstractValue,
-    _value: AbstractValue,
+    _last_provisional: &HelperOutcome,
+    _value: HelperOutcome,
     _call: HelperCall<'_>,
-) -> AbstractValue {
-    AbstractValue::Unknown
-}
-
-fn find_function_def<'a>(body: &'a [Stmt], name: &str) -> Option<&'a StmtFunctionDef> {
-    let mut found = None;
-    walk_stmts(body, Recurse::IntoClasses, |stmt| {
-        if let Stmt::FunctionDef(func) = stmt
-            && func.name.as_str() == name
-        {
-            found = Some(func);
-            ControlFlow::Break(())
-        } else {
-            ControlFlow::Continue(())
-        }
-    });
-    found
+) -> HelperOutcome {
+    HelperOutcome::unknown()
 }

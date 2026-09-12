@@ -22,14 +22,19 @@ use crate::templates::tags::analysis::exceptions::extract_exception_message;
 use crate::templates::tags::analysis::expressions::eval_expr;
 use crate::templates::tags::analysis::expressions::eval_membership_collection;
 use crate::templates::tags::analysis::state::AbstractValue;
+use crate::templates::tags::analysis::state::AssignmentCall;
 use crate::templates::tags::analysis::state::Env;
 use crate::templates::tags::analysis::state::SplitPredicate;
 use crate::templates::tags::types::ArgumentCountConstraint;
+use crate::templates::tags::types::AssignmentOperand;
 use crate::templates::tags::types::ChoiceAt;
 use crate::templates::tags::types::ExtractedDiagnosticConstraint;
 use crate::templates::tags::types::ExtractedDiagnosticMessage;
 use crate::templates::tags::types::ExtractedMessageTemplate;
+use crate::templates::tags::types::RemainderPolicy;
 use crate::templates::tags::types::RequiredKeyword;
+use crate::templates::tags::types::TagArgumentSyntax;
+use crate::templates::tags::types::UniqueKeyCardinality;
 
 const MAX_EXACT_GUARD_VALUES: usize = 32;
 
@@ -121,6 +126,81 @@ pub(crate) fn extract_direct_guard(
         raised_exception,
     }
     .rule(std::slice::from_ref(env))
+}
+
+pub(crate) fn assignment_rejecting_guard(
+    test: &Expr,
+    body: &[ruff_python_ast::Stmt],
+    env: &Env,
+) -> Option<(AssignmentCall, TagArgumentSyntax)> {
+    let raised = direct_raise_exception(body)?;
+    let message = extract_exception_message(raised, env);
+    let (call, cardinality, remainder, cardinality_message, remainder_message) =
+        if let Expr::UnaryOp(ExprUnaryOp {
+            op: UnaryOp::Not,
+            operand,
+            ..
+        }) = test
+            && let AbstractValue::AssignmentMap(call) = eval_expr(operand, &mut env.clone())
+        {
+            (
+                call,
+                UniqueKeyCardinality::AtLeastOne,
+                RemainderPolicy::Continue,
+                message,
+                None,
+            )
+        } else if let Expr::Compare(compare) = test
+            && compare.ops.as_ref() == [CmpOp::NotEq]
+            && let [expected] = compare.comparators.as_ref()
+            && expected.non_negative_integer() == Some(1)
+            && let Expr::Call(length) = compare.left.as_ref()
+            && length.func.name_target() == Some("len")
+            && env.builtin_name_visible("len")
+            && length.arguments.keywords.is_empty()
+            && let [value] = length.arguments.args.as_ref()
+            && let AbstractValue::AssignmentMap(call) = eval_expr(value, &mut env.clone())
+        {
+            (
+                call,
+                UniqueKeyCardinality::ExactlyOne,
+                RemainderPolicy::Continue,
+                message,
+                None,
+            )
+        } else if let AbstractValue::AssignmentRemainder(call) = eval_expr(test, &mut env.clone()) {
+            (
+                call,
+                UniqueKeyCardinality::Any,
+                RemainderPolicy::Reject,
+                None,
+                message,
+            )
+        } else {
+            return None;
+        };
+    // A standalone assignment grammar consumes all bits after the tag name.
+    // Other slices need a surrounding argument pattern.
+    if call.split.front_offset() != 1 || call.split.back_offset() != 0 {
+        return None;
+    }
+    Some((
+        call,
+        TagArgumentSyntax::Assignments {
+            operand: AssignmentOperand {
+                mode: call.mode,
+                cardinality,
+                remainder,
+                multiple_message: if cardinality == UniqueKeyCardinality::ExactlyOne {
+                    cardinality_message.clone()
+                } else {
+                    None
+                },
+                empty_message: cardinality_message,
+                remainder_message,
+            },
+        },
+    ))
 }
 
 /// Facts entailed while the condition is true. These have no diagnostic
@@ -816,10 +896,7 @@ mod tests {
 
         let mut env = Env::for_compile_function(parser_param, token_param);
         crate::templates::tags::analysis::constants::seed_static_bindings(bindings, func, &mut env);
-        let mut ctx = CallContext {
-            db: None,
-            file: None,
-        };
+        let mut ctx = CallContext { source: None };
         process_statements(&func.body, &mut env, &mut ctx).0
     }
 

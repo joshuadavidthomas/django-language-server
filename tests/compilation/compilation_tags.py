@@ -6,8 +6,35 @@ import functools
 from functools import partial
 
 from django import template
+from django.template.base import token_kwargs
 
 register = template.Library()
+
+
+@register.tag
+def assignment_modern(parser, token):
+    bits = token.split_contents()[1:]
+    assignments = token_kwargs(bits, parser)
+    if len(assignments) != 1:
+        raise template.TemplateSyntaxError(
+            "'assignment_modern' expected exactly one unique assignment"
+        )
+    if bits:
+        raise template.TemplateSyntaxError("'assignment_modern' received trailing input")
+    return template.Node()
+
+
+@register.tag
+def assignment_legacy(parser, token):
+    bits = token.split_contents()[1:]
+    assignments = token_kwargs(bits, parser, support_legacy=True)
+    if not assignments:
+        raise template.TemplateSyntaxError(
+            "'assignment_legacy' expected at least one assignment"
+        )
+    if bits:
+        raise template.TemplateSyntaxError("'assignment_legacy' received trailing input")
+    return template.Node()
 
 
 @register.simple_tag

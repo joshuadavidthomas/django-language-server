@@ -3,6 +3,64 @@
     "and_false_side_is_disjunction.html": {
       "result": "compiled"
     },
+    "assignment_legacy_bare_input.html": {
+      "error": "'assignment_legacy' expected at least one assignment",
+      "result": "failed"
+    },
+    "assignment_legacy_mixed_mode_remainder.html": {
+      "error": "'assignment_legacy' received trailing input",
+      "result": "failed"
+    },
+    "assignment_legacy_modern_valid.html": {
+      "result": "compiled"
+    },
+    "assignment_legacy_trailing_and.html": {
+      "result": "compiled"
+    },
+    "assignment_legacy_valid.html": {
+      "result": "compiled"
+    },
+    "assignment_modern_bare_input.html": {
+      "error": "'assignment_modern' expected exactly one unique assignment",
+      "result": "failed"
+    },
+    "assignment_modern_duplicate_key.html": {
+      "result": "compiled"
+    },
+    "assignment_modern_empty.html": {
+      "error": "'assignment_modern' expected exactly one unique assignment",
+      "result": "failed"
+    },
+    "assignment_modern_mixed_mode_remainder.html": {
+      "error": "'assignment_modern' received trailing input",
+      "result": "failed"
+    },
+    "assignment_modern_nonassignment_input.html": {
+      "error": "'assignment_modern' expected exactly one unique assignment",
+      "result": "failed"
+    },
+    "assignment_modern_trailing_and.html": {
+      "error": "'assignment_modern' received trailing input",
+      "result": "failed"
+    },
+    "assignment_modern_two_unique_keys.html": {
+      "error": "'assignment_modern' expected exactly one unique assignment",
+      "result": "failed"
+    },
+    "assignment_modern_u0345_nonword_key.html": {
+      "error": "'assignment_modern' expected exactly one unique assignment",
+      "result": "failed"
+    },
+    "assignment_modern_u1885_nonword_key.html": {
+      "error": "'assignment_modern' expected exactly one unique assignment",
+      "result": "failed"
+    },
+    "assignment_modern_u30000_word_key.html": {
+      "result": "compiled"
+    },
+    "assignment_modern_valid.html": {
+      "result": "compiled"
+    },
     "authored_compress_default.html": {
       "result": "compiled"
     },

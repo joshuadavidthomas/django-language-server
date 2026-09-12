@@ -139,6 +139,7 @@ fn generate_snippet_for_tag(tag_name: &str, spec: &TagSpec) -> String {
                 generate_snippet_from_pattern(&arguments)
             }),
         TagArgumentSyntax::Unknown
+        | TagArgumentSyntax::Assignments { .. }
         | TagArgumentSyntax::Forms {
             coverage: ArgumentFormCoverage::Partial,
             ..
@@ -163,6 +164,7 @@ pub(crate) fn has_full_argument_snippet(spec: &TagSpec) -> bool {
             ..
         } => forms.iter().any(|form| form.minimum_len() > 0),
         TagArgumentSyntax::Unknown
+        | TagArgumentSyntax::Assignments { .. }
         | TagArgumentSyntax::Forms {
             coverage: ArgumentFormCoverage::Partial,
             ..
@@ -215,7 +217,7 @@ pub(crate) fn compatible_arguments_at<'a>(
 ) -> Vec<CompatibleArgument<'a>> {
     let mut arguments = Vec::new();
     match spec.argument_syntax() {
-        TagArgumentSyntax::Unknown => {}
+        TagArgumentSyntax::Unknown | TagArgumentSyntax::Assignments { .. } => {}
         TagArgumentSyntax::Signature { parameters, .. }
         | TagArgumentSyntax::Parameters(parameters) => {
             if parameters.len() > position
@@ -274,7 +276,7 @@ pub(crate) fn generate_partial_snippet(
     starting_from_position: usize,
 ) -> String {
     match spec.argument_syntax() {
-        TagArgumentSyntax::Unknown => String::new(),
+        TagArgumentSyntax::Unknown | TagArgumentSyntax::Assignments { .. } => String::new(),
         TagArgumentSyntax::Signature { parameters, .. }
         | TagArgumentSyntax::Parameters(parameters) => parameters
             .get(starting_from_position..)

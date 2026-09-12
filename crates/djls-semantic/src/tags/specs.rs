@@ -175,7 +175,8 @@ impl TagSpecs {
                             TagArgumentSyntax::Unknown
                             | TagArgumentSyntax::Signature { .. }
                             | TagArgumentSyntax::Parameters(_)
-                            | TagArgumentSyntax::Forms { .. } => None,
+                            | TagArgumentSyntax::Forms { .. }
+                            | TagArgumentSyntax::Assignments { .. } => None,
                         });
                     match (
                         existing.extracted_rules.is_none(),

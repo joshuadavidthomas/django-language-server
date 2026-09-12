@@ -51,6 +51,8 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Fixed tag-rule extraction using incorrect argument positions after unsupported `pop()` calls.
 - Fixed custom tags with mixed body-parser paths suppressing diagnostics and references for bodies Django still parses.
 - Fixed manual tag extraction, validation, and completion losing correlated argument forms such as `widthratio ... as variable` and Django `for ... reversed`.
+- Fixed static validation of assignment lists parsed by Django's `token_kwargs()`, including `{% with %}` arguments.
+- **Internal**: Skipped redundant binding reconstruction during tag extraction.
 - **Internal**: Normalized glibc string-comparison dispatch across Intel and AMD CodSpeed simulation runners.
 
 ## [6.1.0]
