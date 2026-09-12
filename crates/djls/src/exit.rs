@@ -8,14 +8,14 @@ pub(crate) enum ExitStatus {
 }
 
 impl ExitStatus {
-    pub(crate) fn as_raw(&self) -> i32 {
+    fn as_raw(&self) -> i32 {
         match self {
             ExitStatus::Success => 0,
             ExitStatus::Error => 1,
         }
     }
 
-    pub(crate) fn as_str(&self) -> &str {
+    fn as_str(&self) -> &str {
         match self {
             ExitStatus::Success => "Command succeeded",
             ExitStatus::Error => "Command error",

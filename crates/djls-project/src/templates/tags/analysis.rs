@@ -5,7 +5,7 @@ pub(crate) mod exceptions;
 pub(crate) mod expressions;
 pub(crate) mod guards;
 pub(crate) mod mutations;
-pub(crate) mod native;
+mod native;
 pub(crate) mod state;
 pub(crate) mod statements;
 
@@ -212,10 +212,7 @@ pub(crate) fn analyze_compile_function(func: &StmtFunctionDef) -> TagRule {
 /// A detached function cannot prove whether its bare names still refer to
 /// Python builtins and must use [`analyze_compile_function`] instead.
 #[cfg(test)]
-pub(crate) fn analyze_compile_function_in_module(
-    module: &[Stmt],
-    func: &StmtFunctionDef,
-) -> TagRule {
+fn analyze_compile_function_in_module(module: &[Stmt], func: &StmtFunctionDef) -> TagRule {
     let bindings = constants::StaticBindings::from_module(module);
     analyze_compile_function_with_context(func, None, Some(&bindings))
 }

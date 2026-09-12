@@ -160,7 +160,7 @@ pub(crate) fn resolve_project_root() -> Result<Utf8PathBuf> {
         .map_err(|path| anyhow::anyhow!("Current directory is not valid UTF-8: {}", path.display()))
 }
 
-pub(crate) fn is_template(path: &Utf8Path) -> bool {
+fn is_template(path: &Utf8Path) -> bool {
     FileKind::is_template(path)
 }
 

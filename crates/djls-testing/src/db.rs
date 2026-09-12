@@ -143,15 +143,6 @@ impl TestDatabase {
         self
     }
 
-    #[must_use]
-    pub fn with_diagnostics_config(
-        mut self,
-        diagnostics_config: djls_conf::DiagnosticsConfig,
-    ) -> Self {
-        self.diagnostics_config = diagnostics_config;
-        self
-    }
-
     /// Add an in-memory file to the test filesystem.
     pub fn add_file(&self, path: &str, content: &str) -> anyhow::Result<()> {
         self.fs
@@ -337,7 +328,7 @@ impl Default for OsTestDatabase {
 impl OsTestDatabase {
     /// Create a database whose filesystem contains only in-memory files.
     #[must_use]
-    pub fn new() -> Self {
+    fn new() -> Self {
         Self::with_disk_roots([])
     }
 
@@ -433,7 +424,7 @@ impl OsTestDatabase {
     }
 
     /// Remove an in-memory file from the layered filesystem.
-    pub fn remove_file(&mut self, path: &str) -> anyhow::Result<()> {
+    pub(crate) fn remove_file(&mut self, path: &str) -> anyhow::Result<()> {
         let path = Utf8PathBuf::from(path);
         self.memory
             .lock()

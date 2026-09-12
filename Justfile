@@ -32,10 +32,15 @@ corpus *ARGS:
 clippy *ARGS:
     cargo clippy --all-targets --all-features --benches --fix --allow-dirty {{ ARGS }} -- -D warnings
 
+# cargo-hawk must run on the toolchain it was built against.
+# Bump this when a new cargo-hawk release requires a newer Rust (CI checks latest).
+hawk_channel := `sed -n 's/^channel = "\([^"]*\)"/\1/p' tools/hawk/rust-toolchain.toml`
+
 hawk *ARGS:
-    @# Avoid astral-sh/hawk#74 rustc-info cache poisoning.
-    @# Keep Hawk focused on visibility; clippy owns dead-code and unused checks.
-    cd tools/hawk && RUSTFLAGS="${RUSTFLAGS:-} -A dead_code -A unused_imports" CARGO_CACHE_RUSTC_INFO=0 cargo hawk check --manifest-path "{{ justfile_directory() }}/Cargo.toml" --target-dir "{{ justfile_directory() }}/target/hawk" {{ ARGS }}
+    cargo "+{{ hawk_channel }}" hawk check \
+        --manifest-path "{{ justfile_directory() }}/Cargo.toml" \
+        --target-dir "{{ justfile_directory() }}/target/hawk" \
+        -D warnings {{ ARGS }}
 
 e2e *ARGS:
     @just nox e2e {{ ARGS }}

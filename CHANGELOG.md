@@ -20,6 +20,10 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Added
 
+- **Internal**: Added a Hawk visibility-audit job to the lint workflow.
+
+### Changed
+
 - Added a "Why a language server?" docs page.
 - Added an S124 hint on `{% load %}` for unreadable library registrations, with a code action that opens a prefilled issue.
 - **Internal**: Tag validation is tested against Django's own template libraries from the pinned corpus, with a fixture project comparing DJLS diagnostics against Django's compilation verdicts.

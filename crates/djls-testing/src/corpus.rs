@@ -102,7 +102,7 @@ impl Corpus {
     }
 
     /// Get the corpus described by `manifest_path` after checking its lockfile.
-    pub fn require_from_manifest(manifest_path: &Utf8Path) -> anyhow::Result<Self> {
+    fn require_from_manifest(manifest_path: &Utf8Path) -> anyhow::Result<Self> {
         let manifest = Manifest::load(manifest_path)
             .with_context(|| format!("corpus manifest `{manifest_path}` is missing or invalid"))?;
         let manifest_dir = manifest_path
@@ -201,27 +201,6 @@ impl Corpus {
                 })
             })
             .collect()
-    }
-
-    /// Derive the corpus entry directory for a path under the corpus root.
-    ///
-    /// Corpus entries are direct children of `repos/`.
-    /// For example:
-    /// - `{root}/repos/django-6.0/...` -> `{root}/repos/django-6.0`
-    /// - `{root}/repos/sentry/...` -> `{root}/repos/sentry`
-    #[must_use]
-    pub fn entry_dir_for_path(&self, path: &Utf8Path) -> Option<Utf8PathBuf> {
-        let relative = path.strip_prefix(self.root()).ok()?;
-
-        let mut components = relative.components();
-        let category = components.next()?;
-        let entry = components.next()?;
-
-        if category.as_str() == "repos" {
-            Some(self.root().join(category.as_str()).join(entry.as_str()))
-        } else {
-            None
-        }
     }
 
     /// Whether an entry directory represents a Django package.
