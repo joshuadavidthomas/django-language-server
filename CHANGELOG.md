@@ -21,6 +21,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 ### Added
 
 - Added a "Why a language server?" docs page.
+- **Internal**: Compare DJLS template tag validation against Django's template compilation on a dedicated fixture project.
 
 ### Changed
 

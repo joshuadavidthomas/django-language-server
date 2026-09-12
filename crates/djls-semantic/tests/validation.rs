@@ -3030,3 +3030,206 @@ fn corpus_known_invalid_templates_produce_errors() {
         "Expected expression syntax error for {{% if and x %}}"
     );
 }
+
+#[test]
+fn corpus_stylesheet_requires_one_argument() {
+    let corpus = Corpus::require().expect("synced corpus should be available");
+    let (specs, _) =
+        build_specs_from_extraction(&corpus, &corpus.root().join("repos/django-pipeline"))
+            .expect("corpus specs should build");
+    let db = TestDatabase::new().with_projectless_tag_specs(specs);
+    assert_eq!(
+        collect_errors(&db, "/control.html", "{% stylesheet 'main' %}")
+            .expect("template validation should run"),
+        []
+    );
+    // Missed diagnostic: caught tuple-unpack errors do not constrain arity.
+    // pipeline.py raises "requires exactly one argument: the name of a group".
+    assert_eq!(
+        collect_errors(&db, "/invalid.html", "{% stylesheet %}")
+            .expect("template validation should run"),
+        []
+    );
+}
+
+#[test]
+fn corpus_compress_requires_a_known_output_mode() {
+    let corpus = Corpus::require().expect("synced corpus should be available");
+    let (specs, _) =
+        build_specs_from_extraction(&corpus, &corpus.root().join("repos/django-compressor"))
+            .expect("corpus specs should build");
+    let db = TestDatabase::new().with_projectless_tag_specs(specs);
+    assert_eq!(
+        collect_errors(
+            &db,
+            "/control.html",
+            "{% compress css file %}x{% endcompress %}"
+        )
+        .expect("template validation should run"),
+        []
+    );
+    // Missed diagnostic: module constants are not extracted as choices.
+    // compress.py raises "second argument must be 'file' or 'inline'".
+    assert_eq!(
+        collect_errors(
+            &db,
+            "/invalid.html",
+            "{% compress css bogus %}x{% endcompress %}"
+        )
+        .expect("template validation should run"),
+        []
+    );
+}
+
+#[test]
+fn corpus_show_placeholder_gets_context_from_django() {
+    let corpus = Corpus::require().expect("synced corpus should be available");
+    let (specs, _) = build_specs_from_extraction(&corpus, &corpus.root().join("repos/django-cms"))
+        .expect("corpus specs should build");
+    let db = TestDatabase::new().with_projectless_tag_specs(specs);
+    assert_eq!(
+        collect_errors(
+            &db,
+            "/control.html",
+            "{% show_placeholder 'slot' page_id 'en' %}"
+        )
+        .expect("template validation should run"),
+        []
+    );
+    // False positive: direct registration loses takes_context=True. Django
+    // supplies context to _show_placeholder_by_id, so this has no compile error.
+    let errors = collect_errors(&db, "/valid.html", "{% show_placeholder 'slot' page_id %}")
+        .expect("template validation should run");
+    let [ValidationError::ExtractedRuleViolation { tag, message, .. }] = errors.as_slice() else {
+        panic!("expected the context-count gap, got {errors:?}");
+    };
+    assert_eq!(tag, "show_placeholder");
+    assert_eq!(
+        message,
+        "Tag 'show_placeholder' requires at least 3 arguments"
+    );
+    let errors = collect_errors(&db, "/invalid.html", "{% show_placeholder %}")
+        .expect("template validation should run");
+    assert!(matches!(
+        errors.as_slice(),
+        [ValidationError::ExtractedRuleViolation { .. }]
+    ));
+}
+
+#[test]
+fn corpus_eventsignal_rejects_extra_positional_arguments() {
+    let corpus = Corpus::require().expect("synced corpus should be available");
+    let (specs, _) = build_specs_from_extraction(&corpus, &corpus.root().join("repos/pretix"))
+        .expect("corpus specs should build");
+    let db = TestDatabase::new().with_projectless_tag_specs(specs);
+    assert_eq!(
+        collect_errors(
+            &db,
+            "/control.html",
+            "{% eventsignal event 'signal.name' %}"
+        )
+        .expect("template validation should run"),
+        []
+    );
+    // Missed diagnostic: **kwargs erases the positional maximum. Django's
+    // parse_bits raises "received too many positional arguments".
+    assert_eq!(
+        collect_errors(
+            &db,
+            "/invalid.html",
+            "{% eventsignal event 'signal.name' extra %}"
+        )
+        .expect("template validation should run"),
+        []
+    );
+}
+
+#[test]
+fn corpus_activity_stream_curried_registration() {
+    let corpus = Corpus::require().expect("synced corpus should be available");
+    let root = corpus.root().join("repos/django-activity-stream");
+    let extraction_db = djls_testing::OsTestDatabase::new();
+    let file = djls_source::path_to_file(
+        &extraction_db,
+        &root.join("actstream/templatetags/activity_tags.py"),
+    )
+    .expect("corpus source file should exist");
+    file.try_source(&extraction_db)
+        .expect("corpus source file should be readable");
+    let module = djls_project::PythonModuleName::parse("actstream.templatetags.activity_tags")
+        .expect("corpus module name should parse");
+    let library = djls_project::TemplateLibraryId::new(&extraction_db, Some(file), module);
+    assert!(
+        djls_project::template_library_definition_facts(&extraction_db, library)
+            .symbol(TemplateSymbolKind::Tag, "activity_stream")
+            .is_none()
+    );
+    let (specs, _) =
+        build_specs_from_extraction(&corpus, &root).expect("corpus specs should build");
+    let db = TestDatabase::new().with_projectless_tag_specs(specs);
+    // False positive on the valid control: curried registration is absent.
+    // The invalid call should instead get Django parse_bits' missing
+    // 'stream_type' argument error, not an unknown-tag diagnostic.
+    for template in ["{% activity_stream 'actor' %}", "{% activity_stream %}"] {
+        let errors =
+            collect_errors(&db, "/case.html", template).expect("template validation should run");
+        let [ValidationError::UnknownTag { tag, .. }] = errors.as_slice() else {
+            panic!("expected the curried registration gap, got {errors:?}");
+        };
+        assert_eq!(tag, "activity_stream");
+    }
+}
+
+#[test]
+fn corpus_element_requires_an_argument() {
+    let corpus = Corpus::require().expect("synced corpus should be available");
+    let (specs, _) =
+        build_specs_from_extraction(&corpus, &corpus.root().join("repos/django-allauth"))
+            .expect("corpus specs should build");
+    let db = TestDatabase::new().with_projectless_tag_specs(specs);
+    assert_eq!(
+        collect_errors(
+            &db,
+            "/control.html",
+            "{% element 'button' %}x{% endelement %}"
+        )
+        .expect("template validation should run"),
+        []
+    );
+    // Missed diagnostic: helper-returned arguments and args[0] do not establish
+    // an arity rule. allauth's empty call raises IndexError at args[0], not
+    // TemplateSyntaxError; its explicit multi-argument error starts "Usage:".
+    assert_eq!(
+        collect_errors(&db, "/invalid.html", "{% element %}x{% endelement %}")
+            .expect("template validation should run"),
+        []
+    );
+}
+
+#[test]
+fn corpus_with_data_requires_as_keyword() {
+    let corpus = Corpus::require().expect("synced corpus should be available");
+    let (specs, _) =
+        build_specs_from_extraction(&corpus, &corpus.root().join("repos/django-sekizai"))
+            .expect("corpus specs should build");
+    let db = TestDatabase::new().with_projectless_tag_specs(specs);
+    // False positives: the class parser has no tag or closing-tag spec.
+    // WithData.options requires the literal 'as'; classytags supplies the
+    // invalid-call message, whose source is not part of the pinned corpus.
+    for template in [
+        "{% with_data 'css' as values %}x{% end_with_data %}",
+        "{% with_data 'css' into values %}x{% end_with_data %}",
+    ] {
+        let errors =
+            collect_errors(&db, "/case.html", template).expect("template validation should run");
+        let [
+            ValidationError::UnknownTag { tag: opening, .. },
+            ValidationError::UnknownTag { tag: closing, .. },
+        ] = errors.as_slice()
+        else {
+            panic!("expected the class-parser spec gap, got {errors:?}");
+        };
+        assert_eq!(opening, "with_data");
+        assert_eq!(closing, "end_with_data");
+    }
+}

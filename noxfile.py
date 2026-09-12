@@ -166,6 +166,18 @@ def fixtures(session):
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(output, encoding="utf-8")
 
+    output = session.run(
+        "python",
+        "tools/django_facts.py",
+        "--project",
+        "tests/compilation",
+        "--compilation",
+        silent=True,
+    )
+    Path("tests/fixtures/django-facts/compilation-5.2.json").write_text(
+        output, encoding="utf-8"
+    )
+
 
 @nox.session
 def lint(session):

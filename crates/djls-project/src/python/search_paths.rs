@@ -103,6 +103,14 @@ impl SearchPaths {
         search_paths
     }
 
+    /// Build search paths from a layout the caller already knows. No discovery,
+    /// no `.pth` processing. Test scaffolding uses this to describe a project
+    /// whose dependencies were placed by hand rather than installed.
+    #[must_use]
+    pub fn from_paths(paths: Vec<SearchPath>) -> Self {
+        Self { paths }
+    }
+
     #[must_use]
     pub fn from_project_settings(
         fs: &dyn FileSystem,

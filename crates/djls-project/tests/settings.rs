@@ -2,7 +2,6 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::io;
 use std::mem;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::AtomicBool;
@@ -27,40 +26,19 @@ use djls_source::RootWalk;
 use djls_source::SourceChanges;
 use djls_source::SourceFiles;
 use djls_source::WalkOptions;
-use djls_testing::Corpus;
+use djls_testing::DjangoFactsGolden;
+use djls_testing::GoldenTemplateSymbol;
 use djls_testing::OsTestDatabase;
 use djls_testing::ProjectFixture;
 use djls_testing::SalsaEventLog;
 use djls_testing::TestDatabase;
+use djls_testing::django_facts_project;
 use salsa::Database;
 use salsa::Event;
 use salsa::EventKind;
 use salsa::Storage;
-use serde::Deserialize;
 use serde_json::Value;
 use serde_json::to_value;
-
-#[derive(Deserialize)]
-struct DjangoFactsGolden {
-    template_dirs: Vec<String>,
-    template_library_catalog: GoldenTemplateLibraryCatalog,
-}
-
-#[derive(Deserialize)]
-struct GoldenTemplateLibraryCatalog {
-    builtins: Vec<String>,
-    libraries: BTreeMap<String, String>,
-    symbols: Vec<GoldenTemplateSymbol>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
-struct GoldenTemplateSymbol {
-    kind: TemplateSymbolKind,
-    name: String,
-    load_name: Option<String>,
-    library_module: String,
-    module: String,
-}
 
 fn library_name(name: &str) -> Result<LibraryName, Box<dyn std::error::Error>> {
     Ok(LibraryName::parse(name)?)
@@ -3978,68 +3956,21 @@ fn template_library_catalog_include_resolved_and_configured_only_libraries() {
     );
 }
 
-type DjangoFactsGoldenFixture = (
-    OsTestDatabase,
-    Project,
-    Utf8PathBuf,
-    Utf8PathBuf,
-    DjangoFactsGolden,
-);
-
-fn django_facts_golden_fixture() -> Result<DjangoFactsGoldenFixture, Box<dyn std::error::Error>> {
-    let corpus = Corpus::require()?;
-    let django_source_root = corpus.root().join("repos/django-5.2");
-    if !django_source_root.join("django/__init__.py").is_file() {
-        return Err(io::Error::new(
-            io::ErrorKind::NotFound,
-            "pinned Django 5.2 corpus source is missing",
-        )
-        .into());
-    }
-
-    let workspace = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .canonicalize()?;
-    let workspace = Utf8PathBuf::from_path_buf(workspace).map_err(|path| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("workspace path should be UTF-8: {}", path.display()),
-        )
-    })?;
-    let project_root = workspace.join("tests/project");
-    let golden_path = workspace.join("tests/fixtures/django-facts/django-5.2.json");
-    let golden_source = std::fs::read_to_string(golden_path.as_std_path())?;
-    let golden = serde_json::from_str(&golden_source)?;
-
-    let mut db = OsTestDatabase::new();
-    let interpreter = Interpreter::VenvPath(corpus.root().join("hermetic-no-venv"));
-    let pythonpath = vec![django_source_root.clone()];
-    let search_paths = SearchPaths::from_project_settings(
-        db.file_system(),
-        project_root.as_path(),
-        &interpreter,
-        &pythonpath,
-    );
-    search_paths.register_roots(&db);
-    let project = Project::new(
-        &db,
-        project_root.clone(),
-        search_paths,
-        interpreter,
-        Some(PythonModuleName::parse("djls_test.settings")?),
-        pythonpath,
-        Vec::new(),
-        djls_conf::Settings::default().tagspecs().clone(),
-    );
-    db.set_project(project);
-
-    Ok((db, project, project_root, django_source_root, golden))
-}
-
 #[test]
 fn django_facts_golden_template_dirs_match() {
-    let (db, project, project_root, django_source_root, golden) =
-        django_facts_golden_fixture().expect("Django facts golden fixture should build");
+    let (db, project, project_root, django_source_root) =
+        django_facts_project("tests/project", "djls_test.settings")
+            .expect("Django facts project should build");
+    let golden: DjangoFactsGolden = serde_json::from_str(include_str!(
+        "../../../tests/fixtures/django-facts/django-5.2.json"
+    ))
+    .expect("Django facts golden should parse");
+    assert!(
+        project
+            .search_paths(&db)
+            .iter()
+            .any(|path| path == &SearchPath::SitePackages(django_source_root.clone()))
+    );
     let expected: Vec<_> = golden
         .template_dirs
         .into_iter()
@@ -4061,8 +3992,12 @@ fn django_facts_golden_template_dirs_match() {
 
 #[test]
 fn django_facts_golden_template_library_catalog_matches() {
-    let (db, project, _, _, golden) =
-        django_facts_golden_fixture().expect("Django facts golden fixture should build");
+    let (db, project, _, _) = django_facts_project("tests/project", "djls_test.settings")
+        .expect("Django facts project should build");
+    let golden: DjangoFactsGolden = serde_json::from_str(include_str!(
+        "../../../tests/fixtures/django-facts/django-5.2.json"
+    ))
+    .expect("Django facts golden should parse");
     let libraries = template_library_catalog(&db, project);
     let actual_builtins = active_builtin_modules(libraries);
     assert_eq!(actual_builtins, golden.template_library_catalog.builtins);
