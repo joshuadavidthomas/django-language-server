@@ -1,15 +1,8 @@
 //! Intra-module function call resolution via Salsa tracked functions.
 
-use std::ops::ControlFlow;
-
-use ruff_python_ast::Stmt;
-
-use crate::ast::Recurse;
-use crate::ast::walk_stmts;
 use crate::templates::tags::HelperCall;
 use crate::templates::tags::analysis::CallContext;
 use crate::templates::tags::analysis::state::AbstractValue;
-use crate::templates::tags::analysis::state::Env;
 use crate::templates::tags::analysis::state::TokenSplit;
 use crate::templates::tags::analyze_helper;
 
@@ -90,48 +83,6 @@ pub(crate) fn resolve_call(
     AbstractValue::Unknown
 }
 
-/// Extract the abstract return value from a function body.
-///
-/// Scans for `return expr` statements. If exactly one return path yields
-/// a non-Unknown value, returns that. If multiple yields differ, returns Unknown.
-pub(crate) fn extract_return_value(body: &[Stmt], env: &mut Env) -> AbstractValue {
-    let mut returns = Vec::new();
-    walk_stmts(body, Recurse::WithinScope, |stmt| {
-        if let Stmt::Return(ret) = stmt {
-            let value = ret.value.as_deref().map_or(AbstractValue::Unknown, |expr| {
-                crate::templates::tags::analysis::expressions::eval_expr(expr, env)
-            });
-            returns.push(value);
-        }
-        ControlFlow::Continue(())
-    });
-
-    if returns.is_empty() {
-        return AbstractValue::Unknown;
-    }
-
-    // If all returns are the same, use that value
-    let first = &returns[0];
-    if returns.iter().all(|r| r == first) {
-        return first.clone();
-    }
-
-    // Filter out Unknown values — if a single non-Unknown value remains, use it
-    let non_unknown: Vec<_> = returns
-        .iter()
-        .filter(|r| !matches!(r, AbstractValue::Unknown))
-        .collect();
-
-    if non_unknown.len() == 1 {
-        return non_unknown[0].clone();
-    }
-    if non_unknown.len() > 1 && non_unknown.iter().all(|r| *r == non_unknown[0]) {
-        return non_unknown[0].clone();
-    }
-
-    AbstractValue::Unknown
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -147,6 +98,7 @@ mod tests {
 
     use super::*;
     use crate::templates::tags::analysis::CallContext;
+    use crate::templates::tags::analysis::state::Env;
     use crate::templates::tags::analysis::statements::process_statements;
     use crate::templates::tags::testing::fixture_source;
     use crate::templates::tags::types::SplitPosition;
@@ -337,11 +289,7 @@ def do_tag(parser, token):
     }
 
     #[test]
-    fn deep_call_chain_returns_unknown() {
-        // Deep chains (A calls B calls C) return Unknown because
-        // `extract_return_value` uses `eval_expr` without ctx, so
-        // function calls in return expressions can't resolve nested
-        // helpers. Only direct (non-chained) helper calls resolve.
+    fn deep_call_chain_returns_split_contents() {
         let env = analyze_with_helpers(
             r"
 def deep3(tok):
@@ -357,7 +305,10 @@ def do_tag(parser, token):
     bits = deep1(token)
 ",
         );
-        assert_eq!(env.get("bits"), &AbstractValue::Unknown);
+        assert_eq!(
+            env.get("bits"),
+            &AbstractValue::SplitResult(TokenSplit::fresh())
+        );
     }
 
     #[test]

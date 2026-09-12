@@ -81,6 +81,251 @@ fn execution_count(db: &TestDatabase, events: &[salsa::Event], query_name: &str)
         .count()
 }
 
+#[test]
+fn helper_known_and_unknown_return_branches_remain_unknown() {
+    let source = r#"
+from django import template
+register = template.Library()
+def maybe_bits(token):
+    if runtime_condition():
+        return token.split_contents()
+    return runtime_value()
+@register.tag
+def conditional(parser, token):
+    bits = maybe_bits(token)
+    if len(bits) != 2:
+        raise template.TemplateSyntaxError("wrong count")
+    body = parser.parse(("endconditional",))
+    return template.Node(body)
+"#;
+    let result = extract_source(source, "helper_returns").expect("fixture should extract");
+    let key = SymbolKey::tag("helper_returns", "conditional");
+    assert!(result.block_specs.as_map().contains_key(&key));
+    assert!(
+        result
+            .tag_rules
+            .get(&key)
+            .is_none_or(|rule| rule.arg_constraints.is_empty())
+    );
+}
+
+#[test]
+fn helper_distinct_return_values_join_to_unknown() {
+    let source = r#"
+from django import template
+register = template.Library()
+def choose_bits(token):
+    if runtime_condition():
+        return token.split_contents()
+    return token.split_contents()[1:]
+@register.tag
+def distinct(parser, token):
+    bits = choose_bits(token)
+    if len(bits) != 2:
+        raise template.TemplateSyntaxError("wrong count")
+    body = parser.parse(("enddistinct",))
+    return template.Node(body)
+"#;
+    let result = extract_source(source, "helper_returns").expect("fixture should extract");
+    let key = SymbolKey::tag("helper_returns", "distinct");
+    assert!(result.block_specs.as_map().contains_key(&key));
+    assert!(
+        result
+            .tag_rules
+            .get(&key)
+            .is_none_or(|rule| rule.arg_constraints.is_empty())
+    );
+}
+
+#[test]
+fn bare_and_implicit_helper_returns_join_to_unknown() {
+    for (name, ending) in [("bare", "    return\n"), ("implicit", "")] {
+        let source = format!(
+            r#"
+from django import template
+register = template.Library()
+def maybe_bits(token):
+    if runtime_condition():
+        return token.split_contents()
+{ending}
+@register.tag(name="{name}")
+def compile_tag(parser, token):
+    bits = maybe_bits(token)
+    if len(bits) != 2:
+        raise template.TemplateSyntaxError("wrong count")
+    body = parser.parse(("end{name}",))
+    return template.Node(body)
+"#
+        );
+        let result = extract_source(&source, "helper_returns").expect("fixture should extract");
+        let key = SymbolKey::tag("helper_returns", name);
+        assert!(result.block_specs.as_map().contains_key(&key));
+        assert!(
+            result
+                .tag_rules
+                .get(&key)
+                .is_none_or(|rule| rule.arg_constraints.is_empty())
+        );
+    }
+}
+
+#[test]
+fn unreachable_later_return_does_not_change_helper_value() {
+    let source = r#"
+from django import template
+register = template.Library()
+def choose_bits(token):
+    return token.split_contents()
+    return token.split_contents()[1:]
+@register.tag
+def early(parser, token):
+    bits = choose_bits(token)
+    if len(bits) != 2:
+        raise template.TemplateSyntaxError("wrong count")
+    return template.Node()
+"#;
+    let result = extract_source(source, "helper_returns").expect("fixture should extract");
+    let key = SymbolKey::tag("helper_returns", "early");
+    assert!(
+        result.tag_rules.contains_key(&key),
+        "{:#?}",
+        result.tag_rules
+    );
+    assert_eq!(
+        result.tag_rules[&key].arg_constraints,
+        vec![ArgumentCountConstraint::Exact(2)]
+    );
+}
+
+#[test]
+fn finally_restores_or_overrides_the_saved_return_value() {
+    let source = r#"
+from django import template
+register = template.Library()
+def preserved_index():
+    index = 1
+    try:
+        return index
+    finally:
+        index = 2
+def overridden_index():
+    try:
+        return 1
+    finally:
+        return 2
+@register.tag(name="preserved")
+def preserved(parser, token):
+    bits = token.split_contents()
+    index = preserved_index()
+    argument = bits[index]
+    if argument != "required":
+        raise template.TemplateSyntaxError("wrong argument")
+    return template.Node()
+@register.tag(name="overridden")
+def overridden(parser, token):
+    bits = token.split_contents()
+    index = overridden_index()
+    argument = bits[index]
+    if argument != "required":
+        raise template.TemplateSyntaxError("wrong argument")
+    return template.Node()
+"#;
+    let result = extract_source(source, "helper_returns").expect("fixture should extract");
+    assert_eq!(
+        result.tag_rules[&SymbolKey::tag("helper_returns", "preserved")].required_keywords[0]
+            .position,
+        djls_project::SplitPosition::Forward(1)
+    );
+    assert_eq!(
+        result.tag_rules[&SymbolKey::tag("helper_returns", "overridden")].required_keywords[0]
+            .position,
+        djls_project::SplitPosition::Forward(2)
+    );
+}
+
+#[test]
+fn finalizer_mutation_does_not_restore_a_stale_returned_list() {
+    let source = r#"
+from django import template
+register = template.Library()
+def helper(token):
+    bits = token.split_contents()
+    try:
+        return bits
+    finally:
+        bits.pop(0)
+@register.tag
+def mutated(parser, token):
+    bits = helper(token)
+    if len(bits) != 2:
+        raise template.TemplateSyntaxError("wrong count")
+    body = parser.parse(("endmutated",))
+    return template.Node(body)
+"#;
+    let result = extract_source(source, "helper_returns").expect("fixture should extract");
+    let key = SymbolKey::tag("helper_returns", "mutated");
+    assert!(result.block_specs.as_map().contains_key(&key));
+    assert!(result.tag_rules.get(&key).is_none_or(|rule| {
+        !rule
+            .arg_constraints
+            .contains(&ArgumentCountConstraint::Exact(2))
+    }));
+}
+
+#[test]
+fn return_expression_pop_is_visible_to_the_finalizer() {
+    let source = r#"
+from django import template
+register = template.Library()
+def helper(token):
+    bits = token.split_contents()
+    try:
+        return bits.pop(0)
+    finally:
+        return bits
+@register.tag
+def popped(parser, token):
+    bits = helper(token)
+    if len(bits) != 2:
+        raise template.TemplateSyntaxError("wrong count")
+    body = parser.parse(("endpopped",))
+    return template.Node(body)
+"#;
+    let result = extract_source(source, "helper_returns").expect("fixture should extract");
+    let key = SymbolKey::tag("helper_returns", "popped");
+    assert!(result.block_specs.as_map().contains_key(&key));
+    assert!(result.tag_rules.get(&key).is_none_or(|rule| {
+        !rule
+            .arg_constraints
+            .contains(&ArgumentCountConstraint::Exact(2))
+    }));
+}
+
+#[test]
+fn direct_nested_helper_returns_keep_dependency_values() {
+    let source = r#"
+from django import template
+register = template.Library()
+def deepest(token):
+    return token.split_contents()
+def middle(token):
+    return deepest(token)
+def outer(token):
+    return middle(token)
+@register.tag
+def nested(parser, token):
+    bits = outer(token)
+    if len(bits) != 2:
+        raise template.TemplateSyntaxError("wrong count")
+    return template.Node()
+"#;
+    let result = extract_source(source, "helper_returns").expect("fixture should extract");
+    assert_eq!(
+        result.tag_rules[&SymbolKey::tag("helper_returns", "nested")].arg_constraints,
+        vec![ArgumentCountConstraint::Exact(2)]
+    );
+}
+
 // Corpus: `no_params` in tests/template_tests/templatetags/custom.py —
 // `@register.simple_tag` with no user args, exercises simple_tag pipeline
 #[test]

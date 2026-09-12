@@ -2,7 +2,17 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
-tag_rules: {}
+tag_rules:
+  "misago.core.templatetags.misago_capture::tag::capture":
+    arg_constraints:
+      - OneOf:
+          - 3
+          - 4
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax: Unknown
+    as_var: keep
 filter_arities: {}
 block_specs:
   "misago.core.templatetags.misago_capture::tag::capture":

@@ -125,9 +125,10 @@ fn eval_call_with_ctx(
             }
         }
 
-        // bits.pop(0) or bits.pop()
-        if method == "pop" && matches!(obj, AbstractValue::SplitResult(_)) {
-            return eval_pop_return(&obj, &call.arguments);
+        if method == "pop"
+            && let AbstractValue::SplitResult(split) = obj
+        {
+            return eval_pop(value, split, &call.arguments, env);
         }
 
         // token.contents.split(...)
@@ -227,24 +228,33 @@ fn eval_contents_split(args: &Arguments) -> AbstractValue {
     AbstractValue::SplitResult(TokenSplit::fresh())
 }
 
-/// Evaluate the return value of `split_result.pop(0)` or `split_result.pop()`.
-///
-/// This only computes the return value — the mutation of the split result
-/// is handled in `process_pop_statement`.
-fn eval_pop_return(obj: &AbstractValue, args: &Arguments) -> AbstractValue {
-    let AbstractValue::SplitResult(split) = obj else {
-        return AbstractValue::Unknown;
+fn eval_pop(receiver: &Expr, split: TokenSplit, args: &Arguments, env: &mut Env) -> AbstractValue {
+    let (result, remaining) = match PopPosition::from_arguments(args) {
+        PopPosition::Front => (
+            AbstractValue::SplitElement {
+                index: split.resolve_index(0),
+            },
+            AbstractValue::SplitResult(split.after_pop_front()),
+        ),
+        PopPosition::Back => (
+            AbstractValue::SplitElement {
+                index: SplitPosition::Backward(split.back_offset() + 1),
+            },
+            AbstractValue::SplitResult(split.after_pop_back()),
+        ),
+        PopPosition::Untracked => (AbstractValue::Unknown, AbstractValue::Unknown),
     };
-
-    match PopPosition::from_arguments(args) {
-        PopPosition::Front => AbstractValue::SplitElement {
-            index: split.resolve_index(0),
-        },
-        PopPosition::Back => AbstractValue::SplitElement {
-            index: SplitPosition::Backward(split.back_offset() + 1),
-        },
-        PopPosition::Untracked => AbstractValue::Unknown,
+    let original = AbstractValue::SplitResult(split);
+    if let Some(name) = receiver.name_target() {
+        if env.get(name) != &original {
+            env.forget_aliases(&original);
+            return AbstractValue::Unknown;
+        }
+        env.mutate(name, |value| *value = remaining);
+    } else {
+        env.forget_aliases(&original);
     }
+    result
 }
 
 /// Convert an i64 to an `AbstractValue` index element based on sign.

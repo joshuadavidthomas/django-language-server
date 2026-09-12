@@ -20,7 +20,6 @@ use crate::templates::tags::analysis::AbstractValue;
 use crate::templates::tags::analysis::AbstractValueKey;
 use crate::templates::tags::analysis::CallContext;
 use crate::templates::tags::analysis::Env;
-use crate::templates::tags::analysis::extract_return_value;
 use crate::templates::tags::analysis::process_statements;
 pub use crate::templates::tags::types::ArgumentCountConstraint;
 pub use crate::templates::tags::types::ArgumentFormCoverage;
@@ -100,9 +99,8 @@ pub(crate) fn analyze_helper(db: &dyn djls_source::Db, call: HelperCall<'_>) -> 
         file: Some(call.file(db)),
     };
 
-    let _result = process_statements(&callee.body, &mut callee_env, &mut ctx);
-
-    extract_return_value(&callee.body, &mut callee_env)
+    let (_, value) = process_statements(&callee.body, &mut callee_env, &mut ctx);
+    value
 }
 
 fn analyze_helper_cycle_initial(

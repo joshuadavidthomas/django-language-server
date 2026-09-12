@@ -47,17 +47,6 @@ tag_rules:
             Min: 2
         message:
           Static: "'cycle' tag requires at least two arguments"
-      - constraint:
-          RequiredKeyword:
-            position:
-              Backward: 1
-            value: silent
-        message:
-          PercentFormat:
-            template: "Only 'silent' flag is allowed after cycle's name, not '%s'."
-            args:
-              - SplitElement:
-                  Backward: 1
     argument_syntax:
       Parameters:
         - name: arg1

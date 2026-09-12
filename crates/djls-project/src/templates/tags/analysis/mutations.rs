@@ -68,19 +68,6 @@ pub(super) fn try_extract_pop_call(expr: &Expr) -> Option<PopInfo> {
     })
 }
 
-/// Apply the mutation side effect of a pop call to the environment.
-pub(super) fn apply_pop_mutation(env: &mut Env, pop_info: &PopInfo) {
-    env.mutate(&pop_info.var_name, |v| {
-        if let AbstractValue::SplitResult(split) = v {
-            match pop_info.position {
-                PopPosition::Front => *split = split.after_pop_front(),
-                PopPosition::Back => *split = split.after_pop_back(),
-                PopPosition::Untracked => *v = AbstractValue::Unknown,
-            }
-        }
-    });
-}
-
 /// Try to extract a `KnownOptions` from a `while remaining:` option-parsing loop.
 ///
 /// Detects the pattern:
