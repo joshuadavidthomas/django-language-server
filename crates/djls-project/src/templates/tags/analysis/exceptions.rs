@@ -1,4 +1,5 @@
 use ruff_python_ast::Expr;
+use ruff_python_ast::ExprAttribute;
 use ruff_python_ast::ExprBinOp;
 use ruff_python_ast::ExprCall;
 use ruff_python_ast::Operator;
@@ -101,6 +102,13 @@ pub(super) fn extract_exception_message(
 }
 
 fn extract_message_arg(expr: &Expr, env: &Env) -> Option<ExtractedMessageArg> {
+    if let Expr::Attribute(ExprAttribute { value, attr, .. }) = expr
+        && attr.as_str() == "contents"
+        && matches!(eval_expr(value, &mut env.clone()), AbstractValue::Token)
+    {
+        return Some(ExtractedMessageArg::TokenContents);
+    }
+
     match eval_expr(expr, &mut env.clone()) {
         AbstractValue::SplitElement { index } => Some(ExtractedMessageArg::SplitElement(index)),
         AbstractValue::Str(value) => Some(ExtractedMessageArg::String(value)),

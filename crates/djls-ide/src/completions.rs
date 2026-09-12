@@ -16,7 +16,6 @@ use djls_project::TemplateSymbolCandidate;
 use djls_project::TemplateSymbolKind;
 use djls_project::template_resolution;
 use djls_semantic::Db as SemanticDb;
-use djls_semantic::TagArgumentKind;
 use djls_semantic::TagRole;
 use djls_semantic::TagSpec;
 use djls_semantic::TagSpecs;
@@ -41,6 +40,7 @@ use crate::context::OffsetSuffix;
 use crate::context::TagClose;
 use crate::context::TemplateCompletionContext;
 use crate::ext::CompletionCandidateExt;
+use crate::snippets::CompatibleArgumentKind;
 use crate::snippets::compatible_arguments_at;
 use crate::snippets::generate_partial_snippet;
 use crate::snippets::generate_snippet_for_tag_with_end;
@@ -803,27 +803,24 @@ fn generate_tag_argument_candidates(
     let arguments = compatible_arguments_at(spec, completed_arguments, position);
     let mut candidates = Vec::new();
     for argument in arguments {
-        let argument_candidates = match &argument.kind {
-            TagArgumentKind::Literal(value) if value.starts_with(prefix.text) => {
+        let argument_candidates = match argument.kind {
+            CompatibleArgumentKind::Literal(value) if value.starts_with(prefix.text) => {
                 vec![CompletionCandidate::tag_argument_literal(
                     value, prefix, close,
                 )]
             }
-            TagArgumentKind::Choice(choices) => choices
+            CompatibleArgumentKind::Choice(choices) => choices
                 .iter()
                 .filter(|choice| choice.starts_with(prefix.text))
                 .map(|choice| {
-                    CompletionCandidate::tag_argument_choice(choice, &argument.name, prefix, close)
+                    CompletionCandidate::tag_argument_choice(choice, argument.name, prefix, close)
                 })
                 .collect(),
-            TagArgumentKind::Variable | TagArgumentKind::Keyword if prefix.text.is_empty() => {
+            CompatibleArgumentKind::Variable if prefix.text.is_empty() => {
                 let label = format!("<{}>", argument.name);
                 vec![CompletionCandidate::tag_argument_placeholder(label, prefix)]
             }
-            TagArgumentKind::Literal(_)
-            | TagArgumentKind::Variable
-            | TagArgumentKind::Keyword
-            | TagArgumentKind::VarArgs => Vec::new(),
+            CompatibleArgumentKind::Literal(_) | CompatibleArgumentKind::Variable => Vec::new(),
         };
         for candidate in argument_candidates {
             if !candidates.iter().any(|existing: &CompletionCandidate| {
@@ -1023,6 +1020,7 @@ mod tests {
     use djls_semantic::EndTag;
     use djls_semantic::ParameterRequirement;
     use djls_semantic::TagArgument;
+    use djls_semantic::TagArgumentKind;
     use djls_semantic::TagArgumentSyntax;
     use djls_semantic::TagSpec;
     use djls_source::Span;

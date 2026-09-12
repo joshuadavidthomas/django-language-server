@@ -247,43 +247,29 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    diagnostic_messages:
-      - constraint:
-          RequiredKeyword:
-            position:
-              Forward: 4
-            value: as
-        message:
-          Static: "Invalid syntax in widthratio tag. Expecting 'as' keyword"
     argument_syntax:
       Forms:
         forms:
-          - arguments:
+          - pattern:
               - name: this_value_expr
-                requirement: required
                 kind: Variable
               - name: max_value_expr
-                requirement: required
                 kind: Variable
               - name: max_width
-                requirement: required
                 kind: Variable
-          - arguments:
+          - pattern:
               - name: this_value_expr
-                requirement: required
                 kind: Variable
               - name: max_value_expr
-                requirement: required
                 kind: Variable
               - name: max_width
-                requirement: required
                 kind: Variable
               - name: as
-                requirement: required
                 kind:
                   Literal: as
+                mismatch_message:
+                  Static: "Invalid syntax in widthratio tag. Expecting 'as' keyword"
               - name: asvar
-                requirement: required
                 kind: Variable
         coverage: complete
     as_var: keep

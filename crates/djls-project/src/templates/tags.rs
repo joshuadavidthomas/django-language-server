@@ -32,6 +32,9 @@ pub use crate::templates::tags::types::ExtractedDiagnosticConstraint;
 pub use crate::templates::tags::types::ExtractedDiagnosticMessage;
 pub use crate::templates::tags::types::ExtractedMessageArg;
 pub use crate::templates::tags::types::ExtractedMessageTemplate;
+pub use crate::templates::tags::types::FormAtomExpectation;
+pub use crate::templates::tags::types::FormAtomMismatch;
+pub use crate::templates::tags::types::FormContinuation;
 pub use crate::templates::tags::types::KnownOptions;
 pub use crate::templates::tags::types::OptionRejection;
 pub use crate::templates::tags::types::ParameterRequirement;
@@ -39,7 +42,11 @@ pub use crate::templates::tags::types::RequiredKeyword;
 pub use crate::templates::tags::types::SplitPosition;
 pub use crate::templates::tags::types::TagArgument;
 pub use crate::templates::tags::types::TagArgumentForm;
+pub use crate::templates::tags::types::TagArgumentFormError;
+pub use crate::templates::tags::types::TagArgumentFormMismatch;
 pub use crate::templates::tags::types::TagArgumentKind;
+pub use crate::templates::tags::types::TagArgumentPattern;
+pub use crate::templates::tags::types::TagArgumentPatternKind;
 pub use crate::templates::tags::types::TagArgumentSyntax;
 pub use crate::templates::tags::types::TagRule;
 pub use crate::templates::tags::types::TagRuleMap;
@@ -105,6 +112,7 @@ pub(crate) fn analyze_helper(db: &dyn djls_source::Db, call: HelperCall<'_>) -> 
     };
 
     let (_, value) = process_statements(&callee.body, &mut callee_env, &mut ctx);
+
     value
 }
 

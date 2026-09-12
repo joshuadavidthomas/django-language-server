@@ -120,13 +120,13 @@ impl TagRule {
 }
 
 /// A diagnostic message extracted from a raised exception in a tag parser.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExtractedDiagnosticMessage {
     pub constraint: ExtractedDiagnosticConstraint,
     pub message: ExtractedMessageTemplate,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ExtractedDiagnosticConstraint {
     ArgumentCount(ArgumentCountConstraint),
     RequiredKeyword {
@@ -139,7 +139,7 @@ pub enum ExtractedDiagnosticConstraint {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ExtractedMessageTemplate {
     Static(String),
     PercentFormat {
@@ -151,12 +151,17 @@ pub enum ExtractedMessageTemplate {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ExtractedMessageArg {
     SplitElement(SplitPosition),
+    /// The source token reconstructed from the semantic tag name and Tag Bits.
+    ///
+    /// Rendering joins the tag name and each bit with one ASCII space. This
+    /// preserves bit spellings, including quotes, but normalizes source whitespace.
+    TokenContents,
     String(String),
     Int(i64),
 }
 
 /// Constraint on the number of tokens in a tag's argument list.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ArgumentCountConstraint {
     /// `len(bits) == N`
     Exact(usize),
@@ -318,6 +323,8 @@ pub enum TagArgumentSyntax {
     Forms {
         forms: Vec<TagArgumentForm>,
         coverage: ArgumentFormCoverage,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        length_mismatch_message: Option<ExtractedMessageTemplate>,
     },
 }
 
@@ -333,7 +340,9 @@ impl TagArgumentSyntax {
     #[must_use]
     pub fn forms(&self) -> Option<(&[TagArgumentForm], ArgumentFormCoverage)> {
         match self {
-            Self::Forms { forms, coverage } => Some((forms, *coverage)),
+            Self::Forms {
+                forms, coverage, ..
+            } => Some((forms, *coverage)),
             Self::Unknown | Self::Signature { .. } | Self::Parameters(_) => None,
         }
     }
@@ -347,10 +356,288 @@ pub enum ArgumentFormCoverage {
     Partial,
 }
 
-/// One correlated, fixed-length argument form.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// One correlated argument form.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct TagArgumentForm {
-    pub arguments: Vec<TagArgument>,
+    pattern: Vec<TagArgumentPattern>,
+}
+
+impl<'de> Deserialize<'de> for TagArgumentForm {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct SerializedForm {
+            pattern: Vec<TagArgumentPattern>,
+        }
+
+        let serialized = SerializedForm::deserialize(deserializer)?;
+        Self::new(serialized.pattern).map_err(serde::de::Error::custom)
+    }
+}
+
+impl TagArgumentForm {
+    /// Build a form with at most one variable-width section.
+    pub fn new(pattern: Vec<TagArgumentPattern>) -> Result<Self, TagArgumentFormError> {
+        if pattern
+            .iter()
+            .filter(|argument| {
+                matches!(argument.kind, TagArgumentPatternKind::VariableWidth { .. })
+            })
+            .count()
+            > 1
+        {
+            return Err(TagArgumentFormError::MultipleVariableWidthSections);
+        }
+        Ok(Self { pattern })
+    }
+
+    #[must_use]
+    pub fn pattern(&self) -> &[TagArgumentPattern] {
+        &self.pattern
+    }
+
+    /// Merge diagnostic messages when `other` has the same pattern kinds.
+    ///
+    /// A message remains attached only when both forms agree on it. Returns
+    /// `false` without changing this form when the pattern shapes differ.
+    pub(crate) fn merge_messages_if_same_shape(&mut self, other: &Self) -> bool {
+        if self.pattern.len() != other.pattern.len()
+            || self
+                .pattern
+                .iter()
+                .zip(&other.pattern)
+                .any(|(left, right)| left.kind != right.kind)
+        {
+            return false;
+        }
+
+        for (left, right) in self.pattern.iter_mut().zip(&other.pattern) {
+            if left.mismatch_message != right.mismatch_message {
+                left.mismatch_message = None;
+            }
+        }
+        true
+    }
+
+    #[must_use]
+    pub fn minimum_len(&self) -> usize {
+        self.pattern
+            .iter()
+            .map(|argument| match argument.kind {
+                TagArgumentPatternKind::VariableWidth { minimum } => minimum,
+                TagArgumentPatternKind::Variable
+                | TagArgumentPatternKind::Literal(_)
+                | TagArgumentPatternKind::Choice(_)
+                | TagArgumentPatternKind::VariableExcept(_) => 1,
+            })
+            .sum()
+    }
+
+    #[must_use]
+    pub fn exact_len(&self) -> Option<usize> {
+        (!self
+            .pattern
+            .iter()
+            .any(|argument| matches!(argument.kind, TagArgumentPatternKind::VariableWidth { .. })))
+        .then_some(self.pattern.len())
+    }
+
+    /// Match a complete argument list against this form.
+    pub fn match_full<S: AsRef<str>>(&self, bits: &[S]) -> Result<(), TagArgumentFormMismatch<'_>> {
+        let variable_width = self.pattern.iter().position(|argument| {
+            matches!(argument.kind, TagArgumentPatternKind::VariableWidth { .. })
+        });
+        let repeated = if variable_width.is_some() {
+            if bits.len() < self.minimum_len() {
+                return Err(TagArgumentFormMismatch::Length);
+            }
+            bits.len() - (self.pattern.len() - 1)
+        } else {
+            if bits.len() != self.pattern.len() {
+                return Err(TagArgumentFormMismatch::Length);
+            }
+            0
+        };
+
+        for (argument_index, bit) in bits.iter().enumerate() {
+            let pattern_index = match variable_width {
+                Some(variable_index) if argument_index < variable_index => argument_index,
+                Some(variable_index) if argument_index < variable_index + repeated => {
+                    variable_index
+                }
+                Some(_) => argument_index - repeated + 1,
+                None => argument_index,
+            };
+            let argument = &self.pattern[pattern_index];
+            if let Some(expected) = argument.kind.mismatch_expectation(bit.as_ref()) {
+                return Err(TagArgumentFormMismatch::Atom(FormAtomMismatch {
+                    argument_index,
+                    expected,
+                    message: argument.mismatch_message.as_ref(),
+                }));
+            }
+        }
+        Ok(())
+    }
+
+    /// Return every atom that may consume the next argument after `completed`.
+    #[must_use]
+    pub fn prefix_continuations<S: AsRef<str>>(
+        &self,
+        completed: &[S],
+    ) -> Vec<FormContinuation<'_>> {
+        let mut states = vec![(0usize, 0usize)];
+        for bit in completed {
+            let mut next = Vec::new();
+            for (pattern_index, repeated) in states {
+                self.consume_prefix_bit(pattern_index, repeated, bit.as_ref(), &mut next);
+            }
+            next.sort_unstable();
+            next.dedup();
+            states = next;
+            if states.is_empty() {
+                return Vec::new();
+            }
+        }
+
+        let mut continuations = Vec::new();
+        for (pattern_index, repeated) in states {
+            self.collect_continuations(pattern_index, repeated, &mut continuations);
+        }
+        continuations.dedup();
+        continuations
+    }
+
+    fn consume_prefix_bit(
+        &self,
+        pattern_index: usize,
+        repeated: usize,
+        bit: &str,
+        next: &mut Vec<(usize, usize)>,
+    ) {
+        let Some(argument) = self.pattern.get(pattern_index) else {
+            return;
+        };
+        if let TagArgumentPatternKind::VariableWidth { minimum } = argument.kind {
+            if argument.kind.matches(bit) {
+                next.push((pattern_index, repeated + 1));
+            }
+            if repeated >= minimum {
+                self.consume_prefix_bit(pattern_index + 1, 0, bit, next);
+            }
+        } else if argument.kind.matches(bit) {
+            next.push((pattern_index + 1, 0));
+        }
+    }
+
+    fn collect_continuations<'a>(
+        &'a self,
+        pattern_index: usize,
+        repeated: usize,
+        continuations: &mut Vec<FormContinuation<'a>>,
+    ) {
+        let Some(argument) = self.pattern.get(pattern_index) else {
+            return;
+        };
+        if let TagArgumentPatternKind::VariableWidth { minimum } = argument.kind {
+            let continuation = FormContinuation { argument };
+            if !continuations.contains(&continuation) {
+                continuations.push(continuation);
+            }
+            if repeated >= minimum {
+                self.collect_continuations(pattern_index + 1, 0, continuations);
+            }
+        } else {
+            let continuation = FormContinuation { argument };
+            if !continuations.contains(&continuation) {
+                continuations.push(continuation);
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TagArgumentFormError {
+    MultipleVariableWidthSections,
+}
+
+impl std::fmt::Display for TagArgumentFormError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MultipleVariableWidthSections => formatter
+                .write_str("an argument form may contain at most one variable-width section"),
+        }
+    }
+}
+
+impl std::error::Error for TagArgumentFormError {}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TagArgumentPattern {
+    pub name: String,
+    pub kind: TagArgumentPatternKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mismatch_message: Option<ExtractedMessageTemplate>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TagArgumentPatternKind {
+    Variable,
+    Literal(String),
+    Choice(Vec<String>),
+    VariableWidth { minimum: usize },
+    VariableExcept(String),
+}
+
+impl TagArgumentPatternKind {
+    #[must_use]
+    pub fn matches(&self, bit: &str) -> bool {
+        self.mismatch_expectation(bit).is_none()
+    }
+
+    fn mismatch_expectation<'a>(&'a self, bit: &str) -> Option<FormAtomExpectation<'a>> {
+        match self {
+            Self::Literal(value) if bit != value => Some(FormAtomExpectation::Literal(value)),
+            Self::Choice(values) if !values.iter().any(|value| value == bit) => {
+                Some(FormAtomExpectation::Choice(values))
+            }
+            Self::VariableExcept(value) if bit == value => {
+                Some(FormAtomExpectation::Excluded(value))
+            }
+            Self::Variable
+            | Self::Literal(_)
+            | Self::Choice(_)
+            | Self::VariableWidth { .. }
+            | Self::VariableExcept(_) => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TagArgumentFormMismatch<'a> {
+    Length,
+    Atom(FormAtomMismatch<'a>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FormAtomMismatch<'a> {
+    pub argument_index: usize,
+    pub expected: FormAtomExpectation<'a>,
+    pub message: Option<&'a ExtractedMessageTemplate>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FormAtomExpectation<'a> {
+    Literal(&'a str),
+    Choice(&'a [String]),
+    Excluded(&'a str),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FormContinuation<'a> {
+    pub argument: &'a TagArgumentPattern,
 }
 
 /// Whether a parameter must be present.
@@ -416,5 +703,130 @@ mod tests {
         assert_eq!(key.registration_module, "django.template.defaultfilters");
         assert_eq!(key.name, "title");
         assert_eq!(key.kind, TemplateSymbolKind::Filter);
+    }
+
+    fn pattern(name: &str, kind: TagArgumentPatternKind) -> TagArgumentPattern {
+        TagArgumentPattern {
+            name: name.to_string(),
+            kind,
+            mismatch_message: None,
+        }
+    }
+
+    #[test]
+    fn argument_form_rejects_multiple_variable_width_sections() {
+        let result = TagArgumentForm::new(vec![
+            pattern(
+                "first",
+                TagArgumentPatternKind::VariableWidth { minimum: 0 },
+            ),
+            pattern(
+                "second",
+                TagArgumentPatternKind::VariableWidth { minimum: 1 },
+            ),
+        ]);
+        assert_eq!(
+            result,
+            Err(TagArgumentFormError::MultipleVariableWidthSections)
+        );
+    }
+
+    #[test]
+    fn argument_form_deserialization_enforces_variable_width_invariant() {
+        let serialized = r#"{"pattern":[{"name":"first","kind":{"VariableWidth":{"minimum":0}}},{"name":"second","kind":{"VariableWidth":{"minimum":1}}}]}"#;
+        let result = serde_json::from_str::<TagArgumentForm>(serialized);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn argument_form_merges_only_messages_for_the_same_shape() {
+        let first_message = ExtractedMessageTemplate::Static("first".to_string());
+        let second_message = ExtractedMessageTemplate::Static("second".to_string());
+        let mut form = TagArgumentForm::new(vec![TagArgumentPattern {
+            name: "mode".to_string(),
+            kind: TagArgumentPatternKind::Literal("safe".to_string()),
+            mismatch_message: Some(first_message.clone()),
+        }])
+        .expect("one fixed-width atom is valid");
+        let same_shape = TagArgumentForm::new(vec![TagArgumentPattern {
+            name: "other_name".to_string(),
+            kind: TagArgumentPatternKind::Literal("safe".to_string()),
+            mismatch_message: Some(second_message),
+        }])
+        .expect("one fixed-width atom is valid");
+
+        assert!(form.merge_messages_if_same_shape(&same_shape));
+        assert_eq!(form.pattern[0].mismatch_message, None);
+
+        form.pattern[0].mismatch_message = Some(first_message);
+        let before_different_shape = form.clone();
+        let different_shape = TagArgumentForm::new(vec![pattern(
+            "mode",
+            TagArgumentPatternKind::Literal("unsafe".to_string()),
+        )])
+        .expect("one fixed-width atom is valid");
+
+        assert!(!form.merge_messages_if_same_shape(&different_shape));
+        assert_eq!(form, before_different_shape);
+    }
+
+    #[test]
+    fn variable_width_form_aligns_fixed_suffix_from_end() {
+        let form = TagArgumentForm::new(vec![
+            pattern(
+                "loopvars",
+                TagArgumentPatternKind::VariableWidth { minimum: 1 },
+            ),
+            pattern("in", TagArgumentPatternKind::Literal("in".to_string())),
+            pattern(
+                "sequence",
+                TagArgumentPatternKind::VariableExcept("reversed".to_string()),
+            ),
+        ])
+        .expect("one variable-width section is valid");
+
+        assert_eq!(form.match_full(&["x,", "y", "in", "items"]), Ok(()));
+        assert!(matches!(
+            form.match_full(&["x", "in", "reversed"]),
+            Err(TagArgumentFormMismatch::Atom(FormAtomMismatch {
+                argument_index: 2,
+                expected: FormAtomExpectation::Excluded("reversed"),
+                message: None,
+            }))
+        ));
+    }
+
+    #[test]
+    fn variable_width_prefix_offers_repeat_and_suffix() {
+        let form = TagArgumentForm::new(vec![
+            pattern(
+                "loopvars",
+                TagArgumentPatternKind::VariableWidth { minimum: 1 },
+            ),
+            pattern("in", TagArgumentPatternKind::Literal("in".to_string())),
+            pattern("sequence", TagArgumentPatternKind::Variable),
+        ])
+        .expect("one variable-width section is valid");
+
+        let initial = form.prefix_continuations::<&str>(&[]);
+        assert_eq!(initial.len(), 1);
+        assert_eq!(initial[0].argument.name, "loopvars");
+
+        let after_one = form.prefix_continuations(&["x"]);
+        assert_eq!(
+            after_one
+                .iter()
+                .map(|continuation| continuation.argument.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["loopvars", "in"]
+        );
+        let after_suffix = form.prefix_continuations(&["x", "in"]);
+        assert_eq!(
+            after_suffix
+                .iter()
+                .map(|continuation| continuation.argument.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["loopvars", "in", "sequence"]
+        );
     }
 }

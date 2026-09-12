@@ -565,6 +565,58 @@ fn project_backed_widthratio_completes_correlated_django_forms() {
 }
 
 #[test]
+fn project_backed_for_completes_correlated_django_forms() {
+    let cases = [
+        ("full.html", "{% for § %}"),
+        ("separator.html", "{% for x § %}"),
+        ("unpack-separator.html", "{% for x, y § %}"),
+        ("reversed.html", "{% for x in items § %}"),
+    ];
+    let parsed = cases
+        .iter()
+        .map(|(name, marked)| {
+            let (source, offset) = source_and_offset(marked).expect("for cursor marker");
+            (*name, source, offset)
+        })
+        .collect::<Vec<_>>();
+    let mut fixture = ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file(
+            "/test/project/testproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'builtins': ['django.template.defaulttags']}}]\n",
+        )
+        .file("/test/project/django/__init__.py", "")
+        .file("/test/project/django/template/__init__.py", "")
+        .file(
+            "/test/project/django/template/defaulttags.py",
+            include_str!("../../djls-project/src/templates/tags/testdata/django_defaulttags.py"),
+        );
+    for (name, source, _) in &parsed {
+        fixture = fixture.file(format!("/test/project/templates/{name}"), source);
+    }
+    let mut db = TestDatabase::new();
+    fixture.install(&mut db).expect("for completion fixture");
+    let labels = |name: &str, offset: Offset| {
+        let file = db
+            .file(Utf8Path::new(&format!("/test/project/templates/{name}")))
+            .expect("for template");
+        match completion(&db, file, offset, PositionEncoding::Utf16, true) {
+            Some(ls_types::CompletionResponse::Array(items)) => items,
+            Some(ls_types::CompletionResponse::List(list)) => list.items,
+            None => Vec::new(),
+        }
+        .into_iter()
+        .map(|item| item.label)
+        .collect::<Vec<_>>()
+    };
+
+    assert!(labels("full.html", parsed[0].2).contains(&"for arguments".to_string()));
+    assert!(labels("separator.html", parsed[1].2).contains(&"in".to_string()));
+    assert!(labels("unpack-separator.html", parsed[2].2).contains(&"in".to_string()));
+    assert!(labels("reversed.html", parsed[3].2).contains(&"reversed".to_string()));
+}
+
+#[test]
 fn template_name_completions_do_not_leak_names_from_another_backend() {
     let mut db = TestDatabase::new();
     let (source, offset) = source_and_offset(r#"{% extends "§" %}"#)

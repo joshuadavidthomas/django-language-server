@@ -21,8 +21,6 @@ const MISSED_DIAGNOSTICS: &[&str] = &[
     "conjunction_guard_invalid",
     // helper raises are not propagated, so caught-exception fallback forgets the split state after the first pop
     "exception_between_pops_missing",
-    // the conditional expression choosing the in-keyword index evaluates to Unknown
-    "for_wrong_separator",
     // option extraction records names but not the assignments required after with
     "include_missing_assignment",
     // the static choice list is mutated after assignment, so its value becomes Unknown

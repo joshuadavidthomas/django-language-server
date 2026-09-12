@@ -73,9 +73,8 @@ impl TokenSplit {
     }
 
     /// The number of elements removed from the front.
-    #[cfg(test)]
     #[must_use]
-    fn front_offset(&self) -> usize {
+    pub(crate) fn front_offset(&self) -> usize {
         self.front_offset
     }
 

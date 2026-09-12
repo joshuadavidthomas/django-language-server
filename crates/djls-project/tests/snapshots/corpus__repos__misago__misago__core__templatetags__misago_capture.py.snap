@@ -11,7 +11,15 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
-    argument_syntax: Unknown
+    argument_syntax:
+      Forms:
+        forms:
+          - pattern:
+              - name: arg1
+                kind: Variable
+              - name: variable
+                kind: Variable
+        coverage: partial
     as_var: keep
 filter_arities: {}
 block_specs:

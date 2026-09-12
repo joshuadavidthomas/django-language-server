@@ -68,6 +68,34 @@
     "authored_kwargs_valid.html": {
       "result": "compiled"
     },
+    "authored_loop_negative_discriminator.html": {
+      "error": "authored_loop expects 'variables in sequence'",
+      "result": "failed"
+    },
+    "authored_loop_reversed.html": {
+      "result": "compiled"
+    },
+    "authored_loop_reversed_is_not_sequence.html": {
+      "error": "authored_loop expects 'variables in sequence'",
+      "result": "failed"
+    },
+    "authored_loop_single.html": {
+      "result": "compiled"
+    },
+    "authored_loop_source_minimum.html": {
+      "result": "compiled"
+    },
+    "authored_loop_unpack.html": {
+      "result": "compiled"
+    },
+    "authored_loop_wrong_reversed_separator.html": {
+      "error": "authored_loop expects 'variables in sequence'",
+      "result": "failed"
+    },
+    "authored_loop_wrong_separator.html": {
+      "error": "authored_loop expects 'variables in sequence'",
+      "result": "failed"
+    },
     "authored_positional_after_keyword.html": {
       "error": "'authored_default' received some positional argument(s) after some keyword argument(s)",
       "result": "failed"
@@ -251,8 +279,33 @@
     "firstof_valid.html": {
       "result": "compiled"
     },
+    "for_negative_discriminator.html": {
+      "error": "'for' statements should use the format 'for x in y': for x y in reversed",
+      "result": "failed"
+    },
+    "for_reversed_is_not_sequence.html": {
+      "error": "'for' statements should use the format 'for x in y': for x in reversed",
+      "result": "failed"
+    },
+    "for_reversed_valid.html": {
+      "result": "compiled"
+    },
+    "for_too_short.html": {
+      "error": "'for' statements should have at least four words: for x in",
+      "result": "failed"
+    },
+    "for_unpack_reversed_valid.html": {
+      "result": "compiled"
+    },
+    "for_unpack_valid.html": {
+      "result": "compiled"
+    },
     "for_valid.html": {
       "result": "compiled"
+    },
+    "for_wrong_reversed_separator.html": {
+      "error": "'for' statements should use the format 'for x in y': for x from items reversed",
+      "result": "failed"
     },
     "for_wrong_separator.html": {
       "error": "'for' statements should use the format 'for x in y': for x from items",

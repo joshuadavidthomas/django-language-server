@@ -34,6 +34,10 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Fixed
 
+- Fixed tag argument extraction from helper return paths, including nested helper calls and scalar `finally` overrides.
+- Fixed tag argument extraction from ordered `match` cases, including guard fallthrough and captures that replace earlier bindings.
+- Fixed tag argument extraction from unpacking assignments, including loop targets, starred targets, caught failures, and preceding mutations.
+- Fixed contradictory argument-count branches contributing impossible accepted forms.
 - Fixed static validation of `simple_tag`, `inclusion_tag`, and `simple_block_tag` arguments to match Django's `parse_bits()` binding rules.
 - Fixed static validation for context-aware and curried tag registrations and for `simple_block_tag` block structure.
 - Fixed unloaded-tag diagnostics and load quick fixes disappearing when an unrelated template library has unknown registrations.
@@ -42,13 +46,10 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Fixed duplicate names and excess inclusion-tag arguments producing invented Template Library definitions.
 - Fixed false duplicate-option diagnostics for tag parsers that check membership without raising an error.
 - Fixed tag-rule extraction for conditional list mutations, truthiness guards, early returns, and `finally` validation.
-- Fixed tag argument extraction from helper return paths, including nested helper calls and scalar `finally` overrides.
-- Fixed tag argument extraction from unpacking assignments, including loop targets, starred targets, caught failures, and preceding mutations.
-- Fixed contradictory argument-count branches contributing impossible accepted forms.
 - Fixed argument validation for Pipeline's `stylesheet` and `javascript` tags, Compressor output modes, and Django's `templatetag` choices.
 - Fixed tag-rule extraction using incorrect argument positions after unsupported `pop()` calls.
 - Fixed custom tags with mixed body-parser paths suppressing diagnostics and references for bodies Django still parses.
-- Fixed manual tag extraction, validation, and completion losing correlated argument forms such as `widthratio ...` and `widthratio ... as variable`.
+- Fixed manual tag extraction, validation, and completion losing correlated argument forms such as `widthratio ... as variable` and Django `for ... reversed`.
 - **Internal**: Normalized glibc string-comparison dispatch across Intel and AMD CodSpeed simulation runners.
 
 ## [6.1.0]
