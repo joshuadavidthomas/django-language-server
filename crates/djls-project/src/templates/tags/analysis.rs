@@ -444,6 +444,7 @@ pub(super) fn extract_arg_names(
         .unwrap_or(0);
     let max_from_constraints = infer_max_position(arg_constraints);
 
+    let min_pos = infer_min_position(arg_constraints);
     let max_pos = max_from_env
         .max(max_from_keywords)
         .max(max_from_constraints);
@@ -455,6 +456,11 @@ pub(super) fn extract_arg_names(
     let mut args = Vec::new();
     for pos in 1..=max_pos {
         let pos_split = SplitPosition::Forward(pos);
+        let inferred_requirement = if min_pos.is_some_and(|min_pos| pos > min_pos) {
+            ParameterRequirement::Optional
+        } else {
+            ParameterRequirement::Required
+        };
 
         // Check if there's a required keyword or choice at this position.
         if let Some(rk) = required_keywords.iter().find(|rk| rk.position == pos_split) {
@@ -481,7 +487,7 @@ pub(super) fn extract_arg_names(
         if let Some((_, name)) = named_positions.iter().find(|(p, _)| *p == pos) {
             args.push(TagArgument {
                 name: name.clone(),
-                requirement: ParameterRequirement::Required,
+                requirement: inferred_requirement,
                 kind: TagArgumentKind::Variable,
             });
             continue;
@@ -490,7 +496,7 @@ pub(super) fn extract_arg_names(
         // Fallback: generic name
         args.push(TagArgument {
             name: format!("arg{pos}"),
-            requirement: ParameterRequirement::Required,
+            requirement: inferred_requirement,
             kind: TagArgumentKind::Variable,
         });
     }
@@ -515,6 +521,25 @@ fn infer_max_position(constraints: &[ArgumentCountConstraint]) -> usize {
         max = max.max(candidate);
     }
     max
+}
+
+/// Infer the minimum argument position from constraints.
+///
+/// Returns the known number of guaranteed argument positions (in `split_contents`
+/// coordinates, excluding the tag name), or `None` when no constraint has a lower bound.
+fn infer_min_position(constraints: &[ArgumentCountConstraint]) -> Option<usize> {
+    constraints
+        .iter()
+        .filter_map(|constraint| match constraint {
+            ArgumentCountConstraint::Exact(n) | ArgumentCountConstraint::Min(n) => {
+                Some(n.saturating_sub(1))
+            }
+            ArgumentCountConstraint::Max(_) => None,
+            ArgumentCountConstraint::OneOf(vals) => {
+                vals.iter().copied().min().map(|n| n.saturating_sub(1))
+            }
+        })
+        .max()
 }
 
 #[cfg(test)]
@@ -681,6 +706,163 @@ def do_tag(parser, token):
         assert_eq!(parameters(&rule)[0].name, "arg1");
         assert_eq!(parameters(&rule)[1].name, "arg2");
         assert_eq!(parameters(&rule)[2].name, "arg3");
+    }
+
+    #[test]
+    fn min_and_max_make_arguments_after_the_minimum_optional() {
+        let rule = analyze_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if len(bits) < 3 or len(bits) > 6:
+        raise TemplateSyntaxError("err")
+    first = bits[1]
+    second = bits[2]
+"#,
+        );
+
+        assert_eq!(
+            parameters(&rule)
+                .iter()
+                .map(|argument| argument.requirement)
+                .collect::<Vec<_>>(),
+            vec![
+                ParameterRequirement::Required,
+                ParameterRequirement::Required,
+                ParameterRequirement::Optional,
+                ParameterRequirement::Optional,
+                ParameterRequirement::Optional,
+            ]
+        );
+    }
+
+    #[test]
+    fn named_position_after_the_minimum_is_optional() {
+        let mut env = state::Env::default();
+        env.set(
+            "third".to_string(),
+            state::AbstractValue::SplitElement {
+                index: SplitPosition::Forward(3),
+            },
+        );
+
+        let arguments = extract_arg_names(
+            &env,
+            &[],
+            &[],
+            &[
+                ArgumentCountConstraint::Min(3),
+                ArgumentCountConstraint::Max(4),
+            ],
+        );
+
+        assert_eq!(arguments[2].name, "third");
+        assert_eq!(arguments[2].requirement, ParameterRequirement::Optional);
+    }
+
+    #[test]
+    fn exact_count_requires_every_synthesized_argument() {
+        let rule = analyze_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if len(bits) != 4:
+        raise TemplateSyntaxError("err")
+"#,
+        );
+
+        assert_eq!(
+            parameters(&rule)
+                .iter()
+                .map(|argument| argument.requirement)
+                .collect::<Vec<_>>(),
+            vec![
+                ParameterRequirement::Required,
+                ParameterRequirement::Required,
+                ParameterRequirement::Required,
+            ]
+        );
+    }
+
+    #[test]
+    fn one_of_makes_arguments_after_smallest_count_optional() {
+        let rule = analyze_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if len(bits) not in (3, 5):
+        raise TemplateSyntaxError("err")
+"#,
+        );
+
+        assert_eq!(
+            parameters(&rule)
+                .iter()
+                .map(|argument| argument.requirement)
+                .collect::<Vec<_>>(),
+            vec![
+                ParameterRequirement::Required,
+                ParameterRequirement::Required,
+                ParameterRequirement::Optional,
+                ParameterRequirement::Optional,
+            ]
+        );
+    }
+
+    #[test]
+    fn max_only_keeps_every_synthesized_argument_required() {
+        let rule = analyze_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if len(bits) > 3:
+        raise TemplateSyntaxError("err")
+"#,
+        );
+
+        assert_eq!(
+            parameters(&rule)
+                .iter()
+                .map(|argument| argument.requirement)
+                .collect::<Vec<_>>(),
+            vec![
+                ParameterRequirement::Required,
+                ParameterRequirement::Required,
+            ]
+        );
+    }
+
+    #[test]
+    fn minimum_position_uses_the_strongest_conjunctive_lower_bound() {
+        assert_eq!(infer_min_position(&[]), None);
+        assert_eq!(infer_min_position(&[ArgumentCountConstraint::Max(6)]), None);
+        assert_eq!(
+            infer_min_position(&[ArgumentCountConstraint::OneOf(Vec::new())]),
+            None
+        );
+        assert_eq!(
+            infer_min_position(&[
+                ArgumentCountConstraint::Min(3),
+                ArgumentCountConstraint::Max(6),
+            ]),
+            Some(2)
+        );
+        assert_eq!(
+            infer_min_position(&[ArgumentCountConstraint::Exact(4)]),
+            Some(3)
+        );
+        assert_eq!(
+            infer_min_position(&[ArgumentCountConstraint::OneOf(vec![3, 5])]),
+            Some(2)
+        );
+        assert_eq!(
+            infer_min_position(&[
+                ArgumentCountConstraint::OneOf(Vec::new()),
+                ArgumentCountConstraint::Min(2),
+                ArgumentCountConstraint::Exact(4),
+            ]),
+            Some(3)
+        );
     }
 
     #[test]

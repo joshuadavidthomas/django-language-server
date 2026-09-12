@@ -78,7 +78,7 @@ tag_rules:
           requirement: required
           kind: Variable
         - name: arg6
-          requirement: required
+          requirement: optional
           kind: Variable
     as_var: keep
 filter_arities: {}
