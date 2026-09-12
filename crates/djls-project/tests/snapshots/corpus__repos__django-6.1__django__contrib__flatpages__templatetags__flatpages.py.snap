@@ -22,22 +22,47 @@ tag_rules:
     choice_at_constraints: []
     known_options: ~
     argument_syntax:
-      Parameters:
-        - name: arg1
-          requirement: required
-          kind: Variable
-        - name: arg2
-          requirement: required
-          kind: Variable
-        - name: arg3
-          requirement: optional
-          kind: Variable
-        - name: arg4
-          requirement: optional
-          kind: Variable
-        - name: arg5
-          requirement: optional
-          kind: Variable
+      Forms:
+        forms:
+          - pattern:
+              - name: as
+                kind:
+                  Literal: as
+              - name: context_name
+                kind: Variable
+          - pattern:
+              - name: arg1
+                kind: Variable
+              - name: as
+                kind:
+                  Literal: as
+              - name: context_name
+                kind: Variable
+          - pattern:
+              - name: for
+                kind:
+                  Literal: for
+              - name: arg2
+                kind: Variable
+              - name: as
+                kind:
+                  Literal: as
+              - name: context_name
+                kind: Variable
+          - pattern:
+              - name: arg1
+                kind: Variable
+              - name: for
+                kind:
+                  Literal: for
+              - name: arg3
+                kind: Variable
+              - name: as
+                kind:
+                  Literal: as
+              - name: context_name
+                kind: Variable
+        coverage: complete
     as_var: keep
 filter_arities: {}
 block_specs: {}
