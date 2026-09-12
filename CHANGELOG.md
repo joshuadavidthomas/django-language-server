@@ -22,11 +22,9 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 - Added a "Why a language server?" docs page.
 - Added an S124 hint on `{% load %}` for unreadable library registrations, with a code action that opens a prefilled issue.
-- **Internal**: Compare DJLS template tag validation against Django's template compilation on a dedicated fixture project.
-- **Internal**: Validated markdown diagnostic snapshots against the pinned Django corpus source.
-- **Internal**: Added `py` and `toml` mdtest fences for scenario-owned tag libraries and settings.
-- **Internal**: Test fixtures now render `settings.py` from a typed `ProjectSettings` value.
-- **Internal**: Extraction snapshots now record library symbol inventories and whether they are open; a corpus census counts registration sites and records candidates that cannot be matched to extracted definitions.
+- **Internal**: Tag validation is tested against Django's own template libraries from the pinned corpus, with a fixture project comparing DJLS diagnostics against Django's compilation verdicts.
+- **Internal**: Test scenarios declare their own tag libraries and settings, either in markdown Python fences or from a typed `ProjectSettings` value.
+- **Internal**: Extraction snapshots record library symbol inventories and whether they are open, and a corpus census counts registration sites that no extracted definition matches.
 - **Internal**: Added cold settings-analysis benchmarks for conditional bindings and corpus projects.
 
 ### Changed
@@ -34,6 +32,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Reduced analysis time for Django settings with many conditional branches.
 - Removed eager Django Model scanning and Model Graph construction from project discovery and cache warm-up.
 - Swapped the order of environments when automatically finding a project's Python interpreter, preferring the project venv dirs to `VIRTUAL_ENV`, to account for pre-commit isolated environments.
+- **Internal**: Moved validation cases into per-file markdown snapshot tests, built every test project from disk through `ProjectFixture`, split the corpus sweeps into per-repository tests, and moved the full-corpus benchmark checks out of `cargo test`, which now runs about fifteen seconds faster.
 
 ### Removed
 
@@ -41,24 +40,19 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Fixed
 
-- Fixed tag argument extraction from helper return paths, including nested helper calls and scalar `finally` overrides.
-- Fixed tag argument extraction from ordered `match` cases, including guard fallthrough and captures that replace earlier bindings.
-- Fixed tag argument extraction from unpacking assignments, including loop targets, starred targets, caught failures, and preceding mutations.
-- Fixed contradictory argument-count branches contributing impossible accepted forms.
-- Fixed static validation of `simple_tag`, `inclusion_tag`, and `simple_block_tag` arguments to match Django's `parse_bits()` binding rules.
-- Fixed static validation for context-aware and curried tag registrations and for `simple_block_tag` block structure.
+- Fixed tag argument extraction from helper return paths, ordered `match` cases, and unpacking assignments, including nested helper calls, guard fallthrough, starred targets, caught failures, and scalar `finally` overrides.
+- Fixed tag-rule extraction for conditional list mutations, truthiness guards, early returns, `finally` validation, argument positions after unsupported `pop()` calls, and contradictory argument-count branches producing impossible forms.
+- Fixed static validation of `simple_tag`, `inclusion_tag`, and `simple_block_tag` arguments, including context-aware and curried registrations and block structure, to match Django's `parse_bits()` binding rules.
+- Fixed tag extraction, validation, and completion losing correlated argument forms such as `widthratio ... as variable`, Django `for ... reversed`, and forms whose keywords are positioned from the end of the tag, as in `{% get_flatpages %}`.
+- Fixed static validation of assignment lists parsed by Django's `token_kwargs()`, including `{% with %}` arguments.
+- Fixed argument validation for Pipeline's `stylesheet` and `javascript` tags, Compressor output modes, and Django's `templatetag` choices.
 - Fixed unloaded-tag diagnostics and load quick fixes disappearing when an unrelated template library has unknown registrations.
-- Fixed explicit `false` and empty LSP initialization options failing to override project configuration.
-- Fixed `djls check` scanning the project root when template settings branches differ only in context processors.
 - Fixed duplicate names and excess inclusion-tag arguments producing invented Template Library definitions.
 - Fixed false duplicate-option diagnostics for tag parsers that check membership without raising an error.
-- Fixed tag-rule extraction for conditional list mutations, truthiness guards, early returns, and `finally` validation.
-- Fixed argument validation for Pipeline's `stylesheet` and `javascript` tags, Compressor output modes, and Django's `templatetag` choices.
-- Fixed tag-rule extraction using incorrect argument positions after unsupported `pop()` calls.
 - Fixed custom tags with mixed body-parser paths suppressing diagnostics and references for bodies Django still parses.
-- Fixed manual tag extraction, validation, and completion losing correlated argument forms such as `widthratio ... as variable` and Django `for ... reversed`.
-- Fixed static validation of assignment lists parsed by Django's `token_kwargs()`, including `{% with %}` arguments.
-- **Internal**: Skipped redundant binding reconstruction during tag extraction.
+- Fixed explicit `false` and empty LSP initialization options failing to override project configuration.
+- Fixed `djls check` scanning the project root when template settings branches differ only in context processors.
+- **Internal**: Stopped reconstructing bindings redundantly during tag extraction, and stopped marking synthesized tag arguments required past their known minimum.
 - **Internal**: Normalized glibc string-comparison dispatch across Intel and AMD CodSpeed simulation runners.
 
 ## [6.1.0]
