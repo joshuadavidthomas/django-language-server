@@ -47,17 +47,17 @@ jobs:
           fi
 
   lint:
-    uses: ./.github/workflows/lint.yml
+    uses: $/.github/workflows/lint.yml
     permissions:
       contents: read
 
   test:
-    uses: ./.github/workflows/test.yml
+    uses: $/.github/workflows/test.yml
     permissions:
       contents: read
 
   build:
-    uses: ./.github/workflows/build.yml
+    uses: $/.github/workflows/build.yml
     needs: [preflight, lint, test]
     permissions:
       attestations: write
