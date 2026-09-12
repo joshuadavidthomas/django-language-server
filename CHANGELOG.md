@@ -23,9 +23,11 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Added a "Why a language server?" docs page.
 - **Internal**: Compare DJLS template tag validation against Django's template compilation on a dedicated fixture project.
 - **Internal**: Extraction snapshots now record library symbol inventories and whether they are open; a corpus census counts registration sites and records candidates that cannot be matched to extracted definitions.
+- **Internal**: Added cold settings-analysis benchmarks for conditional bindings and corpus projects.
 
 ### Changed
 
+- Reduced analysis time for Django settings with many conditional branches.
 - Removed eager Django Model scanning and Model Graph construction from project discovery and cache warm-up.
 - Swapped the order of environments when automatically finding a project's Python interpreter, preferring the project venv dirs to `VIRTUAL_ENV`, to account for pre-commit isolated environments.
 

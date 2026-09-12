@@ -69,7 +69,7 @@ impl StructuralOrd for PredicateIdentity {
 
 /// One finite decision join. The module identity, source origin, and kind name
 /// one coordinate; `arm_count` records its complete modeled domain.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Eq)]
 pub(super) struct BranchJoin {
     module: PythonSourceModule,
     origin: Origin,
@@ -125,6 +125,15 @@ impl BranchJoin {
             })
     }
 
+    fn same_identity(&self, other: &Self) -> bool {
+        // Equality can reject distinct source sites before comparing module
+        // paths. Canonical ordering must still compare modules first.
+        self.kind == other.kind
+            && self.origin == other.origin
+            && self.predicate_discriminator == other.predicate_discriminator
+            && self.module == other.module
+    }
+
     fn assert_same_domain(&self, other: &Self) {
         assert_eq!(
             self.arm_count, other.arm_count,
@@ -156,6 +165,12 @@ impl BranchJoin {
             origin,
             arm_count,
         )
+    }
+}
+
+impl PartialEq for BranchJoin {
+    fn eq(&self, other: &Self) -> bool {
+        self.arm_count == other.arm_count && self.same_identity(other)
     }
 }
 
@@ -211,17 +226,14 @@ impl ConstraintNode {
         Self::Branch { join, arms }
     }
 
-    fn collect_joins(&self, joins: &mut Vec<BranchJoin>) {
+    fn collect_joins<'a>(&'a self, joins: &mut Vec<&'a BranchJoin>) {
         let Self::Branch { join, arms } = self else {
             return;
         };
-        if let Some(existing) = joins
-            .iter()
-            .find(|existing| existing.identity_cmp(join) == Ordering::Equal)
-        {
+        if let Some(existing) = joins.iter().find(|existing| existing.same_identity(join)) {
             existing.assert_same_domain(join);
         } else {
-            joins.push(join.clone());
+            joins.push(join);
         }
         for arm in arms {
             arm.collect_joins(joins);
@@ -241,10 +253,14 @@ impl ConstraintNode {
             .into_iter()
             .filter(|join| join.kind == BranchJoinKind::Predicate)
             .collect::<Vec<_>>();
-        predicates.sort_by(BranchJoin::structural_cmp);
-        predicates
-            .iter()
+        predicates.sort_by(|left, right| left.structural_cmp(right));
+        let forgotten = predicates
+            .into_iter()
             .skip(MAX_TRACKED_PREDICATES)
+            .cloned()
+            .collect::<Vec<_>>();
+        forgotten
+            .iter()
             .fold(self, |constraints, join| constraints.forget(join))
     }
 
@@ -517,6 +533,55 @@ mod tests {
     fn impossible() -> BranchConstraints {
         BranchConstraints {
             root: Box::new(ConstraintNode::Impossible),
+        }
+    }
+
+    #[test]
+    fn identity_equality_matches_canonical_order_without_including_arm_count() {
+        use camino::Utf8PathBuf;
+
+        use crate::python::PythonModuleName;
+        use crate::python::SearchPath;
+
+        let base = BranchJoin::for_test(origin(0, 1), 2);
+        let different_domain = BranchJoin {
+            arm_count: 3,
+            ..base.clone()
+        };
+        assert!(base.same_identity(&different_domain));
+        let joins = [
+            base.clone(),
+            different_domain,
+            BranchJoin::for_test(origin(0, 2), 2),
+            BranchJoin::for_test(origin(1, 1), 2),
+            BranchJoin::predicate_for_test(base.origin),
+            BranchJoin::binding_choice(base.module.clone(), base.origin, "first"),
+            BranchJoin::binding_choice(base.module.clone(), base.origin, "second"),
+            BranchJoin::new(
+                PythonSourceModule::file_module(
+                    PythonModuleName::parse("test").expect("valid test module"),
+                    Utf8PathBuf::from("/test.py"),
+                    base.origin.file,
+                    SearchPath::FirstParty(Utf8PathBuf::from("/different-root")),
+                ),
+                base.origin,
+                2,
+            ),
+        ];
+
+        for left in &joins {
+            for right in &joins {
+                assert_eq!(
+                    left.same_identity(right),
+                    left.identity_cmp(right) == Ordering::Equal,
+                    "identity equality must preserve every canonical identity field"
+                );
+                assert_eq!(
+                    left == right,
+                    left.structural_cmp(right) == Ordering::Equal,
+                    "full equality must also include the arm domain"
+                );
+            }
         }
     }
 
