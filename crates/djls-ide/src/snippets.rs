@@ -11,6 +11,9 @@ use djls_semantic::TagSpec;
 fn generate_snippet_from_args(args: &[TagArgument]) -> String {
     let mut parts = Vec::new();
     let mut placeholder_index = 1;
+    let has_required_argument = args
+        .iter()
+        .any(|argument| argument.requirement.is_required());
 
     for arg in args {
         // Skip optional literals entirely - they're usually flags like "reversed" or "only"
@@ -19,8 +22,8 @@ fn generate_snippet_from_args(args: &[TagArgument]) -> String {
             continue;
         }
 
-        // Skip other optional args if we haven't seen any required args yet
-        if !arg.requirement.is_required() && parts.is_empty() {
+        // Skip leading optional args when a required argument follows.
+        if !arg.requirement.is_required() && has_required_argument && parts.is_empty() {
             continue;
         }
 
@@ -412,6 +415,18 @@ mod tests {
 
         let snippet = generate_snippet_from_args(&args);
         assert_eq!(snippet, "");
+    }
+
+    #[test]
+    fn all_optional_arguments_keep_completion_placeholders() {
+        let args = vec![
+            make_var("arg1", false),
+            make_var("arg2", false),
+            make_var("arg3", false),
+        ];
+
+        let snippet = generate_snippet_from_args(&args);
+        assert_eq!(snippet, "${1:arg1} ${2:arg2} ${3:arg3}");
     }
 
     #[test]

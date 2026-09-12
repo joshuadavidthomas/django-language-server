@@ -262,13 +262,13 @@ tag_rules:
     argument_syntax:
       Parameters:
         - name: arg1
-          requirement: required
+          requirement: optional
           kind: Variable
         - name: arg2
-          requirement: required
+          requirement: optional
           kind: Variable
         - name: arg3
-          requirement: required
+          requirement: optional
           kind: Variable
     as_var: keep
   "django.template.defaulttags::tag::now":

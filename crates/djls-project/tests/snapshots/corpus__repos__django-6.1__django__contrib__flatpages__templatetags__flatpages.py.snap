@@ -30,13 +30,13 @@ tag_rules:
           requirement: required
           kind: Variable
         - name: arg3
-          requirement: required
+          requirement: optional
           kind: Variable
         - name: arg4
-          requirement: required
+          requirement: optional
           kind: Variable
         - name: arg5
-          requirement: required
+          requirement: optional
           kind: Variable
     as_var: keep
 filter_arities: {}
