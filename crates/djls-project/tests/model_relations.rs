@@ -8,7 +8,6 @@ use djls_project::ModelGraph;
 use djls_project::ModelId;
 use djls_project::Project;
 use djls_project::PythonModuleName;
-use djls_project::SearchPaths;
 use djls_project::compute_model_graph;
 use djls_project::testing::ModelAncestryOutcomeView;
 use djls_project::testing::ModelBaseOutcomeView;
@@ -23,7 +22,6 @@ use djls_project::testing::model_relation_locations;
 use djls_project::testing::python_syntax_errors;
 use djls_project::testing::resolve_model_graph_from_modules;
 use djls_source::ChangeEvent;
-use djls_source::Db as _;
 use djls_source::SourceChanges;
 use djls_source::Span;
 use djls_testing::ProjectFixture;
@@ -1222,41 +1220,23 @@ fn computed_model_graph_does_not_expose_file_local_relation_resolution() {
 fn salsa_recomputes_relation_resolution_for_import_edits_only_where_needed() {
     let event_log = SalsaEventLog::default();
     let mut db = TestDatabase::with_event_log(event_log.clone());
-    db.add_file(
-        "/project/accounts/models.py",
-        include_str!("testdata/model_relations/salsa_recomputes_relation_resolution_for_import_edits_only_where_needed/accounts/models.py"),
-    )
-    .expect("accounts model fixture should be added to the test database");
-    db.add_file(
-        "/project/blog/models.py",
-        include_str!("testdata/model_relations/salsa_recomputes_relation_resolution_for_import_edits_only_where_needed/blog/models_initial.py"),
-    )
-    .expect("blog model fixture should be added to the test database");
-    db.add_file(
-        "/project/other/models.py",
-        include_str!("testdata/model_relations/salsa_recomputes_relation_resolution_for_import_edits_only_where_needed/other/models_initial.py"),
-    )
-    .expect("other model fixture should be added to the test database");
-
-    let interpreter = Interpreter::Auto;
-    let search_paths = SearchPaths::from_project_settings(
-        db.file_system(),
-        Utf8Path::new("/project"),
-        &interpreter,
-        &[],
-    );
-    search_paths.register_roots(&db);
-    let project = Project::new(
-        &db,
-        Utf8Path::new("/project").to_path_buf(),
-        search_paths,
-        interpreter,
-        None,
-        Vec::new(),
-        Vec::new(),
-        TagSpecDef::default(),
-    );
-    db.set_project(project);
+    let project = ProjectFixture::new("/project")
+        .file(
+            "/project/accounts/models.py",
+            include_str!("testdata/model_relations/salsa_recomputes_relation_resolution_for_import_edits_only_where_needed/accounts/models.py"),
+        )
+        .file(
+            "/project/blog/models.py",
+            include_str!("testdata/model_relations/salsa_recomputes_relation_resolution_for_import_edits_only_where_needed/blog/models_initial.py"),
+        )
+        .file(
+            "/project/other/models.py",
+            include_str!("testdata/model_relations/salsa_recomputes_relation_resolution_for_import_edits_only_where_needed/other/models_initial.py"),
+        )
+        .interpreter(Interpreter::Auto)
+        .tag_specs(TagSpecDef::default())
+        .install(&mut db)
+        .expect("model project fixture should build");
 
     let graph = compute_model_graph(&db, project);
     let post = model_id(graph, "Post", "blog.models")

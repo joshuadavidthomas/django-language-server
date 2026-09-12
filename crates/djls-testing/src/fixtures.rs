@@ -29,7 +29,6 @@ use djls_semantic::ValidationError;
 use djls_semantic::ValidationErrorAccumulator;
 use djls_semantic::builtin_tag_specs;
 use djls_semantic::validate_template_file;
-use djls_source::Db as _;
 use djls_source::Diagnostic;
 use djls_source::DiagnosticRenderer;
 use djls_source::File;
@@ -254,6 +253,33 @@ fn add_loadable_symbol(
     Ok(())
 }
 
+/// Database operations used while building a project fixture.
+pub trait ProjectFixtureDatabase: ProjectDb {
+    fn add_fixture_file(&self, path: &str, source: &str) -> anyhow::Result<()>;
+
+    fn set_fixture_project(&mut self, project: Project);
+}
+
+impl ProjectFixtureDatabase for TestDatabase {
+    fn add_fixture_file(&self, path: &str, source: &str) -> anyhow::Result<()> {
+        self.add_file(path, source)
+    }
+
+    fn set_fixture_project(&mut self, project: Project) {
+        self.set_project(project);
+    }
+}
+
+impl ProjectFixtureDatabase for OsTestDatabase {
+    fn add_fixture_file(&self, path: &str, source: &str) -> anyhow::Result<()> {
+        self.insert_fixture_file(path, source)
+    }
+
+    fn set_fixture_project(&mut self, project: Project) {
+        self.set_project(project);
+    }
+}
+
 pub struct ProjectFixture {
     root: Utf8PathBuf,
     files: Vec<(Utf8PathBuf, String)>,
@@ -336,7 +362,7 @@ impl ProjectFixture {
         self
     }
 
-    pub fn build(self, db: &TestDatabase) -> anyhow::Result<Project> {
+    pub fn build<Db: ProjectFixtureDatabase>(self, db: &Db) -> anyhow::Result<Project> {
         let django_settings_module = self.django_settings_module?;
         let mut paths = BTreeSet::new();
         for (path, _) in &self.files {
@@ -346,7 +372,7 @@ impl ProjectFixture {
             );
         }
         for (path, source) in self.files {
-            db.add_file(path.as_str(), &source)
+            db.add_fixture_file(path.as_str(), &source)
                 .with_context(|| format!("failed to add fixture file `{path}`"))?;
         }
 
@@ -374,9 +400,9 @@ impl ProjectFixture {
         ))
     }
 
-    pub fn install(self, db: &mut TestDatabase) -> anyhow::Result<Project> {
+    pub fn install<Db: ProjectFixtureDatabase>(self, db: &mut Db) -> anyhow::Result<Project> {
         let project = self.build(db)?;
-        db.set_project(project);
+        db.set_fixture_project(project);
         Ok(project)
     }
 }
