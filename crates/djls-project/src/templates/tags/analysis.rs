@@ -32,6 +32,7 @@ use crate::python::PythonSourceLookup;
 use crate::templates::tags::analysis::constraints::ExtractedTagConstraints;
 use crate::templates::tags::analysis::guards::ExtractedRuleFragment;
 use crate::templates::tags::types::ArgumentCountConstraint;
+use crate::templates::tags::types::ArgumentFormCoverage;
 use crate::templates::tags::types::AsVar;
 use crate::templates::tags::types::ChoiceAt;
 use crate::templates::tags::types::ExtractedDiagnosticMessage;
@@ -41,7 +42,10 @@ use crate::templates::tags::types::RemainderPolicy;
 use crate::templates::tags::types::RequiredKeyword;
 use crate::templates::tags::types::SplitPosition;
 use crate::templates::tags::types::TagArgument;
+use crate::templates::tags::types::TagArgumentForm;
 use crate::templates::tags::types::TagArgumentKind;
+use crate::templates::tags::types::TagArgumentPattern;
+use crate::templates::tags::types::TagArgumentPatternKind;
 use crate::templates::tags::types::TagArgumentSyntax;
 use crate::templates::tags::types::TagRule;
 use crate::templates::tags::types::UniqueKeyCardinality;
@@ -244,16 +248,24 @@ fn analyze_compile_function_with_context(
 
     let argument_syntax = match result.argument_syntax {
         None | Some(TagArgumentSyntax::Unknown) => {
-            let arguments = extract_arg_names(
+            if let Some(forms) = derive_finite_backward_keyword_forms(
                 &env,
                 &result.constraints.required_keywords,
-                &[],
                 &result.constraints.arg_constraints,
-            );
-            if arguments.is_empty() {
-                TagArgumentSyntax::Unknown
+            ) {
+                forms
             } else {
-                TagArgumentSyntax::Parameters(arguments)
+                let arguments = extract_arg_names(
+                    &env,
+                    &result.constraints.required_keywords,
+                    &[],
+                    &result.constraints.arg_constraints,
+                );
+                if arguments.is_empty() {
+                    TagArgumentSyntax::Unknown
+                } else {
+                    TagArgumentSyntax::Parameters(arguments)
+                }
             }
         }
         Some(syntax) => syntax,
@@ -388,6 +400,175 @@ fn subscript_is_negative_index(expr: &Expr, name: &str, index: usize) -> bool {
         return false;
     };
     value.name_target() == Some(name) && slice.negative_integer() == Some(index)
+}
+
+// Keep fallback grammars small enough to scan in snapshots and completion lists.
+const MAX_DERIVED_ARGUMENT_FORMS: usize = 8;
+
+fn derive_finite_backward_keyword_forms(
+    env: &state::Env,
+    required_keywords: &[RequiredKeyword],
+    arg_constraints: &[ArgumentCountConstraint],
+) -> Option<TagArgumentSyntax> {
+    if !required_keywords
+        .iter()
+        .any(|keyword| matches!(keyword.position, SplitPosition::Backward(_)))
+    {
+        return None;
+    }
+
+    let total_lengths = finite_accepted_total_lengths(arg_constraints)?;
+    let mut forms = Vec::with_capacity(total_lengths.len());
+    let mut mapped_backward_keyword = false;
+
+    for total_length in total_lengths {
+        let argument_count = total_length.checked_sub(1)?;
+        let mut literals = vec![None; argument_count];
+        for keyword in required_keywords {
+            let Some(argument_index) = keyword.position.to_bits_index(argument_count) else {
+                continue;
+            };
+            mapped_backward_keyword |= matches!(keyword.position, SplitPosition::Backward(_));
+            let value = keyword.value.as_str();
+            if literals[argument_index].is_some_and(|existing| existing != value) {
+                return None;
+            }
+            literals[argument_index] = Some(value);
+        }
+
+        let pattern = literals
+            .into_iter()
+            .enumerate()
+            .map(|(argument_index, literal)| {
+                let (name, kind) = literal.map_or_else(
+                    || {
+                        (
+                            derived_argument_name(env, argument_index, argument_count),
+                            TagArgumentPatternKind::Variable,
+                        )
+                    },
+                    |literal| {
+                        (
+                            literal.to_string(),
+                            TagArgumentPatternKind::Literal(literal.to_string()),
+                        )
+                    },
+                );
+                TagArgumentPattern {
+                    name,
+                    kind,
+                    mismatch_message: None,
+                }
+            })
+            .collect();
+
+        let Ok(form) = TagArgumentForm::new(pattern) else {
+            return None;
+        };
+        forms.push(form);
+    }
+
+    if !mapped_backward_keyword {
+        return None;
+    }
+
+    // These forms are not terminal-path evidence. They are complete because the
+    // finite count constraints exhaust every accepted length and each such length
+    // has one fixed form. The corpus false-positive sweep checks the narrower
+    // hypothesis that a backward keyword applies whenever its index resolves.
+    Some(TagArgumentSyntax::Forms {
+        forms,
+        coverage: ArgumentFormCoverage::Complete,
+        length_mismatch_message: None,
+    })
+}
+
+fn derived_argument_name(env: &state::Env, argument_index: usize, argument_count: usize) -> String {
+    env.iter()
+        .filter_map(|(name, value)| match value {
+            state::AbstractValue::SplitElement { index }
+                if index.to_bits_index(argument_count) == Some(argument_index) =>
+            {
+                Some(name)
+            }
+            state::AbstractValue::Unknown
+            | state::AbstractValue::Token
+            | state::AbstractValue::Parser
+            | state::AbstractValue::SplitResult(_)
+            | state::AbstractValue::SplitElement { .. }
+            | state::AbstractValue::SplitLength(_)
+            | state::AbstractValue::Int(_)
+            | state::AbstractValue::Str(_)
+            | state::AbstractValue::SplitPredicate(_)
+            | state::AbstractValue::AssignmentMap(_)
+            | state::AbstractValue::AssignmentRemainder(_)
+            | state::AbstractValue::Tuple(_) => None,
+        })
+        .min()
+        .map_or_else(|| format!("arg{}", argument_index + 1), str::to_string)
+}
+
+fn finite_accepted_total_lengths(constraints: &[ArgumentCountConstraint]) -> Option<Vec<usize>> {
+    let mut explicit_lengths: Option<Vec<usize>> = None;
+    for constraint in constraints {
+        let values = match constraint {
+            ArgumentCountConstraint::Exact(length) => Some(vec![*length]),
+            ArgumentCountConstraint::OneOf(lengths) => Some(lengths.clone()),
+            ArgumentCountConstraint::Min(_) | ArgumentCountConstraint::Max(_) => None,
+        };
+        if let Some(values) = values {
+            explicit_lengths = Some(match explicit_lengths {
+                Some(mut lengths) => {
+                    lengths.retain(|length| values.contains(length));
+                    lengths
+                }
+                None => values,
+            });
+        }
+    }
+
+    let mut lengths =
+        if let Some(lengths) = explicit_lengths {
+            lengths
+        } else {
+            let lower = constraints
+                .iter()
+                .filter_map(|constraint| match constraint {
+                    ArgumentCountConstraint::Exact(length)
+                    | ArgumentCountConstraint::Min(length) => Some(*length),
+                    ArgumentCountConstraint::OneOf(lengths) => lengths.iter().min().copied(),
+                    ArgumentCountConstraint::Max(_) => None,
+                })
+                .max()?;
+            let upper = constraints
+                .iter()
+                .filter_map(|constraint| match constraint {
+                    ArgumentCountConstraint::Exact(length)
+                    | ArgumentCountConstraint::Max(length) => Some(*length),
+                    ArgumentCountConstraint::OneOf(lengths) => lengths.iter().max().copied(),
+                    ArgumentCountConstraint::Min(_) => None,
+                })
+                .min()?;
+            let count = upper.checked_sub(lower)?.checked_add(1)?;
+            if count > MAX_DERIVED_ARGUMENT_FORMS {
+                return None;
+            }
+            (lower..=upper).collect()
+        };
+
+    lengths.sort_unstable();
+    lengths.dedup();
+    lengths.retain(|length| {
+        *length > 0
+            && constraints.iter().all(|constraint| match constraint {
+                ArgumentCountConstraint::Exact(expected) => length == expected,
+                ArgumentCountConstraint::Min(minimum) => length >= minimum,
+                ArgumentCountConstraint::Max(maximum) => length <= maximum,
+                ArgumentCountConstraint::OneOf(expected) => expected.contains(length),
+            })
+    });
+
+    (!lengths.is_empty() && lengths.len() <= MAX_DERIVED_ARGUMENT_FORMS).then_some(lengths)
 }
 
 /// Extract argument names from the environment after analysis.
@@ -862,6 +1043,112 @@ def do_tag(parser, token):
                 ArgumentCountConstraint::Exact(4),
             ]),
             Some(3)
+        );
+    }
+
+    #[test]
+    fn finite_backward_keywords_derive_complete_fixed_forms() {
+        let rule = analyze_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if len(bits) < 3 or len(bits) > 6:
+        raise TemplateSyntaxError("bad count")
+    context_name = bits[-1]
+    if bits[-2] != "as":
+        raise TemplateSyntaxError("expected as")
+    if len(bits) >= 5:
+        if bits[-4] != "for":
+            raise TemplateSyntaxError("expected for")
+"#,
+        );
+
+        let (forms, coverage) = rule
+            .argument_syntax
+            .forms()
+            .expect("finite backward keywords should produce forms");
+        assert_eq!(coverage, ArgumentFormCoverage::Complete);
+        let rendered = forms
+            .iter()
+            .map(|form| {
+                form.pattern()
+                    .iter()
+                    .map(|argument| match &argument.kind {
+                        TagArgumentPatternKind::Variable => format!("<{}>", argument.name),
+                        TagArgumentPatternKind::Literal(literal) => literal.clone(),
+                        TagArgumentPatternKind::Choice(_)
+                        | TagArgumentPatternKind::VariableWidth { .. }
+                        | TagArgumentPatternKind::VariableExcept(_) => {
+                            panic!("derived form should contain only literals and variables")
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            rendered,
+            vec![
+                "as <context_name>",
+                "<arg1> as <context_name>",
+                "for <arg2> as <context_name>",
+                "<arg1> for <arg3> as <context_name>",
+            ]
+        );
+    }
+
+    #[test]
+    fn unbounded_backward_keyword_uses_parameters() {
+        let rule = analyze_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if len(bits) < 3:
+        raise TemplateSyntaxError("bad count")
+    context_name = bits[-1]
+    if bits[-2] != "as":
+        raise TemplateSyntaxError("expected as")
+"#,
+        );
+
+        assert!(matches!(
+            rule.argument_syntax,
+            TagArgumentSyntax::Parameters(_)
+        ));
+    }
+
+    #[test]
+    fn accepted_length_sets_are_finite_and_capped() {
+        assert_eq!(
+            finite_accepted_total_lengths(&[
+                ArgumentCountConstraint::Min(3),
+                ArgumentCountConstraint::Max(6),
+            ]),
+            Some(vec![3, 4, 5, 6])
+        );
+        assert_eq!(
+            finite_accepted_total_lengths(&[ArgumentCountConstraint::Exact(4)]),
+            Some(vec![4])
+        );
+        assert_eq!(
+            finite_accepted_total_lengths(&[ArgumentCountConstraint::OneOf(vec![5, 3, 5])]),
+            Some(vec![3, 5])
+        );
+        assert_eq!(
+            finite_accepted_total_lengths(&[ArgumentCountConstraint::Min(3)]),
+            None
+        );
+        assert_eq!(
+            finite_accepted_total_lengths(&[ArgumentCountConstraint::Max(6)]),
+            None
+        );
+        assert_eq!(finite_accepted_total_lengths(&[]), None);
+        assert_eq!(
+            finite_accepted_total_lengths(&[
+                ArgumentCountConstraint::Min(1),
+                ArgumentCountConstraint::Max(9),
+            ]),
+            None
         );
     }
 
