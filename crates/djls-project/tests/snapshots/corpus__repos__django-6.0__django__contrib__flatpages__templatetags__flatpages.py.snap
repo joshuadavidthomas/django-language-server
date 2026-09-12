@@ -11,6 +11,9 @@ tag_rules:
       - position:
           Backward: 2
         value: as
+      - position:
+          Backward: 4
+        value: for
     choice_at_constraints: []
     known_options: ~
     argument_syntax:

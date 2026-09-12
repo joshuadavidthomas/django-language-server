@@ -4,10 +4,21 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "src.pretix.control.templatetags.hierarkey_form::tag::propagated":
-    arg_constraints: []
+    arg_constraints:
+      - Min: 3
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Min: 3
+        message:
+          PercentFormat:
+            template: "%r tag requires at least three arguments"
+            args:
+              - SplitElement:
+                  Forward: 0
     argument_syntax:
       Parameters:
         - name: event

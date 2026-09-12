@@ -4,10 +4,21 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "pipeline.templatetags.pipeline::tag::javascript":
-    arg_constraints: []
+    arg_constraints:
+      - Exact: 2
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Exact: 2
+        message:
+          PercentFormat:
+            template: "%r requires exactly one argument: the name of a group in the PIPELINE.JAVASVRIPT setting"
+            args:
+              - SplitElement:
+                  Forward: 0
     argument_syntax:
       Parameters:
         - name: name
@@ -15,10 +26,21 @@ tag_rules:
           kind: Variable
     as_var: keep
   "pipeline.templatetags.pipeline::tag::stylesheet":
-    arg_constraints: []
+    arg_constraints:
+      - Exact: 2
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Exact: 2
+        message:
+          PercentFormat:
+            template: "%r requires exactly one argument: the name of a group in the PIPELINE.STYLESHEETS setting"
+            args:
+              - SplitElement:
+                  Forward: 0
     argument_syntax:
       Parameters:
         - name: name

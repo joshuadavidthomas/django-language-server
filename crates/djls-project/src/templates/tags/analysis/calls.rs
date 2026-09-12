@@ -31,7 +31,7 @@ impl From<&AbstractValue> for AbstractValueKey {
             AbstractValue::SplitLength(split) => AbstractValueKey::SplitLength(*split),
             AbstractValue::Int(n) => AbstractValueKey::Int(*n),
             AbstractValue::Str(s) => AbstractValueKey::Str(s.clone()),
-            AbstractValue::Tuple(_) => AbstractValueKey::Other,
+            AbstractValue::SplitPredicate(_) | AbstractValue::Tuple(_) => AbstractValueKey::Other,
         }
     }
 }

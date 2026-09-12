@@ -20,14 +20,85 @@ use crate::templates::tags::analysis::constraints::ExtractedTagConstraints;
 use crate::templates::tags::analysis::exceptions::direct_raise_exception;
 use crate::templates::tags::analysis::exceptions::extract_exception_message;
 use crate::templates::tags::analysis::expressions::eval_expr;
+use crate::templates::tags::analysis::expressions::eval_membership_collection;
 use crate::templates::tags::analysis::state::AbstractValue;
 use crate::templates::tags::analysis::state::Env;
+use crate::templates::tags::analysis::state::SplitPredicate;
 use crate::templates::tags::types::ArgumentCountConstraint;
 use crate::templates::tags::types::ChoiceAt;
 use crate::templates::tags::types::ExtractedDiagnosticConstraint;
 use crate::templates::tags::types::ExtractedDiagnosticMessage;
 use crate::templates::tags::types::ExtractedMessageTemplate;
 use crate::templates::tags::types::RequiredKeyword;
+
+const MAX_EXACT_GUARD_VALUES: usize = 32;
+
+/// Normalize a supported condition into an equality predicate and the
+/// predicate value required for the condition to be true.
+pub(crate) fn split_predicate_condition(expr: &Expr, env: &Env) -> Option<(SplitPredicate, bool)> {
+    if let Expr::UnaryOp(ExprUnaryOp {
+        op: UnaryOp::Not,
+        operand,
+        ..
+    }) = expr
+    {
+        let (predicate, truth) = split_predicate_condition(operand, env)?;
+        return Some((predicate, !truth));
+    }
+
+    if expr.name_target().is_some()
+        && let AbstractValue::SplitPredicate(predicate) = eval_expr(expr, &mut env.clone())
+    {
+        return Some((predicate, true));
+    }
+
+    let Expr::Compare(ExprCompare {
+        left,
+        ops,
+        comparators,
+        ..
+    }) = expr
+    else {
+        return None;
+    };
+    let [operator] = &**ops else {
+        return None;
+    };
+    let truth = match operator {
+        CmpOp::Eq => true,
+        CmpOp::NotEq => false,
+        CmpOp::Lt
+        | CmpOp::LtE
+        | CmpOp::Gt
+        | CmpOp::GtE
+        | CmpOp::Is
+        | CmpOp::IsNot
+        | CmpOp::In
+        | CmpOp::NotIn => return None,
+    };
+    let [right] = &**comparators else {
+        return None;
+    };
+    let mut local_env = env.clone();
+    let predicate = match (
+        eval_expr(left, &mut local_env),
+        eval_expr(right, &mut local_env),
+    ) {
+        (AbstractValue::SplitLength(split), AbstractValue::Int(length))
+        | (AbstractValue::Int(length), AbstractValue::SplitLength(split)) => {
+            SplitPredicate::LengthEquals(split.resolve_length(usize::try_from(length).ok()?))
+        }
+        (AbstractValue::SplitElement { index }, AbstractValue::Str(value))
+        | (AbstractValue::Str(value), AbstractValue::SplitElement { index }) => {
+            SplitPredicate::ElementEquals {
+                position: index,
+                value,
+            }
+        }
+        _ => return None,
+    };
+    Some((predicate, truth))
+}
 
 /// Rule fragments contributed by one or more raising guards.
 #[derive(Debug, Clone, Default)]
@@ -424,7 +495,7 @@ fn eval_compare(compare: &ExprCompare, env: &mut Env) -> ExtractedTagConstraints
     let comparator = &compare.comparators[0];
 
     let left_val = eval_expr(left, env);
-    let right_val = eval_expr(comparator, env);
+    let right_val = eval_comparator(*op, comparator, env);
 
     // len(split_result) vs integer
     if let AbstractValue::SplitLength(split) = &left_val {
@@ -449,7 +520,7 @@ fn eval_compare(compare: &ExprCompare, env: &mut Env) -> ExtractedTagConstraints
 
         // `len(bits) not in (2, 3, 4)` → valid counts are {2+offset, 3+offset, 4+offset}
         if matches!(op, CmpOp::NotIn)
-            && let Some(values) = comparator.collection_map(ExprExt::non_negative_integer)
+            && let Some(values) = exact_integer_collection(&right_val)
         {
             return ExtractedTagConstraints::single_length(ArgumentCountConstraint::OneOf(
                 values
@@ -500,11 +571,9 @@ fn eval_compare(compare: &ExprCompare, env: &mut Env) -> ExtractedTagConstraints
             return ExtractedTagConstraints::default();
         }
 
-        // SplitElement not in ("a", "b") → ChoiceAt constraint
+        // SplitElement not in a closed string collection → ChoiceAt constraint.
         if matches!(op, CmpOp::NotIn)
-            && let Some(values) =
-                comparator.collection_map(|expr| expr.string_literal().map(str::to_string))
-            && !values.is_empty()
+            && let Some(values) = exact_string_collection(&right_val)
         {
             let position = index;
             return ExtractedTagConstraints::single_choice(ChoiceAt { position, values });
@@ -529,6 +598,14 @@ fn eval_compare(compare: &ExprCompare, env: &mut Env) -> ExtractedTagConstraints
     ExtractedTagConstraints::default()
 }
 
+fn eval_comparator(op: CmpOp, comparator: &Expr, env: &mut Env) -> AbstractValue {
+    if matches!(op, CmpOp::In | CmpOp::NotIn) {
+        eval_membership_collection(comparator, env)
+    } else {
+        eval_expr(comparator, env)
+    }
+}
+
 fn eval_negated_compare(compare: &ExprCompare, env: &mut Env) -> ExtractedTagConstraints {
     // Range: `not (2 <= len(bits) <= 4)` → valid range is min..=max
     if compare.ops.len() == 2
@@ -544,9 +621,23 @@ fn eval_negated_compare(compare: &ExprCompare, env: &mut Env) -> ExtractedTagCon
     // Simple negation: `not len(bits) == 3` → Exact(3)
     if compare.ops.len() == 1 && compare.comparators.len() == 1 {
         let left_val = eval_expr(&compare.left, env);
-        if let AbstractValue::SplitLength(split) = left_val
-            && let Some(n) = compare.comparators[0].non_negative_integer()
-        {
+        if let AbstractValue::SplitLength(split) = left_val {
+            if matches!(compare.ops[0], CmpOp::In)
+                && let Some(values) = exact_integer_collection(&eval_membership_collection(
+                    &compare.comparators[0],
+                    env,
+                ))
+            {
+                return ExtractedTagConstraints::single_length(ArgumentCountConstraint::OneOf(
+                    values
+                        .into_iter()
+                        .map(|value| split.resolve_length(value))
+                        .collect(),
+                ));
+            }
+            let Some(n) = compare.comparators[0].non_negative_integer() else {
+                return ExtractedTagConstraints::default();
+            };
             let constraint = match &compare.ops[0] {
                 CmpOp::Eq => Some(ArgumentCountConstraint::Exact(split.resolve_length(n))),
                 CmpOp::Lt if n > 0 => {
@@ -566,6 +657,45 @@ fn eval_negated_compare(compare: &ExprCompare, env: &mut Env) -> ExtractedTagCon
     }
 
     ExtractedTagConstraints::default()
+}
+
+fn exact_integer_collection(value: &AbstractValue) -> Option<Vec<usize>> {
+    let AbstractValue::Tuple(values) = value else {
+        return None;
+    };
+    if values.is_empty() || values.len() > MAX_EXACT_GUARD_VALUES {
+        return None;
+    }
+    let mut exact = Vec::with_capacity(values.len());
+    for value in values {
+        let AbstractValue::Int(value) = value else {
+            return None;
+        };
+        let value = usize::try_from(*value).ok()?;
+        if !exact.contains(&value) {
+            exact.push(value);
+        }
+    }
+    Some(exact)
+}
+
+fn exact_string_collection(value: &AbstractValue) -> Option<Vec<String>> {
+    let AbstractValue::Tuple(values) = value else {
+        return None;
+    };
+    if values.is_empty() || values.len() > MAX_EXACT_GUARD_VALUES {
+        return None;
+    }
+    let mut exact = Vec::with_capacity(values.len());
+    for value in values {
+        let AbstractValue::Str(value) = value else {
+            return None;
+        };
+        if !exact.contains(value) {
+            exact.push(value.clone());
+        }
+    }
+    Some(exact)
 }
 
 /// Extract range constraint from negated `not (CONST <=/<  len(var) <=/<  CONST)`.
@@ -672,6 +802,7 @@ mod tests {
             .map_or("token", |p| p.parameter.name.as_str());
 
         let mut env = Env::for_compile_function(parser_param, token_param);
+        env.set_builtin_name_scope(std::collections::HashSet::new());
         let mut ctx = CallContext {
             db: None,
             file: None,
@@ -963,6 +1094,39 @@ def do_tag(parser, token):
             c.arg_constraints,
             vec![ArgumentCountConstraint::OneOf(vec![2, 3, 4])]
         );
+    }
+
+    #[test]
+    fn negated_len_membership_matches_not_in_with_offsets() {
+        for condition in ["len(bits) not in (1, 2, 3)", "not len(bits) in (1, 2, 3)"] {
+            let c = extract_from_source(&format!(
+                "def do_tag(parser, token):\n    bits = token.split_contents()[1:]\n    if {condition}:\n        raise TemplateSyntaxError('err')\n"
+            ));
+            assert_eq!(
+                c.arg_constraints,
+                vec![ArgumentCountConstraint::OneOf(vec![2, 3, 4])],
+                "condition: {condition}"
+            );
+        }
+    }
+
+    #[test]
+    fn len_membership_rejects_unbounded_or_inexact_collections() {
+        let oversized = (0..=32)
+            .map(|value| value.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        for collection in [
+            "()".to_string(),
+            "(1, 'two')".to_string(),
+            "choices".to_string(),
+            format!("({oversized})"),
+        ] {
+            let c = extract_from_source(&format!(
+                "def do_tag(parser, token):\n    bits = token.split_contents()\n    if not len(bits) in {collection}:\n        raise TemplateSyntaxError('err')\n"
+            ));
+            assert!(c.arg_constraints.is_empty(), "collection: {collection}");
+        }
     }
 
     #[test]

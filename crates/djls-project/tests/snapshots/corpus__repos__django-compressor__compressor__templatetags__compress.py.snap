@@ -4,13 +4,58 @@ expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should
 ---
 tag_rules:
   "compressor.templatetags.compress::tag::compress":
-    arg_constraints: []
+    arg_constraints:
+      - OneOf:
+          - 2
+          - 3
+          - 4
     required_keywords: []
-    choice_at_constraints: []
+    choice_at_constraints:
+      - position:
+          Forward: 2
+        values:
+          - file
+          - inline
+          - preload
     known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            OneOf:
+              - 2
+              - 3
+              - 4
+        message:
+          PercentFormat:
+            template: "%r tag requires either one, two or three arguments."
+            args:
+              - SplitElement:
+                  Forward: 0
+      - constraint:
+          ChoiceAt:
+            position:
+              Forward: 2
+            values:
+              - file
+              - inline
+              - preload
+        message:
+          PercentFormat:
+            template: "%r's second argument must be '%s' or '%s'."
+            args:
+              - SplitElement:
+                  Forward: 0
+              - String: file
+              - String: inline
     argument_syntax:
       Parameters:
         - name: kind
+          requirement: required
+          kind: Variable
+        - name: arg2
+          requirement: required
+          kind: Variable
+        - name: arg3
           requirement: required
           kind: Variable
     as_var: keep

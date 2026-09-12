@@ -2,9 +2,12 @@ use std::collections::BTreeSet;
 use std::ops::ControlFlow;
 
 use ruff_python_ast::Expr;
+use ruff_python_ast::ExprList;
 use ruff_python_ast::ExprTuple;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtAssign;
+use ruff_python_ast::visitor;
+use ruff_python_ast::visitor::Visitor;
 
 use crate::ast::ExprExt;
 use crate::ast::Recurse;
@@ -13,13 +16,16 @@ use crate::templates::tags::analysis::AnalysisResult;
 use crate::templates::tags::analysis::CallContext;
 use crate::templates::tags::analysis::constraints::ExtractedTagConstraints;
 use crate::templates::tags::analysis::exceptions::direct_raise_exception;
+use crate::templates::tags::analysis::exceptions::extract_exception_message;
 use crate::templates::tags::analysis::expressions::eval_expr;
 use crate::templates::tags::analysis::expressions::eval_expr_with_ctx;
 use crate::templates::tags::analysis::match_arms::extract_match_constraints;
+use crate::templates::tags::analysis::mutations::PopInfo;
 use crate::templates::tags::analysis::mutations::try_extract_option_loop;
 use crate::templates::tags::analysis::mutations::try_extract_pop_call;
 use crate::templates::tags::analysis::state::AbstractValue;
 use crate::templates::tags::analysis::state::Env;
+use crate::templates::tags::analysis::state::SplitPredicate;
 use crate::templates::tags::types::ArgumentCountConstraint;
 use crate::templates::tags::types::ExtractedDiagnosticConstraint;
 use crate::templates::tags::types::ExtractedDiagnosticMessage;
@@ -29,23 +35,99 @@ use crate::templates::tags::types::TagArgumentSyntax;
 
 const MAX_EXEC_STATES: usize = 64;
 
-/// The control destination attached to one feasible execution state.
+/// One feasible path through a compile function. Facts stay attached to the
+/// environment that established them until all accepting paths are projected.
+#[allow(clippy::enum_variant_names)]
 #[derive(Debug, Clone, PartialEq, Eq)]
+enum PathAssumption {
+    LengthNotEquals(usize),
+    ElementNotEquals {
+        position: SplitPosition,
+        value: String,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BuiltinException {
+    AssertionError,
+    AttributeError,
+    BaseException,
+    Exception,
+    ImportError,
+    IndexError,
+    KeyError,
+    NameError,
+    OSError,
+    RuntimeError,
+    StopIteration,
+    SyntaxError,
+    TypeError,
+    ValueError,
+}
+
+impl BuiltinException {
+    fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "AssertionError" => Some(Self::AssertionError),
+            "AttributeError" => Some(Self::AttributeError),
+            "BaseException" => Some(Self::BaseException),
+            "Exception" => Some(Self::Exception),
+            "ImportError" => Some(Self::ImportError),
+            "IndexError" => Some(Self::IndexError),
+            "KeyError" => Some(Self::KeyError),
+            "NameError" => Some(Self::NameError),
+            "OSError" => Some(Self::OSError),
+            "RuntimeError" => Some(Self::RuntimeError),
+            "StopIteration" => Some(Self::StopIteration),
+            "SyntaxError" => Some(Self::SyntaxError),
+            "TypeError" => Some(Self::TypeError),
+            "ValueError" => Some(Self::ValueError),
+            _ => None,
+        }
+    }
+
+    fn catches(self, pending: Self) -> bool {
+        matches!(self, Self::BaseException | Self::Exception) || self == pending
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum PendingException {
+    Builtin(BuiltinException),
+    Unpack(ArgumentCountConstraint),
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct RaisedException {
+    kind: PendingException,
+    message: Option<ExtractedMessageTemplate>,
+}
+
+impl RaisedException {
+    fn implicit(kind: PendingException) -> Self {
+        Self {
+            kind,
+            message: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 enum ControlOutcome {
     Next,
     Return(AbstractValue),
-    Raise,
+    Raise(RaisedException),
     Break,
     Continue,
 }
 
-/// One feasible path through a compile function. Facts stay attached to the
-/// environment that established them until all accepting paths are projected.
 #[derive(Debug, Clone, PartialEq)]
 struct ExecutionState {
+    outcome: ControlOutcome,
     env: Env,
     result: AnalysisResult,
-    outcome: ControlOutcome,
+    exclusions: Vec<PathAssumption>,
 }
 
 impl ExecutionState {
@@ -53,21 +135,137 @@ impl ExecutionState {
         Self {
             env,
             result: AnalysisResult::default(),
+            exclusions: Vec::new(),
             outcome: ControlOutcome::Next,
         }
     }
 
-    fn attach_argument_syntax(&mut self, syntax: Option<&TagArgumentSyntax>) {
-        if let Some(syntax) = syntax {
-            self.result.extend(AnalysisResult {
-                argument_syntax: Some(syntax.clone()),
-                ..AnalysisResult::default()
-            });
+    fn assume(mut self, predicate: &SplitPredicate, truth: bool) -> Option<Self> {
+        match (predicate, truth) {
+            (SplitPredicate::LengthEquals(length), true) => {
+                self.result
+                    .constraints
+                    .extend(ExtractedTagConstraints::single_length(
+                        ArgumentCountConstraint::Exact(*length),
+                    ));
+            }
+            (SplitPredicate::LengthEquals(length), false) => {
+                self.exclusions
+                    .push(PathAssumption::LengthNotEquals(*length));
+            }
+            (SplitPredicate::LengthAtLeast(length), true) if *length > 1 => self
+                .result
+                .constraints
+                .extend(ExtractedTagConstraints::single_length(
+                    ArgumentCountConstraint::Min(*length),
+                )),
+            (SplitPredicate::LengthAtLeast(length), false) if *length > 0 => self
+                .result
+                .constraints
+                .extend(ExtractedTagConstraints::single_length(
+                    ArgumentCountConstraint::Max(length - 1),
+                )),
+            (SplitPredicate::ElementEquals { position, value }, true) => {
+                let keyword = crate::templates::tags::types::RequiredKeyword {
+                    position: *position,
+                    value: value.clone(),
+                };
+                if !self.result.constraints.required_keywords.contains(&keyword) {
+                    self.result.constraints.required_keywords.push(keyword);
+                }
+            }
+            (SplitPredicate::ElementEquals { position, value }, false) => {
+                self.exclusions.push(PathAssumption::ElementNotEquals {
+                    position: *position,
+                    value: value.clone(),
+                });
+            }
+            (SplitPredicate::LengthAtLeast(0), false) => return None,
+            (SplitPredicate::LengthAtLeast(_), _) => {}
         }
+
+        if !path_facts_are_feasible(&self.result.constraints, &self.exclusions) {
+            return None;
+        }
+        self.exclusions.dedup();
+        Some(self)
     }
 }
 
-/// Feasible control destinations at one statement boundary.
+fn path_facts_are_feasible(
+    constraints: &ExtractedTagConstraints,
+    exclusions: &[PathAssumption],
+) -> bool {
+    if finite_counts(&constraints.arg_constraints).is_some_and(|counts| counts.is_empty()) {
+        return false;
+    }
+    let lower = lower_bound(&constraints.arg_constraints).unwrap_or(1);
+    let upper = upper_bound(&constraints.arg_constraints);
+    if upper.is_some_and(|upper| lower > upper) {
+        return false;
+    }
+    if upper == Some(lower)
+        && exclusions.iter().any(
+            |assumption| matches!(assumption, PathAssumption::LengthNotEquals(length) if *length == lower),
+        )
+    {
+        return false;
+    }
+
+    let exact_length = finite_counts(&constraints.arg_constraints).and_then(|counts| {
+        let [length] = counts.as_slice() else {
+            return None;
+        };
+        Some(*length)
+    });
+    let exact_arguments_len = exact_length.and_then(|length| length.checked_sub(1));
+    if exact_length == Some(0)
+        || exact_arguments_len.is_some_and(|arguments_len| {
+            constraints
+                .required_keywords
+                .iter()
+                .map(|keyword| keyword.position)
+                .chain(exclusions.iter().filter_map(|assumption| match assumption {
+                    PathAssumption::ElementNotEquals { position, .. } => Some(*position),
+                    PathAssumption::LengthNotEquals(_) => None,
+                }))
+                .any(|position| position.to_bits_index(arguments_len).is_none())
+        })
+    {
+        return false;
+    }
+
+    for (index, left) in constraints.required_keywords.iter().enumerate() {
+        if constraints.required_keywords[index + 1..]
+            .iter()
+            .any(|right| {
+                positions_alias(left.position, right.position, exact_length)
+                    && left.value != right.value
+            })
+            || exclusions.iter().any(|assumption| match assumption {
+                PathAssumption::ElementNotEquals { position, value } => {
+                    positions_alias(left.position, *position, exact_length) && left.value == *value
+                }
+                PathAssumption::LengthNotEquals(_) => false,
+            })
+        {
+            return false;
+        }
+    }
+    true
+}
+
+fn positions_alias(left: SplitPosition, right: SplitPosition, exact_length: Option<usize>) -> bool {
+    left == right
+        || exact_length.is_some_and(|length| {
+            let arguments_len = length.saturating_sub(1);
+            left.to_bits_index(arguments_len).is_some()
+                && left.to_bits_index(arguments_len) == right.to_bits_index(arguments_len)
+        })
+}
+
+/// Feasible paths at one statement boundary. Each state owns one control
+/// destination, so environments and evidence cannot cross between exits.
 #[derive(Debug)]
 struct ExecutionStates(Vec<ExecutionState>);
 
@@ -105,11 +303,67 @@ impl ExecutionStates {
     }
 }
 
+fn normalize_state_destinations(destinations: &mut [&mut Vec<ExecutionState>]) {
+    for states in &mut *destinations {
+        deduplicate_states(states);
+    }
+    if destinations
+        .iter()
+        .map(|states| states.len())
+        .sum::<usize>()
+        <= MAX_EXEC_STATES
+    {
+        return;
+    }
+
+    let mut groups = Vec::new();
+    for (destination, states) in destinations.iter_mut().enumerate() {
+        let mut by_outcome = [const { Vec::new() }; 5];
+        for state in states.drain(..) {
+            by_outcome[outcome_index(&state.outcome)].push(state);
+        }
+        groups.extend(
+            by_outcome
+                .into_iter()
+                .filter(|group| !group.is_empty())
+                .map(|group| (destination, group)),
+        );
+    }
+    let mut budgets = vec![1; groups.len()];
+    let mut remaining = MAX_EXEC_STATES - groups.len();
+    while remaining > 0 {
+        let mut added = false;
+        for (budget, (_, group)) in budgets.iter_mut().zip(&groups) {
+            if *budget < group.len() {
+                *budget += 1;
+                remaining -= 1;
+                added = true;
+                if remaining == 0 {
+                    break;
+                }
+            }
+        }
+        if !added {
+            break;
+        }
+    }
+
+    for ((destination, mut group), budget) in groups.into_iter().zip(budgets) {
+        if group.len() > budget
+            && let Some(summary) = summarize_states(&group)
+        {
+            group.truncate(budget - 1);
+            group.push(summary);
+        }
+        destinations[destination].append(&mut group);
+    }
+}
+
 fn outcome_index(outcome: &ControlOutcome) -> usize {
     match outcome {
         ControlOutcome::Next => 0,
         ControlOutcome::Return(_) => 1,
-        ControlOutcome::Raise => 2,
+        ControlOutcome::Raise(_) => 2,
         ControlOutcome::Break => 3,
         ControlOutcome::Continue => 4,
     }
@@ -130,84 +384,51 @@ fn deduplicate_states(states: &mut Vec<ExecutionState>) {
     states.truncate(unique_len);
 }
 
-fn normalize_state_destinations(destinations: &mut [&mut Vec<ExecutionState>]) {
-    for destination in destinations.iter_mut() {
-        deduplicate_states(destination);
-    }
-    if destinations
-        .iter()
-        .map(|states| states.len())
-        .sum::<usize>()
-        <= MAX_EXEC_STATES
-    {
-        return;
-    }
-
-    let mut groups = Vec::new();
-    for (destination_index, destination) in destinations.iter_mut().enumerate() {
-        let mut by_outcome = [const { Vec::new() }; 5];
-        for state in destination.drain(..) {
-            by_outcome[outcome_index(&state.outcome)].push(state);
+fn summarize_states(states: &[ExecutionState]) -> Option<ExecutionState> {
+    let mut summary = states.first()?.clone();
+    summary.env = Env::join_exact(states.iter().map(|state| &state.env));
+    summary.result = project_common_results(&states.iter().collect::<Vec<_>>());
+    summary.exclusions = summarize_exclusions(states);
+    summary.outcome = match &summary.outcome {
+        ControlOutcome::Return(first)
+            if states.iter().all(
+                |state| matches!(&state.outcome, ControlOutcome::Return(value) if value == first),
+            ) =>
+        {
+            ControlOutcome::Return(first.clone())
         }
-        groups.extend(
-            by_outcome
-                .into_iter()
-                .filter(|group| !group.is_empty())
-                .map(|group| (destination_index, group)),
-        );
-    }
-
-    let lengths = groups
-        .iter()
-        .map(|(_, group)| group.len())
-        .collect::<Vec<_>>();
-    let mut budgets = vec![1; groups.len()];
-    let mut remaining = MAX_EXEC_STATES - budgets.len();
-    while remaining > 0 {
-        let mut added = false;
-        for (budget, length) in budgets.iter_mut().zip(&lengths) {
-            if *budget < *length {
-                *budget += 1;
-                remaining -= 1;
-                added = true;
-                if remaining == 0 {
-                    break;
-                }
-            }
+        ControlOutcome::Return(_) => ControlOutcome::Return(AbstractValue::Unknown),
+        ControlOutcome::Raise(first)
+            if states.iter().all(
+                |state| matches!(&state.outcome, ControlOutcome::Raise(value) if value == first),
+            ) =>
+        {
+            ControlOutcome::Raise(first.clone())
         }
-        if !added {
-            break;
+        ControlOutcome::Raise(_) => {
+            ControlOutcome::Raise(RaisedException::implicit(PendingException::Unknown))
         }
-    }
-
-    let mut normalized = (0..destinations.len())
-        .map(|_| Vec::new())
-        .collect::<Vec<_>>();
-    for ((destination_index, mut group), budget) in groups.into_iter().zip(budgets) {
-        if group.len() > budget {
-            let summary = summarize_states(&group);
-            group.truncate(budget - 1);
-            group.push(summary);
-        }
-        normalized[destination_index].append(&mut group);
-    }
-    for (destination, mut states) in destinations.iter_mut().zip(normalized) {
-        destination.append(&mut states);
-    }
+        ControlOutcome::Next => ControlOutcome::Next,
+        ControlOutcome::Break => ControlOutcome::Break,
+        ControlOutcome::Continue => ControlOutcome::Continue,
+    };
+    Some(summary)
 }
 
-fn summarize_states(states: &[ExecutionState]) -> ExecutionState {
-    let mut summary = states[0].clone();
-    summary.env = Env::join_exact(states.iter().map(|state| &state.env));
-    summary.result = project_results(&states.iter().collect::<Vec<_>>());
-    if let ControlOutcome::Return(first) = &summary.outcome
-        && !states
-            .iter()
-            .all(|state| matches!(&state.outcome, ControlOutcome::Return(value) if value == first))
-    {
-        summary.outcome = ControlOutcome::Return(AbstractValue::Unknown);
-    }
-    summary
+fn summarize_exclusions(states: &[ExecutionState]) -> Vec<PathAssumption> {
+    let Some(first) = states.first() else {
+        return Vec::new();
+    };
+    first
+        .exclusions
+        .iter()
+        .filter(|exclusion| {
+            states
+                .iter()
+                .all(|state| state.exclusions.contains(exclusion))
+        })
+        .cloned()
+        .collect()
 }
 
 /// Process a function body and retain facts entailed by every accepting path.
@@ -233,7 +454,7 @@ pub(crate) fn process_statements(
     let values = accepting.iter().filter_map(|state| match &state.outcome {
         ControlOutcome::Return(value) => Some(value.clone()),
         ControlOutcome::Next => Some(AbstractValue::Unknown),
-        ControlOutcome::Raise | ControlOutcome::Break | ControlOutcome::Continue => None,
+        ControlOutcome::Raise(_) | ControlOutcome::Break | ControlOutcome::Continue => None,
     });
     (project_results(&accepting), join_return_values(values))
 }
@@ -262,10 +483,6 @@ fn process_statement_states(
         match stmt {
             Stmt::If(stmt_if) => states = branch_if(stmt_if, states, ctx),
             Stmt::Try(stmt_try) => states = branch_try(stmt_try, states, ctx),
-            Stmt::For(stmt_for) => states = branch_for(stmt_for, states, ctx),
-            Stmt::While(stmt_while) => states = branch_while(stmt_while, states, ctx),
-            Stmt::With(stmt_with) => states = branch_with(stmt_with, states, ctx),
-            Stmt::Match(stmt_match) => states = branch_match(stmt_match, states, ctx),
             Stmt::Return(returned) => {
                 for state in states.next_mut() {
                     let value = returned
@@ -277,9 +494,57 @@ fn process_statement_states(
                     state.outcome = ControlOutcome::Return(value);
                 }
             }
-            Stmt::Raise(_) => {
+            Stmt::Raise(raised) => {
                 for state in states.next_mut() {
-                    state.outcome = ControlOutcome::Raise;
+                    state.outcome = ControlOutcome::Raise(RaisedException {
+                        kind: raised_exception_kind(raised, &state.env),
+                        message: raised
+                            .exc
+                            .as_deref()
+                            .and_then(|exception| extract_exception_message(exception, &state.env)),
+                    });
+                }
+            }
+            Stmt::Assign(assign) => {
+                let incoming = states.take_next();
+                for state in incoming {
+                    if matches!(assign.value.as_ref(), Expr::If(_))
+                        && let Some(conditional) =
+                            analyze_conditional_assignment(assign, &state.env)
+                    {
+                        states
+                            .0
+                            .extend(branch_conditional_assignment(conditional, state));
+                    } else {
+                        states.0.extend(execute_assignment(assign, state, ctx));
+                    }
+                }
+            }
+            Stmt::For(stmt_for) => states = branch_for(stmt_for, states, ctx),
+            Stmt::With(stmt_with) => states = branch_with(stmt_with, states, ctx),
+            Stmt::Expr(stmt_expr) => {
+                for state in states.next_mut() {
+                    process_expression_statement(stmt_expr, &mut state.env);
+                }
+            }
+            Stmt::While(stmt_while) => states = branch_while(stmt_while, states, ctx),
+            Stmt::Match(stmt_match) => states = branch_match(stmt_match, states, ctx),
+            Stmt::Pass(_)
+            | Stmt::Global(_)
+            | Stmt::Nonlocal(_)
+            | Stmt::Assert(_)
+            | Stmt::IpyEscapeCommand(_) => {}
+            Stmt::AnnAssign(_)
+            | Stmt::FunctionDef(_)
+            | Stmt::ClassDef(_)
+            | Stmt::Delete(_)
+            | Stmt::TypeAlias(_)
+            | Stmt::AugAssign(_)
+            | Stmt::Import(_)
+            | Stmt::ImportFrom(_) => {
+                let changes = PotentialEnvChanges::collect(std::slice::from_ref(stmt));
+                for state in states.next_mut() {
+                    state.env = changes.apply(&state.env);
                 }
             }
             Stmt::Break(_) => {
@@ -292,111 +557,11 @@ fn process_statement_states(
                     state.outcome = ControlOutcome::Continue;
                 }
             }
-            Stmt::FunctionDef(_)
-            | Stmt::ClassDef(_)
-            | Stmt::Assign(_)
-            | Stmt::Delete(_)
-            | Stmt::TypeAlias(_)
-            | Stmt::AugAssign(_)
-            | Stmt::AnnAssign(_)
-            | Stmt::Assert(_)
-            | Stmt::Import(_)
-            | Stmt::ImportFrom(_)
-            | Stmt::Global(_)
-            | Stmt::Nonlocal(_)
-            | Stmt::Pass(_)
-            | Stmt::IpyEscapeCommand(_)
-            | Stmt::Expr(_) => {
-                for state in states.next_mut() {
-                    state
-                        .result
-                        .extend(process_statement(stmt, &mut state.env, ctx));
-                }
-            }
         }
         states.normalize();
     }
 
     states
-}
-
-fn branch_if(
-    stmt_if: &ruff_python_ast::StmtIf,
-    mut states: ExecutionStates,
-    ctx: &mut CallContext<'_>,
-) -> ExecutionStates {
-    let incoming = states.take_next();
-    let mut alternatives = states;
-
-    for mut state in incoming {
-        // Keep the original fixed-width syntax prepass until path-derived forms
-        // replace it in the later extraction change.
-        let argument_syntax = crate::templates::tags::analysis::forms::extract_if_argument_syntax(
-            stmt_if, &state.env, ctx,
-        );
-        state.attach_argument_syntax(argument_syntax.as_ref());
-
-        let mut unmatched = Some(state);
-        let mut clauses = Vec::with_capacity(stmt_if.elif_else_clauses.len() + 1);
-        clauses.push((Some(stmt_if.test.as_ref()), stmt_if.body.as_slice()));
-        clauses.extend(
-            stmt_if
-                .elif_else_clauses
-                .iter()
-                .map(|clause| (clause.test.as_ref(), clause.body.as_slice())),
-        );
-
-        for (test, body) in clauses {
-            let Some(state) = unmatched.take() else {
-                break;
-            };
-            let truth = test.and_then(static_truthiness);
-            if truth == Some(false) {
-                unmatched = Some(state);
-                continue;
-            }
-
-            let has_direct_raise = body.iter().any(|stmt| matches!(stmt, Stmt::Raise(_)));
-            let direct_guard =
-                test.filter(|_| direct_raise_exception(body).is_some())
-                    .map(|test| {
-                        crate::templates::tags::analysis::guards::extract_direct_guard(
-                            test, body, &state.env,
-                        )
-                    });
-
-            let mut taken = state.clone();
-            if let Some(test) = test.filter(|_| !has_direct_raise) {
-                taken.result.constraints.extend(
-                    crate::templates::tags::analysis::guards::extract_true_condition_constraints(
-                        test, &taken.env,
-                    ),
-                );
-            }
-            let mut branch = process_statement_states(body, ExecutionStates(vec![taken]), ctx);
-            alternatives.0.append(&mut branch.0);
-
-            if truth != Some(true) && test.is_some() {
-                let mut fallthrough = state;
-                if let Some(guard) = direct_guard {
-                    fallthrough.result.extend(guard.into());
-                } else if let Some(test) = test.filter(|_| !has_direct_raise) {
-                    fallthrough.result.constraints.extend(
-                        crate::templates::tags::analysis::guards::extract_false_condition_constraints(
-                            test, &fallthrough.env,
-                        ),
-                    );
-                }
-                unmatched = Some(fallthrough);
-            }
-        }
-
-        if let Some(state) = unmatched {
-            alternatives.0.push(state);
-        }
-    }
-
-    alternatives
 }
 
 fn branch_for(
@@ -410,38 +575,96 @@ fn branch_for(
         if let AbstractValue::Tuple(values) = iterator {
             let mut active = vec![state];
             for value in values {
-                let mut next_iteration = Vec::new();
-                for mut active_state in active {
-                    process_assignment_target(&stmt_for.target, &value, &mut active_state.env);
-                    let body = process_statement_states(
-                        &stmt_for.body,
-                        ExecutionStates(vec![active_state]),
-                        ctx,
+                let mut iteration = ExecutionStates(Vec::new());
+                for active_state in active {
+                    let assigned = execute_assignment_targets(
+                        std::slice::from_ref(stmt_for.target.as_ref()),
+                        &value,
+                        active_state,
                     );
-                    collect_loop_body(body, &mut states.0, &mut next_iteration);
+                    let mut branch =
+                        process_statement_states(&stmt_for.body, ExecutionStates(assigned), ctx);
+                    iteration.0.append(&mut branch.0);
                 }
-                normalize_state_destinations(&mut [&mut states.0, &mut next_iteration]);
-                active = next_iteration;
+                active = Vec::new();
+                for mut state in iteration.0 {
+                    match state.outcome {
+                        ControlOutcome::Next | ControlOutcome::Continue => {
+                            state.outcome = ControlOutcome::Next;
+                            active.push(state);
+                        }
+                        ControlOutcome::Break => {
+                            state.outcome = ControlOutcome::Next;
+                            states.0.push(state);
+                        }
+                        ControlOutcome::Return(_) | ControlOutcome::Raise(_) => {
+                            states.0.push(state);
+                        }
+                    }
+                }
+                normalize_state_destinations(&mut [&mut states.0, &mut active]);
                 if active.is_empty() {
                     break;
                 }
             }
-            let mut exhausted =
+            let mut after_loop =
                 process_statement_states(&stmt_for.orelse, ExecutionStates(active), ctx);
-            states.0.append(&mut exhausted.0);
+            states.0.append(&mut after_loop.0);
             continue;
         }
 
-        let mut body_entry = state;
+        let body_changes = PotentialEnvChanges::collect(&stmt_for.body);
+        let mut exhausted = vec![state.clone()];
         let mut target_changes = PotentialEnvChanges::default();
         target_changes.record_target(&stmt_for.target);
+        let mut body_entry = state;
         body_entry.env = target_changes.apply(&body_entry.env);
+        body_entry.outcome = ControlOutcome::Next;
         let body = process_statement_states(&stmt_for.body, ExecutionStates(vec![body_entry]), ctx);
-        let mut exhausted = Vec::new();
-        collect_loop_body(body, &mut states.0, &mut exhausted);
+        let mut repeatable = Vec::new();
+        for mut state in body.0 {
+            match state.outcome {
+                ControlOutcome::Next | ControlOutcome::Continue => {
+                    state.outcome = ControlOutcome::Next;
+                    repeatable.push(state);
+                }
+                ControlOutcome::Break => {
+                    state.outcome = ControlOutcome::Next;
+                    states.0.push(state);
+                }
+                ControlOutcome::Return(_) | ControlOutcome::Raise(_) => states.0.push(state),
+            }
+        }
+        for repeat_state in &repeatable {
+            let mut widened = repeat_state.clone();
+            widened.env = body_changes.apply(&widened.env);
+            exhausted.push(widened);
+        }
+        exhausted.append(&mut repeatable);
         let mut after_loop =
             process_statement_states(&stmt_for.orelse, ExecutionStates(exhausted), ctx);
         states.0.append(&mut after_loop.0);
+    }
+    states
+}
+
+fn branch_with(
+    stmt_with: &ruff_python_ast::StmtWith,
+    mut states: ExecutionStates,
+    ctx: &mut CallContext<'_>,
+) -> ExecutionStates {
+    let incoming = states.take_next();
+    for mut state in incoming {
+        let mut changes = PotentialEnvChanges::default();
+        for item in &stmt_with.items {
+            if let Some(target) = &item.optional_vars {
+                changes.record_target(target);
+            }
+        }
+        state.env = changes.apply(&state.env);
+        state.outcome = ControlOutcome::Next;
+        let mut body = process_statement_states(&stmt_with.body, ExecutionStates(vec![state]), ctx);
+        states.0.append(&mut body.0);
     }
     states
 }
@@ -459,54 +682,66 @@ fn branch_while(
             continue;
         }
 
-        // The original evaluator executes one representative loop iteration.
-        // Keep that bound while carrying exits as explicit outcomes.
+        let body_changes = PotentialEnvChanges::collect(&stmt_while.body);
+        let can_exhaust = static_truthiness(&stmt_while.test) != Some(true);
+        let mut exhausted = if can_exhaust {
+            vec![state.clone()]
+        } else {
+            Vec::new()
+        };
+        state.outcome = ControlOutcome::Next;
         let body = process_statement_states(&stmt_while.body, ExecutionStates(vec![state]), ctx);
-        let mut exhausted = Vec::new();
-        collect_loop_body(body, &mut states.0, &mut exhausted);
+        let mut repeatable = Vec::new();
+        for mut state in body.0 {
+            match state.outcome {
+                ControlOutcome::Next | ControlOutcome::Continue => {
+                    state.outcome = ControlOutcome::Next;
+                    repeatable.push(state);
+                }
+                ControlOutcome::Break => {
+                    state.outcome = ControlOutcome::Next;
+                    states.0.push(state);
+                }
+                ControlOutcome::Return(_) | ControlOutcome::Raise(_) => states.0.push(state),
+            }
+        }
+
+        // Execute one widened repeat. Its entry state summarizes all body
+        // changes, so another unroll cannot establish a sound hard fact.
+        let mut later = ExecutionStates(Vec::new());
+        for repeat_state in &repeatable {
+            let mut widened = repeat_state.clone();
+            widened.env = body_changes.apply(&widened.env);
+            if can_exhaust {
+                exhausted.push(widened.clone());
+            }
+            widened.outcome = ControlOutcome::Next;
+            let mut branch =
+                process_statement_states(&stmt_while.body, ExecutionStates(vec![widened]), ctx);
+            later.0.append(&mut branch.0);
+        }
+
+        for mut state in later.0 {
+            match state.outcome {
+                ControlOutcome::Next | ControlOutcome::Continue => {
+                    state.outcome = ControlOutcome::Next;
+                    if can_exhaust {
+                        exhausted.push(state);
+                    }
+                }
+                ControlOutcome::Break => {
+                    state.outcome = ControlOutcome::Next;
+                    states.0.push(state);
+                }
+                ControlOutcome::Return(_) | ControlOutcome::Raise(_) => states.0.push(state),
+            }
+        }
+        if can_exhaust {
+            exhausted.append(&mut repeatable);
+        }
         let mut after_loop =
             process_statement_states(&stmt_while.orelse, ExecutionStates(exhausted), ctx);
         states.0.append(&mut after_loop.0);
-    }
-    states
-}
-
-fn collect_loop_body(
-    body: ExecutionStates,
-    completed: &mut Vec<ExecutionState>,
-    repeatable: &mut Vec<ExecutionState>,
-) {
-    for mut state in body.0 {
-        match state.outcome {
-            ControlOutcome::Next | ControlOutcome::Continue => {
-                state.outcome = ControlOutcome::Next;
-                repeatable.push(state);
-            }
-            ControlOutcome::Break => {
-                state.outcome = ControlOutcome::Next;
-                completed.push(state);
-            }
-            ControlOutcome::Return(_) | ControlOutcome::Raise => completed.push(state),
-        }
-    }
-}
-
-fn branch_with(
-    stmt_with: &ruff_python_ast::StmtWith,
-    mut states: ExecutionStates,
-    ctx: &mut CallContext<'_>,
-) -> ExecutionStates {
-    let incoming = states.take_next();
-    for mut state in incoming {
-        let mut changes = PotentialEnvChanges::default();
-        for item in &stmt_with.items {
-            if let Some(target) = &item.optional_vars {
-                changes.record_target(target);
-            }
-        }
-        state.env = changes.apply(&state.env);
-        let mut body = process_statement_states(&stmt_with.body, ExecutionStates(vec![state]), ctx);
-        states.0.append(&mut body.0);
     }
     states
 }
@@ -521,9 +756,12 @@ fn branch_match(
         if let Some(constraints) = extract_match_constraints(stmt_match, &mut state.env) {
             state.result.constraints.extend(constraints);
         }
-        // Match exhaustiveness and pattern binding are handled by the later
-        // path-form change. Keep each original arm feasible here.
-        states.0.push(state.clone());
+
+        if stmt_match.cases.is_empty() {
+            states.0.push(state);
+            continue;
+        }
+
         for case in &stmt_match.cases {
             let mut branch =
                 process_statement_states(&case.body, ExecutionStates(vec![state.clone()]), ctx);
@@ -533,7 +771,170 @@ fn branch_match(
     states
 }
 
-#[derive(Default)]
+struct ConditionalAssignment<'a> {
+    target: &'a str,
+    predicate: SplitPredicate,
+    condition_truth: bool,
+    true_value: AbstractValue,
+    false_value: AbstractValue,
+}
+
+fn analyze_conditional_assignment<'a>(
+    assign: &'a StmtAssign,
+    env: &Env,
+) -> Option<ConditionalAssignment<'a>> {
+    let [target] = assign.targets.as_slice() else {
+        return None;
+    };
+    let Expr::If(conditional) = assign.value.as_ref() else {
+        return None;
+    };
+    let (predicate, condition_truth) =
+        crate::templates::tags::analysis::guards::split_predicate_condition(
+            &conditional.test,
+            env,
+        )?;
+    let true_value = eval_expr(&conditional.body, &mut env.clone());
+    let false_value = eval_expr(&conditional.orelse, &mut env.clone());
+    if !matches!(&true_value, AbstractValue::Int(_))
+        || !matches!(&false_value, AbstractValue::Int(_))
+    {
+        return None;
+    }
+    Some(ConditionalAssignment {
+        target: target.name_target()?,
+        predicate,
+        condition_truth,
+        true_value,
+        false_value,
+    })
+}
+
+fn branch_conditional_assignment(
+    conditional: ConditionalAssignment<'_>,
+    path: ExecutionState,
+) -> Vec<ExecutionState> {
+    let ConditionalAssignment {
+        target,
+        predicate,
+        condition_truth,
+        true_value,
+        false_value,
+    } = conditional;
+    let mut alternatives = Vec::with_capacity(2);
+    if let Some(mut taken) = path.clone().assume(&predicate, condition_truth) {
+        taken.env.set(target.to_string(), true_value);
+        alternatives.push(taken);
+    }
+    if let Some(mut path) = path.assume(&predicate, !condition_truth) {
+        path.env.set(target.to_string(), false_value);
+        alternatives.push(path);
+    }
+    alternatives
+}
+
+#[allow(clippy::too_many_lines)]
+fn branch_if(
+    stmt_if: &ruff_python_ast::StmtIf,
+    mut states: ExecutionStates,
+    ctx: &mut CallContext<'_>,
+) -> ExecutionStates {
+    let incoming = states.take_next();
+    let mut alternatives = states;
+
+    for mut path in incoming {
+        if let Some(argument_syntax) =
+            crate::templates::tags::analysis::forms::extract_if_argument_syntax(
+                stmt_if, &path.env, ctx,
+            )
+        {
+            path.result.extend(AnalysisResult {
+                argument_syntax: Some(argument_syntax),
+                ..AnalysisResult::default()
+            });
+        }
+
+        let mut unmatched = Some(path);
+        let mut clauses = Vec::with_capacity(stmt_if.elif_else_clauses.len() + 1);
+        clauses.push((Some(stmt_if.test.as_ref()), stmt_if.body.as_slice()));
+        clauses.extend(
+            stmt_if
+                .elif_else_clauses
+                .iter()
+                .map(|clause| (clause.test.as_ref(), clause.body.as_slice())),
+        );
+
+        for (test, body) in clauses {
+            let Some(path) = unmatched.take() else {
+                break;
+            };
+            let truth = test.and_then(static_truthiness);
+            if truth == Some(false) {
+                unmatched = Some(path);
+                continue;
+            }
+
+            let predicate = test.and_then(|test| {
+                crate::templates::tags::analysis::guards::split_predicate_condition(test, &path.env)
+            });
+            let has_direct_raise = body.iter().any(|stmt| matches!(stmt, Stmt::Raise(_)));
+            let direct_guard =
+                test.filter(|_| direct_raise_exception(body).is_some())
+                    .map(|test| {
+                        crate::templates::tags::analysis::guards::extract_direct_guard(
+                            test, body, &path.env,
+                        )
+                    });
+            let taken = path.clone();
+            let taken = match predicate.as_ref() {
+                Some((predicate, condition_truth)) => taken.assume(predicate, *condition_truth),
+                None => Some(taken),
+            };
+            if let Some(mut taken) = taken {
+                if let Some(test) = test.filter(|_| !has_direct_raise) {
+                    taken.result.constraints.extend(
+                        crate::templates::tags::analysis::guards::extract_true_condition_constraints(
+                            test, &taken.env,
+                        ),
+                    );
+                }
+                taken.outcome = ControlOutcome::Next;
+                let mut branch = process_statement_states(body, ExecutionStates(vec![taken]), ctx);
+                alternatives.0.append(&mut branch.0);
+            }
+
+            if truth != Some(true) && test.is_some() {
+                let fallthrough = path;
+                let fallthrough = match predicate.as_ref() {
+                    Some((predicate, condition_truth)) => {
+                        fallthrough.assume(predicate, !condition_truth)
+                    }
+                    None => Some(fallthrough),
+                };
+                if let Some(mut fallthrough) = fallthrough {
+                    if let Some(guard) = direct_guard {
+                        fallthrough.result.extend(guard.into());
+                    } else if let Some(test) = test.filter(|_| !has_direct_raise) {
+                        fallthrough.result.constraints.extend(
+                            crate::templates::tags::analysis::guards::extract_false_condition_constraints(
+                                test, &fallthrough.env,
+                            ),
+                        );
+                    }
+                    unmatched = Some(fallthrough);
+                }
+            }
+        }
+
+        if let Some(path) = unmatched {
+            alternatives.0.push(path);
+        }
+    }
+
+    alternatives
+}
+
+#[derive(Clone, Default)]
 struct PotentialEnvChanges {
     assigned_names: BTreeSet<String>,
     mutates_split_result: bool,
@@ -642,11 +1043,23 @@ impl PotentialEnvChanges {
             | Expr::BooleanLiteral(_)
             | Expr::NoneLiteral(_)
             | Expr::EllipsisLiteral(_)
-            | Expr::Attribute(_)
-            | Expr::Subscript(_)
             | Expr::Name(_)
             | Expr::Slice(_)
             | Expr::IpyEscapeCommand(_) => self.forget_all = true,
+            Expr::Attribute(attribute) => {
+                if let Some(name) = assignment_base_name(&attribute.value) {
+                    self.assigned_names.insert(name.to_string());
+                } else {
+                    self.forget_all = true;
+                }
+            }
+            Expr::Subscript(subscript) => {
+                if let Some(name) = assignment_base_name(&subscript.value) {
+                    self.assigned_names.insert(name.to_string());
+                } else {
+                    self.forget_all = true;
+                }
+            }
         }
     }
 
@@ -678,80 +1091,420 @@ impl PotentialEnvChanges {
     }
 }
 
+fn assignment_base_name(expr: &Expr) -> Option<&str> {
+    match expr {
+        Expr::Name(name) => Some(name.id.as_str()),
+        Expr::Attribute(attribute) => assignment_base_name(&attribute.value),
+        Expr::Subscript(subscript) => assignment_base_name(&subscript.value),
+        Expr::BoolOp(_)
+        | Expr::Named(_)
+        | Expr::BinOp(_)
+        | Expr::Compare(_)
+        | Expr::UnaryOp(_)
+        | Expr::Lambda(_)
+        | Expr::If(_)
+        | Expr::Dict(_)
+        | Expr::Set(_)
+        | Expr::ListComp(_)
+        | Expr::SetComp(_)
+        | Expr::DictComp(_)
+        | Expr::Generator(_)
+        | Expr::Await(_)
+        | Expr::Yield(_)
+        | Expr::YieldFrom(_)
+        | Expr::Call(_)
+        | Expr::FString(_)
+        | Expr::TString(_)
+        | Expr::StringLiteral(_)
+        | Expr::BytesLiteral(_)
+        | Expr::NumberLiteral(_)
+        | Expr::BooleanLiteral(_)
+        | Expr::NoneLiteral(_)
+        | Expr::EllipsisLiteral(_)
+        | Expr::Starred(_)
+        | Expr::List(_)
+        | Expr::Tuple(_)
+        | Expr::Slice(_)
+        | Expr::IpyEscapeCommand(_) => None,
+    }
+}
+
+fn raised_exception_kind(raised: &ruff_python_ast::StmtRaise, env: &Env) -> PendingException {
+    let Some(exception) = raised.exc.as_deref() else {
+        return PendingException::Unknown;
+    };
+    let exception_type = if let Expr::Call(call) = exception {
+        call.func.as_ref()
+    } else {
+        exception
+    };
+    let Some(name) = exception_type.name_target() else {
+        return PendingException::Unknown;
+    };
+    if !env.builtin_name_visible(name) {
+        return PendingException::Unknown;
+    }
+    BuiltinException::from_name(name).map_or(PendingException::Unknown, PendingException::Builtin)
+}
+
+#[derive(Clone, Copy)]
+enum HandlerMatch {
+    Always,
+    Maybe,
+    Never,
+}
+
+fn exception_handler_match(
+    pending: &PendingException,
+    handler_type: Option<&Expr>,
+    env: &Env,
+) -> HandlerMatch {
+    let Some(handler_type) = handler_type else {
+        return HandlerMatch::Always;
+    };
+    let pending = match pending {
+        PendingException::Builtin(kind) => kind,
+        PendingException::Unpack(_) => &BuiltinException::ValueError,
+        PendingException::Unknown => return HandlerMatch::Maybe,
+    };
+
+    match handler_type {
+        Expr::Name(name) => {
+            let name = name.id.as_str();
+            if !env.builtin_name_visible(name) {
+                return HandlerMatch::Maybe;
+            }
+            BuiltinException::from_name(name).map_or(HandlerMatch::Maybe, |handler| {
+                if handler.catches(*pending) {
+                    HandlerMatch::Always
+                } else {
+                    HandlerMatch::Never
+                }
+            })
+        }
+        Expr::Tuple(tuple) => {
+            let mut maybe = false;
+            for item in &tuple.elts {
+                match exception_handler_match(&PendingException::Builtin(*pending), Some(item), env)
+                {
+                    HandlerMatch::Always => return HandlerMatch::Always,
+                    HandlerMatch::Maybe => maybe = true,
+                    HandlerMatch::Never => {}
+                }
+            }
+            if maybe {
+                HandlerMatch::Maybe
+            } else {
+                HandlerMatch::Never
+            }
+        }
+        Expr::BoolOp(_)
+        | Expr::Named(_)
+        | Expr::BinOp(_)
+        | Expr::Compare(_)
+        | Expr::UnaryOp(_)
+        | Expr::Lambda(_)
+        | Expr::If(_)
+        | Expr::Dict(_)
+        | Expr::Set(_)
+        | Expr::ListComp(_)
+        | Expr::SetComp(_)
+        | Expr::DictComp(_)
+        | Expr::Generator(_)
+        | Expr::Await(_)
+        | Expr::Yield(_)
+        | Expr::YieldFrom(_)
+        | Expr::Call(_)
+        | Expr::FString(_)
+        | Expr::TString(_)
+        | Expr::StringLiteral(_)
+        | Expr::BytesLiteral(_)
+        | Expr::NumberLiteral(_)
+        | Expr::BooleanLiteral(_)
+        | Expr::NoneLiteral(_)
+        | Expr::EllipsisLiteral(_)
+        | Expr::Attribute(_)
+        | Expr::Subscript(_)
+        | Expr::Starred(_)
+        | Expr::List(_)
+        | Expr::Slice(_)
+        | Expr::IpyEscapeCommand(_) => HandlerMatch::Maybe,
+    }
+}
+
+#[allow(clippy::too_many_lines)]
 fn branch_try(
     stmt_try: &ruff_python_ast::StmtTry,
     mut states: ExecutionStates,
     ctx: &mut CallContext<'_>,
 ) -> ExecutionStates {
     let incoming = states.take_next();
-    // Outcomes completed before this try never enter its finalizer.
+    // Outcomes reached before this try do not enter its finalizer.
     let mut alternatives = ExecutionStates(Vec::new());
 
     for state in incoming {
         let body_changes = PotentialEnvChanges::collect(&stmt_try.body);
+        let body_may_raise_implicitly =
+            suite_may_raise_implicitly(&stmt_try.body, &state.env, &body_changes);
+        let mut body_entry = state.clone();
+        body_entry.outcome = ControlOutcome::Next;
         let mut body =
-            process_statement_states(&stmt_try.body, ExecutionStates(vec![state.clone()]), ctx);
-
-        let raised = body.take_outcome(|outcome| matches!(outcome, ControlOutcome::Raise));
+            process_statement_states(&stmt_try.body, ExecutionStates(vec![body_entry]), ctx);
+        let mut pending_exceptions =
+            body.take_outcome(|outcome| matches!(outcome, ControlOutcome::Raise(_)));
         let normal = ExecutionStates(body.take_next());
+        let mut completed = ExecutionStates(body.0);
         let mut success = process_statement_states(&stmt_try.orelse, normal, ctx);
-        alternatives.0.append(&mut body.0);
-        alternatives.0.append(&mut success.0);
-        // An explicit raise may escape the try or enter a matching handler.
-        alternatives.0.extend(raised.iter().cloned());
+        completed.0.append(&mut success.0);
 
+        if body_may_raise_implicitly {
+            let mut implicit_exception = state.clone();
+            implicit_exception.env = body_changes.apply(&state.env);
+            implicit_exception.outcome =
+                ControlOutcome::Raise(RaisedException::implicit(PendingException::Unknown));
+            pending_exceptions.push(implicit_exception);
+        }
         for exception in &stmt_try.handlers {
             let ruff_python_ast::ExceptHandler::ExceptHandler(clause) = exception;
-            for mut raised_state in raised.iter().cloned() {
-                raised_state.outcome = ControlOutcome::Next;
-                let mut handled = process_statement_states(
-                    &clause.body,
-                    ExecutionStates(vec![raised_state]),
-                    ctx,
-                );
-                alternatives.0.append(&mut handled.0);
+            let mut residual = Vec::new();
+            for mut raised in pending_exceptions {
+                let pending = match &raised.outcome {
+                    ControlOutcome::Raise(pending) => pending.clone(),
+                    ControlOutcome::Next
+                    | ControlOutcome::Return(_)
+                    | ControlOutcome::Break
+                    | ControlOutcome::Continue => {
+                        alternatives.0.push(raised);
+                        continue;
+                    }
+                };
+                let handler_match =
+                    exception_handler_match(&pending.kind, clause.type_.as_deref(), &raised.env);
+                if !matches!(handler_match, HandlerMatch::Always) {
+                    residual.push(raised.clone());
+                }
+                if !matches!(handler_match, HandlerMatch::Never) {
+                    let records_unpack_message = matches!(handler_match, HandlerMatch::Always)
+                        && handler_names_builtin_value_error(clause.type_.as_deref(), &raised.env);
+                    raised.outcome = ControlOutcome::Next;
+                    let mut handled =
+                        process_statement_states(&clause.body, ExecutionStates(vec![raised]), ctx);
+                    if records_unpack_message
+                        && let PendingException::Unpack(constraint) = pending.kind
+                        && let Some(message) = common_raised_message(&handled.0)
+                    {
+                        let diagnostic = ExtractedDiagnosticMessage {
+                            constraint: ExtractedDiagnosticConstraint::ArgumentCount(constraint),
+                            message,
+                        };
+                        for completed in &mut completed.0 {
+                            if !completed.result.diagnostic_messages.contains(&diagnostic) {
+                                completed
+                                    .result
+                                    .diagnostic_messages
+                                    .push(diagnostic.clone());
+                            }
+                        }
+                    }
+                    alternatives.0.append(&mut handled.0);
+                }
             }
-
-            // Any runtime operation may fail between changes. AST writes and
-            // mutations cover intermediate states that terminal environments
-            // cannot reveal when a later assignment restores the entry value.
-            let mut unknown_exception = state.clone();
-            unknown_exception.env = body_changes.apply(&state.env);
-            let mut handled = process_statement_states(
-                &clause.body,
-                ExecutionStates(vec![unknown_exception]),
-                ctx,
-            );
-            for handled_state in &mut handled.0 {
-                handled_state.result = state.result.clone();
+            pending_exceptions = residual;
+            if pending_exceptions.is_empty() {
+                break;
             }
-            alternatives.0.append(&mut handled.0);
         }
+        alternatives.0.append(&mut completed.0);
+        alternatives.0.append(&mut pending_exceptions);
 
         if !stmt_try.finalbody.is_empty() {
-            // An implicit exception also enters `finally` when no handler is
-            // present, or when it bypasses or arises within a handler.
             let mut finalizer_changes = body_changes;
             finalizer_changes.extend(&stmt_try.orelse);
             for handler in &stmt_try.handlers {
                 let ruff_python_ast::ExceptHandler::ExceptHandler(handler) = handler;
                 finalizer_changes.extend(&handler.body);
+                if let Some(name) = &handler.name {
+                    finalizer_changes.assigned_names.insert(name.to_string());
+                }
             }
-            let mut implicit_raise = state.clone();
-            implicit_raise.env = finalizer_changes.apply(&state.env);
-            implicit_raise.outcome = ControlOutcome::Raise;
-            alternatives.0.push(implicit_raise);
+            let preceding_suite_may_raise = body_may_raise_implicitly
+                || suite_may_raise_implicitly(&stmt_try.orelse, &state.env, &finalizer_changes)
+                || stmt_try.handlers.iter().any(|handler| {
+                    let ruff_python_ast::ExceptHandler::ExceptHandler(handler) = handler;
+                    suite_may_raise_implicitly(&handler.body, &state.env, &finalizer_changes)
+                });
+            if preceding_suite_may_raise {
+                let mut implicit_raise = state.clone();
+                implicit_raise.env = finalizer_changes.apply(&state.env);
+                implicit_raise.outcome =
+                    ControlOutcome::Raise(RaisedException::implicit(PendingException::Unknown));
+                alternatives.0.push(implicit_raise);
+            }
         }
     }
 
+    alternatives.normalize();
     let mut result = if stmt_try.finalbody.is_empty() {
         alternatives
     } else {
         run_finally(&stmt_try.finalbody, alternatives, ctx)
     };
     result.0.append(&mut states.0);
-    result.normalize();
     result
+}
+
+fn suite_may_raise_implicitly(stmts: &[Stmt], env: &Env, changes: &PotentialEnvChanges) -> bool {
+    struct MayRaise<'env> {
+        env: &'env Env,
+        found: bool,
+    }
+
+    impl<'a> Visitor<'a> for MayRaise<'_> {
+        fn visit_stmt(&mut self, statement: &'a Stmt) {
+            match statement {
+                Stmt::Raise(_) => return,
+                Stmt::Import(_)
+                | Stmt::ImportFrom(_)
+                | Stmt::For(_)
+                | Stmt::While(_)
+                | Stmt::With(_)
+                | Stmt::Match(_)
+                | Stmt::Assert(_)
+                | Stmt::AugAssign(_)
+                | Stmt::Delete(_)
+                | Stmt::ClassDef(_) => {
+                    self.found = true;
+                    return;
+                }
+                Stmt::FunctionDef(_)
+                | Stmt::TypeAlias(_)
+                | Stmt::If(_)
+                | Stmt::Try(_)
+                | Stmt::Return(_)
+                | Stmt::Assign(_)
+                | Stmt::AnnAssign(_)
+                | Stmt::Expr(_)
+                | Stmt::Global(_)
+                | Stmt::Nonlocal(_)
+                | Stmt::Pass(_)
+                | Stmt::Break(_)
+                | Stmt::Continue(_)
+                | Stmt::IpyEscapeCommand(_) => {}
+            }
+            visitor::walk_stmt(self, statement);
+        }
+
+        fn visit_expr(&mut self, expression: &'a Expr) {
+            if let Expr::Call(call) = expression
+                && call.arguments.args.is_empty()
+                && call.arguments.keywords.is_empty()
+                && let Expr::Attribute(attribute) = call.func.as_ref()
+                && attribute.attr.as_str() == "split_contents"
+                && attribute
+                    .value
+                    .name_target()
+                    .is_some_and(|name| matches!(self.env.get(name), AbstractValue::Token))
+            {
+                // The normal evaluator models this intrinsic, including the
+                // unpack failure it can produce. Do not add a second unknown
+                // exception edge for its call or callee attribute.
+                return;
+            }
+            if matches!(
+                expression,
+                Expr::Call(_)
+                    | Expr::Attribute(_)
+                    | Expr::Subscript(_)
+                    | Expr::Named(_)
+                    | Expr::Await(_)
+                    | Expr::Yield(_)
+                    | Expr::YieldFrom(_)
+            ) {
+                self.found = true;
+                return;
+            }
+            visitor::walk_expr(self, expression);
+        }
+    }
+
+    let widened_env = changes.apply(env);
+    let mut may_raise = MayRaise {
+        env: &widened_env,
+        found: false,
+    };
+    for statement in stmts {
+        may_raise.visit_stmt(statement);
+        if may_raise.found {
+            return true;
+        }
+    }
+    false
+}
+
+fn handler_names_builtin_value_error(handler_type: Option<&Expr>, env: &Env) -> bool {
+    let Some(handler_type) = handler_type else {
+        return false;
+    };
+    match handler_type {
+        Expr::Name(name) => {
+            name.id.as_str() == "ValueError" && env.builtin_name_visible("ValueError")
+        }
+        Expr::Tuple(tuple) => {
+            tuple.elts.iter().all(|item| {
+                item.name_target().is_some_and(|name| {
+                    env.builtin_name_visible(name) && BuiltinException::from_name(name).is_some()
+                })
+            }) && tuple
+                .elts
+                .iter()
+                .any(|item| item.name_target() == Some("ValueError"))
+        }
+        Expr::BoolOp(_)
+        | Expr::Named(_)
+        | Expr::BinOp(_)
+        | Expr::Compare(_)
+        | Expr::UnaryOp(_)
+        | Expr::Lambda(_)
+        | Expr::If(_)
+        | Expr::Dict(_)
+        | Expr::Set(_)
+        | Expr::ListComp(_)
+        | Expr::SetComp(_)
+        | Expr::DictComp(_)
+        | Expr::Generator(_)
+        | Expr::Await(_)
+        | Expr::Yield(_)
+        | Expr::YieldFrom(_)
+        | Expr::Call(_)
+        | Expr::FString(_)
+        | Expr::TString(_)
+        | Expr::StringLiteral(_)
+        | Expr::BytesLiteral(_)
+        | Expr::NumberLiteral(_)
+        | Expr::BooleanLiteral(_)
+        | Expr::NoneLiteral(_)
+        | Expr::EllipsisLiteral(_)
+        | Expr::Attribute(_)
+        | Expr::Subscript(_)
+        | Expr::Starred(_)
+        | Expr::List(_)
+        | Expr::Slice(_)
+        | Expr::IpyEscapeCommand(_) => false,
+    }
+}
+
+fn common_raised_message(states: &[ExecutionState]) -> Option<ExtractedMessageTemplate> {
+    let mut messages = states.iter().map(|state| match &state.outcome {
+        ControlOutcome::Raise(raised) => raised.message.as_ref(),
+        ControlOutcome::Next
+        | ControlOutcome::Return(_)
+        | ControlOutcome::Break
+        | ControlOutcome::Continue => None,
+    });
+    let first = messages.next()??;
+    messages
+        .all(|message| message == Some(first))
+        .then(|| first.clone())
 }
 
 fn run_finally(
@@ -764,17 +1517,17 @@ fn run_finally(
         let mut saved = std::mem::replace(&mut state.outcome, ControlOutcome::Next);
         if let ControlOutcome::Return(value) = &mut saved {
             // Scalars are snapshots, but a returned list still shares its Python
-            // object with the finalizer. The evaluator cannot preserve that alias.
+            // object with the finalizer. We cannot preserve that alias here.
             value.forget_mutable();
         }
         let finalized = process_statement_states(finalbody, ExecutionStates(vec![state]), ctx);
         after_finally
             .0
-            .extend(finalized.0.into_iter().map(|mut finalized_state| {
-                if matches!(finalized_state.outcome, ControlOutcome::Next) {
-                    finalized_state.outcome = saved.clone();
+            .extend(finalized.0.into_iter().map(|mut state| {
+                if matches!(state.outcome, ControlOutcome::Next) {
+                    state.outcome = saved.clone();
                 }
-                finalized_state
+                state
             }));
     }
     after_finally.normalize();
@@ -782,11 +1535,25 @@ fn run_finally(
 }
 
 fn project_results(paths: &[&ExecutionState]) -> AnalysisResult {
+    let mut result = project_common_results(paths);
+    if matches!(
+        result.argument_syntax,
+        Some(TagArgumentSyntax::Forms {
+            coverage: crate::templates::tags::types::ArgumentFormCoverage::Complete,
+            ..
+        })
+    ) {
+        result.constraints = ExtractedTagConstraints::default();
+    }
+    result
+}
+
+fn project_common_results(paths: &[&ExecutionState]) -> AnalysisResult {
     let Some(first) = paths.first() else {
         return AnalysisResult::default();
     };
 
-    let mut constraints = project_constraints(paths);
+    let constraints = project_constraints(paths);
     let diagnostic_messages = project_diagnostics(paths, &constraints);
     let known_options = first.result.known_options.clone().filter(|options| {
         paths
@@ -806,12 +1573,6 @@ fn project_results(paths: &[&ExecutionState]) -> AnalysisResult {
     } else {
         None
     };
-    if matches!(argument_syntax, Some(TagArgumentSyntax::Forms { .. })) {
-        // Forms retain count/keyword correlation. Reapplying their branch-local
-        // facts as flat constraints both loses that correlation and duplicates
-        // diagnostics.
-        constraints = ExtractedTagConstraints::default();
-    }
 
     AnalysisResult {
         constraints,
@@ -980,8 +1741,9 @@ fn position_is_absent(position: SplitPosition, constraints: &[ArgumentCountConst
         return false;
     };
     match position {
-        SplitPosition::Forward(position) => maximum_count <= position,
-        SplitPosition::Backward(_) => maximum_count <= 1,
+        SplitPosition::Forward(position) | SplitPosition::Backward(position) => {
+            maximum_count <= position
+        }
     }
 }
 
@@ -1126,44 +1888,294 @@ fn static_truthiness(expr: &Expr) -> Option<bool> {
     }
 }
 
-fn process_statement(stmt: &Stmt, env: &mut Env, ctx: &mut CallContext<'_>) -> AnalysisResult {
-    match stmt {
-        Stmt::Assign(StmtAssign { targets, value, .. }) => {
-            let rhs = eval_expr_with_ctx(value, env, Some(ctx));
-            if let [target] = targets.as_slice() {
-                process_assignment_target(target, &rhs, env);
+fn execute_assignment(
+    assign: &StmtAssign,
+    mut state: ExecutionState,
+    ctx: &mut CallContext<'_>,
+) -> Vec<ExecutionState> {
+    let StmtAssign { targets, value, .. } = assign;
+    let pop_info = try_extract_pop_call(value);
+    let invalidates_split = expression_may_mutate_split(value, &state.env)
+        || unsupported_container_captures_split(value, &state.env)
+        || pop_info.as_ref().is_some_and(PopInfo::is_untracked);
+    let rhs = eval_expr_with_ctx(value, &mut state.env, Some(ctx));
+
+    if invalidates_split {
+        state.env.forget_split_results();
+    }
+    execute_assignment_targets(targets, &rhs, state)
+}
+
+fn execute_assignment_targets(
+    targets: &[Expr],
+    rhs: &AbstractValue,
+    state: ExecutionState,
+) -> Vec<ExecutionState> {
+    let mut active = vec![state];
+    let mut completed = Vec::new();
+    for target in targets {
+        let mut next = Vec::new();
+        for mut state in active {
+            let unpack_failure = if let Some(constraint) = split_unpack_constraint(target, rhs) {
+                let predicate = match &constraint {
+                    ArgumentCountConstraint::Exact(length) => SplitPredicate::LengthEquals(*length),
+                    ArgumentCountConstraint::Min(length) => SplitPredicate::LengthAtLeast(*length),
+                    ArgumentCountConstraint::Max(_) | ArgumentCountConstraint::OneOf(_) => {
+                        next.push(state);
+                        continue;
+                    }
+                };
+
+                let success = state.clone().assume(&predicate, true);
+                let failure = state.assume(&predicate, false).map(|mut state| {
+                    state.outcome = ControlOutcome::Raise(RaisedException {
+                        kind: PendingException::Unpack(constraint),
+                        message: None,
+                    });
+                    state
+                });
+                let Some(success) = success else {
+                    if let Some(failure) = failure {
+                        completed.push(failure);
+                    }
+                    continue;
+                };
+                state = success;
+                failure
+            } else {
+                None
+            };
+
+            let assignment = process_assignment_target(target, rhs, &mut state.env);
+            match assignment.failure {
+                AssignmentFailure::Never => next.push(state),
+                AssignmentFailure::Maybe => {
+                    let mut raised = state.clone();
+                    let mut changes = PotentialEnvChanges::default();
+                    changes.record_target(target);
+                    raised.env = changes.apply(&raised.env);
+                    raised.outcome =
+                        ControlOutcome::Raise(RaisedException::implicit(PendingException::Unknown));
+                    completed.push(raised);
+                    next.push(state);
+                }
+                AssignmentFailure::Definite => {
+                    state.outcome = ControlOutcome::Raise(RaisedException::implicit(
+                        PendingException::Builtin(BuiltinException::ValueError),
+                    ));
+                    completed.push(state);
+                }
+            }
+            if let Some(failure) = unpack_failure {
+                completed.push(failure);
             }
         }
-        Stmt::Expr(stmt_expr) => {
-            // Expression evaluation owns mutation effects such as `pop()`.
-            eval_expr_with_ctx(&stmt_expr.value, env, Some(ctx));
+        normalize_state_destinations(&mut [&mut completed, &mut next]);
+        active = next;
+        if active.is_empty() {
+            break;
         }
-        Stmt::FunctionDef(_)
-        | Stmt::ClassDef(_)
-        | Stmt::If(_)
-        | Stmt::With(_)
-        | Stmt::For(_)
-        | Stmt::While(_)
-        | Stmt::Match(_)
-        | Stmt::Try(_)
-        | Stmt::Return(_)
-        | Stmt::Delete(_)
-        | Stmt::TypeAlias(_)
-        | Stmt::AugAssign(_)
-        | Stmt::AnnAssign(_)
-        | Stmt::Raise(_)
-        | Stmt::Assert(_)
-        | Stmt::Import(_)
-        | Stmt::ImportFrom(_)
-        | Stmt::Global(_)
-        | Stmt::Nonlocal(_)
-        | Stmt::Pass(_)
-        | Stmt::Break(_)
-        | Stmt::Continue(_)
-        | Stmt::IpyEscapeCommand(_) => {}
+    }
+    completed.extend(active);
+    completed
+}
+
+fn assignment_sequence_elements(target: &Expr) -> Option<&[Expr]> {
+    match target {
+        Expr::Tuple(tuple) => Some(&tuple.elts),
+        Expr::List(list) => Some(&list.elts),
+        Expr::BoolOp(_)
+        | Expr::Named(_)
+        | Expr::BinOp(_)
+        | Expr::Compare(_)
+        | Expr::UnaryOp(_)
+        | Expr::Lambda(_)
+        | Expr::If(_)
+        | Expr::Dict(_)
+        | Expr::Set(_)
+        | Expr::ListComp(_)
+        | Expr::SetComp(_)
+        | Expr::DictComp(_)
+        | Expr::Generator(_)
+        | Expr::Await(_)
+        | Expr::Yield(_)
+        | Expr::YieldFrom(_)
+        | Expr::Call(_)
+        | Expr::FString(_)
+        | Expr::TString(_)
+        | Expr::StringLiteral(_)
+        | Expr::BytesLiteral(_)
+        | Expr::NumberLiteral(_)
+        | Expr::BooleanLiteral(_)
+        | Expr::NoneLiteral(_)
+        | Expr::EllipsisLiteral(_)
+        | Expr::Attribute(_)
+        | Expr::Subscript(_)
+        | Expr::Starred(_)
+        | Expr::Name(_)
+        | Expr::Slice(_)
+        | Expr::IpyEscapeCommand(_) => None,
+    }
+}
+
+fn split_unpack_constraint(
+    target: &Expr,
+    value: &AbstractValue,
+) -> Option<ArgumentCountConstraint> {
+    let AbstractValue::SplitResult(split) = value else {
+        return None;
+    };
+    let targets = assignment_sequence_elements(target)?;
+    if targets.is_empty() {
+        return None;
+    }
+    let fixed = targets
+        .iter()
+        .filter(|target| !matches!(target, Expr::Starred(_)))
+        .count();
+    Some(if fixed == targets.len() {
+        ArgumentCountConstraint::Exact(split.resolve_length(fixed))
+    } else {
+        ArgumentCountConstraint::Min(split.resolve_length(fixed))
+    })
+}
+
+fn process_expression_statement(stmt_expr: &ruff_python_ast::StmtExpr, env: &mut Env) {
+    let pop_info = try_extract_pop_call(&stmt_expr.value);
+    let invalidates_split = expression_may_mutate_split(&stmt_expr.value, env)
+        || pop_info.as_ref().is_some_and(PopInfo::is_untracked);
+    eval_expr(&stmt_expr.value, env);
+    if invalidates_split {
+        env.forget_split_results();
+    }
+}
+
+fn unsupported_container_captures_split(expr: &Expr, env: &Env) -> bool {
+    matches!(expr, Expr::List(_) | Expr::Set(_) | Expr::Dict(_))
+        && expression_contains_split(expr, env)
+}
+
+fn expression_may_mutate_split(expr: &Expr, env: &Env) -> bool {
+    struct EscapingSplit<'a> {
+        env: &'a Env,
+        found: bool,
     }
 
-    AnalysisResult::default()
+    impl<'a> Visitor<'a> for EscapingSplit<'_> {
+        fn visit_expr(&mut self, expression: &'a Expr) {
+            let Expr::Call(call) = expression else {
+                visitor::walk_expr(self, expression);
+                return;
+            };
+
+            if try_extract_pop_call(expression).is_none() {
+                let safe_builtin = call.func.name_target().is_some_and(|name| {
+                    matches!(name, "len" | "list") && self.env.builtin_name_visible(name)
+                });
+                let (split_receiver, read_only_method) =
+                    if let Expr::Attribute(attribute) = call.func.as_ref() {
+                        let receiver = eval_expr(&attribute.value, &mut self.env.clone());
+                        (
+                            matches!(receiver, AbstractValue::SplitResult(_)),
+                            matches!(receiver, AbstractValue::Str(_))
+                                && attribute.attr.as_str() == "join",
+                        )
+                    } else {
+                        (false, false)
+                    };
+                let split_argument =
+                    !safe_builtin
+                        && !read_only_method
+                        && (call
+                            .arguments
+                            .args
+                            .iter()
+                            .any(|argument| expression_contains_split(argument, self.env))
+                            || call.arguments.keywords.iter().any(|keyword| {
+                                expression_contains_split(&keyword.value, self.env)
+                            }));
+                if split_receiver || split_argument {
+                    self.found = true;
+                    return;
+                }
+            }
+            visitor::walk_expr(self, expression);
+        }
+    }
+
+    let mut escaping = EscapingSplit { env, found: false };
+    escaping.visit_expr(expr);
+    escaping.found
+}
+
+fn expression_contains_split(expr: &Expr, env: &Env) -> bool {
+    fn value_contains_split(value: &AbstractValue) -> bool {
+        match value {
+            AbstractValue::SplitResult(_) => true,
+            AbstractValue::Tuple(values) => values.iter().any(value_contains_split),
+            AbstractValue::Unknown
+            | AbstractValue::Token
+            | AbstractValue::Parser
+            | AbstractValue::SplitElement { .. }
+            | AbstractValue::SplitLength(_)
+            | AbstractValue::SplitPredicate(_)
+            | AbstractValue::Int(_)
+            | AbstractValue::Str(_) => false,
+        }
+    }
+
+    if value_contains_split(&eval_expr(expr, &mut env.clone())) {
+        return true;
+    }
+    match expr {
+        Expr::Tuple(tuple) => tuple
+            .elts
+            .iter()
+            .any(|element| expression_contains_split(element, env)),
+        Expr::List(list) => list
+            .elts
+            .iter()
+            .any(|element| expression_contains_split(element, env)),
+        Expr::Set(set) => set
+            .elts
+            .iter()
+            .any(|element| expression_contains_split(element, env)),
+        Expr::Starred(starred) => expression_contains_split(&starred.value, env),
+        Expr::Dict(dict) => dict.items.iter().any(|item| {
+            item.key
+                .as_ref()
+                .is_some_and(|key| expression_contains_split(key, env))
+                || expression_contains_split(&item.value, env)
+        }),
+        Expr::BoolOp(_)
+        | Expr::Named(_)
+        | Expr::BinOp(_)
+        | Expr::Compare(_)
+        | Expr::UnaryOp(_)
+        | Expr::Lambda(_)
+        | Expr::If(_)
+        | Expr::ListComp(_)
+        | Expr::SetComp(_)
+        | Expr::DictComp(_)
+        | Expr::Generator(_)
+        | Expr::Await(_)
+        | Expr::Yield(_)
+        | Expr::YieldFrom(_)
+        | Expr::Call(_)
+        | Expr::FString(_)
+        | Expr::TString(_)
+        | Expr::StringLiteral(_)
+        | Expr::BytesLiteral(_)
+        | Expr::NumberLiteral(_)
+        | Expr::BooleanLiteral(_)
+        | Expr::NoneLiteral(_)
+        | Expr::EllipsisLiteral(_)
+        | Expr::Attribute(_)
+        | Expr::Subscript(_)
+        | Expr::Name(_)
+        | Expr::Slice(_)
+        | Expr::IpyEscapeCommand(_) => false,
+    }
 }
 
 /// Try to detect `token_kwargs(bits, parser)` calls and return the first
@@ -1183,105 +2195,195 @@ fn try_extract_token_kwargs_call(expr: &Expr) -> Option<String> {
         .map(str::to_string)
 }
 
-/// Process an assignment target with the evaluated RHS value.
-fn process_assignment_target(target: &Expr, value: &AbstractValue, env: &mut Env) {
-    if let Some(name) = target.name_target() {
-        env.set(name.to_string(), value.clone());
-        return;
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AssignmentFailure {
+    Never,
+    Maybe,
+    Definite,
+}
+
+#[derive(Clone, Copy)]
+struct AssignmentTargetResult {
+    failure: AssignmentFailure,
+}
+
+impl AssignmentTargetResult {
+    fn applied() -> Self {
+        Self {
+            failure: AssignmentFailure::Never,
+        }
     }
 
-    if let Expr::Tuple(ExprTuple { elts, .. }) = target {
-        process_tuple_unpack(elts, value, env);
+    fn include(&mut self, result: Self) {
+        self.failure = match (self.failure, result.failure) {
+            (AssignmentFailure::Definite, _) | (_, AssignmentFailure::Definite) => {
+                AssignmentFailure::Definite
+            }
+            (AssignmentFailure::Maybe, _) | (_, AssignmentFailure::Maybe) => {
+                AssignmentFailure::Maybe
+            }
+            (AssignmentFailure::Never, AssignmentFailure::Never) => AssignmentFailure::Never,
+        };
     }
 }
 
-/// Handle tuple unpacking assignment.
-fn process_tuple_unpack(targets: &[Expr], value: &AbstractValue, env: &mut Env) {
+/// Process an assignment target with the evaluated RHS value.
+fn process_assignment_target(
+    target: &Expr,
+    value: &AbstractValue,
+    env: &mut Env,
+) -> AssignmentTargetResult {
+    if let Some(name) = target.name_target() {
+        env.set(name.to_string(), value.clone());
+        return AssignmentTargetResult::applied();
+    }
+
+    match target {
+        Expr::Tuple(ExprTuple { elts, .. }) | Expr::List(ExprList { elts, .. }) => {
+            process_tuple_unpack(elts, value, env)
+        }
+        Expr::Starred(starred) => process_assignment_target(&starred.value, value, env),
+        Expr::Attribute(attribute) => {
+            let mut target_env = env.clone();
+            match eval_expr(&attribute.value, &mut target_env) {
+                AbstractValue::SplitResult(_) => {
+                    env.forget_split_results();
+                    AssignmentTargetResult::applied()
+                }
+                AbstractValue::Token => {
+                    env.forget_tokens();
+                    AssignmentTargetResult::applied()
+                }
+                AbstractValue::Unknown
+                | AbstractValue::Parser
+                | AbstractValue::SplitElement { .. }
+                | AbstractValue::SplitLength(_)
+                | AbstractValue::Int(_)
+                | AbstractValue::Str(_)
+                | AbstractValue::SplitPredicate(_)
+                | AbstractValue::Tuple(_) => AssignmentTargetResult::applied(),
+            }
+        }
+        Expr::Subscript(subscript) => {
+            let mut target_env = env.clone();
+            let invalidates_split = matches!(
+                eval_expr(&subscript.value, &mut target_env),
+                AbstractValue::SplitResult(_)
+            );
+            if invalidates_split {
+                env.forget_split_results();
+            }
+            AssignmentTargetResult::applied()
+        }
+        Expr::BoolOp(_)
+        | Expr::Named(_)
+        | Expr::BinOp(_)
+        | Expr::Compare(_)
+        | Expr::UnaryOp(_)
+        | Expr::Lambda(_)
+        | Expr::If(_)
+        | Expr::Dict(_)
+        | Expr::Set(_)
+        | Expr::ListComp(_)
+        | Expr::SetComp(_)
+        | Expr::DictComp(_)
+        | Expr::Generator(_)
+        | Expr::Await(_)
+        | Expr::Yield(_)
+        | Expr::YieldFrom(_)
+        | Expr::Call(_)
+        | Expr::FString(_)
+        | Expr::TString(_)
+        | Expr::StringLiteral(_)
+        | Expr::BytesLiteral(_)
+        | Expr::NumberLiteral(_)
+        | Expr::BooleanLiteral(_)
+        | Expr::NoneLiteral(_)
+        | Expr::EllipsisLiteral(_)
+        | Expr::Name(_)
+        | Expr::Slice(_)
+        | Expr::IpyEscapeCommand(_) => AssignmentTargetResult::applied(),
+    }
+}
+
+/// Handle tuple unpacking assignment in Python's target order.
+fn process_tuple_unpack(
+    targets: &[Expr],
+    value: &AbstractValue,
+    env: &mut Env,
+) -> AssignmentTargetResult {
+    let star_index = targets
+        .iter()
+        .position(|target| matches!(target, Expr::Starred(_)));
+    let fixed = targets.len() - usize::from(star_index.is_some());
+    let mut result = AssignmentTargetResult::applied();
+
     match value {
         AbstractValue::Tuple(elements) => {
-            for (i, target) in targets.iter().enumerate() {
-                let elem = elements.get(i).cloned().unwrap_or(AbstractValue::Unknown);
-                if let Some(name) = target.name_target() {
-                    env.set(name.to_string(), elem);
+            if star_index.map_or(elements.len() != fixed, |_| elements.len() < fixed) {
+                result.failure = AssignmentFailure::Definite;
+                return result;
+            }
+            let after_star = star_index.map_or(0, |star| targets.len() - star - 1);
+            for (index, target) in targets.iter().enumerate() {
+                let element = match star_index {
+                    Some(star) if index == star => {
+                        AbstractValue::Tuple(elements[star..elements.len() - after_star].to_vec())
+                    }
+                    Some(star) if index > star => {
+                        elements[elements.len() - (targets.len() - index)].clone()
+                    }
+                    Some(_) | None => elements[index].clone(),
+                };
+                let assignment = process_assignment_target(target, &element, env);
+                let definite = assignment.failure == AssignmentFailure::Definite;
+                result.include(assignment);
+                if definite {
+                    break;
                 }
             }
         }
-
         AbstractValue::SplitResult(split) => {
             let split = *split;
-
-            // Find starred target index
-            let star_index = targets.iter().position(|t| matches!(t, Expr::Starred(_)));
-
-            if let Some(si) = star_index {
-                // Elements before the star
-                for (i, target) in targets[..si].iter().enumerate() {
-                    if let Some(name) = target.name_target() {
-                        env.set(
-                            name.to_string(),
-                            AbstractValue::SplitElement {
-                                index: split.resolve_index(i),
-                            },
-                        );
+            let after_star = star_index.map_or(0, |star| targets.len() - star - 1);
+            for (index, target) in targets.iter().enumerate() {
+                let element = match star_index {
+                    Some(star) if index == star => {
+                        let mut middle = split.after_slice_from(star);
+                        for _ in 0..after_star {
+                            middle = middle.after_pop_back();
+                        }
+                        AbstractValue::SplitResult(middle)
                     }
-                }
-
-                // Elements after the star (indexed from end)
-                let after_star = targets.len() - si - 1;
-
-                // The star target captures everything between pre-star and post-star elements.
-                // Its back_offset must include the trailing targets it doesn't contain.
-                if let Expr::Starred(starred) = &targets[si]
-                    && let Some(name) = starred.value.name_target()
-                {
-                    // Start from the current split sliced past the pre-star targets,
-                    // which preserves the original back_offset.
-                    let mut star_split = split.after_slice_from(si);
-                    // Add trailing targets as additional back pops
-                    for _ in 0..after_star {
-                        star_split = star_split.after_pop_back();
-                    }
-                    env.set(name.to_string(), AbstractValue::SplitResult(star_split));
-                }
-                for (j, target) in targets[si + 1..].iter().enumerate() {
-                    if let Some(name) = target.name_target() {
-                        env.set(
-                            name.to_string(),
-                            AbstractValue::SplitElement {
-                                index: SplitPosition::Backward(after_star - j),
-                            },
-                        );
-                    }
-                }
-            } else {
-                // No star: each target gets a SplitElement at its position
-                for (i, target) in targets.iter().enumerate() {
-                    if let Some(name) = target.name_target() {
-                        env.set(
-                            name.to_string(),
-                            AbstractValue::SplitElement {
-                                index: split.resolve_index(i),
-                            },
-                        );
-                    }
-                }
+                    Some(star) if index > star => AbstractValue::SplitElement {
+                        index: SplitPosition::Backward(targets.len() - index),
+                    },
+                    Some(_) | None => AbstractValue::SplitElement {
+                        index: split.resolve_index(index),
+                    },
+                };
+                result.include(process_assignment_target(target, &element, env));
             }
         }
-
         AbstractValue::Unknown
         | AbstractValue::Token
         | AbstractValue::Parser
         | AbstractValue::SplitElement { .. }
         | AbstractValue::SplitLength(_)
+        | AbstractValue::SplitPredicate(_)
         | AbstractValue::Int(_)
         | AbstractValue::Str(_) => {
             for target in targets {
-                if let Some(name) = target.name_target() {
-                    env.set(name.to_string(), AbstractValue::Unknown);
-                }
+                result.include(process_assignment_target(
+                    target,
+                    &AbstractValue::Unknown,
+                    env,
+                ));
             }
+            result.failure = AssignmentFailure::Maybe;
         }
     }
+    result
 }
 
 #[cfg(test)]
@@ -1322,6 +2424,7 @@ mod tests {
             .get(1)
             .map_or("token", |p| p.parameter.name.as_str());
         let mut env = Env::for_compile_function(parser_param, token_param);
+        env.set_builtin_name_scope(std::collections::HashSet::new());
         let mut ctx = CallContext {
             db: None,
             file: None,
@@ -1331,7 +2434,63 @@ mod tests {
     }
 
     #[test]
-    fn deduplicate_states_preserves_first_occurrence_order() {
+    fn normalization_caps_multiple_destinations_without_losing_an_outcome() {
+        let path = |marker, outcome| {
+            let mut env = Env::default();
+            env.set("marker".to_string(), AbstractValue::Int(marker));
+            let mut state = ExecutionState::from_env(env);
+            state.outcome = outcome;
+            state
+        };
+        let mut completed = (0_i64..16)
+            .flat_map(|marker| {
+                [
+                    ControlOutcome::Next,
+                    ControlOutcome::Return(AbstractValue::Int(marker)),
+                    ControlOutcome::Raise(RaisedException::implicit(PendingException::Unknown)),
+                    ControlOutcome::Break,
+                    ControlOutcome::Continue,
+                ]
+                .map(|outcome| path(marker, outcome))
+            })
+            .collect::<Vec<_>>();
+        let mut active = (80_i64..120)
+            .map(|marker| path(marker, ControlOutcome::Next))
+            .collect::<Vec<_>>();
+
+        normalize_state_destinations(&mut [&mut completed, &mut active]);
+
+        assert_eq!(completed.len() + active.len(), MAX_EXEC_STATES);
+        assert!(
+            completed
+                .iter()
+                .any(|state| matches!(state.outcome, ControlOutcome::Next))
+        );
+        assert!(!active.is_empty());
+        assert!(
+            completed
+                .iter()
+                .any(|state| matches!(state.outcome, ControlOutcome::Return(_)))
+        );
+        assert!(
+            completed
+                .iter()
+                .any(|state| matches!(state.outcome, ControlOutcome::Raise(_)))
+        );
+        assert!(
+            completed
+                .iter()
+                .any(|state| matches!(state.outcome, ControlOutcome::Break))
+        );
+        assert!(
+            completed
+                .iter()
+                .any(|state| matches!(state.outcome, ControlOutcome::Continue))
+        );
+    }
+
+    #[test]
+    fn deduplicate_paths_preserves_first_occurrence_order() {
         let path = |value| {
             let mut env = Env::default();
             env.set("value".to_string(), AbstractValue::Int(value));
@@ -1351,68 +2510,6 @@ mod tests {
         deduplicate_states(&mut paths);
 
         assert_eq!(paths, vec![first, second, third]);
-    }
-
-    #[test]
-    fn normalization_caps_multiple_destinations_without_losing_an_outcome() {
-        let outcomes = [
-            ControlOutcome::Next,
-            ControlOutcome::Return(AbstractValue::Int(1)),
-            ControlOutcome::Raise,
-            ControlOutcome::Break,
-            ControlOutcome::Continue,
-        ];
-        let mut completed = Vec::new();
-        let mut active = Vec::new();
-        for (index, outcome) in (0..100).zip(outcomes.iter().cycle()) {
-            let mut env = Env::default();
-            env.set("path".to_string(), AbstractValue::Int(index));
-            let state = ExecutionState {
-                env,
-                result: AnalysisResult::default(),
-                outcome: outcome.clone(),
-            };
-            if index % 2 == 0 {
-                completed.push(state);
-            } else {
-                active.push(state);
-            }
-        }
-
-        normalize_state_destinations(&mut [&mut completed, &mut active]);
-
-        assert_eq!(completed.len() + active.len(), MAX_EXEC_STATES);
-        for expected in outcomes {
-            assert!(
-                completed
-                    .iter()
-                    .chain(&active)
-                    .any(|state| outcome_index(&state.outcome) == outcome_index(&expected))
-            );
-        }
-    }
-
-    #[test]
-    fn return_expression_applies_pop_once() {
-        let function = parse_function(
-            "def compile(parser, token):\n    bits = token.split_contents()\n    return bits.pop(0)\n",
-        );
-        let mut env = Env::for_compile_function("parser", "token");
-        let mut ctx = CallContext {
-            db: None,
-            file: None,
-        };
-        let (_, value) = process_statements(&function.body, &mut env, &mut ctx);
-        assert_eq!(
-            value,
-            AbstractValue::SplitElement {
-                index: SplitPosition::Forward(0)
-            }
-        );
-        assert_eq!(
-            env.get("bits"),
-            &AbstractValue::SplitResult(TokenSplit::fresh().after_pop_front())
-        );
     }
 
     #[test]
@@ -2298,8 +3395,8 @@ def do_tag(parser, token):
     }
 
     #[test]
-    fn while_body_assignments_propagate() {
-        // Non-option while loop: body should be processed for env updates
+    fn unknown_while_body_assignments_are_widened() {
+        // A non-option loop may execute zero or many times.
         let env = eval_body(
             r"
 def do_tag(parser, token):
@@ -2309,23 +3406,13 @@ def do_tag(parser, token):
         val = remaining.pop(0)
 ",
         );
-        // The pop(0) assignment inside the while body should be processed
-        assert_eq!(
-            env.get("val"),
-            &AbstractValue::SplitElement {
-                index: SplitPosition::Forward(1)
-            }
-        );
-        // The pop(0) side effect should also mutate `remaining`
-        assert_eq!(
-            env.get("remaining"),
-            &AbstractValue::SplitResult(TokenSplit::fresh().after_slice_from(2))
-        );
+        assert_eq!(env.get("val"), &AbstractValue::Unknown);
+        assert_eq!(env.get("remaining"), &AbstractValue::Unknown);
     }
 
     #[test]
-    fn while_body_pop_side_effects() {
-        // Non-option while loop: pop side effects should be tracked
+    fn unknown_while_body_pop_side_effects_are_widened() {
+        // The loop count is unknown, so its final split offset is unknown.
         let env = eval_body(
             r"
 def do_tag(parser, token):
@@ -2335,11 +3422,7 @@ def do_tag(parser, token):
         remaining.pop(0)
 ",
         );
-        // The pop(0) inside the while body should mutate `remaining`
-        assert_eq!(
-            env.get("remaining"),
-            &AbstractValue::SplitResult(TokenSplit::fresh().after_slice_from(3))
-        );
+        assert_eq!(env.get("remaining"), &AbstractValue::Unknown);
     }
 
     #[test]
@@ -2387,6 +3470,77 @@ def do_tag(parser, token):
             env.get("result"),
             &AbstractValue::SplitResult(TokenSplit::fresh())
         );
+    }
+
+    #[test]
+    fn caught_flat_tuple_unpack_proves_exact_arity() {
+        let rule = analyze(
+            r#"
+def do_tag(parser, token):
+    try:
+        tag_name, name = token.split_contents()
+    except ValueError:
+        message = "requires exactly one argument"
+        raise TemplateSyntaxError(message)
+"#,
+        );
+        assert_eq!(
+            rule.arg_constraints,
+            vec![ArgumentCountConstraint::Exact(2)]
+        );
+        assert!(rule.diagnostic_messages.is_none());
+    }
+
+    #[test]
+    fn recovering_value_error_handler_does_not_prove_unpack_arity() {
+        let rule = analyze(
+            r"
+def do_tag(parser, token):
+    try:
+        tag_name, name = token.split_contents()
+    except ValueError:
+        name = None
+",
+        );
+        assert!(rule.arg_constraints.is_empty());
+    }
+
+    #[test]
+    fn runtime_operation_before_unpack_keeps_successful_arity_proof() {
+        let rule = analyze(
+            r#"
+def do_tag(parser, token):
+    try:
+        runtime_call()
+        tag_name, name = token.split_contents()
+    except ValueError:
+        raise TemplateSyntaxError("bad")
+"#,
+        );
+        assert_eq!(
+            rule.arg_constraints,
+            vec![ArgumentCountConstraint::Exact(2)]
+        );
+    }
+
+    #[test]
+    fn starred_and_nested_unpack_keep_their_outer_arity_proof() {
+        for (target, constraint) in [
+            ("tag_name, *names", vec![]),
+            (
+                "tag_name, first, *names",
+                vec![ArgumentCountConstraint::Min(2)],
+            ),
+            (
+                "tag_name, (first, second)",
+                vec![ArgumentCountConstraint::Exact(2)],
+            ),
+        ] {
+            let rule = analyze(&format!(
+                "def do_tag(parser, token):\n    try:\n        {target} = token.split_contents()\n    except ValueError:\n        raise TemplateSyntaxError('bad')\n"
+            ));
+            assert_eq!(rule.arg_constraints, constraint, "target: {target}");
+        }
     }
 
     #[test]
