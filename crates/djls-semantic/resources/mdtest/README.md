@@ -1,62 +1,83 @@
 # Markdown diagnostic snapshots
 
-These files are executable examples for Django template diagnostics. They are meant to be easy to read, write, and review.
+These Markdown files pair Django templates with their rendered DJLS diagnostics.
 
 Run them with:
 
 ```bash
-cargo test -p djls-semantic markdown_diagnostic_snapshots -- --nocapture
+cargo test -p djls-semantic --test mdtest
 ```
 
 Update generated snapshots with:
 
 ```bash
-DJLS_UPDATE_MDTEST_SNAPSHOTS=1 cargo test -p djls-semantic markdown_diagnostic_snapshots -- --nocapture
+DJLS_UPDATE_MDTEST_SNAPSHOTS=1 cargo test -p djls-semantic --test mdtest
 ```
 
-## Authoring format
+## Fences
 
-Any Markdown heading can define a scenario when its section contains one or more Django template code blocks:
+Each fenced block belongs to the heading above it:
+
+| Fence | Meaning |
+|---|---|
+| `htmldjango`, `django`, or `html` | A template. The unlabeled block is the file under test; labeled blocks are support templates. |
+| `py` | A Python module in the fixture project. A relative path label is required. |
+| `toml` | The project settings for that heading and its descendants. |
+| `snapshot` | The expected rendered diagnostics. |
+| `ignore` | Content that the runner skips. |
+
+The runner rejects unknown fence languages. A section may contain at most one `toml` fence.
+
+A `toml` fence replaces the inherited settings as one value. Omitted keys take these defaults:
+
+| Key | Type | Default |
+|---|---|---|
+| `dirs` | list of strings | `["/templates"]` |
+| `app-dirs` | boolean | `false` |
+| `builtins` | list of module paths | `[]` |
+| `libraries` | table from load name to module path | `{}` |
+| `partial` | boolean | `false` |
+
+## Inheritance
+
+A `toml` fence applies to its heading and every nested heading until a child supplies another `toml` fence. The child settings replace the inherited value rather than merging fields.
+
+Files stay in the section that declares them. Each scenario repeats the `py` files and templates it needs. A grouping heading may contain `toml`, but a `py` fence there is an error because child scenarios do not inherit it. Once a heading contains a template, it cannot have child headings.
+
+A `libraries` or `builtins` entry naming a module that no `py` fence in that scenario provides makes the library unreadable and suppresses unknown-name diagnostics, so keep the `toml` fence beside the fences that supply its modules.
+
+This example shares the settings from the title while keeping the Python module in the scenario that uses it:
 
 ````markdown
-# if
+# Greeting tags
 
-## Invalid
+```toml
+builtins = ["greeting_tags"]
+```
 
-### rejects empty expression
+## accepts one name
+
+`greeting_tags.py`:
+
+```py
+from django import template
+register = template.Library()
+@register.simple_tag
+def greet(name): return f"Hello, {name}"
+```
 
 ```htmldjango
-{% if %}{% endif %}
+{% greet "Ada" %}
 ```
-````
-
-Headings without template code blocks are just grouping. Start flat if that is easier, then group later:
-
-````markdown
-# if
-
-## rejects empty expression
-
-```htmldjango
-{% if %}{% endif %}
-```
-````
-
-The runner accepts `htmldjango`, `django`, and `html` fences as template source. It writes snapshots in `snapshot` fences. A scenario with no diagnostics renders as:
 
 ```snapshot
 ✓ no diagnostics
 ```
+````
 
-## Scenario rules
+## Template files
 
-- Use one unlabeled template code block as the file under test. Add labeled template blocks when the scenario needs supporting files.
-- Treat the template code blocks as terminal for that heading section.
-- Put the generated `snapshot` block directly after the template blocks.
-- Do not put child headings below a heading after it has a template block.
-- Use `## Valid`, `## Invalid`, and `## Known gaps` when grouping helps readability.
-
-An unlabeled template block gets the default path `test.html`:
+Use one unlabeled template block as the file under test. It gets the path `test.html`:
 
 ````markdown
 ```htmldjango
@@ -64,7 +85,7 @@ An unlabeled template block gets the default path `test.html`:
 ```
 ````
 
-A single-block scenario may use a label as a path override for the file under test:
+A single-template scenario may label its file to override that path:
 
 ````markdown
 `templates/example.html`:
@@ -74,7 +95,7 @@ A single-block scenario may use a label as a path override for the file under te
 ```
 ````
 
-Multi-file scenarios must have exactly one unlabeled template block. Labeled blocks are supporting files and may appear before or after the unlabeled file:
+Scenarios with several templates need one unlabeled block. Labels give the support templates their paths:
 
 ````markdown
 ```htmldjango
@@ -88,8 +109,8 @@ Multi-file scenarios must have exactly one unlabeled template block. Labeled blo
 ```
 ````
 
-## Current scope
+Put the `snapshot` fence after the template blocks. A scenario with no diagnostics uses:
 
-The mdtest runner uses `pulldown-cmark` for Markdown parsing, but the mdtest format is intentionally small: heading groups, fenced template code blocks, optional file labels, and generated snapshot fences.
-
-Snapshots run against the pinned Django corpus source plus a small project-specific Template Library; a scenario must not depend on a tag or filter that neither defines. Scenarios that assert "requires load" mean "requires load in this fixture, where the library is not configured as a template builtin." The `unreadable-library` suite runs against a fixture that adds one open library, kept apart because an open library changes what every other scenario reports.
+```snapshot
+✓ no diagnostics
+```

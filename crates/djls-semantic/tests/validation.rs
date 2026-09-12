@@ -34,10 +34,12 @@ use djls_source::SourceChanges;
 use djls_templates::parse_template;
 use djls_testing::OsTestDatabase;
 use djls_testing::ProjectFixture;
+use djls_testing::ProjectSettings;
 use djls_testing::TestDatabase;
 use djls_testing::collect_errors as collect_validation_errors;
 use djls_testing::partial_validation_db;
 use djls_testing::standard_validation_db;
+use djls_testing::validation_db;
 
 fn standard_db() -> anyhow::Result<OsTestDatabase> {
     standard_validation_db()
@@ -70,15 +72,18 @@ fn configured_tag_specs(definitions: &[(&str, &str, TagTypeDef)]) -> TagSpecDef 
 }
 
 fn partial_ambiguous_db() -> anyhow::Result<OsTestDatabase> {
-    let mut db = partial_db()?;
-    db.add_file(
-        "/example/alpha/templatetags/alpha.py",
-        "from django import template\nregister = template.Library()\n@register.tag(name='shared')\ndef shared_tag(parser, token): pass\n@register.filter(name='shared')\ndef shared_filter(value): pass\n",
-    )?;
-    db.add_file(
-        "/example/beta/templatetags/beta.py",
-        "from django import template\nregister = template.Library()\n@register.tag(name='shared')\ndef shared_tag(parser, token): pass\n@register.filter(name='shared')\ndef shared_filter(value): pass\n",
-    )?;
+    let settings = ProjectSettings {
+        libraries: BTreeMap::from([
+            ("alpha".to_string(), "alpha_tags".to_string()),
+            ("beta".to_string(), "beta_tags".to_string()),
+        ]),
+        partial: true,
+        ..ProjectSettings::default()
+    };
+    let mut db = validation_db(&settings)?;
+    let library = "from django import template\nregister = template.Library()\n@register.tag(name='shared')\ndef shared_tag(parser, token): pass\n@register.filter(name='shared')\ndef shared_filter(value): pass\n";
+    db.add_file("/fixture/alpha_tags.py", library)?;
+    db.add_file("/fixture/beta_tags.py", library)?;
     Ok(db)
 }
 
@@ -2381,7 +2386,17 @@ fn unknown_load_shadowed_tag_contract_exact_and_closed_loads_retain_contracts() 
         "an exact load must not suppress an unrelated opener contract: {exact_errors:?}"
     );
 
-    let mut closed = standard_db().expect("standard validation fixture should build");
+    let mut closed = validation_db(&ProjectSettings {
+        builtins: vec!["one_arg_tags".into()],
+        ..ProjectSettings::default()
+    })
+    .expect("closed validation fixture should build");
+    closed
+        .add_file(
+            "/fixture/one_arg_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef one_arg_tag(value): pass\n",
+        )
+        .expect("one-argument tag library should be added");
     let closed_errors = collect_all_errors(
         &mut closed,
         "{% load missing_library %}\n{% one_arg_tag %}\n{% if condition %}\n",

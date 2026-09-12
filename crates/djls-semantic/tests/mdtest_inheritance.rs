@@ -15,6 +15,7 @@ use djls_source::Span;
 use djls_templates::parse_template;
 use djls_testing::ProjectFixture;
 use djls_testing::Scenario;
+use djls_testing::ScenarioFileKind;
 use djls_testing::TestDatabase;
 
 const PROJECT_ROOT: &str = "/test/project";
@@ -99,8 +100,11 @@ fn project_for_scenario(
     scenario
         .files
         .iter()
-        .fold(fixture, |fixture, file| {
-            fixture.file(template_path(&file.path), file.source.clone())
+        .fold(fixture, |fixture, file| match file.kind {
+            ScenarioFileKind::Template => {
+                fixture.file(template_path(&file.path), file.source.clone())
+            }
+            ScenarioFileKind::Python => fixture,
         })
         .build(db)
 }

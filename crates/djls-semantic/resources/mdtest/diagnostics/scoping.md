@@ -30,6 +30,34 @@ error[S109]: Tag 'static' requires the 'static' tag library
 
 ## tag is available from multiple unloaded libraries
 
+```toml
+[libraries]
+alpha = "alpha_tags"
+beta = "beta_tags"
+```
+
+`alpha_tags.py`:
+
+```py
+from django import template
+register = template.Library()
+@register.tag(name="ambiguous_tag")
+def ambiguous_tag(parser, token): pass
+@register.filter(name="ambiguous_filter")
+def ambiguous_filter(value, arg=None): pass
+```
+
+`beta_tags.py`:
+
+```py
+from django import template
+register = template.Library()
+@register.tag(name="ambiguous_tag")
+def ambiguous_tag(parser, token): pass
+@register.filter(name="ambiguous_filter")
+def ambiguous_filter(value, arg=None): pass
+```
+
 ```htmldjango
 {% ambiguous_tag %}
 ```
@@ -71,6 +99,34 @@ error[S112]: Filter 'intcomma' requires the 'humanize' tag library
 ```
 
 ## filter is available from multiple unloaded libraries
+
+```toml
+[libraries]
+alpha = "alpha_tags"
+beta = "beta_tags"
+```
+
+`alpha_tags.py`:
+
+```py
+from django import template
+register = template.Library()
+@register.tag(name="ambiguous_tag")
+def ambiguous_tag(parser, token): pass
+@register.filter(name="ambiguous_filter")
+def ambiguous_filter(value, arg=None): pass
+```
+
+`beta_tags.py`:
+
+```py
+from django import template
+register = template.Library()
+@register.tag(name="ambiguous_tag")
+def ambiguous_tag(parser, token): pass
+@register.filter(name="ambiguous_filter")
+def ambiguous_filter(value, arg=None): pass
+```
 
 ```htmldjango
 {{ value|ambiguous_filter }}
