@@ -4416,7 +4416,7 @@ fn evaluate_unreadable_module(
         inner,
         unreadable: unreadable.into(),
     };
-    let db = OsTestDatabase::with_file_system(Arc::new(fs));
+    let db = OsTestDatabase::with_file_system(Arc::new(fs), [Utf8PathBuf::from("/project")]);
     let project = python_project(&db);
     let settings = path_to_file(&db, Utf8Path::new("/project/settings.py"))?;
     let evaluation = python_module_evaluation(&db, project, settings)?;
@@ -6313,7 +6313,7 @@ fn python_module_evaluation_reports_unreadable_import() {
         inner,
         unreadable: "/project/unreadable.py".into(),
     };
-    let db = OsTestDatabase::with_file_system(Arc::new(fs));
+    let db = OsTestDatabase::with_file_system(Arc::new(fs), [Utf8PathBuf::from("/project")]);
     let project = python_project(&db);
     let unreadable = path_to_file(&db, Utf8Path::new("/project/unreadable.py"))
         .expect("unreadable fixture should still be discoverable");

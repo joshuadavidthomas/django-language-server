@@ -1283,8 +1283,10 @@ fn project_with_file_system_failure(
         fs.add_file(Utf8PathBuf::from(*path), (*source).to_string());
     }
 
-    let mut db =
-        OsTestDatabase::with_file_system(Arc::new(FailingFileSystem { inner: fs, failure }));
+    let mut db = OsTestDatabase::with_file_system(
+        Arc::new(FailingFileSystem { inner: fs, failure }),
+        [Utf8PathBuf::from("/proj")],
+    );
     let root = Utf8PathBuf::from("/proj");
     let interpreter = Interpreter::Auto;
     let pythonpath = Vec::new();
@@ -1699,10 +1701,13 @@ fn unreadable_root_settings_are_dynamic_never_unset() {
     let mut fs = InMemoryFileSystem::new();
     fs.add_file(settings_path.clone(), "INSTALLED_APPS = []\n".to_string());
 
-    let mut db = OsTestDatabase::with_file_system(Arc::new(FailingFileSystem {
-        inner: fs,
-        failure: FileSystemFailure::Read(settings_path),
-    }));
+    let mut db = OsTestDatabase::with_file_system(
+        Arc::new(FailingFileSystem {
+            inner: fs,
+            failure: FileSystemFailure::Read(settings_path),
+        }),
+        [Utf8PathBuf::from("/proj")],
+    );
     let root = Utf8PathBuf::from("/proj");
     let interpreter = Interpreter::Auto;
     let pythonpath = Vec::new();
@@ -1754,10 +1759,13 @@ fn django_discovery_includes_deduped_unreadable_settings_source() {
     );
     fs.add_file(unreadable.clone(), "TEMPLATES = []\n".to_string());
 
-    let mut db = OsTestDatabase::with_file_system(Arc::new(FailingFileSystem {
-        inner: fs,
-        failure: FileSystemFailure::Read(unreadable.clone()),
-    }));
+    let mut db = OsTestDatabase::with_file_system(
+        Arc::new(FailingFileSystem {
+            inner: fs,
+            failure: FileSystemFailure::Read(unreadable.clone()),
+        }),
+        [Utf8PathBuf::from("/proj")],
+    );
     let root = Utf8PathBuf::from("/proj");
     let interpreter = Interpreter::Auto;
     let pythonpath = Vec::new();
@@ -3185,10 +3193,13 @@ fn failed_available_candidate_walk_makes_missing_library_inconclusive() {
         Utf8PathBuf::from("/proj/myproject/settings.py"),
         "INSTALLED_APPS = []\nTEMPLATES = []\n".to_string(),
     );
-    let mut db = OsTestDatabase::with_file_system(Arc::new(FailingFileSystem {
-        inner: fs,
-        failure: FileSystemFailure::Walk(Utf8PathBuf::from("/proj")),
-    }));
+    let mut db = OsTestDatabase::with_file_system(
+        Arc::new(FailingFileSystem {
+            inner: fs,
+            failure: FileSystemFailure::Walk(Utf8PathBuf::from("/proj")),
+        }),
+        [Utf8PathBuf::from("/proj")],
+    );
     let root = Utf8PathBuf::from("/proj");
     let interpreter = Interpreter::Auto;
     let pythonpath = Vec::new();

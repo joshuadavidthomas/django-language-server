@@ -83,34 +83,44 @@ error[S100]: Unclosed 'for' tag
   | ^^^^^^^^^^^^^^^^^^^^^^^
 ```
 
-## Known gaps
-
-### currently accepts missing loop variables
+### rejects missing loop variables
 
 ```htmldjango
 {% for %}{% endfor %}
 ```
 
 ```snapshot
-✓ no diagnostics
+error[S117]: 'for' statements should have at least four words: for
+ --> test.html:1:1
+  |
+1 | {% for %}{% endfor %}
+  | ^^^^^^^^^
 ```
 
-### currently accepts missing in keyword and iterable
+### rejects missing in keyword and iterable
 
 ```htmldjango
 {% for item %}{% endfor %}
 ```
 
 ```snapshot
-✓ no diagnostics
+error[S117]: 'for' statements should have at least four words: for item
+ --> test.html:1:1
+  |
+1 | {% for item %}{% endfor %}
+  | ^^^^^^^^^^^^^^
 ```
 
-### currently accepts missing iterable
+### rejects missing iterable
 
 ```htmldjango
 {% for item in %}{% endfor %}
 ```
 
 ```snapshot
-✓ no diagnostics
+error[S117]: 'for' statements should have at least four words: for item in
+ --> test.html:1:1
+  |
+1 | {% for item in %}{% endfor %}
+  | ^^^^^^^^^^^^^^^^^
 ```

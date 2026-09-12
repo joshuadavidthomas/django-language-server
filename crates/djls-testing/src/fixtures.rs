@@ -13,6 +13,7 @@ use djls_project::Interpreter;
 use djls_project::LibraryName;
 use djls_project::Project;
 use djls_project::PythonModuleName;
+use djls_project::SearchPath;
 use djls_project::SearchPaths;
 use djls_project::SymbolDefinition;
 use djls_project::TemplateLibraryCatalog;
@@ -30,12 +31,14 @@ use djls_semantic::validate_template_file;
 use djls_source::Db as _;
 use djls_source::Diagnostic;
 use djls_source::DiagnosticRenderer;
+use djls_source::File;
 use djls_source::Severity;
 use djls_source::Span;
 use serde_json::from_value;
 use serde_json::json;
 
 use crate::Corpus;
+use crate::OsTestDatabase;
 use crate::TestDatabase;
 use crate::extract_bundle;
 use crate::module_name_from_file;
@@ -390,31 +393,14 @@ impl ProjectFixture {
     }
 }
 
-pub fn collect_errors(
-    db: &TestDatabase,
-    path: &str,
-    source: &str,
-) -> anyhow::Result<Vec<ValidationError>> {
-    collect_errors_with_revision(db, path, 0, source)
-}
-
-pub fn collect_errors_with_revision(
-    db: &TestDatabase,
-    path: &str,
-    revision: u64,
-    source: &str,
-) -> anyhow::Result<Vec<ValidationError>> {
-    db.add_file(path, source)?;
-    let file = db.create_file_with_revision(Utf8Path::new(path), revision)?;
-
+#[must_use]
+pub fn collect_errors(db: &dyn djls_semantic::Db, file: File) -> Vec<ValidationError> {
     validate_template_file(db, file);
 
-    Ok(
-        validate_template_file::accumulated::<ValidationErrorAccumulator>(db, file)
-            .into_iter()
-            .map(|acc| acc.0.clone())
-            .collect(),
-    )
+    validate_template_file::accumulated::<ValidationErrorAccumulator>(db, file)
+        .into_iter()
+        .map(|acc| acc.0.clone())
+        .collect()
 }
 
 #[must_use]
@@ -437,15 +423,10 @@ pub fn collect_argument_validation_errors_with_revision(
     db.add_file(path, source)?;
     let file = db.create_file_with_revision(Utf8Path::new(path), revision)?;
 
-    validate_template_file(db, file);
-
-    Ok(
-        validate_template_file::accumulated::<ValidationErrorAccumulator>(db, file)
-            .into_iter()
-            .map(|acc| acc.0.clone())
-            .filter(is_argument_validation_error)
-            .collect(),
-    )
+    Ok(collect_errors(db, file)
+        .into_iter()
+        .filter(is_argument_validation_error)
+        .collect())
 }
 
 pub fn extract_and_merge(
@@ -543,8 +524,9 @@ pub fn render_diagnostic_snapshot(
 }
 
 pub fn snapshot_validate_files<'a>(
-    db: &TestDatabase,
-    primary_path: &str,
+    db: &mut OsTestDatabase,
+    primary_database_path: &str,
+    primary_display_path: &str,
     primary_source: &str,
     files: impl IntoIterator<Item = (&'a str, &'a str)>,
 ) -> anyhow::Result<String> {
@@ -552,42 +534,43 @@ pub fn snapshot_validate_files<'a>(
         db.add_file(path, source)?;
     }
 
-    let file = db.create_file_with_revision(Utf8Path::new(primary_path), 0)?;
-
-    validate_template_file(db, file);
-
-    let mut errors: Vec<ValidationError> =
-        validate_template_file::accumulated::<ValidationErrorAccumulator>(db, file)
-            .into_iter()
-            .map(|acc| acc.0.clone())
-            .collect();
-
+    let file = db.file(Utf8Path::new(primary_database_path))?;
+    let mut errors = collect_errors(db, file);
     errors.sort_by_key(|e| e.primary_span().map_or(0, Span::start));
 
-    render_diagnostic_snapshot(primary_path, primary_source, &errors)
+    render_diagnostic_snapshot(primary_display_path, primary_source, &errors)
 }
 
-/// Curated validation fixture for mdtest snapshots.
-///
-/// This keeps diagnostic snapshots deterministic and easy to author. It is not
-/// a live Django project inspection fixture; add libraries, tags, and filters
-/// here when a scenario needs them.
-pub fn standard_validation_db() -> anyhow::Result<TestDatabase> {
+/// Validation fixture for mdtest snapshots backed by the pinned Django corpus.
+pub fn standard_validation_db() -> anyhow::Result<OsTestDatabase> {
     validation_db(false, false)
 }
 
-pub fn partial_validation_db() -> anyhow::Result<TestDatabase> {
+pub fn partial_validation_db() -> anyhow::Result<OsTestDatabase> {
     validation_db(true, false)
 }
 
-/// Curated validation fixture with one Template Library whose inventory is open.
-pub fn unreadable_validation_db() -> anyhow::Result<TestDatabase> {
+/// Validation fixture with one Template Library whose inventory is open.
+pub fn unreadable_validation_db() -> anyhow::Result<OsTestDatabase> {
     validation_db(false, true)
 }
 
-#[allow(clippy::too_many_lines)]
-fn validation_db(partial: bool, unreadable_library: bool) -> anyhow::Result<TestDatabase> {
-    let mut db = TestDatabase::new();
+fn validation_db(partial: bool, unreadable_library: bool) -> anyhow::Result<OsTestDatabase> {
+    let corpus = Corpus::require()?;
+    let django_source_root = corpus.root().join("repos/django-5.2");
+    anyhow::ensure!(
+        django_source_root.join("django/__init__.py").is_file(),
+        "pinned Django 5.2 corpus source is missing"
+    );
+
+    let project_root = Utf8PathBuf::from("/fixture");
+    let interpreter = Interpreter::VenvPath(corpus.root().join("hermetic-no-venv"));
+    let pythonpath = vec![django_source_root.clone()];
+    let search_paths = SearchPaths::from_paths(vec![
+        SearchPath::FirstParty(project_root.clone()),
+        SearchPath::SitePackages(django_source_root.clone()),
+    ]);
+
     let open_key = if partial {
         ", UNKNOWN: 'maybe'"
     } else {
@@ -599,220 +582,78 @@ fn validation_db(partial: bool, unreadable_library: bool) -> anyhow::Result<Test
         Default::default()
     };
     let settings = format!(
-        "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/'], 'APP_DIRS': False, 'OPTIONS': {{'builtins': ['example.templatetags.custom'], 'libraries': {{'alpha': 'example.alpha.templatetags.alpha', 'beta': 'example.beta.templatetags.beta', 'cache': 'django.templatetags.cache', 'humanize': 'django.contrib.humanize.templatetags.humanize', 'i18n': 'django.templatetags.i18n', 'l10n': 'django.templatetags.l10n', 'static': 'django.templatetags.static', 'tz': 'django.templatetags.tz'{unreadable_library_setting}}}}}{open_key}}}]\n"
+        "INSTALLED_APPS = ['django.contrib.humanize']\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/templates'], 'APP_DIRS': False, 'OPTIONS': {{'builtins': ['example.templatetags.custom'], 'libraries': {{'alpha': 'example.alpha.templatetags.alpha', 'beta': 'example.beta.templatetags.beta'{unreadable_library_setting}}}}}{open_key}}}]\n"
     );
-    let register = "from django import template\nregister = template.Library()\n";
-    let tags = |names: &[&str]| {
-        let mut source = register.to_string();
-        for (index, name) in names.iter().enumerate() {
-            source.push_str("@register.tag(name='");
-            source.push_str(name);
-            source.push_str("')\ndef tag_");
-            source.push_str(&index.to_string());
-            source.push_str("(parser, token): pass\n");
+    let ambiguous_library = r#"from django import template
+register = template.Library()
+
+@register.tag(name="ambiguous_tag")
+def ambiguous_tag(parser, token): pass
+
+@register.filter(name="ambiguous_filter")
+def ambiguous_filter(value, arg=None): pass
+"#;
+
+    let mut db = OsTestDatabase::with_disk_roots([django_source_root]);
+    search_paths.register_roots(&db);
+    for (path, source) in [
+        ("/fixture/project/__init__.py", ""),
+        ("/fixture/project/settings.py", settings.as_str()),
+        ("/fixture/example/__init__.py", ""),
+        ("/fixture/example/templatetags/__init__.py", ""),
+        (
+            "/fixture/example/templatetags/custom.py",
+            "from django import template\nregister = template.Library()\n\n@register.simple_tag\ndef one_arg_tag(value): pass\n",
+        ),
+        ("/fixture/example/alpha/__init__.py", ""),
+        ("/fixture/example/alpha/templatetags/__init__.py", ""),
+        (
+            "/fixture/example/alpha/templatetags/alpha.py",
+            ambiguous_library,
+        ),
+        ("/fixture/example/beta/__init__.py", ""),
+        ("/fixture/example/beta/templatetags/__init__.py", ""),
+        (
+            "/fixture/example/beta/templatetags/beta.py",
+            ambiguous_library,
+        ),
+    ] {
+        db.add_file(path, source)?;
+    }
+    if unreadable_library {
+        for (path, source) in [
+            ("/fixture/example/open/__init__.py", ""),
+            ("/fixture/example/open/templatetags/__init__.py", ""),
+            (
+                "/fixture/example/open/templatetags/open_tags.py",
+                "from django import template\nregister = template.Library()\n@register.simple_tag\ndef known_tag(): pass\nregister.simple_tag(takes_context=True)(globals()['other_tag'])\n",
+            ),
+        ] {
+            db.add_file(path, source)?;
         }
-        source
-    };
-    let filters = |names: &[&str]| {
-        let mut source = String::new();
-        for name in names {
-            source.push_str("@register.filter\ndef ");
-            source.push_str(name);
-            source.push_str("(value, arg=None): pass\n");
-        }
-        source
-    };
-    let mut defaulttags = tags(&[
-        "comment",
-        "csrf_token",
-        "debug",
-        "filter",
-        "firstof",
-        "for",
-        "if",
-        "ifchanged",
-        "load",
-        "spaceless",
-        "templatetag",
-        "verbatim",
-        "with",
-    ]);
-    defaulttags.push_str(
-        r#"
-@register.tag
-def autoescape(parser, token):
-    bits = token.split_contents()
-    if len(bits) != 2:
-        raise TemplateSyntaxError("'autoescape' tag requires exactly one argument.")
-    if bits[1] not in ("on", "off"):
-        raise TemplateSyntaxError("'autoescape' argument should be 'on' or 'off'")
+    }
 
-@register.tag
-def cycle(parser, token):
-    bits = token.split_contents()
-    if len(bits) < 2:
-        raise TemplateSyntaxError("'cycle' tag requires at least two arguments")
-
-@register.tag
-def lorem(parser, token):
-    bits = token.split_contents()
-    if len(bits) != 4:
-        raise TemplateSyntaxError("Incorrect format for 'lorem' tag")
-
-@register.tag
-def now(parser, token):
-    bits = token.split_contents()
-    if len(bits) != 2:
-        raise TemplateSyntaxError("'now' statement takes one argument")
-
-@register.tag
-def regroup(parser, token):
-    bits = token.split_contents()
-    if len(bits) != 6:
-        raise TemplateSyntaxError("'regroup' tag takes five arguments")
-    if bits[2] != "by":
-        raise TemplateSyntaxError("second argument to 'regroup' tag must be 'by'")
-    if bits[4] != "as":
-        raise TemplateSyntaxError("next-to-last argument to 'regroup' tag must be 'as'")
-
-@register.tag
-def url(parser, token):
-    bits = token.split_contents()
-    if len(bits) < 2:
-        raise TemplateSyntaxError("'url' takes at least one argument, a URL pattern name.")
-
-@register.tag
-def widthratio(parser, token):
-    bits = token.split_contents()
-    if len(bits) == 4:
-        tag, this_value_expr, max_value_expr, max_width = bits
-        asvar = None
-    elif len(bits) == 6:
-        tag, this_value_expr, max_value_expr, max_width, as_, asvar = bits
-        if as_ != "as":
-            raise TemplateSyntaxError("Invalid syntax in widthratio tag. Expecting 'as' keyword")
-    else:
-        raise TemplateSyntaxError("widthratio takes at least three arguments")
-"#,
+    let project = Project::new(
+        &db,
+        project_root,
+        search_paths,
+        interpreter,
+        Some(PythonModuleName::parse("project.settings")?),
+        pythonpath,
+        Vec::new(),
+        Settings::default().tagspecs().clone(),
     );
-
-    let fixture = ProjectFixture::new("/")
-        .django_settings_module("project.settings")
-        .file("/project/settings.py", settings)
-        .file("/project/__init__.py", "")
-        .file("/django/__init__.py", "")
-        .file("/django/template/__init__.py", "")
-        .file("/django/templatetags/__init__.py", "")
-        .file("/django/contrib/__init__.py", "")
-        .file("/django/contrib/humanize/__init__.py", "")
-        .file("/django/contrib/humanize/templatetags/__init__.py", "")
-        .file("/example/__init__.py", "")
-        .file("/example/templatetags/__init__.py", "")
-        .file("/example/alpha/__init__.py", "")
-        .file("/example/alpha/templatetags/__init__.py", "")
-        .file("/example/beta/__init__.py", "")
-        .file("/example/beta/templatetags/__init__.py", "")
-        .file("/django/template/defaulttags.py", defaulttags)
-        .file(
-            "/django/template/defaultfilters.py",
-            format!(
-                "{}\n{}",
-                include_str!("../../djls-project/src/templates/tags/testdata/django_defaultfilters.py"),
-                "@register.filter\ndef title(value): pass\n@register.filter\ndef lower(value): pass\n@register.filter\ndef length(value): pass\n@register.filter\ndef default(value, arg): pass\n@register.filter\ndef truncatewords(value, arg): pass\n@register.filter\ndef date(value, arg=None): pass\n@register.filter\ndef upper(value): pass\n"
-            ),
-        )
-        .file(
-            "/django/template/loader_tags.py",
-            format!(
-                "{}\n{}",
-                include_str!(
-                    "../../djls-project/src/templates/tags/testdata/django_loader_tags.py"
-                ),
-                tags(&["block", "extends", "include"])
-            ),
-        )
-        .file(
-            "/example/templatetags/custom.py",
-            format!("{register}@register.simple_tag\ndef one_arg_tag(value): pass\n"),
-        )
-        .file(
-            "/example/alpha/templatetags/alpha.py",
-            format!(
-                "{}{}",
-                tags(&["ambiguous_tag", "shared"]),
-                filters(&["ambiguous_filter", "shared_filter"])
-            ),
-        )
-        .file(
-            "/example/beta/templatetags/beta.py",
-            format!(
-                "{}{}",
-                tags(&["ambiguous_tag", "shared"]),
-                filters(&["ambiguous_filter", "shared_filter"])
-            ),
-        )
-        .file("/django/templatetags/cache.py", tags(&["cache"]))
-        .file(
-            "/django/templatetags/i18n.py",
-            format!(
-                "{}{}",
-                tags(&["blocktrans", "blocktranslate", "trans", "translate"]),
-                filters(&["trans"])
-            ),
-        )
-        .file("/django/templatetags/l10n.py", tags(&["localize"]))
-        .file("/django/templatetags/static.py", tags(&["static"]))
-        .file(
-            "/django/templatetags/tz.py",
-            tags(&["localtime", "timezone"]),
-        )
-        .file(
-            "/django/contrib/humanize/templatetags/humanize.py",
-            format!("{register}{}", filters(&["intcomma"])),
-        );
-    let fixture = if unreadable_library {
-        fixture
-            .file("/example/open/__init__.py", "")
-            .file("/example/open/templatetags/__init__.py", "")
-            .file(
-                "/example/open/templatetags/open_tags.py",
-                format!(
-                    "{register}@register.simple_tag\ndef known_tag(): pass\nregister.simple_tag(takes_context=True)(globals()['other_tag'])\n"
-                ),
-            )
-    } else {
-        fixture
-    };
-    fixture.install(&mut db)?;
+    db.set_project(project);
     Ok(db)
 }
 
 pub fn render_validate_snapshot(
-    db: &TestDatabase,
+    db: &mut OsTestDatabase,
     path: &str,
-    revision: u64,
     source: &str,
 ) -> anyhow::Result<String> {
-    render_validate_snapshot_filtered(db, path, revision, source, |_| true)
-}
-
-pub fn render_validate_snapshot_filtered<F>(
-    db: &TestDatabase,
-    path: &str,
-    revision: u64,
-    source: &str,
-    filter: F,
-) -> anyhow::Result<String>
-where
-    F: Fn(&ValidationError) -> bool,
-{
-    let mut errors: Vec<ValidationError> =
-        collect_errors_with_revision(db, path, revision, source)?
-            .into_iter()
-            .filter(|e| filter(e))
-            .collect();
-
-    errors.sort_by_key(|e| e.primary_span().map_or(0, Span::start));
-
+    let file = db.add_file(path, source)?;
+    let mut errors = collect_errors(db, file);
+    errors.sort_by_key(|error| error.primary_span().map_or(0, Span::start));
     render_diagnostic_snapshot(path, source, &errors)
 }

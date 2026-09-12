@@ -1,21 +1,29 @@
+use std::io;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
 use camino::Utf8Path;
+use camino::Utf8PathBuf;
 use djls_project::Db as ProjectDb;
 use djls_project::Project;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::FilterAritySpecs;
 use djls_semantic::TagSpecs;
 use djls_semantic::builtin_tag_specs;
+use djls_source::CaseSensitivity;
+use djls_source::ChangeEvent;
 use djls_source::File;
 use djls_source::FileStatus;
 use djls_source::FileSystem;
 use djls_source::InMemoryFileSystem;
 use djls_source::OsFileSystem;
+use djls_source::RootWalk;
+use djls_source::SourceChanges;
 use djls_source::SourceFiles;
+use djls_source::Utf8PathClean;
+use djls_source::WalkOptions;
 use djls_source::path_to_file;
 use salsa::Database;
 use salsa::EventKind;
@@ -171,7 +179,8 @@ impl TestDatabase {
         path_to_file(self, path)
     }
 
-    pub(crate) fn create_file_with_revision(
+    /// Register a fresh file identity with an explicit revision.
+    pub fn create_file_with_revision(
         &self,
         path: &Utf8Path,
         revision: u64,
@@ -186,14 +195,137 @@ impl TestDatabase {
     }
 }
 
+/// Filesystem for tests that overlays mutable in-memory files on bounded disk sources.
+#[derive(Clone)]
+struct LayeredFileSystem {
+    memory: Arc<Mutex<InMemoryFileSystem>>,
+    disk: Arc<dyn FileSystem>,
+    disk_roots: Arc<[Utf8PathBuf]>,
+}
+
+impl LayeredFileSystem {
+    fn new(
+        memory: Arc<Mutex<InMemoryFileSystem>>,
+        disk: Arc<dyn FileSystem>,
+        disk_roots: impl IntoIterator<Item = Utf8PathBuf>,
+    ) -> Self {
+        let mut disk_roots = disk_roots
+            .into_iter()
+            .map(|root| root.clean())
+            .collect::<Vec<_>>();
+        disk_roots.sort();
+        disk_roots.dedup();
+        Self {
+            memory,
+            disk,
+            disk_roots: disk_roots.into(),
+        }
+    }
+
+    fn disk_path(&self, path: &Utf8Path) -> Option<Utf8PathBuf> {
+        let path = path.clean();
+        self.disk_roots
+            .iter()
+            .any(|root| path.starts_with(root))
+            .then_some(path)
+    }
+}
+
+impl FileSystem for LayeredFileSystem {
+    fn read_to_string(&self, path: &Utf8Path) -> io::Result<String> {
+        match self.memory.read_to_string(path) {
+            Err(error) if error.kind() == io::ErrorKind::NotFound && !self.memory.exists(path) => {
+                self.disk_path(path)
+                    .map_or(Err(error), |path| self.disk.read_to_string(&path))
+            }
+            result => result,
+        }
+    }
+
+    fn exists(&self, path: &Utf8Path) -> bool {
+        self.memory.exists(path)
+            || self
+                .disk_path(path)
+                .is_some_and(|path| self.disk.exists(&path))
+    }
+
+    fn is_file(&self, path: &Utf8Path) -> bool {
+        if self.memory.exists(path) {
+            self.memory.is_file(path)
+        } else {
+            self.disk_path(path)
+                .is_some_and(|path| self.disk.is_file(&path))
+        }
+    }
+
+    fn is_dir(&self, path: &Utf8Path) -> bool {
+        if self.memory.exists(path) {
+            self.memory.is_dir(path)
+        } else {
+            self.disk_path(path)
+                .is_some_and(|path| self.disk.is_dir(&path))
+        }
+    }
+
+    fn case_sensitivity(&self) -> CaseSensitivity {
+        if self.disk_roots.is_empty() {
+            self.memory.case_sensitivity()
+        } else {
+            self.disk.case_sensitivity()
+        }
+    }
+
+    fn path_exists_case_sensitive(&self, path: &Utf8Path, prefix: &Utf8Path) -> bool {
+        if self.memory.exists(path) {
+            self.memory.path_exists_case_sensitive(path, prefix)
+        } else {
+            self.disk_path(path).is_some_and(|path| {
+                self.disk_path(prefix)
+                    .is_some_and(|prefix| self.disk.path_exists_case_sensitive(&path, &prefix))
+            })
+        }
+    }
+
+    fn walk_root(&self, root: &Utf8Path, options: &WalkOptions) -> RootWalk {
+        let memory = self.memory.walk_root(root, options);
+        let Some(disk_root) = self.disk_path(root) else {
+            return memory;
+        };
+
+        let disk = self.disk.walk_root(&disk_root, options);
+        let (mut memory_entries, mut memory_issues) = match memory {
+            RootWalk::Directory { entries, issues } => (entries, issues),
+            RootWalk::Missing | RootWalk::Inaccessible(_) => return disk,
+            RootWalk::File(entry) => return RootWalk::File(entry),
+        };
+
+        match disk {
+            RootWalk::Directory { entries, issues } => {
+                memory_entries.extend(entries);
+                memory_issues.extend(issues);
+            }
+            RootWalk::Inaccessible(issue) => memory_issues.push(issue),
+            RootWalk::Missing | RootWalk::File(_) => {}
+        }
+        memory_entries.sort_by(|left, right| left.path.cmp(&right.path));
+        memory_entries.dedup_by(|left, right| left.path == right.path);
+        RootWalk::Directory {
+            entries: memory_entries,
+            issues: memory_issues,
+        }
+    }
+}
+
 #[salsa::db]
 #[derive(Clone)]
 pub struct OsTestDatabase {
     storage: salsa::Storage<Self>,
     fs: Arc<dyn FileSystem>,
+    memory: Arc<Mutex<InMemoryFileSystem>>,
     files: SourceFiles,
     project: Option<Project>,
     projectless_tag_specs: TagSpecs,
+    diagnostics_config: djls_conf::DiagnosticsConfig,
 }
 
 impl Default for OsTestDatabase {
@@ -203,20 +335,80 @@ impl Default for OsTestDatabase {
 }
 
 impl OsTestDatabase {
+    /// Create a database whose filesystem contains only in-memory files.
     #[must_use]
     pub fn new() -> Self {
-        Self::with_file_system(Arc::new(OsFileSystem::default()))
+        Self::with_disk_roots([])
+    }
+
+    /// Create a database that may read from the given disk roots.
+    #[must_use]
+    pub fn with_disk_roots(disk_roots: impl IntoIterator<Item = Utf8PathBuf>) -> Self {
+        Self::with_file_system(Arc::new(OsFileSystem::default()), disk_roots)
     }
 
     #[must_use]
-    pub fn with_file_system(fs: Arc<dyn FileSystem>) -> Self {
+    pub fn with_file_system(
+        disk: Arc<dyn FileSystem>,
+        disk_roots: impl IntoIterator<Item = Utf8PathBuf>,
+    ) -> Self {
+        let memory = Arc::new(Mutex::new(InMemoryFileSystem::new()));
+        let fs = Arc::new(LayeredFileSystem::new(
+            Arc::clone(&memory),
+            disk,
+            disk_roots,
+        ));
         Self {
             storage: salsa::Storage::default(),
             fs,
+            memory,
             files: SourceFiles::default(),
             project: None,
             projectless_tag_specs: TagSpecs::default(),
+            diagnostics_config: djls_conf::DiagnosticsConfig::default(),
         }
+    }
+
+    #[must_use]
+    pub fn with_diagnostics_config(
+        mut self,
+        diagnostics_config: djls_conf::DiagnosticsConfig,
+    ) -> Self {
+        self.diagnostics_config = diagnostics_config;
+        self
+    }
+
+    /// Add an in-memory file above the database's disk filesystem.
+    pub fn add_file(&mut self, path: &str, content: &str) -> anyhow::Result<File> {
+        let path = Utf8PathBuf::from(path);
+        let was_visible = self.fs.is_file(&path);
+        self.memory
+            .lock()
+            .map_err(|_error| anyhow::anyhow!("in-memory filesystem lock is poisoned"))?
+            .add_file(path.clone(), content.to_string());
+        let event = if was_visible {
+            ChangeEvent::ContentChanged(path.clone())
+        } else {
+            ChangeEvent::BecameVisible(path.clone())
+        };
+        SourceChanges::new([event]).apply(self);
+        Ok(path_to_file(self, &path)?)
+    }
+
+    /// Remove an in-memory file from the layered filesystem.
+    pub fn remove_file(&mut self, path: &str) -> anyhow::Result<()> {
+        let path = Utf8PathBuf::from(path);
+        self.memory
+            .lock()
+            .map_err(|_error| anyhow::anyhow!("in-memory filesystem lock is poisoned"))?
+            .remove_file(&path);
+        SourceChanges::new([ChangeEvent::Deleted(path)]).apply(self);
+        Ok(())
+    }
+
+    /// Return an existing file from the layered test filesystem.
+    pub fn file(&self, path: &Utf8Path) -> Result<File, djls_source::FileError> {
+        path_to_file(self, path)
     }
 
     pub fn set_project(&mut self, project: Project) {
@@ -273,7 +465,7 @@ impl SemanticDb for OsTestDatabase {
     }
 
     fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {
-        djls_conf::DiagnosticsConfig::default()
+        self.diagnostics_config.clone()
     }
 
     fn projectless_filter_arity_specs(&self) -> &FilterAritySpecs {
@@ -293,5 +485,98 @@ impl SemanticDb for TestDatabase {
 
     fn projectless_filter_arity_specs(&self) -> &FilterAritySpecs {
         &self.projectless_filter_arity_specs
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use djls_source::Db as _;
+
+    use super::*;
+
+    #[test]
+    fn layered_filesystem_reads_disk_only_below_allowed_roots() {
+        let mut disk = InMemoryFileSystem::new();
+        disk.add_file("/allowed/disk.py".into(), "allowed".to_string());
+        disk.add_file("/allowed/directory/child.py".into(), "child".to_string());
+        disk.add_file("/blocked/disk.py".into(), "blocked".to_string());
+        let mut db =
+            OsTestDatabase::with_file_system(Arc::new(disk), [Utf8PathBuf::from("/allowed")]);
+        db.add_file("/blocked/memory.py", "memory")
+            .expect("memory file should be added");
+
+        assert_eq!(
+            db.file_system()
+                .read_to_string(Utf8Path::new("/allowed/disk.py"))
+                .expect("allowed disk file should be readable"),
+            "allowed"
+        );
+        assert_eq!(
+            db.file_system()
+                .read_to_string(Utf8Path::new("/blocked/../allowed/disk.py"))
+                .expect("disk should receive the cleaned allowed path"),
+            "allowed"
+        );
+        assert!(db.file_system().is_dir(Utf8Path::new("/allowed")));
+        assert!(!db.file_system().exists(Utf8Path::new("/blocked/disk.py")));
+        assert!(!db.file_system().is_file(Utf8Path::new("/blocked/disk.py")));
+        assert!(!db.file_system().path_exists_case_sensitive(
+            Utf8Path::new("/allowed/disk.py"),
+            Utf8Path::new("/blocked")
+        ));
+        assert_eq!(
+            db.file_system()
+                .read_to_string(Utf8Path::new("/allowed/../blocked/disk.py"))
+                .expect_err("parent traversal must not escape a disk root")
+                .kind(),
+            io::ErrorKind::NotFound
+        );
+        assert_eq!(
+            db.file_system()
+                .read_to_string(Utf8Path::new("/blocked/memory.py"))
+                .expect("memory file should be readable outside disk roots"),
+            "memory"
+        );
+
+        let RootWalk::Directory { entries, issues } = db
+            .file_system()
+            .walk_root(Utf8Path::new("/allowed"), &WalkOptions::default())
+        else {
+            panic!("allowed disk root should be walkable");
+        };
+        assert!(issues.is_empty());
+        assert_eq!(entries.len(), 3);
+        assert_eq!(entries[0].path, Utf8Path::new("/allowed/directory"));
+        assert_eq!(
+            entries[1].path,
+            Utf8Path::new("/allowed/directory/child.py")
+        );
+        assert_eq!(entries[2].path, Utf8Path::new("/allowed/disk.py"));
+
+        let RootWalk::Directory { entries, issues } = db
+            .file_system()
+            .walk_root(Utf8Path::new("/blocked"), &WalkOptions::default())
+        else {
+            panic!("memory directory should be walkable");
+        };
+        assert!(issues.is_empty());
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, Utf8Path::new("/blocked/memory.py"));
+    }
+
+    #[test]
+    fn new_os_test_database_is_memory_only() {
+        let mut db = OsTestDatabase::new();
+        let disk_file = Utf8Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+        assert!(disk_file.is_file());
+        assert!(!db.file_system().exists(&disk_file));
+
+        db.add_file("/memory.py", "value = 1")
+            .expect("memory file should be added");
+        assert!(db.file_system().is_file(Utf8Path::new("/memory.py")));
+        assert_eq!(
+            db.file_system().case_sensitivity(),
+            CaseSensitivity::CaseSensitive
+        );
     }
 }

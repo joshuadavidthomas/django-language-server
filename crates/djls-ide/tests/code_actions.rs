@@ -9,6 +9,7 @@ use djls_source::LineCol;
 use djls_source::LineIndex;
 use djls_source::PositionEncoding;
 use djls_source::Span;
+use djls_testing::OsTestDatabase;
 use djls_testing::ProjectFixture;
 use djls_testing::TestDatabase;
 use djls_testing::standard_validation_db;
@@ -18,21 +19,21 @@ const TEMPLATE_PATH: &str = "/test/project/templates/template.html";
 
 type TestResult<T> = Result<T, Box<dyn std::error::Error>>;
 
-fn db_with_source(source: &str) -> TestResult<TestDatabase> {
+fn db_with_source(source: &str) -> TestResult<OsTestDatabase> {
     db_with_source_and_config(source, DiagnosticsConfig::default())
 }
 
 fn db_with_source_and_config(
     source: &str,
     diagnostics_config: DiagnosticsConfig,
-) -> TestResult<TestDatabase> {
-    let db = standard_validation_db()?.with_diagnostics_config(diagnostics_config);
+) -> TestResult<OsTestDatabase> {
+    let mut db = standard_validation_db()?.with_diagnostics_config(diagnostics_config);
     db.add_file(TEMPLATE_PATH, source)?;
     Ok(db)
 }
 
-fn file(db: &TestDatabase) -> Result<djls_source::File, djls_source::FileError> {
-    db.file(Utf8Path::new(TEMPLATE_PATH))
+fn file(db: &dyn djls_semantic::Db) -> Result<djls_source::File, djls_source::FileError> {
+    djls_source::path_to_file(db, Utf8Path::new(TEMPLATE_PATH))
 }
 
 fn template_uri() -> TestResult<ls_types::Uri> {
@@ -50,7 +51,7 @@ fn request_at(source: &str, needle: &str) -> TestResult<Span> {
 }
 
 fn collect_actions(
-    db: &TestDatabase,
+    db: &dyn djls_semantic::Db,
     range: TestResult<Span>,
 ) -> TestResult<Vec<ls_types::CodeAction>> {
     code_actions(db, file(db)?, range?, PositionEncoding::Utf16)
@@ -172,17 +173,17 @@ fn unloaded_tag_action_inserts_load_at_top_without_header() {
 
 #[test]
 fn unloaded_filter_action_inserts_required_library() {
-    let source = "{{ value|trans }}\n";
+    let source = "{{ value|intcomma }}\n";
     let db = db_with_source(source).expect("validation fixture should build");
-    let actions = collect_actions(&db, request_at(source, "trans"))
+    let actions = collect_actions(&db, request_at(source, "intcomma"))
         .expect("unloaded filter should produce a code action response");
     let action = only_action(actions).expect("unloaded filter should produce one action");
     let edit = only_edit(&action).expect("unloaded filter action should contain one edit");
 
-    assert_eq!(action.title, "Add '{% load i18n %}'");
+    assert_eq!(action.title, "Add '{% load humanize %}'");
     assert_eq!(edit.range.start, ls_types::Position::new(0, 0));
     assert_eq!(edit.range.end, ls_types::Position::new(0, 0));
-    assert_eq!(edit.new_text, "{% load i18n %}\n");
+    assert_eq!(edit.new_text, "{% load humanize %}\n");
     assert_eq!(
         diagnostic_codes(&apply_edit(source, edit))
             .expect("edited template diagnostics should be collected"),
@@ -211,9 +212,9 @@ fn insert_load_action_preserves_crlf_line_endings() {
 
 #[test]
 fn ambiguous_unloaded_tag_actions_offer_each_library_in_order() {
-    let source = "{% shared %}\n";
+    let source = "{% ambiguous_tag %}\n";
     let db = db_with_source(source).expect("validation fixture should build");
-    let actions = collect_actions(&db, request_at(source, "shared"))
+    let actions = collect_actions(&db, request_at(source, "ambiguous_tag"))
         .expect("ambiguous unloaded tag should produce a code action response");
 
     assert_eq!(actions.len(), 2);
@@ -236,9 +237,9 @@ fn ambiguous_unloaded_tag_actions_offer_each_library_in_order() {
 
 #[test]
 fn ambiguous_unloaded_filter_actions_offer_each_library_in_order() {
-    let source = "{{ value|shared_filter }}\n";
+    let source = "{{ value|ambiguous_filter }}\n";
     let db = db_with_source(source).expect("validation fixture should build");
-    let actions = collect_actions(&db, request_at(source, "shared_filter"))
+    let actions = collect_actions(&db, request_at(source, "ambiguous_filter"))
         .expect("ambiguous unloaded filter should produce a code action response");
 
     assert_eq!(actions.len(), 2);

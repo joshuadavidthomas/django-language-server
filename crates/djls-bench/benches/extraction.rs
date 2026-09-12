@@ -147,7 +147,7 @@ fn settings_cold_corpus(bencher: Bencher, name: &str) {
     );
     bencher
         .with_inputs(|| {
-            let mut db = OsTestDatabase::new();
+            let mut db = OsTestDatabase::with_disk_roots([declaration.checkout_root.clone()]);
             let interpreter = Interpreter::VenvPath(corpus.root().join("hermetic-no-venv"));
             let search_paths = SearchPaths::from_project_settings(
                 db.file_system(),

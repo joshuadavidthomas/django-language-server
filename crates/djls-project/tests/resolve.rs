@@ -1325,7 +1325,7 @@ fn ty_symlink() {
     std::os::unix::fs::symlink(foo.as_std_path(), bar.as_std_path())
         .expect("test fixture file should be writable");
 
-    let mut db = OsTestDatabase::new();
+    let mut db = OsTestDatabase::with_disk_roots([root.clone()]);
     let search_paths = SearchPaths::from_project_settings(
         &OsFileSystem::default(),
         &root,
@@ -2334,7 +2334,7 @@ fn ty_case_sensitive_resolution_with_symlinked_directory() {
     std::os::unix::fs::symlink(a_package_target.as_std_path(), a_src.as_std_path())
         .expect("test fixture file should be writable");
 
-    let mut db = OsTestDatabase::new();
+    let mut db = OsTestDatabase::with_disk_roots([root.clone()]);
     let search_paths = SearchPaths::from_project_settings(
         &OsFileSystem::default(),
         &root,
