@@ -12,7 +12,6 @@ use std::collections::BTreeSet;
 #[cfg(not(windows))]
 use std::io;
 
-use camino::Utf8Path;
 #[cfg(not(windows))]
 use djls_project::Interpreter;
 #[cfg(not(windows))]
@@ -24,7 +23,18 @@ use djls_testing::Corpus;
 use djls_testing::OsTestDatabase;
 #[cfg(not(windows))]
 use djls_testing::ProjectFixture;
+use libtest_mimic::Arguments;
+#[cfg(not(windows))]
+use libtest_mimic::Trial;
+#[cfg(not(windows))]
 use serde_json::Value;
+
+#[cfg(not(windows))]
+#[path = "support/corpus_settings.rs"]
+mod corpus_settings_support;
+
+#[cfg(not(windows))]
+use corpus_settings_support::redact_repo_root;
 
 #[cfg(not(windows))]
 fn snapshot_dir() -> insta::internals::SettingsBindDropGuard {
@@ -34,35 +44,6 @@ fn snapshot_dir() -> insta::internals::SettingsBindDropGuard {
         "/tests/snapshots/settings"
     ));
     settings.bind_to_scope()
-}
-
-fn redact_repo_root(value: &mut Value, repo_root: &Utf8Path) {
-    match value {
-        Value::String(text) => {
-            let normalized_text = text.replace('\\', "/");
-            let normalized_repo_root = repo_root.as_str().replace('\\', "/");
-            if let Ok(relative) =
-                Utf8Path::new(&normalized_text).strip_prefix(Utf8Path::new(&normalized_repo_root))
-            {
-                *text = if relative.as_str().is_empty() {
-                    "${REPO}".to_string()
-                } else {
-                    format!("${{REPO}}/{relative}")
-                };
-            }
-        }
-        Value::Array(values) => {
-            for value in values {
-                redact_repo_root(value, repo_root);
-            }
-        }
-        Value::Object(values) => {
-            for value in values.values_mut() {
-                redact_repo_root(value, repo_root);
-            }
-        }
-        Value::Null | Value::Bool(_) | Value::Number(_) => {}
-    }
 }
 
 #[cfg(not(windows))]
@@ -153,18 +134,11 @@ fn check_predicate_correlations(repo_name: &str, settings: &Value) -> Result<(),
     Ok(())
 }
 
-#[test]
-fn corpus_is_synced() -> Result<(), Box<dyn std::error::Error>> {
-    Corpus::require()?;
-    Ok(())
-}
-
 // The production evaluator deliberately leaves `os.path` calls unknown on
-// Windows. These snapshots encode POSIX settings semantics; path redaction is
-// tested on every platform below.
+// Windows. These snapshots encode POSIX settings semantics.
 #[cfg(not(windows))]
-#[test]
-fn settings_extraction_snapshots() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args = Arguments::from_args();
     let corpus = Corpus::require()?;
     let declarations = corpus.repo_settings_projects()?;
     if declarations.is_empty() {
@@ -173,31 +147,17 @@ fn settings_extraction_snapshots() -> Result<(), Box<dyn std::error::Error>> {
         )
         .into());
     }
-    let _guard = snapshot_dir();
+
+    let interpreter = corpus.root().join("hermetic-no-venv");
     let mut snapshot_names = BTreeSet::new();
+    let mut trials = Vec::new();
 
     for corpus_project in declarations {
-        let repo_name = &corpus_project.repo_name;
-        let checkout_root = &corpus_project.checkout_root;
-        let project_root = &corpus_project.project_root;
+        let repo_name = corpus_project.repo_name;
+        let checkout_root = corpus_project.checkout_root;
+        let project_root = corpus_project.project_root;
 
         for settings_module in corpus_project.django_settings_modules {
-            let mut db = OsTestDatabase::with_disk_roots([checkout_root.clone()]);
-            let interpreter = Interpreter::VenvPath(corpus.root().join("hermetic-no-venv"));
-            let project = ProjectFixture::new(project_root.clone())
-                .django_settings_module(&settings_module)
-                .interpreter(interpreter)
-                .install(&mut db)?;
-
-            settings_module_file(&db, project).ok_or_else(|| {
-                io::Error::other(format!(
-                    "settings module `{settings_module}` for corpus repo `{repo_name}` did not resolve"
-                ))
-            })?;
-            let mut settings = serde_json::to_value(django_settings(&db, project))?;
-            check_predicate_correlations(repo_name, &settings)?;
-            redact_repo_root(&mut settings, checkout_root);
-
             let snapshot_name = format!("{repo_name}__{}", settings_module.replace('.', "__"));
             if !snapshot_names.insert(snapshot_name.clone()) {
                 return Err(io::Error::other(format!(
@@ -205,42 +165,41 @@ fn settings_extraction_snapshots() -> Result<(), Box<dyn std::error::Error>> {
                 ))
                 .into());
             }
-            insta::assert_yaml_snapshot!(snapshot_name, settings);
+
+            let repo_name = repo_name.clone();
+            let checkout_root = checkout_root.clone();
+            let project_root = project_root.clone();
+            let interpreter = interpreter.clone();
+            trials.push(Trial::test(snapshot_name.clone(), move || {
+                let _guard = snapshot_dir();
+                let mut db = OsTestDatabase::with_disk_roots([checkout_root.clone()]);
+                let interpreter = Interpreter::VenvPath(interpreter);
+                let project = ProjectFixture::new(project_root.clone())
+                    .django_settings_module(&settings_module)
+                    .interpreter(interpreter)
+                    .install(&mut db)?;
+
+                settings_module_file(&db, project).ok_or_else(|| {
+                    io::Error::other(format!(
+                        "settings module `{settings_module}` for corpus repo `{repo_name}` did not resolve"
+                    ))
+                })?;
+                let mut settings = serde_json::to_value(django_settings(&db, project))?;
+                check_predicate_correlations(&repo_name, &settings)?;
+                redact_repo_root(&mut settings, &checkout_root);
+
+                insta::assert_yaml_snapshot!(snapshot_name, settings);
+                Ok(())
+            }));
         }
     }
 
-    Ok(())
+    libtest_mimic::run(&args, trials).exit()
 }
 
-#[test]
-fn repo_root_redaction_rewrites_nested_string_values() {
-    let mut value = serde_json::json!({
-        "path": "/corpus/repo/templates",
-        "nested": ["/corpus/repo", "unchanged"],
-        "prefix_collision": "/corpus/repository/templates",
-    });
-
-    redact_repo_root(&mut value, Utf8Path::new("/corpus/repo"));
-
-    assert_eq!(
-        value,
-        serde_json::json!({
-            "path": "${REPO}/templates",
-            "nested": ["${REPO}", "unchanged"],
-            "prefix_collision": "/corpus/repository/templates",
-        })
-    );
-
-    let mut windows_value = serde_json::json!({
-        "path": r"C:\corpus\repo\templates",
-        "prefix_collision": r"C:\corpus\repository\templates",
-    });
-    redact_repo_root(&mut windows_value, Utf8Path::new(r"C:\corpus\repo"));
-    assert_eq!(
-        windows_value,
-        serde_json::json!({
-            "path": "${REPO}/templates",
-            "prefix_collision": r"C:\corpus\repository\templates",
-        })
-    );
+#[cfg(windows)]
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args = Arguments::from_args();
+    Corpus::require()?;
+    libtest_mimic::run(&args, Vec::new()).exit()
 }

@@ -1,100 +1,56 @@
-use std::collections::BTreeMap;
-
 use camino::Utf8Component;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
-use djls_semantic::ChainEnd;
 use djls_semantic::template_inheritance;
 use djls_templates::parse_template;
 use djls_testing::Corpus;
 use djls_testing::ProjectFixture;
 use djls_testing::ProjectSettings;
 use djls_testing::TestDatabase;
+use libtest_mimic::Arguments;
+use libtest_mimic::Trial;
 
-#[test]
-fn corpus_template_inheritance_terminates() {
-    let corpus = Corpus::require().expect("synced corpus should be available for corpus tests");
-    let mut by_entry: BTreeMap<Utf8PathBuf, Vec<Utf8PathBuf>> = BTreeMap::new();
+#[expect(
+    clippy::expect_used,
+    reason = "corpus fixture failures should fail their named trial"
+)]
+fn inheritance_terminates(entry_dir: Utf8PathBuf, templates: Vec<Utf8PathBuf>) {
+    let template_roots = template_roots(&templates);
+    let fixture = ProjectFixture::new(entry_dir).settings(&ProjectSettings {
+        dirs: template_roots.iter().map(ToString::to_string).collect(),
+        ..ProjectSettings::default()
+    });
+    let db = TestDatabase::new();
 
-    for template_path in corpus.templates_in(corpus.root()) {
-        let Some(entry_dir) = corpus.entry_dir_for_path(&template_path) else {
+    let mut fixture = fixture;
+    for template_path in &templates {
+        let Ok(source) = std::fs::read_to_string(template_path.as_std_path()) else {
             continue;
         };
-        by_entry.entry(entry_dir).or_default().push(template_path);
+        fixture = fixture.file(template_path.clone(), source);
     }
 
-    let mut distribution = ChainEndDistribution::default();
-    let mut template_count = 0usize;
-
-    for (entry_dir, mut templates) in by_entry {
-        templates.sort();
-        let template_roots = template_roots(&templates);
-        if template_roots.is_empty() {
+    let project = fixture
+        .build(&db)
+        .expect("corpus project fixture should build in the test database");
+    let mut parsed_count = 0usize;
+    for template_path in templates {
+        let file = db
+            .file(&template_path)
+            .expect("corpus template should exist in the test database");
+        if !matches!(
+            parse_template(&db, file),
+            djls_templates::TemplateParseResult::Parsed(_)
+        ) {
             continue;
         }
 
-        let fixture = ProjectFixture::new(entry_dir.clone()).settings(&ProjectSettings {
-            dirs: template_roots.iter().map(ToString::to_string).collect(),
-            ..ProjectSettings::default()
-        });
-        let db = TestDatabase::new();
-
-        let mut fixture = fixture;
-        for template_path in &templates {
-            let Ok(source) = std::fs::read_to_string(template_path.as_std_path()) else {
-                continue;
-            };
-            fixture = fixture.file(template_path.clone(), source);
-        }
-
-        let project = fixture
-            .build(&db)
-            .expect("corpus project fixture should build in the test database");
-        for template_path in templates {
-            let file = db
-                .file(&template_path)
-                .expect("corpus template should exist in the test database");
-            if !matches!(
-                parse_template(&db, file),
-                djls_templates::TemplateParseResult::Parsed(_)
-            ) {
-                continue;
-            }
-
-            let inheritance = template_inheritance(&db, project, file);
-            distribution.record(&inheritance.end(&db));
-            template_count += 1;
-        }
+        parsed_count += 1;
+        let inheritance = template_inheritance(&db, project, file);
+        let _chain_end = inheritance.end(&db);
     }
 
-    assert!(template_count > 0, "No corpus templates discovered.");
-    println!("ChainEnd distribution across {template_count} corpus templates:");
-    println!("  Root: {}", distribution.root);
-    println!("  Dynamic: {}", distribution.dynamic);
-    println!("  Unresolved: {}", distribution.unresolved);
-    println!("  InconclusiveParent: {}", distribution.inconclusive_parent);
-    println!("  Cycle: {}", distribution.cycle);
-}
-
-#[derive(Default)]
-struct ChainEndDistribution {
-    root: usize,
-    dynamic: usize,
-    unresolved: usize,
-    inconclusive_parent: usize,
-    cycle: usize,
-}
-
-impl ChainEndDistribution {
-    fn record(&mut self, end: &ChainEnd) {
-        match *end {
-            ChainEnd::Root => self.root += 1,
-            ChainEnd::Dynamic { .. } => self.dynamic += 1,
-            ChainEnd::Unresolved { .. } => self.unresolved += 1,
-            ChainEnd::InconclusiveParent { .. } => self.inconclusive_parent += 1,
-            ChainEnd::Cycle => self.cycle += 1,
-        }
-    }
+    assert!(parsed_count > 0, "No corpus templates parsed.");
 }
 
 fn template_roots(templates: &[Utf8PathBuf]) -> Vec<Utf8PathBuf> {
@@ -123,4 +79,23 @@ fn template_root(path: &Utf8Path) -> Option<Utf8PathBuf> {
         }
     }
     None
+}
+
+fn main() -> anyhow::Result<()> {
+    let args = Arguments::from_args();
+    let corpus = Corpus::require()?;
+    let trials = corpus
+        .locked_repos()
+        .filter_map(|(repo_name, entry_dir)| {
+            let templates = corpus.templates_in(&entry_dir);
+            (!templates.is_empty()).then(|| {
+                Trial::test(repo_name, move || {
+                    inheritance_terminates(entry_dir, templates);
+                    Ok(())
+                })
+            })
+        })
+        .collect();
+
+    libtest_mimic::run(&args, trials).exit()
 }
