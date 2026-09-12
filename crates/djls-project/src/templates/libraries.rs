@@ -436,7 +436,13 @@ pub enum AppTemplateSymbolLookup {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ScopedTemplateSymbolLookup {
     Builtin,
-    RequiresLoad(Vec<LibraryName>),
+    RequiresLoad {
+        /// Libraries whose inventories definitely provide the name.
+        required: Vec<LibraryName>,
+        /// Open loadable inventories that did not show the name. A matching
+        /// load can make occurrence availability inconclusive.
+        open: Vec<LibraryName>,
+    },
     Inconclusive,
     Absent,
 }
@@ -1129,7 +1135,11 @@ impl<'db> TemplateLibraryCatalog<'db> {
             return candidates;
         }
 
-        let ScopedTemplateSymbolLookup::RequiresLoad(required_names) = lookup else {
+        let ScopedTemplateSymbolLookup::RequiresLoad {
+            required: required_names,
+            ..
+        } = lookup
+        else {
             return candidates;
         };
         for library in libraries
@@ -1201,6 +1211,7 @@ impl<'db> TemplateLibraryCatalog<'db> {
         }
 
         let mut required = Vec::new();
+        let mut open_libraries = Vec::new();
         for load_name in Self::completion_library_names_in_view(view) {
             let mut present = false;
             let mut absent = false;
@@ -1222,16 +1233,21 @@ impl<'db> TemplateLibraryCatalog<'db> {
             }
             if present && !absent && !open {
                 required.push(load_name);
-            } else if present || open {
+            } else if present {
                 inconclusive = true;
+            } else if open {
+                open_libraries.push(load_name);
             }
         }
 
         if inconclusive {
             ScopedTemplateSymbolLookup::Inconclusive
         } else if !required.is_empty() {
-            ScopedTemplateSymbolLookup::RequiresLoad(required)
-        } else if view.has_omissions() {
+            ScopedTemplateSymbolLookup::RequiresLoad {
+                required,
+                open: open_libraries,
+            }
+        } else if !open_libraries.is_empty() || view.has_omissions() {
             ScopedTemplateSymbolLookup::Inconclusive
         } else {
             ScopedTemplateSymbolLookup::Absent

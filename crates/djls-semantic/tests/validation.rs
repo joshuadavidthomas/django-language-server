@@ -2923,6 +2923,41 @@ fn imported_register_keeps_known_symbols_and_makes_only_symbol_misses_inconclusi
 }
 
 #[test]
+fn unloaded_tag_diagnostic_depends_on_whether_the_open_library_is_loaded() {
+    let mut db = TestDatabase::new();
+    ProjectFixture::new("/proj")
+        .django_settings_module("settings")
+        .file("/proj/settings.py", "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'OPTIONS': {'libraries': {'known': 'known_tags', 'open': 'open_tags'}}}]\n")
+        .file("/proj/known_tags.py", "from django import template\nregister = template.Library()\n@register.simple_tag\ndef known_tag(): pass\n")
+        .file("/proj/open_tags.py", "from django import template\nregister = template.Library()\ndef other_tag(context): pass\nregister.simple_tag(takes_context=True)(globals()['other_tag'])\n")
+        .file("/proj/django/template/defaultfilters.py", "from django import template\nregister = template.Library()\n")
+        .file("/proj/templates/unloaded.html", "{% known_tag %}")
+        .file("/proj/templates/open.html", "{% load open %}{% known_tag %}")
+        .file("/proj/templates/known.html", "{% load known %}{% known_tag %}")
+        .install(&mut db)
+        .expect("open-library fixture should install");
+
+    let errors = collect_file_errors(&db, "/proj/templates/unloaded.html")
+        .expect("unloaded template should validate");
+    assert!(
+        matches!(errors.as_slice(), [ValidationError::UnloadedTag { tag, library, .. }]
+        if tag == "known_tag" && library == "known"),
+        "{errors:?}"
+    );
+
+    let errors = collect_file_errors(&db, "/proj/templates/open.html")
+        .expect("open-library template should validate");
+    assert!(!errors.iter().any(|error| matches!(
+        error,
+        ValidationError::UnloadedTag { .. } | ValidationError::UnknownTag { .. }
+    )));
+
+    let errors = collect_file_errors(&db, "/proj/templates/known.html")
+        .expect("known-library template should validate");
+    assert!(errors.is_empty(), "{errors:?}");
+}
+
+#[test]
 fn closed_registration_source_still_produces_symbol_negatives() {
     let mut db = TestDatabase::new();
     ProjectFixture::new("/proj")

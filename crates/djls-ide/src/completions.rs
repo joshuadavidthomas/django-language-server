@@ -701,7 +701,7 @@ fn scope_has_definite_symbols(
     scoped_libraries.inventory_symbol_names(kind).any(|name| {
         matches!(
             scoped_libraries.symbol(name, kind),
-            ScopedTemplateSymbolLookup::Builtin | ScopedTemplateSymbolLookup::RequiresLoad(_)
+            ScopedTemplateSymbolLookup::Builtin | ScopedTemplateSymbolLookup::RequiresLoad { .. }
         )
     })
 }
