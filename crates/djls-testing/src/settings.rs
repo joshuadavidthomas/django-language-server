@@ -1,17 +1,13 @@
 use std::collections::BTreeMap;
 
-use serde::Deserialize;
-
-/// Django template backend settings used by validation fixtures and mdtests.
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
+/// Django template backend settings used by Rust test fixtures.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProjectSettings {
     pub installed_apps: Vec<String>,
     pub dirs: Vec<String>,
     pub app_dirs: bool,
     pub builtins: Vec<String>,
     pub libraries: BTreeMap<String, String>,
-    pub partial: bool,
 }
 
 impl Default for ProjectSettings {
@@ -22,7 +18,6 @@ impl Default for ProjectSettings {
             app_dirs: false,
             builtins: Vec::new(),
             libraries: BTreeMap::new(),
-            partial: false,
         }
     }
 }
@@ -40,14 +35,9 @@ impl ProjectSettings {
             .collect::<Vec<_>>()
             .join(", ");
         let app_dirs = if self.app_dirs { "True" } else { "False" };
-        let partial = if self.partial {
-            ", UNKNOWN: 'maybe'"
-        } else {
-            ""
-        };
 
         format!(
-            "INSTALLED_APPS = {installed_apps}\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': {dirs}, 'APP_DIRS': {app_dirs}, 'OPTIONS': {{'builtins': {builtins}, 'libraries': {{{libraries}}}}}{partial}}}]\n"
+            "INSTALLED_APPS = {installed_apps}\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': {dirs}, 'APP_DIRS': {app_dirs}, 'OPTIONS': {{'builtins': {builtins}, 'libraries': {{{libraries}}}}}}}]\n"
         )
     }
 }
@@ -82,12 +72,11 @@ mod tests {
             app_dirs: true,
             builtins: vec!["custom_tags".to_string()],
             libraries: BTreeMap::from([("custom".to_string(), "custom_tags".to_string())]),
-            partial: true,
         };
 
         assert_eq!(
             settings.settings_py(),
-            "INSTALLED_APPS = ['django.contrib.admin']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/templates', '/other'], 'APP_DIRS': True, 'OPTIONS': {'builtins': ['custom_tags'], 'libraries': {'custom': 'custom_tags'}}, UNKNOWN: 'maybe'}]\n"
+            "INSTALLED_APPS = ['django.contrib.admin']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/templates', '/other'], 'APP_DIRS': True, 'OPTIONS': {'builtins': ['custom_tags'], 'libraries': {'custom': 'custom_tags'}}}]\n"
         );
     }
 }

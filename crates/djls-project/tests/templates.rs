@@ -167,12 +167,11 @@ fn project_inventory_preserves_backend_remainder_slot_order() {
 fn partial_known_backend_field_uncertainty_keeps_one_correlated_backend_alternative() {
     let db = TestDatabase::new();
     let project = ProjectFixture::new("/test/project")
-        .settings(&ProjectSettings {
-            dirs: vec!["/test/project/templates".to_string()],
-            libraries: BTreeMap::from([("shared".to_string(), "alpha_tags".to_string())]),
-            partial: true,
-            ..ProjectSettings::default()
-        })
+        .django_settings_module("settings")
+        .file(
+            "/test/project/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'builtins': [], 'libraries': {'shared': 'alpha_tags'}}, UNKNOWN: 'maybe'}]\n",
+        )
         .file(
             "/test/project/alpha_tags.py",
             "from django import template\nregister = template.Library()\n",

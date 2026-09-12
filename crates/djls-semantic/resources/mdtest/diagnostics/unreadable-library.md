@@ -1,7 +1,10 @@
 # Unreadable Template Library loads
 
-```toml
-libraries = { open = "open_tags" }
+`settings.py`:
+
+```py
+INSTALLED_APPS = []
+TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/templates'], 'APP_DIRS': False, 'OPTIONS': {'builtins': [], 'libraries': {'open': 'open_tags'}}}]
 ```
 
 ## loaded library has a registration DJLS could not read

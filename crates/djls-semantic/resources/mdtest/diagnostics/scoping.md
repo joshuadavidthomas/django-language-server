@@ -30,10 +30,11 @@ error[S109]: Tag 'static' requires the 'static' tag library
 
 ## tag is available from multiple unloaded libraries
 
-```toml
-[libraries]
-alpha = "alpha_tags"
-beta = "beta_tags"
+`settings.py`:
+
+```py
+INSTALLED_APPS = []
+TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/templates'], 'APP_DIRS': False, 'OPTIONS': {'builtins': [], 'libraries': {'alpha': 'alpha_tags', 'beta': 'beta_tags'}}}]
 ```
 
 `alpha_tags.py`:
@@ -86,8 +87,11 @@ error[S111]: Unknown filter 'completelymadetupfilter'
 
 ## filter requires load when not configured as a builtin
 
-```toml
-installed-apps = ["django.contrib.humanize"]
+`settings.py`:
+
+```py
+INSTALLED_APPS = ['django.contrib.humanize']
+TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/templates'], 'APP_DIRS': False, 'OPTIONS': {'builtins': [], 'libraries': {}}}]
 ```
 
 ```htmldjango
@@ -104,10 +108,11 @@ error[S112]: Filter 'intcomma' requires the 'humanize' tag library
 
 ## filter is available from multiple unloaded libraries
 
-```toml
-[libraries]
-alpha = "alpha_tags"
-beta = "beta_tags"
+`settings.py`:
+
+```py
+INSTALLED_APPS = []
+TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/templates'], 'APP_DIRS': False, 'OPTIONS': {'builtins': [], 'libraries': {'alpha': 'alpha_tags', 'beta': 'beta_tags'}}}]
 ```
 
 `alpha_tags.py`:

@@ -72,15 +72,8 @@ fn configured_tag_specs(definitions: &[(&str, &str, TagTypeDef)]) -> TagSpecDef 
 }
 
 fn partial_ambiguous_db() -> anyhow::Result<OsTestDatabase> {
-    let settings = ProjectSettings {
-        libraries: BTreeMap::from([
-            ("alpha".to_string(), "alpha_tags".to_string()),
-            ("beta".to_string(), "beta_tags".to_string()),
-        ]),
-        partial: true,
-        ..ProjectSettings::default()
-    };
-    let mut db = validation_db(&settings)?;
+    let settings = "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/templates'], 'APP_DIRS': False, 'OPTIONS': {'builtins': [], 'libraries': {'alpha': 'alpha_tags', 'beta': 'beta_tags'}}, UNKNOWN: 'maybe'}]\n";
+    let mut db = validation_db(settings)?;
     let library = "from django import template\nregister = template.Library()\n@register.tag(name='shared')\ndef shared_tag(parser, token): pass\n@register.filter(name='shared')\ndef shared_filter(value): pass\n";
     db.add_file("/fixture/alpha_tags.py", library)?;
     db.add_file("/fixture/beta_tags.py", library)?;
@@ -606,12 +599,11 @@ fn dynamic_installed_apps_suppress_guidance_without_template_backends() {
 fn partial_django_backend_keeps_configured_library_validation_inconclusive() {
     let mut db = TestDatabase::new();
     ProjectFixture::new("/proj")
-        .settings(&ProjectSettings {
-            dirs: vec!["/proj/templates".to_string()],
-            libraries: BTreeMap::from([("custom".to_string(), "custom_tags".to_string())]),
-            partial: true,
-            ..ProjectSettings::default()
-        })
+        .django_settings_module("settings")
+        .file(
+            "/proj/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False, 'OPTIONS': {'builtins': [], 'libraries': {'custom': 'custom_tags'}}, UNKNOWN: 'maybe'}]\n",
+        )
         .file(
             "/proj/custom_tags.py",
             "from django import template\nregister = template.Library()\n@register.simple_tag\ndef configured(value):\n    pass\n",
@@ -2407,10 +2399,13 @@ fn unknown_load_shadowed_tag_contract_exact_and_closed_loads_retain_contracts() 
         "an exact load must not suppress an unrelated opener contract: {exact_errors:?}"
     );
 
-    let mut closed = validation_db(&ProjectSettings {
-        builtins: vec!["one_arg_tags".into()],
-        ..ProjectSettings::default()
-    })
+    let mut closed = validation_db(
+        &ProjectSettings {
+            builtins: vec!["one_arg_tags".into()],
+            ..ProjectSettings::default()
+        }
+        .settings_py(),
+    )
     .expect("closed validation fixture should build");
     closed
         .add_file(

@@ -551,17 +551,16 @@ pub fn snapshot_validate_files<'a>(
 
 /// Validation fixture for mdtest snapshots backed by the pinned Django corpus.
 pub fn standard_validation_db() -> anyhow::Result<OsTestDatabase> {
-    validation_db(&ProjectSettings::default())
+    validation_db(&ProjectSettings::default().settings_py())
 }
 
 pub fn partial_validation_db() -> anyhow::Result<OsTestDatabase> {
-    validation_db(&ProjectSettings {
-        partial: true,
-        ..ProjectSettings::default()
-    })
+    validation_db(
+        "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/templates'], 'APP_DIRS': False, 'OPTIONS': {'builtins': [], 'libraries': {}}, UNKNOWN: 'maybe'}]\n",
+    )
 }
 
-pub fn validation_db(settings: &ProjectSettings) -> anyhow::Result<OsTestDatabase> {
+pub fn validation_db(settings_py: &str) -> anyhow::Result<OsTestDatabase> {
     let corpus = Corpus::require()?;
     let django_source_root = corpus.root().join("repos/django-5.2");
     anyhow::ensure!(
@@ -579,7 +578,7 @@ pub fn validation_db(settings: &ProjectSettings) -> anyhow::Result<OsTestDatabas
 
     let mut db = OsTestDatabase::with_disk_roots([django_source_root]);
     search_paths.register_roots(&db);
-    db.add_file("/fixture/settings.py", &settings.settings_py())?;
+    db.add_file("/fixture/settings.py", settings_py)?;
 
     let project = Project::new(
         &db,

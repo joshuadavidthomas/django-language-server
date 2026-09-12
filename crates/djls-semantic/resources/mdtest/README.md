@@ -21,41 +21,41 @@ Each fenced block belongs to the heading above it:
 | Fence | Meaning |
 |---|---|
 | `htmldjango`, `django`, or `html` | A template. The unlabeled block is the file under test; labeled blocks are support templates. |
-| `py` | A Python module in the fixture project. A relative path label is required. |
-| `toml` | The project settings for that heading and its descendants. |
+| `py` | A Python module in the fixture project. A relative path label is required. A block labeled `settings.py` supplies the project settings and inherits through nested headings. |
 | `snapshot` | The expected rendered diagnostics. |
 | `ignore` | Content that the runner skips. |
 
-The runner rejects unknown fence languages. A section may contain at most one `toml` fence.
+The runner rejects unknown fence languages. A section may contain at most one `settings.py` block.
 
-A `toml` fence replaces the inherited settings as one value. Omitted keys take these defaults:
+A scenario with no `settings.py` in its heading ancestry uses this file:
 
-| Key | Type | Default |
-|---|---|---|
-| `installed-apps` | list of module paths | `[]` |
-| `dirs` | list of strings | `["/templates"]` |
-| `app-dirs` | boolean | `false` |
-| `builtins` | list of module paths | `[]` |
-| `libraries` | table from load name to module path | `{}` |
-| `partial` | boolean | `false` |
+`settings.py`:
 
-The default project installs no apps, so a scenario that needs a contrib library declares it with `installed-apps`.
+```py
+INSTALLED_APPS = []
+TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/templates'], 'APP_DIRS': False, 'OPTIONS': {'builtins': [], 'libraries': {}}}]
+```
+
+Copy that block into a scenario or grouping heading, then edit the Django settings the scenario needs.
 
 ## Inheritance
 
-A `toml` fence applies to its heading and every nested heading until a child supplies another `toml` fence. The child settings replace the inherited value rather than merging fields.
+A `settings.py` block applies to its heading and every nested heading until a child supplies another one. The child replaces the inherited file.
 
-Files stay in the section that declares them. Each scenario repeats the `py` files and templates it needs. A grouping heading may contain `toml`, but a `py` fence there is an error because child scenarios do not inherit it. Once a heading contains a template, it cannot have child headings.
+Other files stay in the section that declares them. Each scenario repeats the Python modules and templates it needs. A grouping heading may contain `settings.py`, but any other Python file there is an error because child scenarios do not inherit it. Once a heading contains a template, it cannot have child headings.
 
-A `libraries` or `builtins` entry naming a module that no `py` fence in that scenario provides makes the library unreadable and suppresses unknown-name diagnostics, so keep the `toml` fence beside the fences that supply its modules.
+A `libraries` or `builtins` entry naming a module that the scenario does not provide makes the library unreadable and suppresses unknown-name diagnostics. Keep each settings block beside the scenarios whose Python fences provide its modules.
 
-This example shares the settings from the title while keeping the Python module in the scenario that uses it:
+This example shares settings from the title while keeping the Python module in the scenario that uses it:
 
 ````markdown
 # Greeting tags
 
-```toml
-builtins = ["greeting_tags"]
+`settings.py`:
+
+```py
+INSTALLED_APPS = []
+TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/templates'], 'APP_DIRS': False, 'OPTIONS': {'builtins': ['greeting_tags'], 'libraries': {}}}]
 ```
 
 ## accepts one name
