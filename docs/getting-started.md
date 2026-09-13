@@ -1,6 +1,6 @@
 # Getting started
 
-This guide goes from nothing to a working editor setup. The steps below are the recommended path; every other installation method is in the [Installation](installation.md) reference.
+Follow these steps to install the server, set up your editor, and check that it works. For other installation methods, see [Installation](installation.md).
 
 ## Prerequisites
 
@@ -22,7 +22,7 @@ Check that the binary is on your `PATH`:
 djls --version
 ```
 
-The server runs outside your project's virtual environment. It finds each project's environment by itself, so one global install serves every project.
+The server runs outside your project's virtual environment. It discovers each project's environment separately, so one global install can serve multiple projects.
 
 !!! note "No install at all"
 
@@ -31,7 +31,7 @@ The server runs outside your project's virtual environment. It finds each projec
 ## 2. Set up your editor
 
 - [VS Code](clients/vscode.md): install the extension from the marketplace
-- [Neovim](clients/neovim.md): enable the built-in LSP configuration
+- [Neovim](clients/neovim.md): configure and enable `djls` with Neovim's built-in LSP client
 - [Zed](clients/zed.md): install the Django extension, which can download the server itself
 - [Sublime Text](clients/sublime-text.md): configure the LSP package
 
@@ -53,6 +53,6 @@ The two usual causes:
 
 **The editor doesn't treat the file as a Django template.** The server only attaches to files your editor identifies as Django templates. Plain `.html` files often need a filetype or syntax rule; each editor page shows how to set one up.
 
-**The server can't find your project's settings or environment.** It auto-detects both in standard layouts: a `.venv` next to the project, `DJANGO_SETTINGS_MODULE` in the environment. If your project differs, set `django_settings_module` explicitly; see [Configuration](configuration/index.md).
+**The server can't find your project's settings or environment.** It auto-detects standard layouts, including a `.venv` in the project root and `DJANGO_SETTINGS_MODULE` in the editor's environment. For other layouts, set `django_settings_module` or `venv_path` explicitly; see [Configuration](configuration/index.md).
 
 Beyond that, each editor page has its own troubleshooting notes.

@@ -9,7 +9,7 @@ Django Language Server works with any editor that supports the Language Server P
 
 ## Using another editor
 
-Any editor with an [LSP client](https://langserver.org/) can use the server: configure the client to run `djls serve` for Django template files. The [getting started guide](../getting-started.md) covers installing the server and verifying the setup works.
+Any editor with an [LSP client](https://langserver.org/) can use the server. Configure the client to run `djls serve` over stdio and use `htmldjango` or `django-html` as the language ID for Django template files. The [getting started guide](../getting-started.md) covers installing the server and verifying the setup works.
 
 If you get it working in your editor, we sorely need documentation for other editors:
 
