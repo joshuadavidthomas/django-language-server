@@ -69,11 +69,9 @@ if [[ "$(just --version 2>/dev/null || true)" != "just 1.57.0" ]]; then
         bash -s -- --tag 1.57.0 --to "$HOME/.local/bin"
 fi
 
-if [[ "$(cargo hawk --version 2>/dev/null || true)" != "cargo hawk 0.1.14" ]]; then
-    echo "==> Installing cargo-hawk"
-    curl --proto '=https' --tlsv1.2 -LsSf \
-        https://github.com/astral-sh/hawk/releases/download/0.1.14/cargo-hawk-installer.sh | sh
-fi
+echo "==> Installing latest cargo-hawk (matching CI)"
+curl --proto '=https' --tlsv1.2 -LsSf \
+    https://github.com/astral-sh/hawk/releases/latest/download/cargo-hawk-installer.sh | sh
 
 if [[ "$(cargo insta --version 2>/dev/null || true)" != "cargo-insta 1.48.0" ]]; then
     echo "==> Installing cargo-insta"
