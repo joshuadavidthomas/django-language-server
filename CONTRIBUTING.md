@@ -113,7 +113,7 @@ Install the Cargo subcommand Hawk expects. Rustup installs the compiler pinned f
 
 ```bash
 curl --proto '=https' --tlsv1.2 -LsSf \
-  https://github.com/astral-sh/hawk/releases/latest/download/cargo-hawk-installer.sh | sh
+  https://github.com/astral-sh/hawk/releases/download/0.1.14/cargo-hawk-installer.sh | sh
 ```
 
 ##### Usage
@@ -128,7 +128,7 @@ The recipe invokes the compiler pinned in [`tools/hawk/rust-toolchain.toml`](too
 
 A Hawk run is more compile-intensive than normal linting. It checks the configured production binaries and workspace non-production targets, so a single run may perform multiple Cargo analysis passes. `--fix` can repeat analysis while visibility changes converge. That cost is expected: Hawk answers a different question than clippy, namely whether crate boundaries expose more API surface than the workspace needs.
 
-The `just hawk` recipe installs the latest prebuilt release, which may be built against a newer compiler than the pin; when a hawk run fails the toolchain check, bump `tools/hawk/rust-toolchain.toml` to the compiler version named in the [Hawk release notes](https://github.com/astral-sh/hawk/releases). After applying Hawk fixes, run the normal lint and test checks; newly private code may expose cleanup work that belongs there.
+The `just hawk` recipe runs the installed release; it does not install or update Hawk. Orb setup and the command above pin Hawk 0.1.14, which requires Rust 1.98.1. CI installs the latest prebuilt release, so keep `tools/hawk/rust-toolchain.toml` aligned with the compiler version named in the [Hawk release notes](https://github.com/astral-sh/hawk/releases). After applying Hawk fixes, run the normal lint and test checks; newly private code may expose cleanup work that belongs there.
 
 #### Updating development tools
 
