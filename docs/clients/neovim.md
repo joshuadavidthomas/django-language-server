@@ -7,19 +7,11 @@
 
 ## Configuration
 
-### With nvim-lspconfig
+Neovim 0.11+ includes the LSP client and the `vim.lsp.config()` and `vim.lsp.enable()` APIs, but does not ship a `djls` configuration. Define your own configuration, or use the defaults from nvim-lspconfig.
 
-If you have [nvim-lspconfig](https://github.com/neovim/nvim-lspconfig) installed, the `djls` configuration is provided automatically. Simply enable it in your `init.lua`:
+### Define a configuration
 
-```lua
-vim.lsp.enable('djls')
-```
-
-That's it! Neovim will use the configuration from nvim-lspconfig's `lsp/djls.lua`.
-
-### Without nvim-lspconfig
-
-If you don't use nvim-lspconfig, you can configure the server manually using Neovim's built-in [`vim.lsp.config()`](https://neovim.io/doc/user/lsp.html#lsp-config).
+Configure the server using Neovim's built-in [`vim.lsp.config()`](https://neovim.io/doc/user/lsp.html#lsp-config).
 
 You can define the configuration inline in your `init.lua`:
 
@@ -49,6 +41,14 @@ Then just enable it in your `init.lua`:
 
 ```lua
 -- In init.lua
+vim.lsp.enable('djls')
+```
+
+### Use nvim-lspconfig defaults
+
+[nvim-lspconfig](https://github.com/neovim/nvim-lspconfig) provides the `djls` defaults in `lsp/djls.lua`. With the plugin loaded, enable the configuration in your `init.lua`:
+
+```lua
 vim.lsp.enable('djls')
 ```
 

@@ -29,18 +29,18 @@ markdown_extensions:
 nav:
   - Home: index.md
   - "Why a language server?": why.md
+  - Getting started: getting-started.md
   - Installation: installation.md
-  - Command-line interface: cli.md
-  - Pre-commit: pre-commit.md
-  - Configuration:
-      - configuration/index.md
-  - Template Validation: template-validation.md
-  - Clients:
+  - Editors:
       - clients/index.md
       - Neovim: clients/neovim.md
       - Sublime Text: clients/sublime-text.md
       - VS Code: clients/vscode.md
       - Zed: clients/zed.md
+  - Configuration: configuration/index.md
+  - Template Validation: template-validation.md
+  - Command-line interface: cli.md
+  - Pre-commit: pre-commit.md
   - Versioning: versioning.md
   - Changelog: changelog.md
   - Contributing: contributing.md

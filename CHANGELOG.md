@@ -20,19 +20,17 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Added
 
+- Added a "Why a language server?" docs page.
+- Added a getting started guide and reorganized the documentation navigation.
 - **Internal**: Added a Hawk visibility-audit job to the lint workflow.
 
 ### Changed
 
-- Added a "Why a language server?" docs page.
 - Added an S124 hint on `{% load %}` for unreadable library registrations, with a code action that opens a prefilled issue.
 - **Internal**: Tag validation is tested against Django's own template libraries from the pinned corpus, with a fixture project comparing DJLS diagnostics against Django's compilation verdicts.
 - **Internal**: Test scenarios declare their own tag libraries and settings, either in markdown Python fences or from a typed `ProjectSettings` value.
 - **Internal**: Extraction snapshots record library symbol inventories and whether they are open, and a corpus census counts registration sites that no extracted definition matches.
 - **Internal**: Added cold settings-analysis benchmarks for conditional bindings and corpus projects.
-
-### Changed
-
 - Reduced analysis time for Django settings with many conditional branches.
 - Removed eager Django Model scanning and Model Graph construction from project discovery and cache warm-up.
 - Swapped the order of environments when automatically finding a project's Python interpreter, preferring the project venv dirs to `VIRTUAL_ENV`, to account for pre-commit isolated environments.
