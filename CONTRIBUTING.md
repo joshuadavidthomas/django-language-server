@@ -109,7 +109,7 @@ Hawk is part of the local linting suite for keeping crate boundaries clean.
 
 ##### Setup
 
-`just hawk` installs the latest prebuilt Hawk release if `cargo-hawk` is missing from `PATH`. Rustup installs the pinned compiler on first use. Orb setup leaves both installations until Hawk is needed; CI installs them explicitly.
+If `cargo-hawk` is missing from `PATH`, `just hawk` asks before downloading and running the latest prebuilt release's installer. Pass `just hawk --yes` (or `-y`) to approve installation without a prompt; noninteractive runs otherwise fail without downloading anything. Existing installations do not prompt. Rustup installs the pinned compiler on first use. Orb setup leaves both installations until Hawk is needed; CI installs them explicitly.
 
 To update an existing Hawk installation, rerun the installer:
 
