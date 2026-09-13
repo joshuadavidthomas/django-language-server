@@ -37,6 +37,13 @@ clippy *ARGS:
 hawk_channel := `sed -n 's/^channel = "\([^"]*\)"/\1/p' tools/hawk/rust-toolchain.toml`
 
 hawk *ARGS:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! command -v cargo-hawk >/dev/null 2>&1; then
+        echo "Installing cargo-hawk"
+        curl --proto '=https' --tlsv1.2 -LsSf \
+            https://github.com/astral-sh/hawk/releases/latest/download/cargo-hawk-installer.sh | sh
+    fi
     cargo "+{{ hawk_channel }}" hawk check \
         --manifest-path "{{ justfile_directory() }}/Cargo.toml" \
         --target-dir "{{ justfile_directory() }}/target/hawk" \

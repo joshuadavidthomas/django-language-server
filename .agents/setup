@@ -43,17 +43,12 @@ fi
 echo "==> Installing Rust toolchains and components"
 rust_channel="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
 rustfmt_channel="$(sed -n 's/^channel = "\(.*\)"/\1/p' tools/rustfmt/rust-toolchain.toml)"
-hawk_channel="$(sed -n 's/^channel = "\(.*\)"/\1/p' tools/hawk/rust-toolchain.toml)"
-if [[ -z "$rust_channel" || -z "$rustfmt_channel" || -z "$hawk_channel" ]]; then
+if [[ -z "$rust_channel" || -z "$rustfmt_channel" ]]; then
     echo "Unable to read a pinned Rust toolchain channel" >&2
     exit 1
 fi
 rustup toolchain install "$rust_channel" --profile minimal --component clippy
-# Formatting uses its pinned nightly; Hawk uses its compiler-private toolchain.
 rustup toolchain install "$rustfmt_channel" --profile minimal --component rustfmt
-if [[ "$hawk_channel" != "$rust_channel" ]]; then
-    rustup toolchain install "$hawk_channel" --profile minimal
-fi
 
 uv_version="$(uv --version 2>/dev/null | awk '{print $2}' || true)"
 if [[ ! "$uv_version" =~ ^([0-9]+)\.([0-9]+)(\.|$) ]] ||
@@ -68,10 +63,6 @@ if [[ "$(just --version 2>/dev/null || true)" != "just 1.57.0" ]]; then
     curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh |
         bash -s -- --tag 1.57.0 --to "$HOME/.local/bin"
 fi
-
-echo "==> Installing latest cargo-hawk (matching CI)"
-curl --proto '=https' --tlsv1.2 -LsSf \
-    https://github.com/astral-sh/hawk/releases/latest/download/cargo-hawk-installer.sh | sh
 
 if [[ "$(cargo insta --version 2>/dev/null || true)" != "cargo-insta 1.48.0" ]]; then
     echo "==> Installing cargo-insta"
