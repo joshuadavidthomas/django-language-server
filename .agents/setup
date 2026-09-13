@@ -34,6 +34,25 @@ EOF
 fi
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 
+if ! command -v mise >/dev/null 2>&1; then
+    echo "==> Installing mise"
+    curl --proto '=https' --tlsv1.2 -LsSf https://mise.run | sh
+fi
+
+echo "==> Installing auxiliary tools from mise.toml"
+mise trust "$repo_root/mise.toml"
+mise install
+# Shims select repository versions in noninteractive shells, too.
+mise_profile_marker="# django-language-server mise shims"
+if ! grep -Fqx "$mise_profile_marker" "$HOME/.bash_profile" 2>/dev/null; then
+    cat >> "$HOME/.bash_profile" <<'EOF'
+
+# django-language-server mise shims
+export PATH="${MISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/mise}/shims:$PATH"
+EOF
+fi
+export PATH="${MISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/mise}/shims:$PATH"
+
 if ! command -v rustup >/dev/null 2>&1; then
     echo "==> Installing rustup"
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs |
@@ -50,37 +69,15 @@ fi
 rustup toolchain install "$rust_channel" --profile minimal --component clippy
 rustup toolchain install "$rustfmt_channel" --profile minimal --component rustfmt
 
-uv_version="$(uv --version 2>/dev/null | awk '{print $2}' || true)"
-if [[ ! "$uv_version" =~ ^([0-9]+)\.([0-9]+)(\.|$) ]] ||
-    ((10#${BASH_REMATCH[1]} == 0 && 10#${BASH_REMATCH[2]} < 11)); then
-    echo "==> Installing uv"
-    curl -LsSf https://astral.sh/uv/install.sh |
-        env UV_INSTALL_DIR="$HOME/.local/bin" sh
-fi
-
-if [[ "$(just --version 2>/dev/null || true)" != "just 1.57.0" ]]; then
-    echo "==> Installing just"
-    curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh |
-        bash -s -- --tag 1.57.0 --to "$HOME/.local/bin"
-fi
-
-if [[ "$(cargo insta --version 2>/dev/null || true)" != "cargo-insta 1.48.0" ]]; then
-    echo "==> Installing cargo-insta"
-    curl --proto '=https' --tlsv1.2 -LsSf \
-        https://github.com/mitsuhiko/insta/releases/download/1.48.0/cargo-insta-installer.sh |
-        env CARGO_INSTA_NO_MODIFY_PATH=1 sh
-fi
+# Cargo searches CARGO_HOME/bin before PATH, including before mise's shims.
+ln -sf "${MISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/mise}/shims/cargo-insta" \
+    "${CARGO_HOME:-$HOME/.cargo}/bin/cargo-insta"
 
 echo "==> Installing locked Python dependencies"
 uv sync --frozen --no-install-project
 
 echo "==> Fetching locked Rust dependencies"
 cargo fetch --locked
-
-if ! command -v prek >/dev/null 2>&1; then
-    echo "==> Installing prek"
-    uv tool install prek
-fi
 
 echo "==> Installing pre-commit hooks"
 hooks_path="$(git config --path core.hooksPath || true)"

@@ -4,9 +4,9 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
-export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+export PATH="${MISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/mise}/shims:$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 
-for command in cargo cargo-insta uv just; do
+for command in mise cargo cargo-insta uv just prek; do
     if ! command -v "$command" >/dev/null 2>&1; then
         echo "Missing required command after resume: $command" >&2
         exit 1

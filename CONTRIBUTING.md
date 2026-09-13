@@ -42,22 +42,31 @@ So far it's all been built by [a simple country CRUD web developer](https://yout
 
 ### First-time setup
 
-Development requires [Rustup](https://rustup.rs/), [uv](https://docs.astral.sh/uv/), and [just](https://just.systems/). The checked-in Rust toolchain files select the required compiler and formatter versions.
+Install [Rustup](https://rustup.rs/) and [mise](https://mise.jdx.dev/getting-started.html), and [activate mise in your shell](https://mise.jdx.dev/getting-started.html#activate-mise). From the repository root, install the auxiliary tools defined in [`mise.toml`](mise.toml):
+
+```bash
+mise trust
+mise install
+```
+
+This installs Just, uv, prek, and cargo-insta at the same versions used by orb setup and CI (CI installs only the tools each job needs). For noninteractive shells and editors, [add mise's shims to `PATH`](https://mise.jdx.dev/dev-tools/shims.html); alternatively prefix commands with `mise exec --`.
+
+If you previously installed cargo-insta, remove that installation first: Cargo searches `$CARGO_HOME/bin` (normally `~/.cargo/bin`) before `PATH`, even under `mise exec`. On Unix, you can instead replace that entry with the mise shim, as orb setup does:
+
+```bash
+ln -sf "${MISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/mise}/shims/cargo-insta" \
+  "${CARGO_HOME:-$HOME/.cargo}/bin/cargo-insta"
+```
+
+Rustup, not mise, owns Rust. The checked-in `rust-toolchain.toml` files select the primary compiler, formatter nightly, and Hawk compiler without duplicate pins in mise. Do not enable mise's Rust idiomatic-file discovery for this repository: its `RUSTUP_TOOLCHAIN` export overrides Rustup's directory-based formatter selection.
 
 Install the locked Python development dependencies without building the local Rust package, install the Git hooks, and prefetch the test corpus:
 
 ```bash
 uv sync --frozen --no-install-project
-uv tool install prek
+cargo fetch --locked
 prek install
 just corpus sync
-```
-
-Install the prebuilt snapshot review tool used throughout the test suite:
-
-```bash
-curl --proto '=https' --tlsv1.2 -LsSf \
-  https://github.com/mitsuhiko/insta/releases/download/1.48.0/cargo-insta-installer.sh | sh
 ```
 
 The first test or lint run may still download a supported Python version, create Nox environments, compile the Rust workspace, and prepare hook environments. Subsequent runs reuse those artifacts. Amp orbs perform these setup steps automatically through `.agents/setup`.
@@ -137,7 +146,7 @@ The recipe does not automatically update an existing Hawk installation. If Hawk 
 - Update the primary compiler in `rust-toolchain.toml`.
 - Update the formatter nightly in `tools/rustfmt/rust-toolchain.toml`, then run `just fmt` and review any formatting changes.
 - When the latest cargo-hawk release requires a new compiler, update `tools/hawk/rust-toolchain.toml` and rerun the Hawk installer locally. CI installs the latest release automatically.
-- Keep the prebuilt cargo-insta version in `.agents/setup` and this guide aligned with the Insta version resolved in `Cargo.lock`.
+- Update auxiliary tool versions in `mise.toml`, then run `mise install`. Keep cargo-insta aligned with the Insta version resolved in `Cargo.lock`.
 
 Hawk uses compiler-private APIs, so even a patch-level compiler mismatch can make it fail before analysis.
 

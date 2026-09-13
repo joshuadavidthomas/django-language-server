@@ -17,6 +17,7 @@ env:
   CARGO_TERM_COLOR: always
   FORCE_COLOR: "1"
   PYTHONUNBUFFERED: "1"
+  UV_CACHE_DIR: ${{ github.workspace }}/.cache/uv
 
 jobs:
   should-run:
@@ -33,18 +34,16 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      - name: Install lint tools from mise.toml
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
         with:
-          activate-environment: true
-          enable-cache: true
+          install_args: uv prek
 
-      # HACK: there's a bug in either `astral-sh/setup-uv` or pre-commit-uv or both
-      # because uv gets installed to `/opt/hostedtoolcache/uv/<version>/x86_64/uv`
-      # and pre-commit-uv apparently only looks for it at `~/.local/bin/uv`
-      - run: |
-          mkdir -p ~/.local/bin
-          ln -sf $(which uv) ~/.local/bin/uv
+      - name: Cache uv dependencies
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.UV_CACHE_DIR }}
+          key: ${{ runner.os }}-${{ runner.arch }}-uv-lint-${{ hashFiles('uv.lock', 'mise.toml', 'noxfile.py') }}
 
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:

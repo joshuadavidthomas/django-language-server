@@ -1,0 +1,7 @@
+# Rust stays with rustup and the checked-in rust-toolchain.toml files.
+# Hawk is installed on demand by `just hawk`, with consent.
+[tools]
+just = "1.57.0"
+uv = "0.12.9"
+prek = "0.5.2"
+cargo-insta = "1.48.0"

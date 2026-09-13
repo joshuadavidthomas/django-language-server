@@ -186,7 +186,9 @@ def lint(session):
             try:
                 args = [arg for arg in session.posargs if arg]
                 session.run(
-                    "uvx",
+                    "uv",
+                    "run",
+                    "--no-project",
                     "--python",
                     python_version,
                     "prek",

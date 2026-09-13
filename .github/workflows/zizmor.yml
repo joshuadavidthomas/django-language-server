@@ -6,10 +6,15 @@ on:
     paths:
       - .github/workflows/**
       - .github/zizmor.yml
+      - mise.toml
   pull_request:
     paths:
       - .github/workflows/**
       - .github/zizmor.yml
+      - mise.toml
+
+env:
+  UV_CACHE_DIR: ${{ github.workspace }}/.cache/uv
 
 jobs:
   zizmor:
@@ -23,10 +28,16 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      - name: Install uv from mise.toml
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
         with:
-          enable-cache: true
+          install_args: uv
+
+      - name: Cache uv dependencies
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.UV_CACHE_DIR }}
+          key: ${{ runner.os }}-${{ runner.arch }}-uv-zizmor-${{ hashFiles('mise.toml') }}
 
       - name: Run zizmor 🌈
         run: uvx zizmor --format=sarif . > results.sarif
