@@ -42,23 +42,17 @@ So far it's all been built by [a simple country CRUD web developer](https://yout
 
 ### First-time setup
 
-Install [Rustup](https://rustup.rs/) and [mise](https://mise.jdx.dev/getting-started.html), and [activate mise in your shell](https://mise.jdx.dev/getting-started.html#activate-mise). From the repository root, install the auxiliary tools defined in [`mise.toml`](mise.toml):
+Install [mise](https://mise.jdx.dev/getting-started.html) and [activate it in your shell](https://mise.jdx.dev/getting-started.html#activate-mise). From the repository root, install the development tools:
 
 ```bash
 mise trust
 mise install
+mise -C tools/rustfmt install rust
 ```
 
-This installs Just, uv, prek, and cargo-insta at the same versions used by orb setup and CI (CI installs only the tools each job needs). For noninteractive shells and editors, [add mise's shims to `PATH`](https://mise.jdx.dev/dev-tools/shims.html); alternatively prefix commands with `mise exec --`.
+This installs Rust, Just, uv, prek, cargo-insta, Hawk, and zizmor. For noninteractive shells and editors, [add mise's shims to `PATH`](https://mise.jdx.dev/dev-tools/shims.html); alternatively prefix commands with `mise exec --`.
 
-If you previously installed cargo-insta, remove that installation first: Cargo searches `$CARGO_HOME/bin` (normally `~/.cargo/bin`) before `PATH`, even under `mise exec`. On Unix, you can instead replace that entry with the mise shim, as orb setup does:
-
-```bash
-ln -sf "${MISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/mise}/shims/cargo-insta" \
-  "${CARGO_HOME:-$HOME/.cargo}/bin/cargo-insta"
-```
-
-Rustup, not mise, owns Rust. The checked-in `rust-toolchain.toml` files select the primary compiler, formatter nightly, and Hawk compiler without duplicate pins in mise. Do not enable mise's Rust idiomatic-file discovery for this repository: its `RUSTUP_TOOLCHAIN` export overrides Rustup's directory-based formatter selection.
+Tool versions are defined in [`mise.toml`](mise.toml) and the checked-in `rust-toolchain.toml` files.
 
 Install the locked Python development dependencies without building the local Rust package, install the Git hooks, and prefetch the test corpus:
 
@@ -69,7 +63,7 @@ prek install
 just corpus sync
 ```
 
-The first test or lint run may still download a supported Python version, create Nox environments, compile the Rust workspace, and prepare hook environments. Subsequent runs reuse those artifacts. Amp orbs perform these setup steps automatically through `.agents/setup`.
+The first test or lint run may still download a supported Python version, create Nox environments, compile the Rust workspace, and prepare hook environments. Subsequent runs reuse those artifacts.
 
 ### Testing
 
@@ -116,17 +110,6 @@ Formatting uses the dated nightly pinned in [`tools/rustfmt/rust-toolchain.toml`
 
 Hawk is part of the local linting suite for keeping crate boundaries clean.
 
-##### Setup
-
-If `cargo-hawk` is missing from `PATH`, `just hawk` asks before downloading and running the latest prebuilt release's installer. Pass `just hawk --yes` (or `-y`) to approve installation without a prompt; noninteractive runs otherwise fail without downloading anything. Existing installations do not prompt. Rustup installs the pinned compiler on first use. Orb setup leaves both installations until Hawk is needed; CI installs them explicitly.
-
-To update an existing Hawk installation, rerun the installer:
-
-```bash
-curl --proto '=https' --tlsv1.2 -LsSf \
-  https://github.com/astral-sh/hawk/releases/latest/download/cargo-hawk-installer.sh | sh
-```
-
 ##### Usage
 
 Run Hawk through `just` rather than `cargo hawk` directly:
@@ -135,17 +118,17 @@ Run Hawk through `just` rather than `cargo hawk` directly:
 just hawk
 ```
 
-The recipe invokes the compiler pinned in [`tools/hawk/rust-toolchain.toml`](tools/hawk/rust-toolchain.toml), as required by cargo-hawk, and enforces findings with `-D warnings`, the same contract as the other lint recipes. Use it when changing public APIs, moving code across crates, or cleaning up visibility.
+The recipe invokes the compiler pinned in [`tools/hawk/rust-toolchain.toml`](tools/hawk/rust-toolchain.toml), as required by cargo-hawk, and enforces findings with `-D warnings`, the same contract as the other lint recipes. Rustup installs that compiler on first use if needed. Use it when changing public APIs, moving code across crates, or cleaning up visibility.
 
 A Hawk run is more compile-intensive than normal linting. It checks the configured production binaries and workspace non-production targets, so a single run may perform multiple Cargo analysis passes. `--fix` can repeat analysis while visibility changes converge. That cost is expected: Hawk answers a different question than clippy, namely whether crate boundaries expose more API surface than the workspace needs.
 
-The recipe does not automatically update an existing Hawk installation. If Hawk reports a compiler mismatch, update Hawk with the command above and check that `tools/hawk/rust-toolchain.toml` matches the compiler required in the [Hawk release notes](https://github.com/astral-sh/hawk/releases). After applying Hawk fixes, run the normal lint and test checks; newly private code may expose cleanup work that belongs there.
+After applying Hawk fixes, run the normal lint and test checks; newly private code may expose cleanup work that belongs there.
 
 #### Updating development tools
 
 - Update the primary compiler in `rust-toolchain.toml`.
 - Update the formatter nightly in `tools/rustfmt/rust-toolchain.toml`, then run `just fmt` and review any formatting changes.
-- When the latest cargo-hawk release requires a new compiler, update `tools/hawk/rust-toolchain.toml` and rerun the Hawk installer locally. CI installs the latest release automatically.
+- Update Hawk in `mise.toml` together with its required compiler in `tools/hawk/rust-toolchain.toml`, then run `mise install` and `just hawk`. CI uses the same pins.
 - Update auxiliary tool versions in `mise.toml`, then run `mise install`. Keep cargo-insta aligned with the Insta version resolved in `Cargo.lock`.
 
 Hawk uses compiler-private APIs, so even a patch-level compiler mismatch can make it fail before analysis.

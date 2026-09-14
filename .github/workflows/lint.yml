@@ -34,7 +34,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install lint tools from mise.toml
+      - name: Install uv
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
         with:
           install_args: uv prek
@@ -78,6 +78,7 @@ jobs:
               - 'clippy.toml'
               - 'hawk.toml'
               - 'Justfile'
+              - 'mise.toml'
               - 'rust-toolchain.toml'
               - 'tools/hawk/rust-toolchain.toml'
               - 'tools/rustfmt/rust-toolchain.toml'
@@ -111,14 +112,10 @@ jobs:
             ${{ runner.os }}-${{ runner.arch }}-cargo-registry-
             ${{ runner.os }}-cargo-registry-
 
-      - id: rustfmt-toolchain
-        name: Read rustfmt toolchain
-        run: echo "channel=$(sed -n 's/^channel = "\(.*\)"/\1/p' tools/rustfmt/rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
-
-      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
         with:
-          toolchain: ${{ steps.rustfmt-toolchain.outputs.channel }}
-          components: rustfmt
+          working_directory: tools/rustfmt
+          install_args: rust
 
       - name: Run rustfmt
         working-directory: tools/rustfmt
@@ -153,9 +150,11 @@ jobs:
             ${{ runner.os }}-${{ runner.arch }}-cargo-registry-
             ${{ runner.os }}-cargo-registry-
 
-      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
         with:
-          components: clippy
+          install_args: rust
+
+      - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
 
       - name: Run clippy
         run: cargo clippy --all-targets --all-features --benches -- -D warnings
@@ -189,22 +188,15 @@ jobs:
             ${{ runner.os }}-${{ runner.arch }}-cargo-registry-
             ${{ runner.os }}-cargo-registry-
 
-      - id: hawk-toolchain
-        name: Read Hawk toolchain
-        run: echo "channel=$(sed -n 's/^channel = "\(.*\)"/\1/p' tools/hawk/rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
-
-      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
         with:
-          toolchain: ${{ steps.hawk-toolchain.outputs.channel }}
+          working_directory: tools/hawk
+          install_args: rust github:astral-sh/hawk
 
-      - name: Install cargo-hawk
-        run: |
-          curl --proto '=https' --tlsv1.2 -LsSf \
-            https://github.com/astral-sh/hawk/releases/latest/download/cargo-hawk-installer.sh | sh
+      - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
 
       - name: Run hawk
-        env:
-          RUSTUP_TOOLCHAIN: ${{ steps.hawk-toolchain.outputs.channel }}
+        working-directory: tools/hawk
         run: cargo hawk check --manifest-path "${{ github.workspace }}/Cargo.toml" --target-dir "${{ github.workspace }}/target/hawk" -D warnings
 
   cargo-check:
@@ -236,7 +228,11 @@ jobs:
             ${{ runner.os }}-${{ runner.arch }}-cargo-registry-
             ${{ runner.os }}-cargo-registry-
 
-      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+        with:
+          install_args: rust
+
+      - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
 
       - name: Run cargo check
         run: cargo check --all-targets --all-features

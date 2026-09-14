@@ -39,9 +39,10 @@ if ! command -v mise >/dev/null 2>&1; then
     curl --proto '=https' --tlsv1.2 -LsSf https://mise.run | sh
 fi
 
-echo "==> Installing auxiliary tools from mise.toml"
+echo "==> Installing development tools"
 mise trust "$repo_root/mise.toml"
 mise install
+mise -C tools/rustfmt install rust
 # Shims select repository versions in noninteractive shells, too.
 mise_profile_marker="# django-language-server mise shims"
 if ! grep -Fqx "$mise_profile_marker" "$HOME/.bash_profile" 2>/dev/null; then
@@ -53,25 +54,10 @@ EOF
 fi
 export PATH="${MISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/mise}/shims:$PATH"
 
-if ! command -v rustup >/dev/null 2>&1; then
-    echo "==> Installing rustup"
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs |
-        sh -s -- -y --profile minimal --no-modify-path
-fi
-
-echo "==> Installing Rust toolchains and components"
-rust_channel="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
-rustfmt_channel="$(sed -n 's/^channel = "\(.*\)"/\1/p' tools/rustfmt/rust-toolchain.toml)"
-if [[ -z "$rust_channel" || -z "$rustfmt_channel" ]]; then
-    echo "Unable to read a pinned Rust toolchain channel" >&2
-    exit 1
-fi
-rustup toolchain install "$rust_channel" --profile minimal --component clippy
-rustup toolchain install "$rustfmt_channel" --profile minimal --component rustfmt
-
 # Cargo searches CARGO_HOME/bin before PATH, including before mise's shims.
-ln -sf "${MISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/mise}/shims/cargo-insta" \
-    "${CARGO_HOME:-$HOME/.cargo}/bin/cargo-insta"
+for tool in cargo-insta cargo-hawk; do
+    ln -sf "$(mise which "$tool")" "${CARGO_HOME:-$HOME/.cargo}/bin/$tool"
+done
 
 echo "==> Installing locked Python dependencies"
 uv sync --frozen --no-install-project
