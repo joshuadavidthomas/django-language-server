@@ -5,16 +5,9 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
 echo "==> Installing system build dependencies"
-packages=(build-essential ca-certificates pkg-config)
-missing_packages=()
-for package in "${packages[@]}"; do
-    if ! dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -q 'ok installed'; then
-        missing_packages+=("$package")
-    fi
-done
-if ((${#missing_packages[@]})); then
+if ! dpkg-query -W -f='${Status}' build-essential 2>/dev/null | grep -q 'ok installed'; then
     sudo apt-get update
-    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "${missing_packages[@]}"
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential
 fi
 
 echo "==> Configuring tool paths for login shells"
