@@ -218,3 +218,6 @@ perf.data*
 # Local agent planning artifacts
 /.agents/ROADMAP.md
 /.agents/plans/
+
+# Orb-generated portal manifests
+/.amp/portals/

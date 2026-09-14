@@ -5,7 +5,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
 echo "==> Installing system build dependencies"
-packages=(build-essential ca-certificates curl git pkg-config)
+packages=(build-essential ca-certificates pkg-config)
 missing_packages=()
 for package in "${packages[@]}"; do
     if ! dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -q 'ok installed'; then
@@ -54,7 +54,13 @@ EOF
 fi
 export PATH="${MISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/mise}/shims:$PATH"
 
-# Cargo searches CARGO_HOME/bin before PATH, including before mise's shims.
+# The Orb login environment puts ~/.local/bin before mise's shims. Keep the
+# project-managed tools authoritative in fresh login shells and agent processes.
+for tool in cargo-insta cargo-hawk just prek uv zizmor; do
+    ln -sf "$(mise which "$tool")" "$HOME/.local/bin/$tool"
+done
+
+# Cargo also searches CARGO_HOME/bin before PATH.
 for tool in cargo-insta cargo-hawk; do
     ln -sf "$(mise which "$tool")" "${CARGO_HOME:-$HOME/.cargo}/bin/$tool"
 done
