@@ -118,10 +118,18 @@ fn evaluate_python_module_cycle_recover(
     module: PythonSourceModule,
     _intrinsic_contamination: IntrinsicContamination,
 ) -> PythonModuleEvaluation {
-    assert!(
-        cycle.iteration() < 12,
-        "Python module cycle should converge within twelve iterations"
-    );
+    // This is a defensive work budget, not a property of Python import cycles. Widening normally
+    // converges in a few passes; twelve preserves the existing budget while staying well below
+    // Salsa's own 200-iteration panic.
+    const ITERATION_BUDGET: u32 = 12;
+    if cycle.iteration() >= ITERATION_BUDGET {
+        tracing::warn!(
+            iteration = cycle.iteration(),
+            "Python module cycle did not converge; using the previous conservative approximation"
+        );
+        // Returning the previous value makes Salsa recognize this iteration as converged.
+        return previous.clone();
+    }
     let unchanged = previous == &computed;
     match computed {
         PythonModuleEvaluation::CycleSeed => PythonModuleEvaluation::CycleSeed,

@@ -29,9 +29,7 @@ use djls_testing::ProjectFixture;
 use djls_testing::SalsaEventLog;
 use djls_testing::TestDatabase;
 use djls_testing::django_facts_project;
-use salsa::Database;
-use salsa::Event;
-use salsa::EventKind;
+use djls_testing::will_execute_count;
 use serde_json::Value;
 use serde_json::to_value;
 
@@ -54,29 +52,6 @@ fn has_case(value: &Value, kind: &str) -> bool {
             .iter()
             .any(|case| case.as_str() == Some(kind) || case.get(kind).is_some())
     })
-}
-
-fn execution_count(db: &(impl Database + ?Sized), events: &[Event], query_name: &str) -> usize {
-    events
-        .iter()
-        .filter(|event| match &event.kind {
-            EventKind::WillExecute { database_key } => db
-                .ingredient_debug_name(database_key.ingredient_index())
-                .contains(query_name),
-            EventKind::DidValidateMemoizedValue { .. }
-            | EventKind::WillBlockOn { .. }
-            | EventKind::WillIterateCycle { .. }
-            | EventKind::DidFinalizeCycle { .. }
-            | EventKind::WillCheckCancellation
-            | EventKind::DidSetCancellationFlag
-            | EventKind::WillDiscardStaleOutput { .. }
-            | EventKind::DidDiscard { .. }
-            | EventKind::DidDiscardAccumulated { .. }
-            | EventKind::DidInternValue { .. }
-            | EventKind::DidReuseInternedValue { .. }
-            | EventKind::DidValidateInternedValue { .. } => false,
-        })
-        .count()
 }
 
 fn update_project_file(
@@ -383,11 +358,14 @@ fn settings_consumers_share_one_core_evaluation_without_mutation() {
         .take()
         .expect("settings event log should be readable");
 
-    assert_eq!(execution_count(&db, &events, "evaluate_python_module"), 1);
-    assert_eq!(execution_count(&db, &events, "python_module_facts"), 1);
-    assert_eq!(execution_count(&db, &events, "python_import_trace"), 1);
-    assert_eq!(execution_count(&db, &events, "django_settings"), 1);
-    assert_eq!(execution_count(&db, &events, "settings_sources"), 1);
+    assert_eq!(
+        will_execute_count(&db, &events, "evaluate_python_module"),
+        1
+    );
+    assert_eq!(will_execute_count(&db, &events, "python_module_facts"), 1);
+    assert_eq!(will_execute_count(&db, &events, "python_import_trace"), 1);
+    assert_eq!(will_execute_count(&db, &events, "django_settings"), 1);
+    assert_eq!(will_execute_count(&db, &events, "settings_sources"), 1);
 }
 
 #[test]
@@ -426,12 +404,15 @@ fn comment_only_leaf_edit_backdates_before_evaluation_root_and_sibling() {
         .take()
         .expect("settings event log should be readable");
 
-    assert_eq!(execution_count(&db, &events, "parse_python_file"), 1);
-    assert_eq!(execution_count(&db, &events, "evaluate_python_module"), 0);
-    assert_eq!(execution_count(&db, &events, "python_module_facts"), 0);
-    assert_eq!(execution_count(&db, &events, "python_import_trace"), 0);
-    assert_eq!(execution_count(&db, &events, "django_settings"), 0);
-    assert_eq!(execution_count(&db, &events, "settings_sources"), 0);
+    assert_eq!(will_execute_count(&db, &events, "parse_python_file"), 1);
+    assert_eq!(
+        will_execute_count(&db, &events, "evaluate_python_module"),
+        0
+    );
+    assert_eq!(will_execute_count(&db, &events, "python_module_facts"), 0);
+    assert_eq!(will_execute_count(&db, &events, "python_import_trace"), 0);
+    assert_eq!(will_execute_count(&db, &events, "django_settings"), 0);
+    assert_eq!(will_execute_count(&db, &events, "settings_sources"), 0);
 }
 
 #[test]
@@ -461,11 +442,14 @@ fn value_change_backdates_dependency_projection() {
         .take()
         .expect("settings event log should be readable");
 
-    assert_eq!(execution_count(&db, &events, "evaluate_python_module"), 1);
-    assert_eq!(execution_count(&db, &events, "python_module_facts"), 1);
-    assert_eq!(execution_count(&db, &events, "django_settings"), 1);
-    assert_eq!(execution_count(&db, &events, "python_import_trace"), 1);
-    assert_eq!(execution_count(&db, &events, "settings_sources"), 0);
+    assert_eq!(
+        will_execute_count(&db, &events, "evaluate_python_module"),
+        1
+    );
+    assert_eq!(will_execute_count(&db, &events, "python_module_facts"), 1);
+    assert_eq!(will_execute_count(&db, &events, "django_settings"), 1);
+    assert_eq!(will_execute_count(&db, &events, "python_import_trace"), 1);
+    assert_eq!(will_execute_count(&db, &events, "settings_sources"), 0);
 }
 
 #[test]
@@ -503,11 +487,14 @@ fn dependency_change_backdates_value_projection() {
     // `myproject/__init__.py` (a distinct file) plus `myproject.extra`, so three
     // modules evaluate and all three files are dependency sources.
     assert_eq!(sources.count(), 3);
-    assert_eq!(execution_count(&db, &events, "evaluate_python_module"), 3);
-    assert_eq!(execution_count(&db, &events, "python_import_trace"), 1);
-    assert_eq!(execution_count(&db, &events, "settings_sources"), 1);
-    assert_eq!(execution_count(&db, &events, "python_module_facts"), 1);
-    assert_eq!(execution_count(&db, &events, "django_settings"), 0);
+    assert_eq!(
+        will_execute_count(&db, &events, "evaluate_python_module"),
+        3
+    );
+    assert_eq!(will_execute_count(&db, &events, "python_import_trace"), 1);
+    assert_eq!(will_execute_count(&db, &events, "settings_sources"), 1);
+    assert_eq!(will_execute_count(&db, &events, "python_module_facts"), 1);
+    assert_eq!(will_execute_count(&db, &events, "django_settings"), 0);
 }
 
 #[test]
@@ -540,11 +527,14 @@ fn origin_shift_changes_values_but_backdates_dependency_projection() {
         .expect("settings event log should be readable");
 
     assert_ne!(after, before);
-    assert_eq!(execution_count(&db, &events, "evaluate_python_module"), 1);
-    assert_eq!(execution_count(&db, &events, "python_module_facts"), 1);
-    assert_eq!(execution_count(&db, &events, "django_settings"), 1);
-    assert_eq!(execution_count(&db, &events, "python_import_trace"), 1);
-    assert_eq!(execution_count(&db, &events, "settings_sources"), 0);
+    assert_eq!(
+        will_execute_count(&db, &events, "evaluate_python_module"),
+        1
+    );
+    assert_eq!(will_execute_count(&db, &events, "python_module_facts"), 1);
+    assert_eq!(will_execute_count(&db, &events, "django_settings"), 1);
+    assert_eq!(will_execute_count(&db, &events, "python_import_trace"), 1);
+    assert_eq!(will_execute_count(&db, &events, "settings_sources"), 0);
 }
 
 #[test]
@@ -581,11 +571,14 @@ fn unreachable_import_edit_keeps_root_paths_cold() {
         .take()
         .expect("settings event log should be readable");
 
-    assert_eq!(execution_count(&db, &events, "evaluate_python_module"), 0);
-    assert_eq!(execution_count(&db, &events, "python_module_facts"), 0);
-    assert_eq!(execution_count(&db, &events, "python_import_trace"), 0);
-    assert_eq!(execution_count(&db, &events, "django_settings"), 0);
-    assert_eq!(execution_count(&db, &events, "settings_sources"), 0);
+    assert_eq!(
+        will_execute_count(&db, &events, "evaluate_python_module"),
+        0
+    );
+    assert_eq!(will_execute_count(&db, &events, "python_module_facts"), 0);
+    assert_eq!(will_execute_count(&db, &events, "python_import_trace"), 0);
+    assert_eq!(will_execute_count(&db, &events, "django_settings"), 0);
+    assert_eq!(will_execute_count(&db, &events, "settings_sources"), 0);
 }
 
 #[test]
@@ -617,10 +610,10 @@ fn direct_settings_cycle_is_bounded_and_retains_local_values() {
     // `myproject/__init__.py`, which becomes a second dependency source and is
     // projected once.
     assert_eq!(sources.count(), 2);
-    let evaluations = execution_count(&db, &events, "evaluate_python_module");
+    let evaluations = will_execute_count(&db, &events, "evaluate_python_module");
     assert!((1..=12).contains(&evaluations));
-    assert_eq!(execution_count(&db, &events, "python_module_facts"), 1);
-    assert_eq!(execution_count(&db, &events, "python_import_trace"), 1);
+    assert_eq!(will_execute_count(&db, &events, "python_module_facts"), 1);
+    assert_eq!(will_execute_count(&db, &events, "python_import_trace"), 1);
 }
 
 #[test]
@@ -784,10 +777,10 @@ fn two_file_settings_cycle_is_bounded_and_retains_local_values() {
     // The two-file cycle also loads its distinct parent package
     // `myproject/__init__.py`, a third dependency source.
     assert_eq!(sources.count(), 3);
-    let evaluations = execution_count(&db, &events, "evaluate_python_module");
+    let evaluations = will_execute_count(&db, &events, "evaluate_python_module");
     assert!((2..=24).contains(&evaluations));
-    assert_eq!(execution_count(&db, &events, "python_module_facts"), 1);
-    assert_eq!(execution_count(&db, &events, "python_import_trace"), 1);
+    assert_eq!(will_execute_count(&db, &events, "python_module_facts"), 1);
+    assert_eq!(will_execute_count(&db, &events, "python_import_trace"), 1);
 }
 
 #[test]
@@ -835,13 +828,16 @@ fn child_topology_change_backdates_values_projection() {
     // backdates even though the recursive core and its dependency projection
     // both recompute against the new child topology.
     assert_eq!(after, before);
-    assert_eq!(execution_count(&db, &events, "evaluate_python_module"), 3);
-    assert_eq!(execution_count(&db, &events, "python_import_trace"), 1);
-    assert_eq!(execution_count(&db, &events, "settings_sources"), 1);
+    assert_eq!(
+        will_execute_count(&db, &events, "evaluate_python_module"),
+        3
+    );
+    assert_eq!(will_execute_count(&db, &events, "python_import_trace"), 1);
+    assert_eq!(will_execute_count(&db, &events, "settings_sources"), 1);
     // `python_module_facts` recomputes but produces an equal projection, so it
     // backdates and `django_settings` never re-runs.
-    assert_eq!(execution_count(&db, &events, "python_module_facts"), 1);
-    assert_eq!(execution_count(&db, &events, "django_settings"), 0);
+    assert_eq!(will_execute_count(&db, &events, "python_module_facts"), 1);
+    assert_eq!(will_execute_count(&db, &events, "django_settings"), 0);
 }
 
 #[test]
@@ -886,10 +882,13 @@ fn parent_package_init_edit_invalidates_dotted_consumer() {
     // the settings consumer that reads `myproject.pkg.APPS`: the parent and the
     // consumer recompute and the changed lexical value flows to settings.
     assert_ne!(after, before);
-    assert_eq!(execution_count(&db, &events, "evaluate_python_module"), 2);
-    assert_eq!(execution_count(&db, &events, "python_module_facts"), 1);
-    assert_eq!(execution_count(&db, &events, "python_import_trace"), 1);
-    assert_eq!(execution_count(&db, &events, "django_settings"), 1);
+    assert_eq!(
+        will_execute_count(&db, &events, "evaluate_python_module"),
+        2
+    );
+    assert_eq!(will_execute_count(&db, &events, "python_module_facts"), 1);
+    assert_eq!(will_execute_count(&db, &events, "python_import_trace"), 1);
+    assert_eq!(will_execute_count(&db, &events, "django_settings"), 1);
 }
 
 #[test]
@@ -935,12 +934,15 @@ fn external_module_body_edit_never_reaches_the_consumer() {
     // The external body is never parsed, evaluated, or recorded as a dependency,
     // so editing it leaves every projection cold and the settings unchanged.
     assert_eq!(after, before);
-    assert_eq!(execution_count(&db, &events, "parse_python_file"), 0);
-    assert_eq!(execution_count(&db, &events, "evaluate_python_module"), 0);
-    assert_eq!(execution_count(&db, &events, "python_module_facts"), 0);
-    assert_eq!(execution_count(&db, &events, "python_import_trace"), 0);
-    assert_eq!(execution_count(&db, &events, "settings_sources"), 0);
-    assert_eq!(execution_count(&db, &events, "django_settings"), 0);
+    assert_eq!(will_execute_count(&db, &events, "parse_python_file"), 0);
+    assert_eq!(
+        will_execute_count(&db, &events, "evaluate_python_module"),
+        0
+    );
+    assert_eq!(will_execute_count(&db, &events, "python_module_facts"), 0);
+    assert_eq!(will_execute_count(&db, &events, "python_import_trace"), 0);
+    assert_eq!(will_execute_count(&db, &events, "settings_sources"), 0);
+    assert_eq!(will_execute_count(&db, &events, "django_settings"), 0);
 }
 
 #[test]
@@ -1000,9 +1002,12 @@ fn search_path_winner_change_recomputes_module_reads() {
         after["installed_apps"]["cases"][0]["known"]["apps"][0]["value"],
         "root"
     );
-    assert_eq!(execution_count(&db, &events, "evaluate_python_module"), 2);
-    assert_eq!(execution_count(&db, &events, "python_module_facts"), 1);
-    assert_eq!(execution_count(&db, &events, "django_settings"), 1);
+    assert_eq!(
+        will_execute_count(&db, &events, "evaluate_python_module"),
+        2
+    );
+    assert_eq!(will_execute_count(&db, &events, "python_module_facts"), 1);
+    assert_eq!(will_execute_count(&db, &events, "django_settings"), 1);
 }
 
 struct ToggleReadFileSystem {
@@ -1101,23 +1106,23 @@ fn readable_unreadable_rescans_recompute_ancestors_once_and_retain_dependency() 
             .expect("settings event log should be readable");
 
         assert_eq!(
-            execution_count(&db, &transition_events, "evaluate_python_module"),
+            will_execute_count(&db, &transition_events, "evaluate_python_module"),
             2
         );
         assert_eq!(
-            execution_count(&db, &transition_events, "python_module_facts"),
+            will_execute_count(&db, &transition_events, "python_module_facts"),
             1
         );
         assert_eq!(
-            execution_count(&db, &transition_events, "python_import_trace"),
+            will_execute_count(&db, &transition_events, "python_import_trace"),
             1
         );
         assert_eq!(
-            execution_count(&db, &transition_events, "django_settings"),
+            will_execute_count(&db, &transition_events, "django_settings"),
             1
         );
         assert_eq!(
-            execution_count(&db, &transition_events, "settings_sources"),
+            will_execute_count(&db, &transition_events, "settings_sources"),
             1
         );
     }

@@ -186,7 +186,6 @@ mod marker_tests {
 
 #[cfg(test)]
 mod invalidation_tests {
-    use std::borrow::Cow;
     use std::collections::BTreeMap;
     use std::fs::write;
     use std::io;
@@ -240,9 +239,8 @@ mod invalidation_tests {
     use djls_source::WalkOptions;
     use djls_source::path_to_file;
     use djls_templates::parse_template;
-    use salsa::Database;
+    use djls_testing::will_execute_count;
     use salsa::Event;
-    use salsa::EventKind;
     use salsa::Setter;
     use salsa::Storage;
     use tempfile::TempDir;
@@ -326,49 +324,15 @@ mod invalidation_tests {
         }
     }
 
-    fn executed_query_name<'db>(db: &'db DjangoDatabase, event: &Event) -> Option<Cow<'db, str>> {
-        match &event.kind {
-            EventKind::WillExecute { database_key } => {
-                Some(db.ingredient_debug_name(database_key.ingredient_index()))
-            }
-            EventKind::DidValidateMemoizedValue { .. }
-            | EventKind::WillBlockOn { .. }
-            | EventKind::WillIterateCycle { .. }
-            | EventKind::DidFinalizeCycle { .. }
-            | EventKind::WillCheckCancellation
-            | EventKind::DidSetCancellationFlag
-            | EventKind::WillDiscardStaleOutput { .. }
-            | EventKind::DidDiscard { .. }
-            | EventKind::DidDiscardAccumulated { .. }
-            | EventKind::DidInternValue { .. }
-            | EventKind::DidReuseInternedValue { .. }
-            | EventKind::DidValidateInternedValue { .. } => None,
-        }
-    }
-
     /// Check whether a tracked query with the given name was executed
     /// (i.e., had a `WillExecute` event) in the captured events.
     fn was_executed(db: &DjangoDatabase, events: &[Event], query_name: &str) -> bool {
-        events
-            .iter()
-            .filter_map(|event| executed_query_name(db, event))
-            .any(|name| name.contains(query_name))
+        will_execute_count(db, events, query_name) > 0
     }
 
-    fn execution_count(db: &DjangoDatabase, events: &[Event], query_name: &str) -> usize {
-        events
-            .iter()
-            .filter_map(|event| executed_query_name(db, event))
-            .filter(|name| name.contains(query_name))
-            .count()
-    }
-
-    fn exact_execution_count(db: &DjangoDatabase, events: &[Event], query_name: &str) -> usize {
-        events
-            .iter()
-            .filter_map(|event| executed_query_name(db, event))
-            .filter(|name| name.rsplit("::").next() == Some(query_name))
-            .count()
+    fn template_symbol_execution_count(db: &DjangoDatabase, events: &[Event]) -> usize {
+        will_execute_count(db, events, "template_symbols")
+            + will_execute_count(db, events, "template_symbols_in_scope")
     }
 
     /// Create a test database with event logging and a pre-configured project.
@@ -535,15 +499,15 @@ mod invalidation_tests {
         }));
         let prime_events = event_log.take();
         assert_eq!(
-            exact_execution_count(&db, &prime_events, "library_tag_specs"),
+            will_execute_count(&db, &prime_events, "library_tag_specs"),
             3
         );
         assert_eq!(
-            exact_execution_count(&db, &prime_events, "library_filter_specs"),
+            will_execute_count(&db, &prime_events, "library_filter_specs"),
             3
         );
         assert_eq!(
-            exact_execution_count(&db, &prime_events, "semantic_grammar_vocabulary"),
+            will_execute_count(&db, &prime_events, "semantic_grammar_vocabulary"),
             1
         );
         for forbidden in [
@@ -551,7 +515,7 @@ mod invalidation_tests {
             "template_analysis_projection_for_file_in_scope",
             "validate_template_file",
         ] {
-            assert_eq!(exact_execution_count(&db, &prime_events, forbidden), 0);
+            assert_eq!(will_execute_count(&db, &prime_events, forbidden), 0);
         }
 
         validate_template_file(&db, child_file);
@@ -560,11 +524,11 @@ mod invalidation_tests {
         assert!(errors.is_empty());
         let first_request = event_log.take();
         assert_eq!(
-            exact_execution_count(&db, &first_request, "validate_template_file"),
+            will_execute_count(&db, &first_request, "validate_template_file"),
             1
         );
         assert_eq!(
-            exact_execution_count(&db, &first_request, "template_library_scope"),
+            will_execute_count(&db, &first_request, "template_library_scope"),
             1,
             "one scoped Template Library view should be computed for the whole file",
         );
@@ -576,7 +540,7 @@ mod invalidation_tests {
             "tag_specs_for_file",
             "tag_specs_at",
         ] {
-            assert_eq!(exact_execution_count(&db, &first_request, intrinsic), 0);
+            assert_eq!(will_execute_count(&db, &first_request, intrinsic), 0);
         }
 
         validate_template_file(&db, child_file);
@@ -589,7 +553,7 @@ mod invalidation_tests {
             "library_tag_specs",
             "library_filter_specs",
         ] {
-            assert_eq!(exact_execution_count(&db, &repeated, cached), 0);
+            assert_eq!(will_execute_count(&db, &repeated, cached), 0);
         }
     }
 
@@ -608,11 +572,11 @@ mod invalidation_tests {
         assert_eq!(primed.full_reload_files().len(), 1);
         let prime_events = event_log.take();
         assert_eq!(
-            exact_execution_count(&db, &prime_events, "semantic_grammar_vocabulary"),
+            will_execute_count(&db, &prime_events, "semantic_grammar_vocabulary"),
             1
         );
         assert_eq!(
-            exact_execution_count(&db, &prime_events, "validate_template_file"),
+            will_execute_count(&db, &prime_events, "validate_template_file"),
             0
         );
 
@@ -643,7 +607,7 @@ mod invalidation_tests {
 
         let validation_events = event_log.take();
         assert_eq!(
-            exact_execution_count(&db, &validation_events, "validate_template_file"),
+            will_execute_count(&db, &validation_events, "validate_template_file"),
             2
         );
         for intrinsic in [
@@ -653,7 +617,7 @@ mod invalidation_tests {
             "semantic_grammar_vocabulary",
         ] {
             assert_eq!(
-                exact_execution_count(&db, &validation_events, intrinsic),
+                will_execute_count(&db, &validation_events, intrinsic),
                 0,
                 "parallel validation lazily executed {intrinsic}"
             );
@@ -685,7 +649,7 @@ mod invalidation_tests {
         );
         let events = event_log.take();
         assert_eq!(
-            exact_execution_count(&db, &events, "template_library_catalog"),
+            will_execute_count(&db, &events, "template_library_catalog"),
             1
         );
 
@@ -706,15 +670,12 @@ mod invalidation_tests {
         }
         let events = event_log.take();
         assert_eq!(
-            exact_execution_count(&db, &events, "template_library_definition_facts"),
+            will_execute_count(&db, &events, "template_library_definition_facts"),
             0,
             "catalog assembly should have primed equality-bearing definition facts",
         );
-        assert_eq!(exact_execution_count(&db, &events, "library_tag_specs"), 2);
-        assert_eq!(
-            exact_execution_count(&db, &events, "library_filter_specs"),
-            2
-        );
+        assert_eq!(will_execute_count(&db, &events, "library_tag_specs"), 2);
+        assert_eq!(will_execute_count(&db, &events, "library_filter_specs"), 2);
 
         let scoped_libraries = scoped_template_libraries_for_file(&db, child_file);
         let names = scoped_libraries
@@ -724,7 +685,7 @@ mod invalidation_tests {
         assert!(names.contains(&"block"));
         let events = event_log.take();
         assert_eq!(
-            exact_execution_count(&db, &events, "template_library_scope"),
+            will_execute_count(&db, &events, "template_library_scope"),
             1
         );
 
@@ -734,7 +695,7 @@ mod invalidation_tests {
         assert!(tree.regions(&db).iter().next().is_some());
         let events = event_log.take();
         assert_eq!(
-            exact_execution_count(
+            will_execute_count(
                 &db,
                 &events,
                 "template_analysis_projection_for_file_in_scope",
@@ -742,7 +703,7 @@ mod invalidation_tests {
             1
         );
         assert_eq!(
-            exact_execution_count(&db, &events, "build_template_tree_for_file"),
+            will_execute_count(&db, &events, "build_template_tree_for_file"),
             1
         );
 
@@ -752,11 +713,11 @@ mod invalidation_tests {
         assert!(errors.is_empty());
         let events = event_log.take();
         assert_eq!(
-            exact_execution_count(&db, &events, "validate_template_file"),
+            will_execute_count(&db, &events, "validate_template_file"),
             1
         );
         assert_eq!(
-            exact_execution_count(
+            will_execute_count(
                 &db,
                 &events,
                 "template_analysis_projection_for_file_in_scope",
@@ -768,7 +729,7 @@ mod invalidation_tests {
         validate_template_file(&db, child_file);
         let events = event_log.take();
         assert_eq!(
-            exact_execution_count(&db, &events, "validate_template_file"),
+            will_execute_count(&db, &events, "validate_template_file"),
             0,
             "same-revision validation should be memoized",
         );
@@ -819,9 +780,9 @@ mod invalidation_tests {
             }
 
             let events = event_log.take();
-            assert_eq!(exact_execution_count(&db, &events, "parse_template"), 1);
+            assert_eq!(will_execute_count(&db, &events, "parse_template"), 1);
             assert_eq!(
-                exact_execution_count(
+                will_execute_count(
                     &db,
                     &events,
                     "template_analysis_projection_for_file_in_scope"
@@ -829,7 +790,7 @@ mod invalidation_tests {
                 1
             );
             assert_eq!(
-                exact_execution_count(&db, &events, "validate_template_file"),
+                will_execute_count(&db, &events, "validate_template_file"),
                 1
             );
             for intrinsic in [
@@ -837,7 +798,7 @@ mod invalidation_tests {
                 "library_tag_specs",
                 "library_filter_specs",
             ] {
-                assert_eq!(exact_execution_count(&db, &events, intrinsic), 0);
+                assert_eq!(will_execute_count(&db, &events, intrinsic), 0);
             }
         }
     }
@@ -873,9 +834,9 @@ mod invalidation_tests {
             validate_template_file::accumulated::<ValidationErrorAccumulator>(&db, child_file);
         assert!(errors.is_empty());
         let events = event_log.take();
-        assert_eq!(exact_execution_count(&db, &events, "parse_template"), 1);
+        assert_eq!(will_execute_count(&db, &events, "parse_template"), 1);
         assert_eq!(
-            exact_execution_count(
+            will_execute_count(
                 &db,
                 &events,
                 "template_analysis_projection_for_file_in_scope"
@@ -883,7 +844,7 @@ mod invalidation_tests {
             1
         );
         assert_eq!(
-            exact_execution_count(&db, &events, "validate_template_file"),
+            will_execute_count(&db, &events, "validate_template_file"),
             1
         );
         for intrinsic in [
@@ -891,7 +852,7 @@ mod invalidation_tests {
             "library_tag_specs",
             "library_filter_specs",
         ] {
-            assert_eq!(exact_execution_count(&db, &events, intrinsic), 0);
+            assert_eq!(will_execute_count(&db, &events, intrinsic), 0);
         }
     }
 
@@ -916,7 +877,7 @@ mod invalidation_tests {
         build_template_tree_for_file(&db, child_file, nodelist);
         let events = event_log.take();
         assert_eq!(
-            exact_execution_count(
+            will_execute_count(
                 &db,
                 &events,
                 "template_analysis_projection_for_file_in_scope",
@@ -934,7 +895,7 @@ mod invalidation_tests {
         build_template_tree_for_file(&db, child_file, nodelist);
         let events = event_log.take();
         assert_eq!(
-            exact_execution_count(
+            will_execute_count(
                 &db,
                 &events,
                 "template_analysis_projection_for_file_in_scope",
@@ -961,7 +922,7 @@ mod invalidation_tests {
         build_template_tree_for_file(&db, child_file, nodelist);
         let events = event_log.take();
         assert_eq!(
-            exact_execution_count(
+            will_execute_count(
                 &db,
                 &events,
                 "template_analysis_projection_for_file_in_scope",
@@ -969,11 +930,8 @@ mod invalidation_tests {
             0,
             "an unrelated Python edit must not rerun this file's projection",
         );
-        assert_eq!(exact_execution_count(&db, &events, "library_tag_specs"), 0);
-        assert_eq!(
-            exact_execution_count(&db, &events, "library_filter_specs"),
-            0
-        );
+        assert_eq!(will_execute_count(&db, &events, "library_tag_specs"), 0);
+        assert_eq!(will_execute_count(&db, &events, "library_filter_specs"), 0);
 
         fs.lock()
             .expect("test mutex should not be poisoned")
@@ -988,7 +946,7 @@ mod invalidation_tests {
         build_template_tree_for_file(&db, child_file, nodelist);
         let events = event_log.take();
         assert_eq!(
-            exact_execution_count(
+            will_execute_count(
                 &db,
                 &events,
                 "template_analysis_projection_for_file_in_scope",
@@ -1008,7 +966,7 @@ mod invalidation_tests {
         let _ = build_template_tree_for_file(&db, child_file, nodelist);
         let events = event_log.take();
         assert_eq!(
-            exact_execution_count(
+            will_execute_count(
                 &db,
                 &events,
                 "template_analysis_projection_for_file_in_scope",
@@ -1048,12 +1006,12 @@ mod invalidation_tests {
         let events = event_log.take();
 
         assert_eq!(
-            exact_execution_count(&db, &events, "parse_template"),
+            will_execute_count(&db, &events, "parse_template"),
             1,
             "the file revision should execute parsing exactly once",
         );
         assert_eq!(
-            exact_execution_count(
+            will_execute_count(
                 &db,
                 &events,
                 "template_analysis_projection_for_file_in_scope",
@@ -1098,11 +1056,11 @@ mod invalidation_tests {
         );
         let events = event_log.take();
         assert_eq!(
-            exact_execution_count(&db, &events, "template_library_catalog"),
+            will_execute_count(&db, &events, "template_library_catalog"),
             1
         );
         assert_eq!(
-            exact_execution_count(&db, &events, "template_library_scope"),
+            will_execute_count(&db, &events, "template_library_scope"),
             0,
             "catalog-only changes must not rebuild an equality-unchanged file scope",
         );
@@ -1130,11 +1088,8 @@ mod invalidation_tests {
         let _ = library_tag_specs(&db, project, key);
         let _ = library_filter_specs(&db, key);
         let events = event_log.take();
-        assert_eq!(exact_execution_count(&db, &events, "library_tag_specs"), 0);
-        assert_eq!(
-            exact_execution_count(&db, &events, "library_filter_specs"),
-            0
-        );
+        assert_eq!(will_execute_count(&db, &events, "library_tag_specs"), 0);
+        assert_eq!(will_execute_count(&db, &events, "library_filter_specs"), 0);
     }
 
     #[test]
@@ -1217,14 +1172,11 @@ mod invalidation_tests {
         );
         let events = event_log.take();
         assert_eq!(
-            exact_execution_count(&db, &events, "template_library_catalog"),
+            will_execute_count(&db, &events, "template_library_catalog"),
             1
         );
-        assert_eq!(exact_execution_count(&db, &events, "library_tag_specs"), 0);
-        assert_eq!(
-            exact_execution_count(&db, &events, "library_filter_specs"),
-            0
-        );
+        assert_eq!(will_execute_count(&db, &events, "library_tag_specs"), 0);
+        assert_eq!(will_execute_count(&db, &events, "library_filter_specs"), 0);
     }
 
     #[test]
@@ -1931,20 +1883,17 @@ env_file = ".env.local"
         let _ = library_tag_specs(&db, project, loader_tags);
         let events = event_log.take();
         assert_eq!(
-            exact_execution_count(&db, &events, "configured_library_tag_specs"),
+            will_execute_count(&db, &events, "configured_library_tag_specs"),
             2
         );
-        assert_eq!(exact_execution_count(&db, &events, "library_tag_specs"), 1);
-        assert_eq!(
-            exact_execution_count(&db, &events, "library_filter_specs"),
-            0
-        );
+        assert_eq!(will_execute_count(&db, &events, "library_tag_specs"), 1);
+        assert_eq!(will_execute_count(&db, &events, "library_filter_specs"), 0);
 
         let nodelist = parse_template(&db, child_file).expect("child fixture should still parse");
         let _ = build_template_tree_for_file(&db, child_file, nodelist);
         let events = event_log.take();
         assert_eq!(
-            exact_execution_count(
+            will_execute_count(
                 &db,
                 &events,
                 "template_analysis_projection_for_file_in_scope",
@@ -2065,18 +2014,15 @@ env_file = ".env.local"
         }
         let events = event_log.take();
         assert_eq!(
-            exact_execution_count(&db, &events, "template_library_definition_facts"),
+            will_execute_count(&db, &events, "template_library_definition_facts"),
             1
         );
         assert_eq!(
-            exact_execution_count(&db, &events, "template_library_catalog"),
+            will_execute_count(&db, &events, "template_library_catalog"),
             0
         );
-        assert_eq!(exact_execution_count(&db, &events, "library_tag_specs"), 0);
-        assert_eq!(
-            exact_execution_count(&db, &events, "library_filter_specs"),
-            1
-        );
+        assert_eq!(will_execute_count(&db, &events, "library_tag_specs"), 0);
+        assert_eq!(will_execute_count(&db, &events, "library_filter_specs"), 1);
 
         fs.lock()
             .expect("test mutex should not be poisoned")
@@ -2113,18 +2059,15 @@ env_file = ".env.local"
         }
         let events = event_log.take();
         assert_eq!(
-            exact_execution_count(&db, &events, "template_library_definition_facts"),
+            will_execute_count(&db, &events, "template_library_definition_facts"),
             1
         );
         assert_eq!(
-            exact_execution_count(&db, &events, "template_library_catalog"),
+            will_execute_count(&db, &events, "template_library_catalog"),
             0
         );
-        assert_eq!(exact_execution_count(&db, &events, "library_tag_specs"), 1);
-        assert_eq!(
-            exact_execution_count(&db, &events, "library_filter_specs"),
-            0
-        );
+        assert_eq!(will_execute_count(&db, &events, "library_tag_specs"), 1);
+        assert_eq!(will_execute_count(&db, &events, "library_filter_specs"), 0);
     }
 
     #[test]
@@ -2825,7 +2768,7 @@ def my_filter(value, arg):
         assert!(graph.models_named("First").next().is_some());
         assert!(graph.models_named("Second").next().is_some());
         let events = event_log.take();
-        let extracted_graph_count = execution_count(&db, &events, "extract_models");
+        let extracted_graph_count = will_execute_count(&db, &events, "extract_models");
         assert_eq!(
             extracted_graph_count, 2,
             "both model files should be extracted on first model graph computation"
@@ -2851,7 +2794,7 @@ def my_filter(value, arg):
             was_executed(&db, &events, "compute_model_graph"),
             "the aggregate model graph should re-run after one model file changes"
         );
-        let extracted_graph_count = execution_count(&db, &events, "extract_models");
+        let extracted_graph_count = will_execute_count(&db, &events, "extract_models");
         assert_eq!(
             extracted_graph_count, 1,
             "only the changed model file should re-run extraction"
@@ -2893,7 +2836,7 @@ def my_filter(value, arg):
         assert_eq!(inheritance.ancestors(&db).len(), 1);
         let events = event_log.take();
         assert_eq!(
-            execution_count(&db, &events, "template_symbols"),
+            template_symbol_execution_count(&db, &events),
             2,
             "only the edited child's base and scope-aware symbol queries should recompute"
         );
@@ -2969,7 +2912,7 @@ def my_filter(value, arg):
         assert_eq!(inheritance.ancestors(&db)[0].file(&db), parent_file);
         let events = event_log.take();
         assert_eq!(
-            execution_count(&db, &events, "template_symbols"),
+            template_symbol_execution_count(&db, &events),
             1,
             "only the edited parent template should recompute symbols"
         );

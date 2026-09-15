@@ -130,6 +130,24 @@ impl SearchPaths {
             .push(SearchPath::FirstParty(root.to_path_buf()));
 
         let discovered_site_packages = interpreter.site_packages_path(fs, root);
+        match (&discovered_site_packages, interpreter) {
+            (Some(site_packages), _) => {
+                tracing::debug!("Using discovered site-packages search path: {site_packages}");
+            }
+            (None, Interpreter::VenvPath(venv_path)) => {
+                tracing::warn!(
+                    "Could not discover site-packages under configured venv_path '{venv_path}'; \
+                     expected lib/python*/site-packages or Lib/site-packages; continuing with \
+                     project and configured pythonpath roots"
+                );
+            }
+            (None, Interpreter::Auto) => {
+                tracing::debug!(
+                    "No virtual-environment site-packages discovered for project {root}; \
+                     continuing with project and configured pythonpath roots"
+                );
+            }
+        }
 
         for configured_path in pythonpath {
             let resolved_path = if configured_path.is_relative() {
@@ -137,15 +155,25 @@ impl SearchPaths {
             } else {
                 configured_path.clone()
             };
-            if !fs.is_dir(&resolved_path) || search_paths.contains_path(&resolved_path) {
+            if !fs.is_dir(&resolved_path) {
                 continue;
             }
 
             let search_path = SearchPath::from_pythonpath(
                 root,
                 discovered_site_packages.as_deref(),
-                resolved_path,
+                resolved_path.clone(),
             );
+            if let Some(existing) = search_paths
+                .paths
+                .iter_mut()
+                .find(|existing| existing.path() == resolved_path)
+            {
+                if matches!(existing, SearchPath::Editable(_)) {
+                    *existing = search_path;
+                }
+                continue;
+            }
             let site_packages = match &search_path {
                 SearchPath::SitePackages(path) => Some(path.clone()),
                 SearchPath::FirstParty(_) | SearchPath::Extra(_) | SearchPath::Editable(_) => None,

@@ -76,6 +76,7 @@ jobs:
       - name: Install uv
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
         with:
+          add_shims_to_path: false
           install_args: uv
 
       - name: Cache uv dependencies
@@ -123,6 +124,7 @@ jobs:
       - name: Install uv
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
         with:
+          add_shims_to_path: false
           install_args: uv rust
 
       - name: Cache uv dependencies
@@ -151,6 +153,7 @@ jobs:
       - name: Install uv
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
         with:
+          add_shims_to_path: false
           install_args: uv rust
 
       - name: Cache uv dependencies

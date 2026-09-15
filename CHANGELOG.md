@@ -22,6 +22,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 - Added a "Why a language server?" docs page.
 - Added a getting started guide and reorganized the documentation navigation.
+- Added a warning when a configured `venv_path` has no discoverable site-packages.
 - **Internal**: Added a Hawk visibility-audit job to the lint workflow.
 
 ### Changed
@@ -31,7 +32,9 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - **Internal**: Test scenarios declare their own tag libraries and settings, either in markdown Python fences or from a typed `ProjectSettings` value.
 - **Internal**: Extraction snapshots record library symbol inventories and whether they are open, and a corpus census counts registration sites that no extracted definition matches.
 - **Internal**: Added cold settings-analysis benchmarks for conditional bindings and corpus projects.
+- **Internal**: Consolidated Salsa execution-event assertions in shared test infrastructure.
 - Reduced analysis time for Django settings with many conditional branches.
+- Reduced analysis time for Django settings with long `try` blocks.
 - Removed eager Django Model scanning and Model Graph construction from project discovery and cache warm-up.
 - Swapped the order of environments when automatically finding a project's Python interpreter, preferring the project venv dirs to `VIRTUAL_ENV`, to account for pre-commit isolated environments.
 - **Internal**: Reorganized `CONTRIBUTING.md` around a first-contribution path with editor/server orientation and an architecture overview, and grouped maintainer version and tool-pin updates into a Maintaining section.
@@ -45,6 +48,8 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 - Fixed relative `pythonpath` entries resolving outside the project root.
 - Fixed static Django settings evaluation of `Path.parents[index]` expressions.
+- Fixed explicit `pythonpath` entries being treated as external editable dependencies when also discovered through a `.pth` file.
+- Fixed `.env` virtual environment directories being read as environment-variable files and producing a warning.
 - Fixed tag argument extraction from helper return paths, ordered `match` cases, and unpacking assignments, including nested helper calls, guard fallthrough, starred targets, caught failures, and scalar `finally` overrides.
 - Fixed tag-rule extraction for conditional list mutations, truthiness guards, early returns, `finally` validation, argument positions after unsupported `pop()` calls, and contradictory argument-count branches producing impossible forms.
 - Fixed static validation of `simple_tag`, `inclusion_tag`, and `simple_block_tag` arguments, including context-aware and curried registrations and block structure, to match Django's `parse_bits()` binding rules.

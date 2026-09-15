@@ -83,10 +83,10 @@ mod tests {
     use djls_source::File;
     use djls_source::PositionEncoding;
     use djls_templates::parse_template;
+    use djls_testing::execution_count;
+    use djls_testing::will_execute_names;
     use insta::assert_yaml_snapshot;
-    use salsa::Database as _;
     use salsa::Event;
-    use salsa::EventKind;
     use serde::Serialize;
     use sha2::Digest;
     use sha2::Sha256;
@@ -560,34 +560,7 @@ mod tests {
         let mut events = events
             .lock()
             .expect("benchmark event log lock should not be poisoned");
-        take(&mut *events)
-            .into_iter()
-            .filter_map(|event| match event.kind {
-                EventKind::WillExecute { database_key } => Some(
-                    db.ingredient_debug_name(database_key.ingredient_index())
-                        .to_string(),
-                ),
-                EventKind::DidValidateMemoizedValue { .. }
-                | EventKind::WillBlockOn { .. }
-                | EventKind::WillIterateCycle { .. }
-                | EventKind::DidFinalizeCycle { .. }
-                | EventKind::WillCheckCancellation
-                | EventKind::DidSetCancellationFlag
-                | EventKind::WillDiscardStaleOutput { .. }
-                | EventKind::DidDiscard { .. }
-                | EventKind::DidDiscardAccumulated { .. }
-                | EventKind::DidInternValue { .. }
-                | EventKind::DidReuseInternedValue { .. }
-                | EventKind::DidValidateInternedValue { .. } => None,
-            })
-            .collect()
-    }
-
-    fn execution_count(names: &[String], query: &str) -> usize {
-        names
-            .iter()
-            .filter(|name| name.as_str() == query || name.rsplit("::").next() == Some(query))
-            .count()
+        will_execute_names(db, &take(&mut *events))
     }
 
     fn assert_execution_count(names: &[String], query: &str, expected: usize) {

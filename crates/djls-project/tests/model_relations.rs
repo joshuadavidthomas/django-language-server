@@ -27,7 +27,7 @@ use djls_source::Span;
 use djls_testing::ProjectFixture;
 use djls_testing::SalsaEventLog;
 use djls_testing::TestDatabase;
-use salsa::Database as _;
+use djls_testing::will_execute_count;
 use serde_json::Value;
 use serde_json::json;
 
@@ -66,29 +66,6 @@ fn update_file(
     db.add_file(path, content)?;
     SourceChanges::new([ChangeEvent::ContentChanged(path.into())]).apply(db);
     Ok(())
-}
-
-fn execution_count(db: &TestDatabase, events: &[salsa::Event], query_name: &str) -> usize {
-    events
-        .iter()
-        .filter(|event| match &event.kind {
-            salsa::EventKind::WillExecute { database_key } => db
-                .ingredient_debug_name(database_key.ingredient_index())
-                .contains(query_name),
-            salsa::EventKind::DidValidateMemoizedValue { .. }
-            | salsa::EventKind::WillBlockOn { .. }
-            | salsa::EventKind::WillIterateCycle { .. }
-            | salsa::EventKind::DidFinalizeCycle { .. }
-            | salsa::EventKind::WillCheckCancellation
-            | salsa::EventKind::DidSetCancellationFlag
-            | salsa::EventKind::WillDiscardStaleOutput { .. }
-            | salsa::EventKind::DidDiscard { .. }
-            | salsa::EventKind::DidDiscardAccumulated { .. }
-            | salsa::EventKind::DidInternValue { .. }
-            | salsa::EventKind::DidReuseInternedValue { .. }
-            | salsa::EventKind::DidValidateInternedValue { .. } => false,
-        })
-        .count()
 }
 
 type RelationLocation = (String, djls_source::File, Span, Option<Span>);
@@ -248,7 +225,7 @@ fn model_graph_span_probe_reexecutes_when_model_span_shifts() {
         .expect("Salsa event log should be readable after the model edit");
 
     assert_ne!(after, before);
-    assert!(execution_count(&db, &events, "model_graph_span_probe") > 0);
+    assert!(will_execute_count(&db, &events, "model_graph_span_probe") > 0);
 }
 
 #[test]
@@ -294,7 +271,7 @@ fn model_graph_span_probe_reexecutes_when_relation_is_added() {
         .expect("Salsa event log should be readable after the relation edit");
 
     assert_ne!(after, before);
-    assert!(execution_count(&db, &events, "model_graph_span_probe") > 0);
+    assert!(will_execute_count(&db, &events, "model_graph_span_probe") > 0);
 }
 
 #[test]
@@ -329,7 +306,7 @@ fn model_graph_span_probe_reexecutes_for_base_only_edit() {
         .expect("Salsa event log should be readable after the base edit");
 
     assert_eq!(after, before);
-    assert!(execution_count(&db, &events, "model_graph_span_probe") > 0);
+    assert!(will_execute_count(&db, &events, "model_graph_span_probe") > 0);
 }
 
 #[test]
@@ -372,7 +349,10 @@ fn model_graph_span_probe_backdates_for_trailing_whitespace() {
         .expect("Salsa event log should be readable after the whitespace edit");
 
     assert_eq!(after, before);
-    assert_eq!(execution_count(&db, &events, "model_graph_span_probe"), 0);
+    assert_eq!(
+        will_execute_count(&db, &events, "model_graph_span_probe"),
+        0
+    );
 }
 
 #[test]
@@ -412,7 +392,10 @@ fn model_graph_span_probe_backdates_for_span_shift_in_file_without_model_facts()
         .expect("Salsa event log should be readable after the model-free edit");
 
     assert_eq!(after, before);
-    assert_eq!(execution_count(&db, &events, "model_graph_span_probe"), 0);
+    assert_eq!(
+        will_execute_count(&db, &events, "model_graph_span_probe"),
+        0
+    );
 }
 
 #[test]
@@ -456,7 +439,7 @@ fn model_graph_span_probe_reexecutes_when_deferred_child_inherits_shifted_relati
         .expect("Salsa event log should be readable after the inherited-relation edit");
 
     assert_ne!(after, before);
-    assert!(execution_count(&db, &events, "model_graph_span_probe") > 0);
+    assert!(will_execute_count(&db, &events, "model_graph_span_probe") > 0);
 }
 
 #[test]
@@ -1275,7 +1258,7 @@ fn salsa_recomputes_relation_resolution_for_import_edits_only_where_needed() {
         graph.get_by_id(profile).expect("test value should resolve")
     ));
     assert!(
-        execution_count(
+        will_execute_count(
             &db,
             &event_log
                 .take()
@@ -1296,7 +1279,7 @@ fn salsa_recomputes_relation_resolution_for_import_edits_only_where_needed() {
     let events = event_log
         .take()
         .expect("Salsa event log should be readable after the unrelated edit");
-    assert_eq!(execution_count(&db, &events, "extract_models"), 1);
+    assert_eq!(will_execute_count(&db, &events, "extract_models"), 1);
 }
 
 /// Detect whether occurrence-local model extraction recognizes `class` as a

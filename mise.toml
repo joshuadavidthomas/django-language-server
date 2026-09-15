@@ -4,7 +4,7 @@ idiomatic_version_file_enable_tools = ["rust"]
 [tools]
 cargo-insta = "1.48"
 # Keep paired with tools/hawk/rust-toolchain.toml.
-"github:astral-sh/hawk" = "0.1.14"
+"github:astral-sh/hawk" = { version = "0.1.14", os = ["linux", "macos"] }
 just = "1"
 prek = "0.5"
 uv = "0.12"

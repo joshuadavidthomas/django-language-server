@@ -175,9 +175,13 @@ fn load_env_file(
         None => root.join(".env"),
     };
 
-    if !fs.exists(&env_path) {
+    if !fs.is_file(&env_path) {
         if settings.env_file().is_some() {
-            tracing::warn!("Configured env_file not found: {}", env_path);
+            if fs.exists(&env_path) {
+                tracing::warn!("Configured env_file is not a file: {}", env_path);
+            } else {
+                tracing::warn!("Configured env_file not found: {}", env_path);
+            }
         } else {
             tracing::debug!("No .env file found at {}", env_path);
         }
@@ -269,7 +273,45 @@ mod tests {
     use super::*;
 
     mod env_file {
+        use std::io;
+
+        use djls_source::CaseSensitivity;
+        use djls_source::RootWalk;
+        use djls_source::WalkOptions;
+
         use super::*;
+
+        struct DotEnvDirectory;
+
+        impl FileSystem for DotEnvDirectory {
+            fn read_to_string(&self, _path: &Utf8Path) -> io::Result<String> {
+                Ok("SHOULD_NOT_BE_READ=true".to_string())
+            }
+
+            fn exists(&self, path: &Utf8Path) -> bool {
+                path == Utf8Path::new("/project/.env")
+            }
+
+            fn is_file(&self, _path: &Utf8Path) -> bool {
+                false
+            }
+
+            fn is_dir(&self, path: &Utf8Path) -> bool {
+                path == Utf8Path::new("/project/.env")
+            }
+
+            fn case_sensitivity(&self) -> CaseSensitivity {
+                CaseSensitivity::CaseSensitive
+            }
+
+            fn path_exists_case_sensitive(&self, path: &Utf8Path, _prefix: &Utf8Path) -> bool {
+                self.exists(path)
+            }
+
+            fn walk_root(&self, _root: &Utf8Path, _options: &WalkOptions) -> RootWalk {
+                RootWalk::Missing
+            }
+        }
 
         #[test]
         fn loads_default_dot_env() {
@@ -324,6 +366,14 @@ mod tests {
 
             let settings = Settings::default();
             let vars = load_env_file(&djls_source::OsFileSystem::default(), root, &settings);
+
+            assert!(vars.is_empty());
+        }
+
+        #[test]
+        fn does_not_read_default_dot_env_directory() {
+            let settings = Settings::default();
+            let vars = load_env_file(&DotEnvDirectory, Utf8Path::new("/project"), &settings);
 
             assert!(vars.is_empty());
         }
