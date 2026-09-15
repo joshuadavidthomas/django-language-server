@@ -9,7 +9,7 @@ use djls_source::SourceChanges;
 use djls_source::path_to_file;
 use djls_testing::SalsaEventLog;
 use djls_testing::TestDatabase;
-use salsa::Database as _;
+use djls_testing::will_execute_count;
 
 #[salsa::input]
 struct LookupPath {
@@ -31,29 +31,6 @@ fn lookup_outcome(db: &dyn djls_source::Db, lookup: LookupPath) -> LookupOutcome
         Err(FileError::IsADirectory) => LookupOutcome::IsADirectory,
         Err(FileError::NotFound) => LookupOutcome::NotFound,
     }
-}
-
-fn execution_count(db: &TestDatabase, events: &[salsa::Event], query_name: &str) -> usize {
-    events
-        .iter()
-        .filter(|event| match &event.kind {
-            salsa::EventKind::WillExecute { database_key } => db
-                .ingredient_debug_name(database_key.ingredient_index())
-                .contains(query_name),
-            salsa::EventKind::DidValidateMemoizedValue { .. }
-            | salsa::EventKind::WillBlockOn { .. }
-            | salsa::EventKind::WillIterateCycle { .. }
-            | salsa::EventKind::DidFinalizeCycle { .. }
-            | salsa::EventKind::WillCheckCancellation
-            | salsa::EventKind::DidSetCancellationFlag
-            | salsa::EventKind::WillDiscardStaleOutput { .. }
-            | salsa::EventKind::DidDiscard { .. }
-            | salsa::EventKind::DidDiscardAccumulated { .. }
-            | salsa::EventKind::DidInternValue { .. }
-            | salsa::EventKind::DidReuseInternedValue { .. }
-            | salsa::EventKind::DidValidateInternedValue { .. } => false,
-        })
-        .count()
 }
 
 #[test]
@@ -82,7 +59,7 @@ fn ancestor_lookup_reexecutes_after_child_file_is_created_and_synced() {
     let events = event_log
         .take()
         .expect("ancestor lookup Salsa events should be read");
-    assert!(execution_count(&db, &events, "lookup_outcome") > 0);
+    assert!(will_execute_count(&db, &events, "lookup_outcome") > 0);
 }
 
 #[test]
@@ -229,7 +206,7 @@ fn rescan_refreshes_content_and_backdates_equal_outcomes() {
     let events = event_log
         .take()
         .expect("unchanged rescan Salsa events should be read");
-    assert_eq!(execution_count(&db, &events, "try_source"), 0);
+    assert_eq!(will_execute_count(&db, &events, "try_source"), 0);
 }
 
 #[test]

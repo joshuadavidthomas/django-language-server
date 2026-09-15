@@ -10,32 +10,7 @@ use djls_testing::ProjectFixture;
 use djls_testing::ProjectSettings;
 use djls_testing::SalsaEventLog;
 use djls_testing::TestDatabase;
-use salsa::Database as _;
-use salsa::Event;
-use salsa::EventKind;
-
-fn will_execute_count(db: &TestDatabase, events: &[Event], query_name: &str) -> usize {
-    events
-        .iter()
-        .filter(|event| match &event.kind {
-            EventKind::WillExecute { database_key } => db
-                .ingredient_debug_name(database_key.ingredient_index())
-                .contains(query_name),
-            EventKind::DidValidateMemoizedValue { .. }
-            | EventKind::WillBlockOn { .. }
-            | EventKind::WillIterateCycle { .. }
-            | EventKind::DidFinalizeCycle { .. }
-            | EventKind::WillCheckCancellation
-            | EventKind::DidSetCancellationFlag
-            | EventKind::WillDiscardStaleOutput { .. }
-            | EventKind::DidDiscard { .. }
-            | EventKind::DidDiscardAccumulated { .. }
-            | EventKind::DidInternValue { .. }
-            | EventKind::DidReuseInternedValue { .. }
-            | EventKind::DidValidateInternedValue { .. } => false,
-        })
-        .count()
-}
+use djls_testing::will_execute_count;
 
 fn project_with_templates(
     db: &mut TestDatabase,

@@ -28,6 +28,49 @@ use djls_source::path_to_file;
 use salsa::Database;
 use salsa::EventKind;
 
+/// Return the tracked function names from `WillExecute` events.
+pub fn will_execute_names(db: &(impl Database + ?Sized), events: &[salsa::Event]) -> Vec<String> {
+    events
+        .iter()
+        .filter_map(|event| match &event.kind {
+            EventKind::WillExecute { database_key } => Some(
+                db.ingredient_debug_name(database_key.ingredient_index())
+                    .to_string(),
+            ),
+            EventKind::DidValidateMemoizedValue { .. }
+            | EventKind::WillBlockOn { .. }
+            | EventKind::WillIterateCycle { .. }
+            | EventKind::DidFinalizeCycle { .. }
+            | EventKind::WillCheckCancellation
+            | EventKind::DidSetCancellationFlag
+            | EventKind::WillDiscardStaleOutput { .. }
+            | EventKind::DidDiscard { .. }
+            | EventKind::DidDiscardAccumulated { .. }
+            | EventKind::DidInternValue { .. }
+            | EventKind::DidReuseInternedValue { .. }
+            | EventKind::DidValidateInternedValue { .. } => None,
+        })
+        .collect()
+}
+
+/// Count executions whose tracked function name matches `query_name` exactly.
+#[must_use]
+pub fn execution_count(names: &[String], query_name: &str) -> usize {
+    names
+        .iter()
+        .filter(|name| name.rsplit("::").next() == Some(query_name))
+        .count()
+}
+
+/// Count matching tracked function executions in captured Salsa events.
+pub fn will_execute_count(
+    db: &(impl Database + ?Sized),
+    events: &[salsa::Event],
+    query_name: &str,
+) -> usize {
+    execution_count(&will_execute_names(db, events), query_name)
+}
+
 #[derive(Clone, Default)]
 pub struct SalsaEventLog {
     events: Arc<Mutex<Vec<salsa::Event>>>,
@@ -55,29 +98,11 @@ impl SalsaEventLog {
     }
 
     /// Drain captured events and return the tracked functions that executed.
-    pub fn take_will_execute_names(&self, db: &TestDatabase) -> anyhow::Result<Vec<String>> {
-        Ok(self
-            .take()?
-            .into_iter()
-            .filter_map(|event| match event.kind {
-                EventKind::WillExecute { database_key } => Some(
-                    db.ingredient_debug_name(database_key.ingredient_index())
-                        .to_string(),
-                ),
-                EventKind::DidValidateMemoizedValue { .. }
-                | EventKind::WillBlockOn { .. }
-                | EventKind::WillIterateCycle { .. }
-                | EventKind::DidFinalizeCycle { .. }
-                | EventKind::WillCheckCancellation
-                | EventKind::DidSetCancellationFlag
-                | EventKind::WillDiscardStaleOutput { .. }
-                | EventKind::DidDiscard { .. }
-                | EventKind::DidDiscardAccumulated { .. }
-                | EventKind::DidInternValue { .. }
-                | EventKind::DidReuseInternedValue { .. }
-                | EventKind::DidValidateInternedValue { .. } => None,
-            })
-            .collect())
+    pub fn take_will_execute_names(
+        &self,
+        db: &(impl Database + ?Sized),
+    ) -> anyhow::Result<Vec<String>> {
+        Ok(will_execute_names(db, &self.take()?))
     }
 }
 
@@ -522,6 +547,18 @@ mod tests {
 
     use super::*;
     use crate::ProjectFixture;
+
+    #[test]
+    fn execution_count_matches_only_the_final_query_name_segment() {
+        let names = vec![
+            "crate::query".to_string(),
+            "query".to_string(),
+            "crate::query_detail".to_string(),
+            "crate::other_query".to_string(),
+        ];
+
+        assert_eq!(execution_count(&names, "query"), 2);
+    }
 
     #[test]
     fn layered_filesystem_reads_disk_only_below_allowed_roots() {
