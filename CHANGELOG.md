@@ -46,6 +46,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Fixed
 
+- Fixed zero-configuration Django settings discovery for standard `manage.py` projects, including `src` layouts.
 - Fixed explicit `pythonpath` entries being treated as external editable dependencies when also discovered through a `.pth` file.
 - Fixed `.env` virtual environment directories being read as environment-variable files and producing a warning.
 - Fixed tag argument extraction from helper return paths, ordered `match` cases, and unpacking assignments, including nested helper calls, guard fallthrough, starred targets, caught failures, and scalar `finally` overrides.

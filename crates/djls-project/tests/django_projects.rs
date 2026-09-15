@@ -17,9 +17,20 @@ use djls_project::resolve_package_dirs;
 use djls_project::template_directories;
 use djls_project::template_library_catalog;
 use djls_project::testing::compute_project_facts;
+use djls_project::testing::discover_settings_module;
+use djls_project::testing::settings_module_file;
 use djls_testing::OsTestDatabase;
+use tempfile::TempDir;
+use tempfile::tempdir;
 
 type TestResult<T> = Result<T, Box<dyn std::error::Error>>;
+
+const CANONICAL_MANAGE_PY: &str = r#"
+import os
+
+def main():
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "{settings_module}")
+"#;
 
 fn fixture_root(name: &str) -> TestResult<Utf8PathBuf> {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -53,6 +64,107 @@ fn template_dirs(db: &OsTestDatabase, project: Project) -> Vec<Utf8PathBuf> {
         .known_roots()
         .map(Utf8Path::to_path_buf)
         .collect()
+}
+
+fn temporary_project_root() -> TestResult<(TempDir, Utf8PathBuf)> {
+    let directory = tempdir()?;
+    let root = Utf8PathBuf::from_path_buf(directory.path().to_path_buf()).map_err(|path| {
+        io::Error::other(format!("temporary path is not UTF-8: {}", path.display()))
+    })?;
+    Ok((directory, root))
+}
+
+fn configured_settings(
+    root: &Utf8Path,
+    module: &PythonModuleName,
+) -> Result<djls_conf::Settings, djls_conf::ConfigError> {
+    let overrides = serde_json::Map::from_iter([(
+        "django_settings_module".into(),
+        serde_json::json!(module.as_str()),
+    )]);
+    djls_conf::Settings::new(root, Some(overrides))
+}
+
+#[test]
+fn canonical_manage_py_discovers_startproject_settings_module() {
+    let (_directory, root) =
+        temporary_project_root().expect("temporary project root should be created");
+    std::fs::create_dir(root.join("mysite")).expect("Django project package should be created");
+    std::fs::write(
+        root.join("manage.py"),
+        CANONICAL_MANAGE_PY.replace("{settings_module}", "mysite.settings"),
+    )
+    .expect("manage.py should be written");
+    std::fs::write(root.join("mysite/__init__.py"), "")
+        .expect("Django project package should be written");
+    std::fs::write(root.join("mysite/settings.py"), "INSTALLED_APPS = []\n")
+        .expect("Django settings should be written");
+    let mut db = OsTestDatabase::with_disk_roots([root.clone()]);
+
+    let module = discover_settings_module(&db, &root, &djls_conf::Settings::default(), None)
+        .expect("manage.py settings declaration should be discovered");
+    assert_eq!(module.as_str(), "mysite.settings");
+
+    let settings =
+        configured_settings(&root, &module).expect("settings module override should be valid");
+    let project = Project::bootstrap(&db, &root, &settings);
+    db.set_project(project);
+
+    assert_eq!(
+        settings_module_file(&db, project)
+            .expect("discovered settings module should resolve")
+            .path(&db),
+        &root.join("mysite/settings.py")
+    );
+}
+
+#[test]
+fn canonical_manage_py_discovers_src_layout_settings_module() {
+    let (_directory, root) =
+        temporary_project_root().expect("temporary project root should be created");
+    std::fs::create_dir_all(root.join("src/config"))
+        .expect("src-layout project package should be created");
+    std::fs::write(
+        root.join("manage.py"),
+        CANONICAL_MANAGE_PY.replace("{settings_module}", "config.settings"),
+    )
+    .expect("manage.py should be written");
+    std::fs::write(root.join("src/config/__init__.py"), "")
+        .expect("src-layout project package should be written");
+    std::fs::write(root.join("src/config/settings.py"), "INSTALLED_APPS = []\n")
+        .expect("src-layout Django settings should be written");
+    let mut db = OsTestDatabase::with_disk_roots([root.clone()]);
+
+    let module = discover_settings_module(&db, &root, &djls_conf::Settings::default(), None)
+        .expect("manage.py settings declaration should be discovered");
+    assert_eq!(module.as_str(), "config.settings");
+
+    let settings =
+        configured_settings(&root, &module).expect("settings module override should be valid");
+    let project = Project::bootstrap(&db, &root, &settings);
+    db.set_project(project);
+
+    assert_eq!(
+        settings_module_file(&db, project)
+            .expect("src-layout settings module should resolve")
+            .path(&db),
+        &root.join("src/config/settings.py")
+    );
+}
+
+#[test]
+fn settings_filename_probe_does_not_select_a_module() {
+    let (_directory, root) =
+        temporary_project_root().expect("temporary project root should be created");
+    std::fs::create_dir(root.join("config"))
+        .expect("former settings probe directory should be created");
+    std::fs::write(root.join("manage.py"), "print('no settings declaration')\n")
+        .expect("manage.py should be written");
+    std::fs::write(root.join("config/settings.py"), "INSTALLED_APPS = []\n")
+        .expect("former settings probe file should be written");
+    let db = OsTestDatabase::with_disk_roots([root.clone()]);
+
+    assert!(discover_settings_module(&db, &root, &djls_conf::Settings::default(), None).is_none());
 }
 
 #[test]
