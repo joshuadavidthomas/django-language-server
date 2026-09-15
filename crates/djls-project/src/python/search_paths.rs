@@ -149,20 +149,25 @@ impl SearchPaths {
             }
         }
 
-        for path in pythonpath {
-            if !fs.is_dir(path) {
+        for configured_path in pythonpath {
+            let resolved_path = if configured_path.is_relative() {
+                root.join(configured_path)
+            } else {
+                configured_path.clone()
+            };
+            if !fs.is_dir(&resolved_path) {
                 continue;
             }
 
             let search_path = SearchPath::from_pythonpath(
                 root,
                 discovered_site_packages.as_deref(),
-                path.clone(),
+                resolved_path.clone(),
             );
             if let Some(existing) = search_paths
                 .paths
                 .iter_mut()
-                .find(|existing| existing.path() == path)
+                .find(|existing| existing.path() == resolved_path)
             {
                 if matches!(existing, SearchPath::Editable(_)) {
                     *existing = search_path;

@@ -46,6 +46,8 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Fixed
 
+- Fixed relative `pythonpath` entries resolving outside the project root.
+- Fixed static Django settings evaluation of `Path.parents[index]` expressions.
 - Fixed zero-configuration Django settings discovery for standard `manage.py` projects, including `src` layouts.
 - Fixed explicit `pythonpath` entries being treated as external editable dependencies when also discovered through a `.pth` file.
 - Fixed `.env` virtual environment directories being read as environment-variable files and producing a warning.

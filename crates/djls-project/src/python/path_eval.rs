@@ -25,6 +25,13 @@ impl PythonPath {
         Self(parent.to_path_buf())
     }
 
+    pub(crate) fn parent_at(&self, index: usize) -> Option<Self> {
+        self.0
+            .ancestors()
+            .nth(index.checked_add(1)?)
+            .map(|path| Self(path.to_path_buf()))
+    }
+
     pub(crate) fn join(&self, segment: &str) -> Self {
         Self(self.0.join(segment))
     }

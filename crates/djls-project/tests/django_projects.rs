@@ -18,6 +18,7 @@ use djls_project::template_directories;
 use djls_project::template_library_catalog;
 use djls_project::testing::compute_project_facts;
 use djls_project::testing::discover_settings_module;
+use djls_project::testing::django_settings;
 use djls_project::testing::settings_module_file;
 use djls_testing::OsTestDatabase;
 use tempfile::TempDir;
@@ -311,4 +312,103 @@ fn namespace_apps_discovers_namespace_dirs_config_tails_and_libraries() {
     assert_eq!(package_dirs.dirs, vec![root.join("nsapp")]);
 
     assert_eq!(PythonSourceModule::resolve(&db, project, nsapp_name), None);
+}
+
+#[test]
+fn gh401_multisite_keeps_settings_environments_separate() {
+    for (settings_module, settings_path, expected_apps, expected_dirs, libraries, absent_library) in [
+        (
+            "site1.settings.dev",
+            "projects/site1/settings/dev.py",
+            [
+                "django.contrib.auth",
+                "django.contrib.contenttypes",
+                "clientname.app1",
+                "clientname.app2",
+            ],
+            [
+                "projects/site1/templates",
+                "apps/clientname/app1/templates",
+                "apps/clientname/app2/templates",
+            ],
+            [
+                ("app1_tags", "clientname.app1.templatetags.app1_tags"),
+                ("app2_tags", "clientname.app2.templatetags.app2_tags"),
+            ],
+            "app3_tags",
+        ),
+        (
+            "site2.settings.dev",
+            "projects/site2/settings/dev.py",
+            [
+                "django.contrib.auth",
+                "django.contrib.contenttypes",
+                "clientname.app2",
+                "clientname.app3",
+            ],
+            [
+                "projects/site2/templates",
+                "apps/clientname/app2/templates",
+                "apps/clientname/app3/templates",
+            ],
+            [
+                ("app2_tags", "clientname.app2.templatetags.app2_tags"),
+                ("app3_tags", "clientname.app3.templatetags.app3_tags"),
+            ],
+            "app1_tags",
+        ),
+    ] {
+        let overrides = serde_json::Map::from_iter([(
+            "django_settings_module".into(),
+            serde_json::json!(settings_module),
+        )]);
+        let (db, project, root) = bootstrap_fixture("gh401-multisite", Some(overrides))
+            .expect("GH-401 multi-site fixture should bootstrap");
+
+        let settings_file = settings_module_file(&db, project)
+            .expect("configured GH-401 settings module should resolve");
+        assert_eq!(settings_file.path(&db), root.join(settings_path).as_path());
+
+        let settings = serde_json::to_value(django_settings(&db, project))
+            .expect("GH-401 settings should serialize");
+        let apps = settings["installed_apps"]["cases"][0]["known"]["apps"]
+            .as_array()
+            .expect("GH-401 installed apps should be statically known")
+            .iter()
+            .map(|app| {
+                app["value"]
+                    .as_str()
+                    .expect("GH-401 installed app should be a string")
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(apps, expected_apps);
+
+        let dirs = template_directories(&db, project)
+            .known_roots()
+            .map(Utf8Path::to_path_buf)
+            .collect::<Vec<_>>();
+        for expected_dir in expected_dirs {
+            assert!(
+                dirs.contains(&root.join(expected_dir)),
+                "{settings_module} should include template directory `{expected_dir}`, found {dirs:?}"
+            );
+        }
+
+        let catalog = template_library_catalog(&db, project);
+        let scoped = ScopedTemplateLibraries::from_project_inventory(catalog);
+        for (load_name, module_name) in libraries {
+            let library = scoped
+                .loadable_library_str(load_name)
+                .found()
+                .unwrap_or_else(|| panic!("{load_name} should be loadable for {settings_module}"));
+            assert_eq!(library.module_name_str(), module_name);
+        }
+        assert!(
+            scoped
+                .loadable_library_str(absent_library)
+                .found()
+                .is_none(),
+            "{absent_library} should not be loadable for {settings_module}"
+        );
+    }
 }
