@@ -188,6 +188,44 @@ mod tests {
         }
 
         #[test]
+        fn auto_does_not_treat_dot_env_file_as_venv() {
+            let mut fs = djls_source::InMemoryFileSystem::new();
+            fs.add_file("/project/.env".into(), "DJANGO_DEBUG=true".to_string());
+            fs.add_file(
+                "/hook/lib/python3.14/site-packages/django/__init__.py".into(),
+                String::new(),
+            );
+
+            let site_packages = Interpreter::auto_site_packages_path(
+                &fs,
+                Utf8Path::new("/project"),
+                Some(Utf8Path::new("/hook")),
+            );
+
+            assert_eq!(
+                site_packages.as_deref(),
+                Some(Utf8Path::new("/hook/lib/python3.14/site-packages"))
+            );
+        }
+
+        #[test]
+        fn auto_supports_dot_env_venv_directory() {
+            let mut fs = djls_source::InMemoryFileSystem::new();
+            fs.add_file(
+                "/project/.env/lib/python3.12/site-packages/django/__init__.py".into(),
+                String::new(),
+            );
+
+            let site_packages =
+                Interpreter::auto_site_packages_path(&fs, Utf8Path::new("/project"), None);
+
+            assert_eq!(
+                site_packages.as_deref(),
+                Some(Utf8Path::new("/project/.env/lib/python3.12/site-packages"))
+            );
+        }
+
+        #[test]
         fn auto_skips_unusable_project_venv_before_virtual_env() {
             let mut fs = djls_source::InMemoryFileSystem::new();
             fs.add_file("/project/.venv/pyvenv.cfg".into(), String::new());
