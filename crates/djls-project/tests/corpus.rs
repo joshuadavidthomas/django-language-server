@@ -1,8 +1,8 @@
 //! Corpus extraction snapshot tests.
 //!
-//! Uses `insta::glob!` for per-file snapshot granularity — each extraction
-//! target in the corpus gets its own snapshot file. When a snapshot changes,
-//! `cargo insta review` shows exactly which file's extraction output differs.
+//! Uses path-derived snapshot names for per-file snapshot granularity — each
+//! extraction target in the corpus gets its own snapshot file. When a snapshot
+//! changes, `cargo insta review` shows exactly which file's extraction output differs.
 //!
 //! # Running
 //!
