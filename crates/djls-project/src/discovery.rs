@@ -90,7 +90,7 @@ impl EnvironmentPhase {
                 let search_paths = SearchPaths::from_project_settings(
                     db.file_system(),
                     project.root(db),
-                    project.interpreter(db),
+                    project.python_environment(db),
                     project.pythonpath(db),
                 );
                 EnvironmentPart {

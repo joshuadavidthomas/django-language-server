@@ -3,6 +3,7 @@ use std::io;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+use djls_project::PythonEnvironment;
 use djls_project::testing::PythonImportOutcomeView;
 use djls_project::testing::PythonModuleEvaluationView;
 use djls_project::testing::compute_django_environment;
@@ -72,7 +73,7 @@ fn project_for_search_paths(
 ) -> Result<Project, Box<dyn std::error::Error>> {
     Ok(ProjectFixture::new(root)
         .search_paths(search_paths)
-        .interpreter(Interpreter::Auto)
+        .python_environment(PythonEnvironment::Auto)
         .register_roots(false)
         .build(db)?)
 }
@@ -85,7 +86,7 @@ fn project_with_template_settings(
 ) -> Result<Project, Box<dyn std::error::Error>> {
     Ok(ProjectFixture::new(root)
         .search_paths(search_paths)
-        .interpreter(Interpreter::Auto)
+        .python_environment(PythonEnvironment::Auto)
         .register_roots(false)
         .settings(settings)
         .build(db)?)
@@ -121,8 +122,12 @@ fn search_paths_detect_top_level_src_before_project_root() {
     let mut fs = InMemoryFileSystem::new();
     fs.add_file("/project/src/app.py".into(), String::new());
 
-    let search_paths =
-        SearchPaths::from_project_settings(&fs, Utf8Path::new("/project"), &Interpreter::Auto, &[]);
+    let search_paths = SearchPaths::from_project_settings(
+        &fs,
+        Utf8Path::new("/project"),
+        &PythonEnvironment::Auto,
+        &[],
+    );
     let paths: Vec<_> = search_paths.iter().cloned().collect();
 
     assert_eq!(
@@ -139,8 +144,12 @@ fn search_paths_do_not_detect_top_level_src_when_absent() {
     let mut fs = InMemoryFileSystem::new();
     fs.add_file("/project/app.py".into(), String::new());
 
-    let search_paths =
-        SearchPaths::from_project_settings(&fs, Utf8Path::new("/project"), &Interpreter::Auto, &[]);
+    let search_paths = SearchPaths::from_project_settings(
+        &fs,
+        Utf8Path::new("/project"),
+        &PythonEnvironment::Auto,
+        &[],
+    );
     let paths: Vec<_> = search_paths.iter().cloned().collect();
 
     assert_eq!(
@@ -155,8 +164,12 @@ fn search_paths_do_not_detect_top_level_src_when_src_is_package() {
     fs.add_file("/project/src/__init__.py".into(), String::new());
     fs.add_file("/project/src/app.py".into(), String::new());
 
-    let search_paths =
-        SearchPaths::from_project_settings(&fs, Utf8Path::new("/project"), &Interpreter::Auto, &[]);
+    let search_paths = SearchPaths::from_project_settings(
+        &fs,
+        Utf8Path::new("/project"),
+        &PythonEnvironment::Auto,
+        &[],
+    );
     let paths: Vec<_> = search_paths.iter().cloned().collect();
 
     assert_eq!(
@@ -182,8 +195,12 @@ fn search_paths_add_simple_pth_entries_as_editable_roots() {
         "# comment\n\nimport site\neditable_relative\n/editable_absolute\nmissing\n".to_string(),
     );
 
-    let search_paths =
-        SearchPaths::from_project_settings(&fs, Utf8Path::new("/project"), &Interpreter::Auto, &[]);
+    let search_paths = SearchPaths::from_project_settings(
+        &fs,
+        Utf8Path::new("/project"),
+        &PythonEnvironment::Auto,
+        &[],
+    );
     let paths: Vec<_> = search_paths.iter().cloned().collect();
 
     assert_eq!(
@@ -217,7 +234,7 @@ fn explicit_pythonpath_entry_overrides_pth_editable_classification() {
         let search_paths = SearchPaths::from_project_settings(
             &fs,
             Utf8Path::new("/project"),
-            &Interpreter::Auto,
+            &PythonEnvironment::Auto,
             &pythonpath,
         );
 
@@ -252,8 +269,12 @@ fn search_paths_normalize_relative_pth_entries_as_editable_roots() {
         "../vendor\n".to_string(),
     );
 
-    let search_paths =
-        SearchPaths::from_project_settings(&fs, Utf8Path::new("/project"), &Interpreter::Auto, &[]);
+    let search_paths = SearchPaths::from_project_settings(
+        &fs,
+        Utf8Path::new("/project"),
+        &PythonEnvironment::Auto,
+        &[],
+    );
     let paths: Vec<_> = search_paths.iter().cloned().collect();
 
     assert_eq!(
@@ -281,8 +302,12 @@ fn search_paths_skip_pth_entries_that_duplicate_existing_roots() {
         "/project/src\n".to_string(),
     );
 
-    let search_paths =
-        SearchPaths::from_project_settings(&fs, Utf8Path::new("/project"), &Interpreter::Auto, &[]);
+    let search_paths = SearchPaths::from_project_settings(
+        &fs,
+        Utf8Path::new("/project"),
+        &PythonEnvironment::Auto,
+        &[],
+    );
     let paths: Vec<_> = search_paths.iter().cloned().collect();
 
     assert_eq!(
@@ -315,7 +340,7 @@ fn search_paths_keep_site_packages_external_inside_project_root() {
     let search_paths = SearchPaths::from_project_settings(
         &fs,
         Utf8Path::new("/project"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &pythonpath,
     );
 
@@ -353,8 +378,12 @@ fn search_paths_find_windows_style_venv_site_packages() {
         String::new(),
     );
 
-    let search_paths =
-        SearchPaths::from_project_settings(&fs, Utf8Path::new("/project"), &Interpreter::Auto, &[]);
+    let search_paths = SearchPaths::from_project_settings(
+        &fs,
+        Utf8Path::new("/project"),
+        &PythonEnvironment::Auto,
+        &[],
+    );
 
     let paths: Vec<_> = search_paths.iter().map(SearchPath::path).collect();
     assert_eq!(
@@ -379,7 +408,7 @@ fn model_modules_use_first_party_search_path_relative_names() {
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &pythonpath,
     );
     search_paths.register_roots(&db);
@@ -405,7 +434,7 @@ fn registering_search_paths_removes_obsolete_external_roots() {
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &pythonpath,
     );
     search_paths.register_roots(&db);
@@ -417,7 +446,7 @@ fn registering_search_paths_removes_obsolete_external_roots() {
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &[],
     );
     search_paths.register_roots(&db);
@@ -441,7 +470,7 @@ fn model_modules_tolerate_unregistered_search_paths() {
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &pythonpath,
     );
     let project = project_for_search_paths(&mut db, "/project", search_paths)
@@ -468,7 +497,7 @@ fn template_library_sources_tolerate_unregistered_search_paths() {
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &[],
     );
     let project = project_with_template_settings(
@@ -510,7 +539,7 @@ fn template_library_source_resolution_uses_project_venv_site_packages_root() {
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &[],
     );
     search_paths.register_roots(&db);
@@ -567,7 +596,7 @@ fn template_library_source_resolution_prefers_first_party_module_shadowing_depen
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &[],
     );
     search_paths.register_roots(&db);
@@ -615,7 +644,7 @@ fn active_template_library_sources_preserve_builtin_order_across_roots() {
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &[],
     );
     search_paths.register_roots(&db);
@@ -664,7 +693,7 @@ fn active_template_library_sources_yield_loadable_before_builtins() {
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &[],
     );
     search_paths.register_roots(&db);
@@ -723,7 +752,7 @@ def duplicate(value, arg):
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &[],
     );
     search_paths.register_roots(&db);
@@ -763,7 +792,7 @@ fn project_model_graph_reads_changed_project_file_after_django_discovery() {
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &[],
     );
     search_paths.register_roots(&db);
@@ -799,7 +828,7 @@ fn project_model_discovery_updates_through_django_discovery() {
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &[],
     );
     search_paths.register_roots(&db);
@@ -835,7 +864,7 @@ fn external_model_graph_reads_changed_site_packages_file_after_django_discovery(
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &[],
     );
     search_paths.register_roots(&db);
@@ -880,7 +909,7 @@ fn external_model_graph_preserves_pythonpath_precedence() {
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &pythonpath,
     );
     search_paths.register_roots(&db);
@@ -904,7 +933,7 @@ fn external_model_discovery_updates_through_django_discovery() {
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &[],
     );
     search_paths.register_roots(&db);
@@ -945,7 +974,7 @@ fn external_model_discovery_removes_deleted_models_through_django_discovery() {
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &[],
     );
     search_paths.register_roots(&db);
@@ -979,7 +1008,7 @@ fn external_model_graph_reads_extra_pythonpath_models() {
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &pythonpath,
     );
     search_paths.register_roots(&db);
@@ -996,13 +1025,13 @@ fn django_discovery_discovers_site_packages_created_after_bootstrap() {
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &[],
     );
     search_paths.register_roots(&db);
     let project = ProjectFixture::new("/project")
         .search_paths(search_paths)
-        .interpreter(Interpreter::Auto)
+        .python_environment(PythonEnvironment::Auto)
         .register_roots(false)
         .install(&mut db)
         .expect("Django-discovery project fixture should install");
@@ -1036,13 +1065,13 @@ fn environment_then_project_facts_discovers_site_packages_created_after_bootstra
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &[],
     );
     search_paths.register_roots(&db);
     let project = ProjectFixture::new("/project")
         .search_paths(search_paths)
-        .interpreter(Interpreter::Auto)
+        .python_environment(PythonEnvironment::Auto)
         .register_roots(false)
         .install(&mut db)
         .expect("project-facts fixture should install");
@@ -1073,7 +1102,7 @@ fn project_facts_enumerate_new_empty_templatetag_candidate_before_root_bump() {
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &[],
     );
     search_paths.register_roots(&db);
@@ -1276,7 +1305,7 @@ fn ty_module_search_path_priority() {
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/src"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &pythonpath,
     );
     search_paths.register_roots(&db);
@@ -1326,11 +1355,11 @@ fn ty_symlink() {
     let search_paths = SearchPaths::from_project_settings(
         &OsFileSystem::default(),
         &root,
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &[],
     );
     let project = ProjectFixture::new(root)
-        .interpreter(Interpreter::Auto)
+        .python_environment(PythonEnvironment::Auto)
         .search_paths(search_paths)
         .install(&mut db)
         .expect("resolver project fixture should build");
@@ -1429,7 +1458,7 @@ fn ty_removing_file_on_which_module_resolution_depends_invalidates_previously_su
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/src"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &[],
     );
     search_paths.register_roots(&db);
@@ -1462,7 +1491,7 @@ fn ty_adding_file_to_search_path_with_lower_priority_does_not_invalidate_query()
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/src"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &pythonpath,
     );
     search_paths.register_roots(&db);
@@ -1502,7 +1531,7 @@ fn ty_adding_file_to_search_path_with_higher_priority_invalidates_the_query() {
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/src"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &pythonpath,
     );
     search_paths.register_roots(&db);
@@ -1535,7 +1564,7 @@ fn ty_deleting_file_from_higher_priority_search_path_invalidates_the_query() {
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/src"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &pythonpath,
     );
     search_paths.register_roots(&db);
@@ -1568,7 +1597,7 @@ fn ty_module_resolution_paths_cached_between_different_module_resolutions_reexpr
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/src"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &[],
     );
     search_paths.register_roots(&db);
@@ -1620,7 +1649,7 @@ fn ty_deleting_pth_file_on_which_module_resolution_depends_invalidates_cache_ree
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &pythonpath,
     );
     search_paths.register_roots(&db);
@@ -1637,7 +1666,7 @@ fn ty_deleting_pth_file_on_which_module_resolution_depends_invalidates_cache_ree
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &pythonpath,
     );
     set_project_search_paths(&mut db, project, search_paths);
@@ -1658,7 +1687,7 @@ fn ty_deleting_editable_install_on_which_module_resolution_depends_invalidates_c
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &pythonpath,
     );
     search_paths.register_roots(&db);
@@ -1675,7 +1704,7 @@ fn ty_deleting_editable_install_on_which_module_resolution_depends_invalidates_c
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &pythonpath,
     );
     set_project_search_paths(&mut db, project, search_paths);
@@ -1700,7 +1729,7 @@ fn ty_editable_install_absolute_path() {
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &pythonpath,
     );
     search_paths.register_roots(&db);
@@ -1741,7 +1770,7 @@ fn ty_editable_install_pth_file_with_whitespace() {
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &pythonpath,
     );
     search_paths.register_roots(&db);
@@ -1778,7 +1807,7 @@ fn ty_editable_install_relative_path() {
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &pythonpath,
     );
     search_paths.register_roots(&db);
@@ -1829,7 +1858,7 @@ not_a_directory
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &pythonpath,
     );
     search_paths.register_roots(&db);
@@ -1883,7 +1912,7 @@ fn ty_no_duplicate_search_paths_added() {
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/src"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &pythonpath,
     );
     let paths: Vec<_> = search_paths.iter().cloned().collect();
@@ -1910,7 +1939,7 @@ fn ty_multiple_site_packages_with_editables() {
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &pythonpath,
     );
     search_paths.register_roots(&db);
@@ -2031,7 +2060,7 @@ fn ty_namespace_package_precedence_reexpressed() {
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/src"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &pythonpath,
     );
     search_paths.register_roots(&db);
@@ -2065,7 +2094,7 @@ fn ty_namespace_package_precedence_reexpressed() {
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/src"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &pythonpath,
     );
     search_paths.register_roots(&db);
@@ -2148,7 +2177,7 @@ fn ty_file_to_module_where_one_search_path_is_subdirectory_of_other() {
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &pythonpath,
     );
     search_paths.register_roots(&db);
@@ -2331,11 +2360,11 @@ fn ty_case_sensitive_resolution_with_symlinked_directory() {
     let search_paths = SearchPaths::from_project_settings(
         &OsFileSystem::default(),
         &root,
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &[],
     );
     let project = ProjectFixture::new(root)
-        .interpreter(Interpreter::Auto)
+        .python_environment(PythonEnvironment::Auto)
         .search_paths(search_paths)
         .install(&mut db)
         .expect("resolver project fixture should build");
@@ -2369,7 +2398,7 @@ fn python_module_resolve_applies_regular_package_terminality_across_roots() {
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &pythonpath,
     );
     search_paths.register_roots(&db);
@@ -2405,7 +2434,7 @@ fn python_module_resolve_traverses_namespace_portions_across_roots() {
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &pythonpath,
     );
     search_paths.register_roots(&db);
@@ -2473,7 +2502,7 @@ fn python_module_resolve_uses_first_regular_hit_across_roots() {
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &pythonpath,
     );
     search_paths.register_roots(&db);
@@ -2519,7 +2548,7 @@ fn python_module_resolve_records_selected_search_path() {
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &pythonpath,
     );
     search_paths.register_roots(&db);
@@ -2569,7 +2598,7 @@ fn resolve_package_dirs_merges_namespace_portions_in_root_order() {
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &pythonpath,
     );
     search_paths.register_roots(&db);
@@ -2800,7 +2829,7 @@ fn python_module_resolution_classifies_each_search_path_kind() {
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &pythonpath,
     );
     search_paths.register_roots(&db);
@@ -2842,7 +2871,7 @@ fn python_module_chain_resolves_namespace_parent_before_source_child() {
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &[],
     );
     search_paths.register_roots(&db);
@@ -2877,7 +2906,7 @@ fn python_module_search_path_winner_replacement_changes_resolved_identity() {
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &pythonpath,
     );
     search_paths.register_roots(&db);
@@ -2922,7 +2951,7 @@ fn file_to_module_uses_first_containing_root_for_nested_first_party_paths() {
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &pythonpath,
     );
     search_paths.register_roots(&db);
@@ -2962,7 +2991,7 @@ fn file_to_module_does_not_rescue_not_found_first_candidate() {
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &pythonpath,
     );
     search_paths.register_roots(&db);
@@ -3003,7 +3032,7 @@ fn file_to_module_does_not_rescue_shadowed_first_candidate() {
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &pythonpath,
     );
     search_paths.register_roots(&db);
@@ -3050,7 +3079,7 @@ fn file_to_module_identity_ignores_later_candidate_changes() {
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &pythonpath,
     );
     search_paths.register_roots(&db);
@@ -3133,7 +3162,7 @@ fn file_to_module_uses_src_layout_root_first() {
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &[],
     );
     search_paths.register_roots(&db);
@@ -3174,7 +3203,7 @@ fn file_to_module_reports_shadowed_cross_root_file() {
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &pythonpath,
     );
     search_paths.register_roots(&db);
@@ -3351,7 +3380,7 @@ fn project_model_discovery_skips_registered_non_first_party_paths() {
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/project"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &pythonpath,
     );
     search_paths.register_roots(&db);

@@ -6,6 +6,7 @@ use camino::Utf8PathBuf;
 use djls_project::FileModuleCandidate;
 use djls_project::FileModuleResolution;
 use djls_project::Project;
+use djls_project::PythonEnvironment;
 use djls_project::PythonModuleName;
 use djls_project::PythonSourceModule;
 use djls_project::ScopedTemplateLibraries;
@@ -284,6 +285,10 @@ fn namespace_apps_discovers_namespace_dirs_config_tails_and_libraries() {
     let (db, project, root) = bootstrap_fixture("namespace-apps", Some(overrides))
         .expect("namespace-apps fixture should bootstrap");
 
+    assert_eq!(
+        project.python_environment(&db),
+        &PythonEnvironment::Path(venv)
+    );
     let site_packages = root.join(".venv/lib/python3.12/site-packages");
     let search_paths: Vec<_> = project.search_paths(&db).iter().cloned().collect();
     assert_eq!(

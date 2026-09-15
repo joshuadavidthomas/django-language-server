@@ -172,6 +172,16 @@ pub enum RootWalk {
 pub trait FileSystem: Send + Sync {
     /// Read a UTF-8 text file from this filesystem view.
     fn read_to_string(&self, path: &Utf8Path) -> io::Result<String>;
+    /// Resolve symbolic links and normalize a path when this filesystem can.
+    ///
+    /// Filesystem views without link metadata preserve an existing path as-is.
+    fn canonicalize(&self, path: &Utf8Path) -> io::Result<Utf8PathBuf> {
+        self.exists(path)
+            .then(|| path.to_path_buf())
+            .ok_or_else(|| {
+                io::Error::new(io::ErrorKind::NotFound, format!("path not found: {path}"))
+            })
+    }
     /// Return whether a path exists as a file or directory.
     fn exists(&self, path: &Utf8Path) -> bool;
     /// Return whether a path is a regular file.
@@ -195,6 +205,12 @@ where
         self.lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .read_to_string(path)
+    }
+
+    fn canonicalize(&self, path: &Utf8Path) -> io::Result<Utf8PathBuf> {
+        self.lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .canonicalize(path)
     }
 
     fn exists(&self, path: &Utf8Path) -> bool {
@@ -559,6 +575,15 @@ fn simplify_verbatim_prefix(path: &Utf8Path) -> &Utf8Path {
 impl FileSystem for OsFileSystem {
     fn read_to_string(&self, path: &Utf8Path) -> io::Result<String> {
         std::fs::read_to_string(path)
+    }
+
+    fn canonicalize(&self, path: &Utf8Path) -> io::Result<Utf8PathBuf> {
+        Utf8PathBuf::from_path_buf(path.as_std_path().canonicalize()?).map_err(|path| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("path is not valid UTF-8: {}", path.display()),
+            )
+        })
     }
 
     fn exists(&self, path: &Utf8Path) -> bool {

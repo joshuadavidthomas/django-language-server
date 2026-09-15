@@ -7,9 +7,9 @@ use djls_bench::Fixture;
 use djls_bench::REPEATED_INNER_ITERS;
 use djls_bench::python_fixtures;
 use djls_bench::require;
-use djls_project::Interpreter;
 use djls_project::InvalidModuleName;
 use djls_project::Project;
+use djls_project::PythonEnvironment;
 use djls_project::PythonModuleName;
 use djls_project::SearchPaths;
 use djls_project::testing::django_settings;
@@ -181,11 +181,12 @@ fn settings_cold_corpus(bencher: Bencher, name: &str) {
     bencher
         .with_inputs(|| {
             let mut db = OsTestDatabase::with_disk_roots([declaration.checkout_root.clone()]);
-            let interpreter = Interpreter::VenvPath(corpus.root().join("hermetic-no-venv"));
+            let python_environment =
+                PythonEnvironment::Path(corpus.root().join("hermetic-no-venv"));
             let search_paths = SearchPaths::from_project_settings(
                 db.file_system(),
                 &declaration.project_root,
-                &interpreter,
+                &python_environment,
                 &[],
             );
             search_paths.register_roots(&db);
@@ -193,7 +194,7 @@ fn settings_cold_corpus(bencher: Bencher, name: &str) {
                 &db,
                 declaration.project_root.clone(),
                 search_paths,
-                interpreter,
+                python_environment,
                 Some(settings_module.clone()),
                 Vec::new(),
                 Vec::new(),

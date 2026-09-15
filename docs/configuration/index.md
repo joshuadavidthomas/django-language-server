@@ -1,6 +1,6 @@
 # Configuration
 
-Django Language Server auto-detects your project configuration in most cases. It reads the `DJANGO_SETTINGS_MODULE` environment variable and searches for standard virtual environment directories (`.venv`, `venv`, `env`, `.env`).
+Django Language Server auto-detects your project configuration in most cases. It reads the `DJANGO_SETTINGS_MODULE` environment variable and searches for standard virtual environment directories (`.venv`, `venv`, `env`, `.env`), active environments, and Python on `PATH`.
 
 **Most users don't need any configuration.** The settings below are for edge cases like non-standard virtual environment locations, editors that don't pass environment variables, or custom template tag definitions.
 
@@ -41,15 +41,16 @@ The server uses this to statically introspect your Django project for template t
 
 ### `venv_path`
 
-**Default:** Auto-detects `.venv`, `venv`, `env`, `.env` in project root, then checks `VIRTUAL_ENV` environment variable
+**Default:** Auto-detects `.venv`, `venv`, `env`, `.env` in the project root, then checks `VIRTUAL_ENV`, `CONDA_PREFIX`, and Python on `PATH`
 
-Absolute path to your project's virtual environment directory.
+Absolute path to your project's virtual-environment directory.
 
-The server needs access to your virtual environment to discover installed Django apps and their template tags.
+The server uses conventional filesystem layouts to infer the selected environment's import roots and locate installed Django apps and their template tags. Automatic discovery can also inspect Python installations found on `PATH`, but the server does not execute Python, project code, or executable lines in `.pth` files. Opaque version-manager shims that do not expose their target as a filesystem symlink require `venv_path` to identify the environment directly.
 
 **When to configure:**
 
 - Your virtual environment is in a non-standard location
+- You use an environment outside the project
 - Auto-detection fails for your setup
 
 ### `pythonpath`
@@ -348,6 +349,8 @@ Django Language Server reads standard Python and Django environment variables:
 
 - `DJANGO_SETTINGS_MODULE` - Django settings module name
 - `VIRTUAL_ENV` - Virtual environment path
+- `CONDA_PREFIX` - Active Conda environment prefix
+- `PATH` - Fallback discovery of `python3` or `python`
 
 If you're already running Django with these environment variables set, the language server will automatically use them.
 

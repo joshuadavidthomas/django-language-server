@@ -22,6 +22,10 @@ _Avoid_: Project Model, Project Context, Project Knowledge, Project State
 A path-scoped Django analysis context within a **Project**, rooted at a directory and configured by a **Django Settings Module**.
 _Avoid_: Python environment, virtual environment, OS environment, workspace
 
+**Python Environment**:
+The filesystem installation context used for Python import discovery. It may be selected by a Python executable, virtual-environment root, or system prefix; DJLS inspects it without executing Python.
+_Avoid_: interpreter when referring to the whole environment, Django Environment
+
 **Django Settings Module**:
 The Python module that configures a **Project** for Django.
 _Avoid_: Settings, DJLS settings, environment

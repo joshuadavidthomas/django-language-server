@@ -1,6 +1,6 @@
+mod environment;
 pub(crate) mod evaluation;
 pub(crate) mod import;
-mod interpreter;
 mod intrinsic;
 pub(crate) mod module;
 mod name;
@@ -10,7 +10,7 @@ mod scope;
 mod search_paths;
 mod source_occurrences;
 
-pub use interpreter::Interpreter;
+pub use environment::PythonEnvironment;
 pub(crate) use intrinsic::PythonIntrinsic;
 pub(crate) use intrinsic::PythonIntrinsicCall;
 pub(crate) use intrinsic::PythonIntrinsicNamespace;

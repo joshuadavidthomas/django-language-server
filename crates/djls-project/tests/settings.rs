@@ -8,6 +8,7 @@ use std::sync::atomic::Ordering;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_project::Db as ProjectDb;
+use djls_project::PythonEnvironment;
 use djls_project::testing::PythonSyntaxErrorClass;
 use djls_project::testing::compute_django_environment;
 use djls_project::testing::compute_project_facts;
@@ -957,7 +958,7 @@ fn search_path_winner_change_recomputes_module_reads() {
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/proj"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &[Utf8PathBuf::from("/extra")],
     );
     let project = ProjectFixture::new("/proj")
@@ -1078,7 +1079,7 @@ fn readable_unreadable_rescans_recompute_ancestors_once_and_retain_dependency() 
     );
     let project = ProjectFixture::new("/proj")
         .django_settings_module("myproject.settings")
-        .interpreter(Interpreter::Auto)
+        .python_environment(PythonEnvironment::Auto)
         .install(&mut db)
         .expect("settings project fixture should build");
 
@@ -1231,7 +1232,7 @@ fn project_with_file_system_failure(
     );
     let project = ProjectFixture::new("/proj")
         .django_settings_module("myproject.settings")
-        .interpreter(Interpreter::Auto)
+        .python_environment(PythonEnvironment::Auto)
         .install(&mut db)?;
 
     Ok((db, project))
@@ -1268,7 +1269,7 @@ fn project_requiring_environment_application(
         )
         .django_settings_module("settings")
         .pythonpath("/vendor")
-        .interpreter(Interpreter::Auto)
+        .python_environment(PythonEnvironment::Auto)
         .search_paths(SearchPaths::default())
         .register_roots(false)
         .install(db)?)
@@ -1629,7 +1630,7 @@ fn unreadable_root_settings_are_dynamic_never_unset() {
     );
     let project = ProjectFixture::new("/proj")
         .django_settings_module("myproject.settings")
-        .interpreter(Interpreter::Auto)
+        .python_environment(PythonEnvironment::Auto)
         .install(&mut db)
         .expect("settings project fixture should build");
 
@@ -1668,7 +1669,7 @@ fn django_discovery_includes_deduped_unreadable_settings_source() {
     );
     let project = ProjectFixture::new("/proj")
         .django_settings_module("myproject.settings")
-        .interpreter(Interpreter::Auto)
+        .python_environment(PythonEnvironment::Auto)
         .install(&mut db)
         .expect("settings project fixture should build");
 
@@ -2332,7 +2333,7 @@ fn template_dirs_resolve_apps_from_site_packages_search_path() {
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/proj"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &[Utf8PathBuf::from("/site")],
     );
     search_paths.register_roots(&db);
@@ -2381,7 +2382,7 @@ fn template_dirs_resolve_namespace_app_portions_in_root_order() {
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/proj"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &[Utf8PathBuf::from("/vendor")],
     );
     search_paths.register_roots(&db);
@@ -2704,7 +2705,7 @@ fn template_library_catalog_discover_namespace_package_templatetags() {
     let search_paths = SearchPaths::from_project_settings(
         db.file_system(),
         Utf8Path::new("/proj"),
-        &Interpreter::Auto,
+        &PythonEnvironment::Auto,
         &[Utf8PathBuf::from("/vendor")],
     );
     search_paths.register_roots(&db);
@@ -3082,7 +3083,7 @@ fn failed_available_candidate_walk_makes_missing_library_inconclusive() {
     );
     let project = ProjectFixture::new("/proj")
         .django_settings_module("myproject.settings")
-        .interpreter(Interpreter::Auto)
+        .python_environment(PythonEnvironment::Auto)
         .install(&mut db)
         .expect("settings project fixture should build");
 

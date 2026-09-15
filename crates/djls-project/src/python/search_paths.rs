@@ -10,7 +10,7 @@ use djls_source::WalkEntryKind;
 use djls_source::WalkOptions;
 
 use crate::db::Db as ProjectDb;
-use crate::python::Interpreter;
+use crate::python::PythonEnvironment;
 use crate::python::evaluation::StructuralOrd;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -43,10 +43,10 @@ impl SearchPath {
 
     fn from_pythonpath(
         root: &Utf8Path,
-        discovered_site_packages: Option<&Utf8Path>,
+        discovered_site_packages: &[Utf8PathBuf],
         path: Utf8PathBuf,
     ) -> Self {
-        if discovered_site_packages.is_some_and(|site_packages| site_packages == path)
+        if discovered_site_packages.contains(&path)
             || path
                 .components()
                 .any(|component| matches!(component.as_str(), "site-packages" | "dist-packages"))
@@ -115,7 +115,7 @@ impl SearchPaths {
     pub fn from_project_settings(
         fs: &dyn FileSystem,
         root: &Utf8Path,
-        interpreter: &Interpreter,
+        python_environment: &PythonEnvironment,
         pythonpath: &[Utf8PathBuf],
     ) -> Self {
         let mut search_paths = Self::default();
@@ -129,23 +129,26 @@ impl SearchPaths {
             .paths
             .push(SearchPath::FirstParty(root.to_path_buf()));
 
-        let discovered_site_packages = interpreter.site_packages_path(fs, root);
-        match (&discovered_site_packages, interpreter) {
-            (Some(site_packages), _) => {
+        let discovered_site_packages = python_environment.site_packages_paths(fs, root);
+        if discovered_site_packages.is_empty() {
+            match python_environment {
+                PythonEnvironment::Path(venv_path) => {
+                    tracing::warn!(
+                        "Could not discover site-packages under configured venv_path \
+                         '{venv_path}'; expected a conventional Python environment layout; \
+                         continuing with project and configured pythonpath roots"
+                    );
+                }
+                PythonEnvironment::Auto => {
+                    tracing::debug!(
+                        "No virtual-environment site-packages discovered for project {root}; \
+                         continuing with project and configured pythonpath roots"
+                    );
+                }
+            }
+        } else {
+            for site_packages in &discovered_site_packages {
                 tracing::debug!("Using discovered site-packages search path: {site_packages}");
-            }
-            (None, Interpreter::VenvPath(venv_path)) => {
-                tracing::warn!(
-                    "Could not discover site-packages under configured venv_path '{venv_path}'; \
-                     expected lib/python*/site-packages or Lib/site-packages; continuing with \
-                     project and configured pythonpath roots"
-                );
-            }
-            (None, Interpreter::Auto) => {
-                tracing::debug!(
-                    "No virtual-environment site-packages discovered for project {root}; \
-                     continuing with project and configured pythonpath roots"
-                );
             }
         }
 
@@ -159,11 +162,8 @@ impl SearchPaths {
                 continue;
             }
 
-            let search_path = SearchPath::from_pythonpath(
-                root,
-                discovered_site_packages.as_deref(),
-                resolved_path.clone(),
-            );
+            let search_path =
+                SearchPath::from_pythonpath(root, &discovered_site_packages, resolved_path.clone());
             if let Some(existing) = search_paths
                 .paths
                 .iter_mut()
@@ -184,12 +184,12 @@ impl SearchPaths {
             }
         }
 
-        if let Some(site_packages) = discovered_site_packages
-            && !search_paths.contains_path(&site_packages)
-        {
-            search_paths
-                .paths
-                .push(SearchPath::SitePackages(site_packages.clone()));
+        for site_packages in discovered_site_packages {
+            if !search_paths.contains_path(&site_packages) {
+                search_paths
+                    .paths
+                    .push(SearchPath::SitePackages(site_packages.clone()));
+            }
             search_paths.add_pth_editable_roots(fs, &site_packages);
         }
 
@@ -274,10 +274,40 @@ impl SearchPaths {
 mod tests {
     use std::cmp::Ordering;
 
+    use camino::Utf8Path;
     use camino::Utf8PathBuf;
+    use djls_source::InMemoryFileSystem;
 
+    use super::PythonEnvironment;
     use super::SearchPath;
+    use super::SearchPaths;
     use super::StructuralOrd;
+
+    #[test]
+    fn every_discovered_site_directory_processes_pth_files() {
+        let mut fs = InMemoryFileSystem::new();
+        fs.add_file(
+            "/env/lib/python3.12/site-packages/next.pth".into(),
+            "/env/lib64/python3.12/site-packages\n".into(),
+        );
+        fs.add_file(
+            "/env/lib64/python3.12/site-packages/editable.pth".into(),
+            "/editable\n".into(),
+        );
+        fs.add_file("/editable/package.py".into(), String::new());
+
+        let paths = SearchPaths::from_project_settings(
+            &fs,
+            Utf8Path::new("/project"),
+            &PythonEnvironment::Path(Utf8PathBuf::from("/env")),
+            &[],
+        )
+        .iter()
+        .cloned()
+        .collect::<Vec<_>>();
+
+        assert!(paths.contains(&SearchPath::Editable(Utf8PathBuf::from("/editable"))));
+    }
 
     #[test]
     fn typed_module_order_search_path_variants_are_distinct_and_total() {

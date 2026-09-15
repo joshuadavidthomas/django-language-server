@@ -8,8 +8,8 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::Settings;
 use djls_conf::TagSpecDef;
-use djls_project::Interpreter;
 use djls_project::Project;
+use djls_project::PythonEnvironment;
 use djls_project::PythonModuleName;
 use djls_project::PythonSourceModule;
 use djls_project::SearchPaths;
@@ -147,11 +147,11 @@ fn python_project_with_paths(
     pythonpath: &[Utf8PathBuf],
 ) -> Project {
     let root = Utf8Path::new("/project");
-    let interpreter = Interpreter::Auto;
+    let python_environment = PythonEnvironment::Auto;
     let search_paths =
-        SearchPaths::from_project_settings(db.file_system(), root, &interpreter, pythonpath);
+        SearchPaths::from_project_settings(db.file_system(), root, &python_environment, pythonpath);
     ProjectFixture::new(root)
-        .interpreter(interpreter)
+        .python_environment(python_environment)
         .search_paths(search_paths)
         .tag_specs(TagSpecDef::default())
         .build(db)

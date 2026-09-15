@@ -12,14 +12,14 @@ use salsa::Setter;
 
 use crate::ast::ExprExt;
 use crate::db::Db as ProjectDb;
-use crate::python::Interpreter;
+use crate::python::PythonEnvironment;
 use crate::python::PythonModuleName;
 use crate::python::SearchPaths;
 
 /// Complete project configuration as a Salsa input.
 ///
 /// This represents the core identity of a project: where it is (root path),
-/// which Python environment to use (interpreter), Django-specific configuration,
+/// which Python environment to inspect, Django-specific configuration,
 /// and external data sources that drive semantic analysis.
 ///
 /// Tracked queries in `djls-server` convert extraction results into semantic
@@ -33,9 +33,9 @@ pub struct Project {
     /// Python module-resolution paths for this project.
     #[returns(ref)]
     pub search_paths: SearchPaths,
-    /// Interpreter specification for Python environment discovery
+    /// Python executable, environment root, or prefix selection for import discovery.
     #[returns(ref)]
-    pub interpreter: Interpreter,
+    pub python_environment: PythonEnvironment,
     /// Django settings module name (e.g., "myproject.settings")
     #[returns(ref)]
     pub django_settings_module: Option<PythonModuleName>,
@@ -85,9 +85,7 @@ impl Project {
 
     pub fn initial(db: &dyn ProjectDb, root: &Utf8Path, settings: &Settings) -> Project {
         let search_paths = SearchPaths::root_only(root);
-        let interpreter = settings.venv_path().map_or(Interpreter::Auto, |path| {
-            Interpreter::VenvPath(path.to_path_buf())
-        });
+        let python_environment = PythonEnvironment::discover(settings.venv_path());
         let django_settings_module = settings
             .django_settings_module()
             .and_then(|module_name| PythonModuleName::parse(module_name).ok());
@@ -99,7 +97,7 @@ impl Project {
         Project::builder(
             root.to_path_buf(),
             search_paths,
-            interpreter,
+            python_environment,
             django_settings_module,
             pythonpath,
             env_vars,
@@ -112,7 +110,7 @@ impl Project {
 
     pub fn bootstrap(db: &dyn ProjectDb, root: &Utf8Path, settings: &Settings) -> Project {
         let process_settings_module = std::env::var("DJANGO_SETTINGS_MODULE").ok();
-        let interpreter = Interpreter::discover(settings.venv_path());
+        let python_environment = PythonEnvironment::discover(settings.venv_path());
         let django_settings_module = django_settings_module_name(
             db.file_system(),
             root,
@@ -123,7 +121,7 @@ impl Project {
         let search_paths = SearchPaths::from_project_settings(
             db.file_system(),
             root,
-            &interpreter,
+            &python_environment,
             settings.pythonpath(),
         );
         let pythonpath = settings.pythonpath().to_vec();
@@ -133,7 +131,7 @@ impl Project {
         Project::builder(
             root.to_path_buf(),
             search_paths,
-            interpreter,
+            python_environment,
             django_settings_module,
             pythonpath,
             env_vars,
@@ -147,7 +145,7 @@ impl Project {
     /// Reload settings-derived project fields on this stable Salsa input.
     pub fn reload_from_settings(self, db: &mut dyn ProjectDb, settings: &Settings) {
         let root = self.root(db).clone();
-        let interpreter = Interpreter::discover(settings.venv_path());
+        let python_environment = PythonEnvironment::discover(settings.venv_path());
         let process_settings_module = std::env::var("DJANGO_SETTINGS_MODULE").ok();
         let django_settings_module = django_settings_module_name(
             db.file_system(),
@@ -159,8 +157,8 @@ impl Project {
         let pythonpath = settings.pythonpath().to_vec();
         let tagspecs = settings.tagspecs().clone();
 
-        if self.interpreter(db) != &interpreter {
-            self.set_interpreter(db).to(interpreter);
+        if self.python_environment(db) != &python_environment {
+            self.set_python_environment(db).to(python_environment);
         }
 
         if self.django_settings_module(db) != &django_settings_module {

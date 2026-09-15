@@ -13,7 +13,7 @@ use std::collections::BTreeSet;
 use std::io;
 
 #[cfg(not(windows))]
-use djls_project::Interpreter;
+use djls_project::PythonEnvironment;
 #[cfg(not(windows))]
 use djls_project::testing::django_settings;
 #[cfg(not(windows))]
@@ -148,7 +148,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .into());
     }
 
-    let interpreter = corpus.root().join("hermetic-no-venv");
+    let python_environment = corpus.root().join("hermetic-no-venv");
     let mut snapshot_names = BTreeSet::new();
     let mut trials = Vec::new();
 
@@ -169,14 +169,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let repo_name = repo_name.clone();
             let checkout_root = checkout_root.clone();
             let project_root = project_root.clone();
-            let interpreter = interpreter.clone();
+            let python_environment = python_environment.clone();
             trials.push(Trial::test(snapshot_name.clone(), move || {
                 let _guard = snapshot_dir();
                 let mut db = OsTestDatabase::with_disk_roots([checkout_root.clone()]);
-                let interpreter = Interpreter::VenvPath(interpreter);
+                let python_environment = PythonEnvironment::Path(python_environment);
                 let project = ProjectFixture::new(project_root.clone())
                     .django_settings_module(&settings_module)
-                    .interpreter(interpreter)
+                    .python_environment(python_environment)
                     .install(&mut db)?;
 
                 settings_module_file(&db, project).ok_or_else(|| {
