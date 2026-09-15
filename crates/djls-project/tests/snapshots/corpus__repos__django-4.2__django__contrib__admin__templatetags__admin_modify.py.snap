@@ -1,8 +1,0 @@
----
-source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
----
-tag_rules: {}
-filter_arities:
-  "django.contrib.admin.templatetags.admin_modify::filter::cell_count": no_argument
-block_specs: {}
