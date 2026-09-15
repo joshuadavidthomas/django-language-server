@@ -43,6 +43,8 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Fixed
 
+- Fixed relative `pythonpath` entries resolving outside the project root.
+- Fixed static Django settings evaluation of `Path.parents[index]` expressions.
 - Fixed tag argument extraction from helper return paths, ordered `match` cases, and unpacking assignments, including nested helper calls, guard fallthrough, starred targets, caught failures, and scalar `finally` overrides.
 - Fixed tag-rule extraction for conditional list mutations, truthiness guards, early returns, `finally` validation, argument positions after unsupported `pop()` calls, and contradictory argument-count branches producing impossible forms.
 - Fixed static validation of `simple_tag`, `inclusion_tag`, and `simple_block_tag` arguments, including context-aware and curried registrations and block structure, to match Django's `parse_bits()` binding rules.

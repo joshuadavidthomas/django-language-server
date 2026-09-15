@@ -740,8 +740,9 @@ fn python_intrinsics_follow_import_and_assignment_aliases() {
     let db = TestDatabase::new();
     db.add_file(
         "/project/settings.py",
-        "from pathlib import Path as P\nimport os as operating_system\nfrom os.path import join as path_join, dirname as path_dirname\nstringify = str\nMODULE_FILE = __file__\nROOT = P(__file__).parent\nRESOLVED = P(__file__).resolve()\nNORMALIZED = P(__file__).parent.joinpath('..').resolve()\nTEMPLATES_DIR = operating_system.path.join(ROOT, 'templates')\nSTATIC_DIR = path_join(ROOT, 'static')\nPARENT = path_dirname(TEMPLATES_DIR)\nEMPTY_PARENT = path_dirname('')\nTRAILING_PARENT = path_dirname('/project/')\nROOT_PARENT = path_dirname('/')\nSTATIC_TEXT = stringify(STATIC_DIR)\nRELATIVE_PATH = P('relative')\nINVALID_METHOD = TEMPLATES_DIR.parent\nINVALID_DIVISION = TEMPLATES_DIR / 'nested'\n",
-    ).expect("settings-extraction test file should be added");
+        include_str!("testdata/settings_extraction/python_intrinsics.py"),
+    )
+    .expect("settings-extraction test file should be added");
     let project = python_project(&db);
     let settings = db
         .file(Utf8Path::new("/project/settings.py"))
@@ -785,6 +786,8 @@ fn python_intrinsics_follow_import_and_assignment_aliases() {
         "RESOLVED",
         PythonValueKindView::Path("/project/settings.py".into()),
     );
+    assert_kind("FIRST_PARENT", PythonValueKindView::Path("/project".into()));
+    assert_kind("SECOND_PARENT", PythonValueKindView::Path("/".into()));
     assert_kind("NORMALIZED", PythonValueKindView::Path("/".into()));
     assert_kind(
         "TEMPLATES_DIR",
@@ -805,7 +808,12 @@ fn python_intrinsics_follow_import_and_assignment_aliases() {
         "STATIC_TEXT",
         PythonValueKindView::Str("/project/static".to_string()),
     );
-    for name in ["RELATIVE_PATH", "INVALID_METHOD", "INVALID_DIVISION"] {
+    for name in [
+        "RELATIVE_PATH",
+        "INVALID_PARENTS",
+        "INVALID_METHOD",
+        "INVALID_DIVISION",
+    ] {
         let binding = evaluation.binding(name).expect("binding should exist");
         let bound =
             only_bound(&binding.alternatives).expect("binding should have one bound alternative");

@@ -64,6 +64,7 @@ impl PythonModuleEvaluator<'_> {
             ast::Expr::Call(call) => self.evaluate_call_binding(call, origin),
             ast::Expr::Dict(dict) => self.evaluate_dict_binding(dict, origin),
             ast::Expr::Attribute(attribute) => self.evaluate_attribute_binding(attribute, origin),
+            ast::Expr::Subscript(subscript) => self.evaluate_subscript_binding(subscript, origin),
             ast::Expr::BoolOp(boolean) => self.evaluate_bool_op_binding(boolean, origin),
             ast::Expr::UnaryOp(unary) if unary.op == ast::UnaryOp::Not => {
                 self.evaluate_not_binding(unary, origin)
@@ -90,7 +91,6 @@ impl PythonModuleEvaluator<'_> {
             | ast::Expr::BooleanLiteral(_)
             | ast::Expr::NoneLiteral(_)
             | ast::Expr::EllipsisLiteral(_)
-            | ast::Expr::Subscript(_)
             | ast::Expr::Starred(_)
             | ast::Expr::Name(_)
             | ast::Expr::Slice(_)
@@ -223,6 +223,41 @@ impl PythonModuleEvaluator<'_> {
             | PythonValueKind::List(_)
             | PythonValueKind::Tuple(_)
             | PythonValueKind::Dict(_)
+            | PythonValueKind::Unknown(_) => {
+                PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin)
+            }
+        })
+    }
+
+    fn evaluate_subscript_binding(
+        &self,
+        subscript: &ast::ExprSubscript,
+        origin: Origin,
+    ) -> PythonBinding {
+        let ast::Expr::Attribute(attribute) = subscript.value.as_ref() else {
+            return PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin);
+        };
+        if attribute.attr.as_str() != "parents" {
+            return PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin);
+        }
+        let Some(index) = subscript.slice.non_negative_integer() else {
+            return PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin);
+        };
+
+        let receiver = self.evaluate_binding(&attribute.value);
+        project_bound_alternatives(&receiver, origin, |value| match &value.kind {
+            PythonValueKind::Path(path) => path.parent_at(index).map_or_else(
+                || PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin),
+                |parent| PythonBinding::bound(PythonValue::python_path(parent, origin), origin),
+            ),
+            PythonValueKind::Str(_)
+            | PythonValueKind::Bool(_)
+            | PythonValueKind::UnsupportedLiteral
+            | PythonValueKind::List(_)
+            | PythonValueKind::Tuple(_)
+            | PythonValueKind::Dict(_)
+            | PythonValueKind::Module(_)
+            | PythonValueKind::Intrinsic(_)
             | PythonValueKind::Unknown(_) => {
                 PythonBinding::unknown(&PythonUnknownCause::UnsupportedExpression, origin)
             }
