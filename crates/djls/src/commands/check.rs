@@ -344,6 +344,10 @@ impl FileSystem for SingleFileOverlay {
         }
     }
 
+    fn canonicalize(&self, path: &Utf8Path) -> IoResult<Utf8PathBuf> {
+        self.disk.canonicalize(path)
+    }
+
     fn exists(&self, path: &Utf8Path) -> bool {
         path == self.path || self.disk.exists(path)
     }

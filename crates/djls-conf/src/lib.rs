@@ -256,13 +256,7 @@ mod tests {
                 .expect("temporary project directory path should be valid UTF-8");
             let settings = Settings::new(project_root, None)
                 .expect("virtual environment djls.toml fixture should load settings");
-            assert_eq!(
-                settings,
-                Settings {
-                    venv_path: Some(Utf8PathBuf::from("/path/to/venv")),
-                    ..Default::default()
-                }
-            );
+            assert_eq!(settings.venv_path(), Some(Utf8Path::new("/path/to/venv")));
         }
 
         #[test]

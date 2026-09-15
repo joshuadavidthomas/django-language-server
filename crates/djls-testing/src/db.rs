@@ -258,6 +258,17 @@ impl FileSystem for LayeredFileSystem {
         }
     }
 
+    fn canonicalize(&self, path: &Utf8Path) -> io::Result<Utf8PathBuf> {
+        if self.memory.exists(path) {
+            self.memory.canonicalize(path)
+        } else {
+            self.disk_path(path).map_or_else(
+                || self.memory.canonicalize(path),
+                |path| self.disk.canonicalize(&path),
+            )
+        }
+    }
+
     fn exists(&self, path: &Utf8Path) -> bool {
         self.memory.exists(path)
             || self

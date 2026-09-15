@@ -276,6 +276,10 @@ impl FileSystem for OverlayFileSystem {
         self.disk.read_to_string(path)
     }
 
+    fn canonicalize(&self, path: &Utf8Path) -> io::Result<Utf8PathBuf> {
+        self.disk.canonicalize(path)
+    }
+
     fn exists(&self, path: &Utf8Path) -> bool {
         self.buffers.contains(path) || self.is_dir(path) || self.disk.exists(path)
     }

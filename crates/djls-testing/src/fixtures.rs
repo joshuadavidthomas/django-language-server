@@ -10,9 +10,9 @@ use djls_conf::DiagnosticsConfig;
 use djls_conf::Settings;
 use djls_conf::TagSpecDef;
 use djls_project::Db as ProjectDb;
-use djls_project::Interpreter;
 use djls_project::LibraryName;
 use djls_project::Project;
+use djls_project::PythonEnvironment;
 use djls_project::PythonModuleName;
 use djls_project::SearchPath;
 use djls_project::SearchPaths;
@@ -286,7 +286,7 @@ pub struct ProjectFixture {
     django_settings_module: anyhow::Result<Option<PythonModuleName>>,
     pythonpath: Vec<Utf8PathBuf>,
     env_vars: Vec<(String, String)>,
-    interpreter: Interpreter,
+    python_environment: PythonEnvironment,
     search_paths: Option<SearchPaths>,
     register_roots: bool,
     tag_specs: TagSpecDef,
@@ -302,7 +302,7 @@ impl ProjectFixture {
             django_settings_module: Ok(None),
             pythonpath: Vec::new(),
             env_vars: Vec::new(),
-            interpreter: Interpreter::discover(settings.venv_path()),
+            python_environment: PythonEnvironment::discover(settings.venv_path()),
             search_paths: None,
             register_roots: true,
             tag_specs: settings.tagspecs().clone(),
@@ -345,8 +345,8 @@ impl ProjectFixture {
     }
 
     #[must_use]
-    pub fn interpreter(mut self, interpreter: Interpreter) -> Self {
-        self.interpreter = interpreter;
+    pub fn python_environment(mut self, python_environment: PythonEnvironment) -> Self {
+        self.python_environment = python_environment;
         self
     }
 
@@ -380,7 +380,7 @@ impl ProjectFixture {
             SearchPaths::from_project_settings(
                 db.file_system(),
                 &self.root,
-                &self.interpreter,
+                &self.python_environment,
                 &self.pythonpath,
             )
         });
@@ -392,7 +392,7 @@ impl ProjectFixture {
             db,
             self.root,
             search_paths,
-            self.interpreter,
+            self.python_environment,
             django_settings_module,
             self.pythonpath,
             self.env_vars,
@@ -572,7 +572,7 @@ pub fn corpus_project_database(
     let mut disk_roots = disk_roots.into_iter().collect::<Vec<_>>();
     disk_roots.push(django_source_root.clone());
     let mut db = OsTestDatabase::with_disk_roots(disk_roots);
-    let interpreter = Interpreter::VenvPath(corpus.root().join("hermetic-no-venv"));
+    let python_environment = PythonEnvironment::Path(corpus.root().join("hermetic-no-venv"));
     let pythonpath = vec![django_source_root.clone()];
     let search_paths = SearchPaths::from_paths(vec![
         SearchPath::FirstParty(project_root.clone()),
@@ -583,7 +583,7 @@ pub fn corpus_project_database(
         &db,
         project_root,
         search_paths,
-        interpreter,
+        python_environment,
         Some(PythonModuleName::parse(settings_module)?),
         pythonpath,
         Vec::new(),

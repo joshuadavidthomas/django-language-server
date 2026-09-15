@@ -3,10 +3,10 @@ use std::ptr;
 
 use camino::Utf8Path;
 use djls_conf::TagSpecDef;
-use djls_project::Interpreter;
 use djls_project::ModelGraph;
 use djls_project::ModelId;
 use djls_project::Project;
+use djls_project::PythonEnvironment;
 use djls_project::PythonModuleName;
 use djls_project::compute_model_graph;
 use djls_project::testing::ModelAncestryOutcomeView;
@@ -1216,7 +1216,7 @@ fn salsa_recomputes_relation_resolution_for_import_edits_only_where_needed() {
             "/project/other/models.py",
             include_str!("testdata/model_relations/salsa_recomputes_relation_resolution_for_import_edits_only_where_needed/other/models_initial.py"),
         )
-        .interpreter(Interpreter::Auto)
+        .python_environment(PythonEnvironment::Auto)
         .tag_specs(TagSpecDef::default())
         .install(&mut db)
         .expect("model project fixture should build");

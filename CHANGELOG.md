@@ -36,7 +36,8 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Reduced analysis time for Django settings with many conditional branches.
 - Reduced analysis time for Django settings with long `try` blocks.
 - Removed eager Django Model scanning and Model Graph construction from project discovery and cache warm-up.
-- Swapped the order of environments when automatically finding a project's Python interpreter, preferring the project venv dirs to `VIRTUAL_ENV`, to account for pre-commit isolated environments.
+- Expanded Python Environment discovery to support active Conda environments, Python installations on `PATH`, executable symlinks, and additional system package layouts without executing Python.
+- Swapped the automatic Python Environment order to prefer project venv directories over `VIRTUAL_ENV`, accounting for pre-commit isolated environments.
 - **Internal**: Reorganized `CONTRIBUTING.md` around a first-contribution path with editor/server orientation and an architecture overview, and grouped maintainer version and tool-pin updates into a Maintaining section.
 - **Internal**: Moved validation cases into per-file markdown snapshot tests, built every test project from disk through `ProjectFixture`, split the corpus sweeps into per-repository tests, and moved the full-corpus benchmark checks out of `cargo test`, which now runs about fifteen seconds faster.
 

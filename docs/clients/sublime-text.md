@@ -46,7 +46,7 @@ The language server requires two settings to provide full functionality:
 - `django_settings_module` **(required)**: Your Django settings module (e.g., `"myproject.settings"`)
 - `venv_path` **(optional)**: Path to your virtual environment
 
-Without these, the language server may not be able to fully introspect your Django project and will only provide basic built-in template tag completions. The language server attempts to auto-detect these settings from the `DJANGO_SETTINGS_MODULE` and `VIRTUAL_ENV` environment variables, and will also search for standard virtual environment directories (`.venv`, `venv`, `env`, `.env`) in your project root.
+Without these, the language server may not be able to fully introspect your Django project and will only provide basic built-in template tag completions. The language server attempts to auto-detect these settings from the `DJANGO_SETTINGS_MODULE`, `VIRTUAL_ENV`, and `CONDA_PREFIX` environment variables, and will also search for standard virtual environment directories (`.venv`, `venv`, `env`, `.env`) in your project root and Python on `PATH`.
 
 However, **Sublime Text launches language servers as subprocesses that don't inherit your terminal's environment**, so you must explicitly configure at least `django_settings_module`, and likely `venv_path` as well unless your venv uses a standard name.
 
@@ -66,7 +66,7 @@ You can also create a dedicated `djls.toml` or `.djls.toml` file in your project
 
 ##### Sublime project file
 
-Both settings can also be configured via their corresponding environment variables (`DJANGO_SETTINGS_MODULE` and `VIRTUAL_ENV`) in your `.sublime-project` file:
+The Django module and Python Environment can instead be selected through `DJANGO_SETTINGS_MODULE` and `VIRTUAL_ENV` in your `.sublime-project` file:
 
 ```json
 {

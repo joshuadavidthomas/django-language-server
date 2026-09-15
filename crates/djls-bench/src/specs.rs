@@ -9,9 +9,9 @@ use djls_conf::TagSpecDef;
 use djls_ide::prime_template_library_products;
 use djls_project::FilterArity;
 use djls_project::FilterArityMap;
-use djls_project::Interpreter;
 use djls_project::InvalidModuleName;
 use djls_project::Project;
+use djls_project::PythonEnvironment;
 use djls_project::PythonModuleName;
 use djls_project::SearchPaths;
 use djls_project::SymbolKey;
@@ -215,9 +215,9 @@ fn install_template_library_fixture(
     db.add_fixture_source("/django/templatetags/i18n.py", specs.i18n_source.clone());
 
     let root = Utf8Path::new("/");
-    let interpreter = Interpreter::Auto;
+    let python_environment = PythonEnvironment::Auto;
     let search_paths =
-        SearchPaths::from_project_settings(db.file_system(), root, &interpreter, &[]);
+        SearchPaths::from_project_settings(db.file_system(), root, &python_environment, &[]);
     search_paths.register_roots(db);
     let settings_module = PythonModuleName::parse("project.settings").map_err(|source| {
         BenchmarkSetupError::InvalidModuleName {
@@ -229,7 +229,7 @@ fn install_template_library_fixture(
         db,
         root.to_path_buf(),
         search_paths,
-        interpreter,
+        python_environment,
         Some(settings_module),
         Vec::new(),
         Vec::new(),

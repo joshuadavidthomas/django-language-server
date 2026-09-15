@@ -830,7 +830,7 @@ mod tests {
 
     use djls_ide::prime_template_library_products;
     use djls_project::Db as ProjectDb;
-    use djls_project::Interpreter;
+    use djls_project::PythonEnvironment;
     use tempfile::tempdir;
     use tokio::spawn;
     use tokio::task::yield_now;
@@ -1743,7 +1743,10 @@ pythonpath = ["{config_extra_path}"]
             Some("client.settings")
         );
         assert_eq!(project.pythonpath(db), &vec![client_extra_path]);
-        assert_eq!(project.interpreter(db), &Interpreter::VenvPath(venv_path));
+        assert_eq!(
+            project.python_environment(db),
+            &PythonEnvironment::Path(venv_path)
+        );
         assert!(project.env_vars(db).is_empty());
 
         let search_paths: Vec<_> = project
