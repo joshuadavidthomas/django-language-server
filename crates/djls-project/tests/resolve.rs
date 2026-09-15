@@ -252,6 +252,41 @@ fn search_paths_add_simple_pth_entries_as_editable_roots() {
 }
 
 #[test]
+fn explicit_pythonpath_entry_overrides_pth_editable_classification() {
+    let mut fs = InMemoryFileSystem::new();
+    let site_packages = Utf8PathBuf::from("/site-packages");
+    let shared = Utf8PathBuf::from("/shared");
+    fs.add_file(site_packages.join("django/__init__.py"), String::new());
+    fs.add_file(site_packages.join("shared.pth"), format!("{shared}\n"));
+    fs.add_file(shared.join("pkg.py"), String::new());
+
+    for pythonpath in [
+        vec![site_packages.clone(), shared.clone()],
+        vec![shared.clone(), site_packages.clone()],
+    ] {
+        let search_paths = SearchPaths::from_project_settings(
+            &fs,
+            Utf8Path::new("/project"),
+            &Interpreter::Auto,
+            &pythonpath,
+        );
+
+        assert!(
+            search_paths
+                .iter()
+                .any(|path| path == &SearchPath::Extra(shared.clone())),
+            "explicit pythonpath entry should be project code for {pythonpath:?}"
+        );
+        assert!(
+            !search_paths
+                .iter()
+                .any(|path| path == &SearchPath::Editable(shared.clone())),
+            "explicit pythonpath entry should not remain editable for {pythonpath:?}"
+        );
+    }
+}
+
+#[test]
 fn search_paths_normalize_relative_pth_entries_as_editable_roots() {
     let mut fs = InMemoryFileSystem::new();
     fs.add_file(
