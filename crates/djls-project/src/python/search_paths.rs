@@ -132,7 +132,7 @@ impl SearchPaths {
         let discovered_site_packages = interpreter.site_packages_path(fs, root);
 
         for path in pythonpath {
-            if !fs.is_dir(path) || search_paths.contains_path(path) {
+            if !fs.is_dir(path) {
                 continue;
             }
 
@@ -141,6 +141,16 @@ impl SearchPaths {
                 discovered_site_packages.as_deref(),
                 path.clone(),
             );
+            if let Some(existing) = search_paths
+                .paths
+                .iter_mut()
+                .find(|existing| existing.path() == path)
+            {
+                if matches!(existing, SearchPath::Editable(_)) {
+                    *existing = search_path;
+                }
+                continue;
+            }
             let site_packages = match &search_path {
                 SearchPath::SitePackages(path) => Some(path.clone()),
                 SearchPath::FirstParty(_) | SearchPath::Extra(_) | SearchPath::Editable(_) => None,
