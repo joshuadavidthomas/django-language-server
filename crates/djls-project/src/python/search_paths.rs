@@ -162,11 +162,8 @@ impl SearchPaths {
                 continue;
             }
 
-            let search_path = SearchPath::from_pythonpath(
-                root,
-                &discovered_site_packages,
-                resolved_path.clone(),
-            );
+            let search_path =
+                SearchPath::from_pythonpath(root, &discovered_site_packages, resolved_path.clone());
             if let Some(existing) = search_paths
                 .paths
                 .iter_mut()
