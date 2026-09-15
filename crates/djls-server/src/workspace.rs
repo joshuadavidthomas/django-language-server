@@ -390,57 +390,19 @@ fn buffer_relative_path(root: &Utf8Path, path: &Utf8Path) -> Option<Utf8PathBuf>
 
 #[cfg(test)]
 mod tests {
+    use djls_conf::Settings;
+    use djls_db::DjangoDatabase;
     use djls_source::ChangeEvent;
     use djls_source::Db as _;
     use djls_source::FileRootKind;
     use djls_source::InMemoryFileSystem;
     use djls_source::SourceChanges;
-    use djls_source::SourceFiles;
     use djls_source::path_to_file;
     use tempfile::tempdir;
 
     use super::*;
 
-    #[salsa::db]
-    #[derive(Clone)]
-    struct TestDb {
-        storage: salsa::Storage<Self>,
-        fs: Arc<dyn FileSystem>,
-        files: SourceFiles,
-    }
-
-    impl TestDb {
-        fn new(fs: Arc<dyn FileSystem>) -> Self {
-            Self {
-                storage: salsa::Storage::default(),
-                fs,
-                files: SourceFiles::default(),
-            }
-        }
-    }
-
-    #[salsa::db]
-    impl salsa::Database for TestDb {}
-
-    #[salsa::db]
-    impl djls_source::Db for TestDb {
-        fn files(&self) -> &SourceFiles {
-            &self.files
-        }
-
-        fn file_system(&self) -> &dyn FileSystem {
-            self.fs.as_ref()
-        }
-    }
-
-    #[salsa::db]
-    impl djls_project::Db for TestDb {
-        fn project(&self) -> Option<djls_project::Project> {
-            None
-        }
-    }
-
-    fn text_document(_db: &TestDb, path: &Utf8Path, content: &str) -> TextDocument {
+    fn text_document(path: &Utf8Path, content: &str) -> TextDocument {
         TextDocument::new(path.to_path_buf(), content.to_string(), 1, FileKind::Python)
     }
 
@@ -497,8 +459,7 @@ mod tests {
 
         let buffers = Buffers::new();
         let fs = OverlayFileSystem::new(buffers.clone(), Arc::new(disk));
-        let db = TestDb::new(Arc::new(InMemoryFileSystem::new()));
-        buffers.open(path.clone(), text_document(&db, &path, "buffer content"));
+        buffers.open(path.clone(), text_document(&path, "buffer content"));
 
         assert_eq!(
             fs.read_to_string(&path)
@@ -511,10 +472,9 @@ mod tests {
     fn overlay_walk_includes_buffer_only_file() {
         let buffers = Buffers::new();
         let fs = OverlayFileSystem::new(buffers.clone(), Arc::new(InMemoryFileSystem::new()));
-        let db = TestDb::new(Arc::new(InMemoryFileSystem::new()));
         let root = Utf8Path::new("/project/templates");
         let path = Utf8PathBuf::from("/project/templates/buffer.html");
-        buffers.open(path.clone(), text_document(&db, &path, "buffer"));
+        buffers.open(path.clone(), text_document(&path, "buffer"));
 
         let (entries, issues) = match fs.walk_root(root, &WalkOptions::unrestricted()) {
             RootWalk::Directory { entries, issues } => Some((entries, issues)),
@@ -543,11 +503,7 @@ mod tests {
             buffers.clone(),
             Arc::new(WalkIssueFileSystem { inner: disk }),
         );
-        let db = TestDb::new(Arc::new(InMemoryFileSystem::new()));
-        buffers.open(
-            buffer_path.clone(),
-            text_document(&db, &buffer_path, "buffer"),
-        );
+        buffers.open(buffer_path.clone(), text_document(&buffer_path, "buffer"));
 
         let (entries, issues) = match fs.walk_root(root, &WalkOptions::unrestricted()) {
             RootWalk::Directory { entries, issues } => Some((entries, issues)),
@@ -567,9 +523,8 @@ mod tests {
     fn overlay_case_sensitive_exists_includes_buffer_implied_directory() {
         let buffers = Buffers::new();
         let fs = OverlayFileSystem::new(buffers.clone(), Arc::new(InMemoryFileSystem::new()));
-        let db = TestDb::new(Arc::new(InMemoryFileSystem::new()));
         let path = Utf8PathBuf::from("/project/pkg/bar.py");
-        buffers.open(path.clone(), text_document(&db, &path, "buffer"));
+        buffers.open(path.clone(), text_document(&path, "buffer"));
 
         assert!(fs.path_exists_case_sensitive(
             Utf8Path::new("/project/pkg"),
@@ -581,17 +536,13 @@ mod tests {
     fn overlay_walk_respects_hidden_option_for_buffers() {
         let buffers = Buffers::new();
         let fs = OverlayFileSystem::new(buffers.clone(), Arc::new(InMemoryFileSystem::new()));
-        let db = TestDb::new(Arc::new(InMemoryFileSystem::new()));
         let root = Utf8Path::new("/project");
         let hidden_path = Utf8PathBuf::from("/project/.hidden/secret.html");
         let visible_path = Utf8PathBuf::from("/project/visible.html");
-        buffers.open(
-            hidden_path.clone(),
-            text_document(&db, &hidden_path, "secret"),
-        );
+        buffers.open(hidden_path.clone(), text_document(&hidden_path, "secret"));
         buffers.open(
             visible_path.clone(),
-            text_document(&db, &visible_path, "visible"),
+            text_document(&visible_path, "visible"),
         );
 
         let entries = match fs.walk_root(root, &WalkOptions::default()) {
@@ -617,7 +568,7 @@ mod tests {
             .expect("disk template fixture should be written");
 
         let mut workspace = Workspace::new();
-        let mut db = TestDb::new(workspace.overlay());
+        let mut db = DjangoDatabase::new(workspace.overlay(), &Settings::default(), None);
         let root = db
             .files()
             .try_add_root(&db, root.to_path_buf(), FileRootKind::Project);
@@ -644,7 +595,7 @@ mod tests {
             .expect("disk template fixture should be written");
 
         let mut workspace = Workspace::new();
-        let mut db = TestDb::new(workspace.overlay());
+        let mut db = DjangoDatabase::new(workspace.overlay(), &Settings::default(), None);
         let root = db
             .files()
             .try_add_root(&db, root.to_path_buf(), FileRootKind::Project);
@@ -668,7 +619,7 @@ mod tests {
         let file_path = root_path.join("template.html");
 
         let mut workspace = Workspace::new();
-        let mut db = TestDb::new(workspace.overlay());
+        let mut db = DjangoDatabase::new(workspace.overlay(), &Settings::default(), None);
         let root = db
             .files()
             .try_add_root(&db, root_path.to_path_buf(), FileRootKind::Project);
@@ -693,7 +644,7 @@ mod tests {
             .expect("disk template fixture should be written");
 
         let mut workspace = Workspace::new();
-        let mut db = TestDb::new(workspace.overlay());
+        let mut db = DjangoDatabase::new(workspace.overlay(), &Settings::default(), None);
         workspace.open_document(&file_path, "buffer template", 1, FileKind::Template);
         SourceChanges::new([ChangeEvent::BecameVisible(file_path.clone())]).apply(&mut db);
         let file = path_to_file(&db, &file_path).expect("opened document should be interned");

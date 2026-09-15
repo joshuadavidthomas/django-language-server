@@ -107,13 +107,8 @@ pub(crate) fn evaluate_source_call(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-    use std::sync::Mutex;
-
     use camino::Utf8Path;
-    use djls_source::FileSystem;
-    use djls_source::InMemoryFileSystem;
-    use djls_source::path_to_file;
+    use djls_testing::TestDatabase;
     use ruff_python_ast::Stmt;
     use ruff_python_ast::StmtFunctionDef;
     use ruff_python_parser::parse_module;
@@ -124,55 +119,12 @@ mod tests {
     use crate::templates::tags::testing::fixture_source;
     use crate::templates::tags::types::SplitPosition;
 
-    #[salsa::db]
-    #[derive(Clone)]
-    struct TestDatabase {
-        storage: salsa::Storage<Self>,
-        fs: Arc<Mutex<InMemoryFileSystem>>,
-        source_files: djls_source::SourceFiles,
-    }
-
-    impl TestDatabase {
-        fn new() -> Self {
-            Self {
-                storage: salsa::Storage::default(),
-                fs: Arc::new(Mutex::new(InMemoryFileSystem::new())),
-                source_files: djls_source::SourceFiles::default(),
-            }
-        }
-
-        fn create_python_file(&self, source: &str) -> djls_source::File {
-            let path = "test_module.py";
-            match self.fs.lock() {
-                Ok(mut fs) => fs.add_file(path.into(), source.to_string()),
-                Err(poisoned) => poisoned
-                    .into_inner()
-                    .add_file(path.into(), source.to_string()),
-            }
-            path_to_file(self, Utf8Path::new(path))
-                .expect("inserted Python fixture should be visible")
-        }
-    }
-
-    #[salsa::db]
-    impl salsa::Database for TestDatabase {}
-
-    #[salsa::db]
-    impl crate::db::Db for TestDatabase {
-        fn project(&self) -> Option<crate::Project> {
-            None
-        }
-    }
-
-    #[salsa::db]
-    impl djls_source::Db for TestDatabase {
-        fn files(&self) -> &djls_source::SourceFiles {
-            &self.source_files
-        }
-
-        fn file_system(&self) -> &dyn FileSystem {
-            self.fs.as_ref()
-        }
+    fn create_python_file(db: &TestDatabase, source: &str) -> djls_source::File {
+        let path = Utf8Path::new("test_module.py");
+        db.add_file(path.as_str(), source)
+            .expect("Python fixture should be added to the test database");
+        db.file(path)
+            .expect("inserted Python fixture should be visible")
     }
 
     fn parse_module_funcs(source: &str) -> Vec<StmtFunctionDef> {
@@ -194,7 +146,7 @@ mod tests {
     /// Analyze a module with helper resolution via Salsa.
     fn analyze_with_helpers(source: &str) -> Env {
         let db = TestDatabase::new();
-        let file = db.create_python_file(source);
+        let file = create_python_file(&db, source);
 
         let funcs = parse_module_funcs(source);
 
@@ -231,7 +183,7 @@ mod tests {
     /// Analyze a specific function with helper resolution via Salsa.
     fn analyze_function_with_helpers(source: &str, func_name: &str) -> Env {
         let db = TestDatabase::new();
-        let file = db.create_python_file(source);
+        let file = create_python_file(&db, source);
 
         let funcs = parse_module_funcs(source);
 
