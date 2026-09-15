@@ -1,5 +1,7 @@
 mod python_evaluation;
 
+use camino::Utf8Path;
+use djls_conf::Settings;
 use djls_source::Db as SourceDb;
 use djls_source::File;
 use djls_source::Span;
@@ -41,6 +43,7 @@ pub use crate::models::model_modules;
 use crate::models::resolve_local_model_graph;
 pub use crate::models::resolve_model_graph_from_modules;
 use crate::project::Project;
+use crate::project::django_settings_module_name as project_django_settings_module_name;
 use crate::python::PythonModuleName;
 pub use crate::python::PythonSyntaxError;
 pub use crate::python::PythonSyntaxErrorClass;
@@ -337,6 +340,15 @@ pub fn model_relation_locations(
 
 pub fn settings_module_file(db: &dyn Db, project: Project) -> Option<File> {
     project_settings_module_file(db, project)
+}
+
+pub fn discover_settings_module(
+    db: &dyn Db,
+    root: &Utf8Path,
+    settings: &Settings,
+    process_settings_module: Option<&str>,
+) -> Option<PythonModuleName> {
+    project_django_settings_module_name(db.file_system(), root, settings, process_settings_module)
 }
 
 pub fn django_settings(db: &dyn Db, project: Project) -> impl Serialize + '_ {
