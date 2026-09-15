@@ -160,21 +160,37 @@ impl<'db> PythonModuleEvaluator<'db> {
             return;
         }
 
-        let mut branches =
-            Vec::with_capacity(1 + stmt_try.handlers.len() * stmt_try.body.len().max(1));
+        let prefix_count = stmt_try.body.len().max(1);
+        // Keep handler-major branch ordering while advancing the shared prefix only once.
+        let mut handler_branches = stmt_try
+            .handlers
+            .iter()
+            .map(|_| Vec::with_capacity(prefix_count))
+            .collect::<Vec<_>>();
         let mut success = self.fork();
-        success.evaluate_body(&stmt_try.body);
-        success.evaluate_body(&stmt_try.orelse);
-        branches.push(success);
-
-        for handler in &stmt_try.handlers {
-            let ast::ExceptHandler::ExceptHandler(handler) = handler;
-            for prefix_len in 0..stmt_try.body.len().max(1) {
-                let mut branch = self.fork();
-                branch.evaluate_body(&stmt_try.body[..prefix_len]);
+        if stmt_try.body.is_empty() {
+            for (handler, branches) in stmt_try.handlers.iter().zip(&mut handler_branches) {
+                let ast::ExceptHandler::ExceptHandler(handler) = handler;
+                let mut branch = success.fork();
                 branch.evaluate_body(&handler.body);
                 branches.push(branch);
             }
+        } else {
+            for statement in &stmt_try.body {
+                for (handler, branches) in stmt_try.handlers.iter().zip(&mut handler_branches) {
+                    let ast::ExceptHandler::ExceptHandler(handler) = handler;
+                    let mut branch = success.fork();
+                    branch.evaluate_body(&handler.body);
+                    branches.push(branch);
+                }
+                success.walk_stmt(statement);
+            }
+        }
+        success.evaluate_body(&stmt_try.orelse);
+        let mut branches = Vec::with_capacity(1 + stmt_try.handlers.len() * prefix_count);
+        branches.push(success);
+        for handler_branches in handler_branches {
+            branches.extend(handler_branches);
         }
 
         self.join_forks(branches, self.origin(stmt_try));

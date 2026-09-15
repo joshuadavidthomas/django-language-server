@@ -840,21 +840,44 @@ impl PythonEvaluationState {
             .flat_map(|(_, branch)| branch.changed_names_from(&base))
             .collect::<BTreeSet<_>>();
         for name in names {
-            let mut joined: Option<PythonBinding> = None;
+            let mut groups: Vec<(PythonBinding, Vec<usize>)> = Vec::new();
             for (arm, branch) in branches {
-                let mut candidate = branch
+                let candidate = branch
                     .binding(&name)
                     .cloned()
                     .unwrap_or_else(PythonBinding::unbound);
-                candidate.select_branch(join.to_owned(), *arm);
-                joined = Some(match joined {
-                    Some(current) => current.join(candidate, origin),
-                    None => candidate,
-                });
+                if let Some((_, arms)) =
+                    groups.iter_mut().find(|(grouped, _)| *grouped == candidate)
+                {
+                    arms.push(*arm);
+                } else {
+                    groups.push((candidate, vec![*arm]));
+                }
             }
-            if let Some(binding) = joined {
-                base.bindings.insert(name, binding);
-            }
+            let mut grouped = groups
+                .iter()
+                .map(|(candidate, _)| candidate.clone())
+                .collect::<Vec<_>>();
+            let joined = if PythonBinding::supports_grouped_branch_join(&grouped) {
+                for (candidate, (_, arms)) in grouped.iter_mut().zip(&groups) {
+                    candidate.select_branches(join.to_owned(), arms);
+                }
+                PythonBinding::join_grouped_branches(grouped, origin)
+            } else {
+                branches
+                    .iter()
+                    .map(|(arm, branch)| {
+                        let mut candidate = branch
+                            .binding(&name)
+                            .cloned()
+                            .unwrap_or_else(PythonBinding::unbound);
+                        candidate.select_branch(join.to_owned(), *arm);
+                        candidate
+                    })
+                    .reduce(|current, candidate| current.join(candidate, origin))
+                    .unwrap_or_else(PythonBinding::unbound)
+            };
+            base.bindings.insert(name, joined);
         }
         base.namespace_causes.clear();
         base.mutations.clear();

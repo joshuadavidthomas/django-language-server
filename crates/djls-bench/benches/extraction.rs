@@ -122,6 +122,39 @@ fn settings_cold_branches(bencher: Bencher, branches: usize) {
         });
 }
 
+/// Fresh settings parsing, evaluation, and projection with a growing try body.
+/// The inputs cover a common small body, an upper-end real-world-sized body, and an
+/// explicit stress case. Source generation and database setup are not timed.
+#[divan::bench(args = [2, 9, 64])]
+fn settings_cold_try_prefixes(bencher: Bencher, statements: usize) {
+    let mut source = String::from("INSTALLED_APPS = ['core']\ntry:\n");
+    for index in 0..statements {
+        require(
+            "write try-prefix settings fixture",
+            writeln!(source, "    SETTING_{index} = 'value-{index}'"),
+        );
+    }
+    source.push_str("except Exception:\n    RECOVERED = True\n");
+    bencher
+        .with_inputs(|| {
+            let mut db = TestDatabase::new();
+            let project = require(
+                "prepare cold try-prefix settings input",
+                ProjectFixture::new("/corpus/repos/settings-project/src/project")
+                    .django_settings_module("settings")
+                    .file(
+                        "/corpus/repos/settings-project/src/project/settings.py",
+                        source.as_str(),
+                    )
+                    .install(&mut db),
+            );
+            (db, project)
+        })
+        .bench_local_values(|(db, project)| {
+            divan::black_box(django_settings(&db, project));
+        });
+}
+
 /// Real settings source and imports, with no installed dependencies and fresh
 /// evaluation queries. Corpus metadata, search paths, and entry resolution are setup;
 /// source reads, parsing, evaluation, and settings projection are timed.
