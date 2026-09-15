@@ -38,7 +38,7 @@ use djls_testing::SalsaEventLog;
 use djls_testing::TestDatabase;
 use djls_testing::extract_bundle;
 use djls_testing::sorted_snapshot;
-use salsa::Database as _;
+use djls_testing::will_execute_count;
 
 const ALLAUTH_TAGS_SOURCE: &str = include_str!("../src/templates/tags/testdata/allauth_tags.py");
 const CUSTOM_SOURCE: &str = include_str!("../src/templates/tags/testdata/django_custom.py");
@@ -66,29 +66,6 @@ fn extract_source(
     let file = db.file(path)?;
     let module_name = PythonModuleName::parse(module_name)?;
     Ok(extract_bundle(&db, file, module_name))
-}
-
-fn execution_count(db: &TestDatabase, events: &[salsa::Event], query_name: &str) -> usize {
-    events
-        .iter()
-        .filter(|event| match &event.kind {
-            salsa::EventKind::WillExecute { database_key } => db
-                .ingredient_debug_name(database_key.ingredient_index())
-                .ends_with(query_name),
-            salsa::EventKind::DidValidateMemoizedValue { .. }
-            | salsa::EventKind::WillBlockOn { .. }
-            | salsa::EventKind::WillIterateCycle { .. }
-            | salsa::EventKind::DidFinalizeCycle { .. }
-            | salsa::EventKind::WillCheckCancellation
-            | salsa::EventKind::DidSetCancellationFlag
-            | salsa::EventKind::WillDiscardStaleOutput { .. }
-            | salsa::EventKind::DidDiscard { .. }
-            | salsa::EventKind::DidDiscardAccumulated { .. }
-            | salsa::EventKind::DidInternValue { .. }
-            | salsa::EventKind::DidReuseInternedValue { .. }
-            | salsa::EventKind::DidValidateInternedValue { .. } => false,
-        })
-        .count()
 }
 
 // Corpus: `no_params` in tests/template_tests/templatetags/custom.py —
@@ -1836,23 +1813,23 @@ fn template_symbol_location_shift_backdates_semantic_products() {
         .take()
         .expect("Salsa event log should be readable after the fixture edit");
     assert_eq!(
-        execution_count(&db, &events, "template_library_source_analysis"),
+        will_execute_count(&db, &events, "template_library_source_analysis"),
         1
     );
     assert_eq!(
-        execution_count(&db, &events, "template_library_definition_facts"),
+        will_execute_count(&db, &events, "template_library_definition_facts"),
         1
     );
     assert_eq!(
-        execution_count(&db, &events, "template_library_tag_facts"),
+        will_execute_count(&db, &events, "template_library_tag_facts"),
         1
     );
     assert_eq!(
-        execution_count(&db, &events, "template_library_filter_facts"),
+        will_execute_count(&db, &events, "template_library_filter_facts"),
         1
     );
     assert_eq!(
-        execution_count(&db, &events, "template_library_symbol_sources"),
+        will_execute_count(&db, &events, "template_library_symbol_sources"),
         1
     );
 }
@@ -2043,9 +2020,9 @@ fn comment_only_edit_backdates_parsed_body_consumers() {
     let events = event_log
         .take()
         .expect("Salsa event log should be readable after the fixture edit");
-    assert_eq!(execution_count(&db, &events, "parse_python_file"), 1);
+    assert_eq!(will_execute_count(&db, &events, "parse_python_file"), 1);
     assert_eq!(
-        execution_count(&db, &events, "template_library_tag_facts"),
+        will_execute_count(&db, &events, "template_library_tag_facts"),
         0
     );
 }
@@ -2084,18 +2061,18 @@ fn template_library_extraction_products_execute_once_and_share_parsing() {
     let events = event_log
         .take()
         .expect("Salsa event log should be readable after Tag facts are queried");
-    assert_eq!(execution_count(&db, &events, "parse_python_file"), 1);
+    assert_eq!(will_execute_count(&db, &events, "parse_python_file"), 1);
     assert_eq!(
-        execution_count(&db, &events, "template_library_source_analysis"),
+        will_execute_count(&db, &events, "template_library_source_analysis"),
         1,
         "definitions, Tag Rules, and Block Specs must share one registration analysis",
     );
     assert_eq!(
-        execution_count(&db, &events, "template_library_definition_facts"),
+        will_execute_count(&db, &events, "template_library_definition_facts"),
         1
     );
     assert_eq!(
-        execution_count(&db, &events, "template_library_tag_facts"),
+        will_execute_count(&db, &events, "template_library_tag_facts"),
         1
     );
 
@@ -2122,19 +2099,19 @@ fn template_library_extraction_products_execute_once_and_share_parsing() {
     let events = event_log
         .take()
         .expect("Salsa event log should be readable after Filter facts are queried");
-    assert_eq!(execution_count(&db, &events, "parse_python_file"), 1);
+    assert_eq!(will_execute_count(&db, &events, "parse_python_file"), 1);
     assert_eq!(
-        execution_count(&db, &events, "template_library_source_analysis"),
+        will_execute_count(&db, &events, "template_library_source_analysis"),
         1,
     );
     assert_eq!(
-        execution_count(&db, &events, "template_library_filter_facts"),
+        will_execute_count(&db, &events, "template_library_filter_facts"),
         1
     );
 
     let _ = template_library_filter_facts(&db, filters_key);
     assert_eq!(
-        execution_count(
+        will_execute_count(
             &db,
             &event_log
                 .take()

@@ -947,6 +947,7 @@ dependencies = [
  "djls-semantic",
  "djls-source",
  "djls-templates",
+ "djls-testing",
  "rustc-hash",
  "salsa",
  "serde",

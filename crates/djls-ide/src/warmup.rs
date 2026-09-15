@@ -248,15 +248,9 @@ mod tests {
     use djls_testing::ProjectFixture;
     use djls_testing::SalsaEventLog;
     use djls_testing::TestDatabase;
+    use djls_testing::execution_count;
 
     use super::*;
-
-    fn execution_count(names: &[String], query: &str) -> usize {
-        names
-            .iter()
-            .filter(|name| name.rsplit("::").next() == Some(query))
-            .count()
-    }
 
     fn install_project_fixture(db: &mut TestDatabase) -> Result<(), Box<dyn std::error::Error>> {
         ProjectFixture::new("/project")

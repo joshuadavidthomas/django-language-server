@@ -20,7 +20,8 @@ use djls_testing::ProjectFixture;
 use djls_testing::ProjectSettings;
 use djls_testing::SalsaEventLog;
 use djls_testing::TestDatabase;
-use salsa::Database as _;
+use djls_testing::will_execute_count;
+use djls_testing::will_execute_names;
 use salsa::Setter;
 
 struct TestModel {
@@ -103,60 +104,9 @@ fn apply_project_discovery(db: &mut TestDatabase) -> Result<(), io::Error> {
     Ok(())
 }
 
-fn will_execute_count(db: &TestDatabase, events: &[salsa::Event], query_name: &str) -> usize {
-    events
-        .iter()
-        .filter(|event| match &event.kind {
-            salsa::EventKind::WillExecute { database_key } => db
-                .ingredient_debug_name(database_key.ingredient_index())
-                .contains(query_name),
-            salsa::EventKind::DidValidateMemoizedValue { .. }
-            | salsa::EventKind::WillBlockOn { .. }
-            | salsa::EventKind::WillIterateCycle { .. }
-            | salsa::EventKind::DidFinalizeCycle { .. }
-            | salsa::EventKind::WillCheckCancellation
-            | salsa::EventKind::DidSetCancellationFlag
-            | salsa::EventKind::WillDiscardStaleOutput { .. }
-            | salsa::EventKind::DidDiscard { .. }
-            | salsa::EventKind::DidDiscardAccumulated { .. }
-            | salsa::EventKind::DidInternValue { .. }
-            | salsa::EventKind::DidReuseInternedValue { .. }
-            | salsa::EventKind::DidValidateInternedValue { .. } => false,
-        })
-        .count()
-}
-
-fn will_execute_query_count(db: &TestDatabase, events: &[salsa::Event], query_name: &str) -> usize {
-    events
-        .iter()
-        .filter(|event| match &event.kind {
-            salsa::EventKind::WillExecute { database_key } => {
-                db.ingredient_debug_name(database_key.ingredient_index())
-                    .rsplit("::")
-                    .next()
-                    == Some(query_name)
-            }
-            salsa::EventKind::DidValidateMemoizedValue { .. }
-            | salsa::EventKind::WillBlockOn { .. }
-            | salsa::EventKind::WillIterateCycle { .. }
-            | salsa::EventKind::DidFinalizeCycle { .. }
-            | salsa::EventKind::WillCheckCancellation
-            | salsa::EventKind::DidSetCancellationFlag
-            | salsa::EventKind::WillDiscardStaleOutput { .. }
-            | salsa::EventKind::DidDiscard { .. }
-            | salsa::EventKind::DidDiscardAccumulated { .. }
-            | salsa::EventKind::DidInternValue { .. }
-            | salsa::EventKind::DidReuseInternedValue { .. }
-            | salsa::EventKind::DidValidateInternedValue { .. } => false,
-        })
-        .count()
-}
-
-fn assert_no_will_execute_events(events: &[salsa::Event]) {
+fn assert_no_will_execute_events(db: &TestDatabase, events: &[salsa::Event]) {
     assert!(
-        events
-            .iter()
-            .all(|event| !matches!(event.kind, salsa::EventKind::WillExecute { .. })),
+        will_execute_names(db, events).is_empty(),
         "expected no tracked queries to execute; events: {events:#?}"
     );
 }
@@ -1438,7 +1388,7 @@ fn ty_deleting_an_unrelated_file_doesnt_change_module_resolution() {
     let events = event_log
         .take()
         .expect("resolver event log should be readable");
-    assert_no_will_execute_events(&events);
+    assert_no_will_execute_events(&db, &events);
     assert_eq!(foo_module.path(), foo_path.as_path());
 }
 
@@ -1538,7 +1488,7 @@ fn ty_adding_file_to_search_path_with_lower_priority_does_not_invalidate_query()
     let events = event_log
         .take()
         .expect("resolver event log should be readable");
-    assert_no_will_execute_events(&events);
+    assert_no_will_execute_events(&db, &events);
     assert_eq!(foo_module.path(), Utf8Path::new("/src/foo.py"));
 }
 
@@ -1648,9 +1598,12 @@ fn ty_module_resolution_paths_cached_between_different_module_resolutions_reexpr
         .take()
         .expect("resolver event log should be readable");
     assert_eq!(bar_module.path(), Utf8Path::new("/src/bar.py"));
+    let resolve_executions = will_execute_names(&db, &events)
+        .iter()
+        .filter(|name| name.contains("PythonSourceModule::resolve_"))
+        .count();
     assert_eq!(
-        will_execute_count(&db, &events, "PythonSourceModule::resolve_"),
-        1,
+        resolve_executions, 1,
         "expected resolving bar after foo to execute PythonSourceModule::resolve_ exactly once; events: {events:#?}"
     );
 }
@@ -3158,12 +3111,12 @@ fn file_to_module_identity_ignores_later_candidate_changes() {
         .take()
         .expect("resolver event log should be readable");
     assert_eq!(
-        will_execute_query_count(&db, &events, "file_to_module_resolution"),
+        will_execute_count(&db, &events, "file_to_module_resolution"),
         1,
         "resolution should execute after a later candidate changes: {events:#?}"
     );
     assert_eq!(
-        will_execute_query_count(&db, &events, "file_to_module"),
+        will_execute_count(&db, &events, "file_to_module"),
         0,
         "identity should remain memoized after a later candidate changes: {events:#?}"
     );
