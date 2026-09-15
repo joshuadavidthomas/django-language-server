@@ -141,6 +141,36 @@ jobs:
         run: |
           uv run --no-project --with "nox[uv]" nox --session "tests(python='${PYTHON_VERSION}', django='${DJANGO_VERSION}')"
 
+  vendored-spec-fixtures:
+    runs-on: ubuntu-latest
+    needs: should-run
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+        with:
+          install_args: rust
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: Cache corpus
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: crates/djls-testing/.corpus
+          key: ${{ runner.os }}-corpus-${{ hashFiles('crates/djls-testing/manifest.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-corpus-
+
+      - name: Sync corpus
+        run: cargo run -q -p djls-testing --bin corpus -- sync
+
+      - name: Check vendored spec fixtures
+        run: cargo run -q -p djls-testing --bin corpus -- vendor-spec-fixtures --check
+
   e2e:
     runs-on: ubuntu-latest
     permissions:
@@ -169,7 +199,7 @@ jobs:
 
   tests:
     runs-on: ubuntu-latest
-    needs: [test, e2e]
+    needs: [test, vendored-spec-fixtures, e2e]
     if: always()
     steps:
       - name: OK
