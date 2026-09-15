@@ -26,7 +26,7 @@ Before pushing, run `just clippy`, `just fmt`, and `just lint`. Never use `cargo
 
 Prefer explicit tests over helper proliferation. Use helpers only for substantial fixture setup; avoid one-off assertion wrappers and tiny call-chain helpers. Model after `crates/djls-templates/src/lexer.rs`: clear input, direct execution, direct assertion/snapshot.
 
-Keep db/Salsa-backed tests in `crates/*/tests/`. Inline `src/` `#[cfg(test)]` modules should be pure unit tests with explicit data, not `djls_testing::TestDatabase`, even when possible.
+Keep tests that exercise tracked queries, invalidation, Project fixtures, or behavior spanning crate public APIs in `crates/*/tests/` when the behavior is reachable through the crate API. Inline `src/` `#[cfg(test)]` modules should test private algorithms and crate-private boundaries directly with explicit inputs. Reuse an existing shared or production database when the subject requires one; do not define one-off test databases.
 
 ## Benchmarks
 A benchmark name is a stable comparison contract. Never rename, remove, or reshape a benchmark to hide a regression.

@@ -24,3 +24,13 @@ pub trait Db: SourceDb {
         }
     }
 }
+
+// The dev-dependency cycle gives this database an implementation for Cargo's
+// dependency build of `djls-project`; lib tests also need the current build's trait.
+#[cfg(test)]
+#[salsa::db]
+impl Db for djls_testing::TestDatabase {
+    fn project(&self) -> Option<Project> {
+        None
+    }
+}

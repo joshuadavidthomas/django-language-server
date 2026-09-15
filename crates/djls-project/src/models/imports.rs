@@ -180,23 +180,10 @@ impl From<ModelImportPathResolutionError> for ModelImportPathUnresolvedReason {
 
 #[cfg(test)]
 mod tests {
-    use djls_testing::TestDatabase;
     use ruff_python_ast::Stmt;
     use ruff_python_parser::parse_module;
 
     use super::*;
-    use crate::db::Db as ProjectDb;
-    use crate::project::Project;
-
-    // The dev-dependency cycle gives `TestDatabase` an impl for the dependency
-    // build of this crate, not this lib-test build. Keep the single bridge next
-    // to the moved import tests that historically supplied it.
-    #[salsa::db]
-    impl ProjectDb for TestDatabase {
-        fn project(&self) -> Option<Project> {
-            None
-        }
-    }
 
     fn module_name(name: &str) -> PythonModuleName {
         PythonModuleName::parse(name).expect("test Python module name should be valid")
