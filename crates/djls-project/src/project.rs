@@ -3,9 +3,14 @@ use camino::Utf8PathBuf;
 use djls_conf::Settings;
 use djls_conf::TagSpecDef;
 use djls_source::FileSystem;
+use ruff_python_ast::Expr;
+use ruff_python_ast::visitor;
+use ruff_python_ast::visitor::Visitor;
+use ruff_python_parser::parse_module;
 use salsa::Durability;
 use salsa::Setter;
 
+use crate::ast::ExprExt;
 use crate::db::Db as ProjectDb;
 use crate::python::Interpreter;
 use crate::python::PythonModuleName;
@@ -106,8 +111,14 @@ impl Project {
     }
 
     pub fn bootstrap(db: &dyn ProjectDb, root: &Utf8Path, settings: &Settings) -> Project {
+        let process_settings_module = std::env::var("DJANGO_SETTINGS_MODULE").ok();
         let interpreter = Interpreter::discover(settings.venv_path());
-        let django_settings_module = django_settings_module_name(db.file_system(), root, settings);
+        let django_settings_module = django_settings_module_name(
+            db.file_system(),
+            root,
+            settings,
+            process_settings_module.as_deref(),
+        );
         let env_vars = load_env_file(db.file_system(), root, settings);
         let search_paths = SearchPaths::from_project_settings(
             db.file_system(),
@@ -137,7 +148,13 @@ impl Project {
     pub fn reload_from_settings(self, db: &mut dyn ProjectDb, settings: &Settings) {
         let root = self.root(db).clone();
         let interpreter = Interpreter::discover(settings.venv_path());
-        let django_settings_module = django_settings_module_name(db.file_system(), &root, settings);
+        let process_settings_module = std::env::var("DJANGO_SETTINGS_MODULE").ok();
+        let django_settings_module = django_settings_module_name(
+            db.file_system(),
+            &root,
+            settings,
+            process_settings_module.as_deref(),
+        );
         let env_vars = load_env_file(db.file_system(), &root, settings);
         let pythonpath = settings.pythonpath().to_vec();
         let tagspecs = settings.tagspecs().clone();
@@ -221,45 +238,141 @@ fn env_file_parse_warning(env_path: &Utf8Path) -> String {
     format!("Could not parse an entry in env file {env_path}; skipped the entry")
 }
 
-fn django_settings_module_name(
+pub(crate) fn django_settings_module_name(
     fs: &dyn FileSystem,
     root: &Utf8Path,
     settings: &Settings,
+    process_settings_module: Option<&str>,
 ) -> Option<PythonModuleName> {
     if let Some(module_name) = settings.django_settings_module() {
         return PythonModuleName::parse(module_name).ok();
     }
 
-    if let Some(module_name) = std::env::var("DJANGO_SETTINGS_MODULE")
-        .ok()
-        .filter(|value| !value.is_empty())
-    {
-        return PythonModuleName::parse(&module_name).ok();
+    if let Some(module_name) = process_settings_module.filter(|value| !value.is_empty()) {
+        return PythonModuleName::parse(module_name).ok();
     }
 
-    if !fs.exists(&root.join("manage.py")) {
+    let manage_path = root.join("manage.py");
+    if !fs.exists(&manage_path) {
         tracing::debug!("No manage.py found, skipping Django settings auto-detection");
         return None;
     }
 
-    for candidate in &["settings", "config.settings", "project.settings"] {
-        let parts: Vec<&str> = candidate.split('.').collect();
-        let mut path = root.to_path_buf();
-        for part in &parts[..parts.len() - 1] {
-            path = path.join(part);
+    let source = match fs.read_to_string(&manage_path) {
+        Ok(source) => source,
+        Err(error) => {
+            tracing::warn!(%error, "Could not read manage.py for Django settings auto-detection");
+            return None;
         }
-        if let Some(last) = parts.last() {
-            path = path.join(format!("{last}.py"));
-        }
-
-        if fs.exists(&path) {
-            tracing::info!("Auto-detected Django settings module: {}", candidate);
-            return PythonModuleName::parse(candidate).ok();
-        }
+    };
+    let module = django_settings_module_from_manage_source(&source);
+    if let Some(module) = &module {
+        tracing::info!(
+            "Auto-detected Django settings module from manage.py: {}",
+            module.as_str()
+        );
+        return Some(module.clone());
     }
 
-    tracing::warn!("manage.py found but could not auto-detect Django settings module");
+    tracing::warn!(
+        "manage.py found but could not statically determine a unique Django settings module"
+    );
     None
+}
+
+fn django_settings_module_from_manage_source(source: &str) -> Option<PythonModuleName> {
+    let module = parse_module(source).ok()?.into_syntax();
+    let mut visitor = ManageSettingsVisitor::default();
+    visitor.visit_body(&module.body);
+
+    match visitor.module {
+        ManageSettingsModule::Unique(module) => Some(module),
+        ManageSettingsModule::Missing | ManageSettingsModule::Inconclusive => None,
+    }
+}
+
+#[derive(Default)]
+struct ManageSettingsVisitor {
+    module: ManageSettingsModule,
+}
+
+#[derive(Default)]
+enum ManageSettingsModule {
+    #[default]
+    Missing,
+    Unique(PythonModuleName),
+    Inconclusive,
+}
+
+impl ManageSettingsModule {
+    fn observe(&mut self, declaration: ManageSettingsDeclaration<'_>) {
+        let module = match declaration {
+            ManageSettingsDeclaration::Other => return,
+            ManageSettingsDeclaration::Inconclusive => {
+                *self = Self::Inconclusive;
+                return;
+            }
+            ManageSettingsDeclaration::Module(value) => match PythonModuleName::parse(value) {
+                Ok(module) if module.as_str() == value => module,
+                Ok(_) | Err(_) => {
+                    *self = Self::Inconclusive;
+                    return;
+                }
+            },
+        };
+
+        match self {
+            Self::Missing => *self = Self::Unique(module),
+            Self::Unique(previous) if previous != &module => *self = Self::Inconclusive,
+            Self::Unique(_) | Self::Inconclusive => {}
+        }
+    }
+}
+
+impl<'a> Visitor<'a> for ManageSettingsVisitor {
+    fn visit_expr(&mut self, expression: &'a Expr) {
+        self.module.observe(manage_settings_declaration(expression));
+        visitor::walk_expr(self, expression);
+    }
+}
+
+#[derive(Clone, Copy)]
+enum ManageSettingsDeclaration<'a> {
+    Other,
+    Inconclusive,
+    Module(&'a str),
+}
+
+fn manage_settings_declaration(expression: &Expr) -> ManageSettingsDeclaration<'_> {
+    let Expr::Call(call) = expression else {
+        return ManageSettingsDeclaration::Other;
+    };
+    if call.func.path_segments().as_deref()
+        != Some(&[
+            "os".to_string(),
+            "environ".to_string(),
+            "setdefault".to_string(),
+        ])
+    {
+        return ManageSettingsDeclaration::Other;
+    }
+    match call
+        .arguments
+        .args
+        .first()
+        .and_then(ExprExt::string_literal)
+    {
+        Some("DJANGO_SETTINGS_MODULE") => {}
+        Some(_) => return ManageSettingsDeclaration::Other,
+        None => return ManageSettingsDeclaration::Inconclusive,
+    }
+    if call.arguments.args.len() != 2 || !call.arguments.keywords.is_empty() {
+        return ManageSettingsDeclaration::Inconclusive;
+    }
+    match call.arguments.args[1].string_literal() {
+        Some(value) => ManageSettingsDeclaration::Module(value),
+        None => ManageSettingsDeclaration::Inconclusive,
+    }
 }
 
 #[cfg(test)]
@@ -271,6 +384,103 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+
+    mod settings_module {
+        use super::*;
+
+        #[test]
+        fn extracts_canonical_manage_py_declaration() {
+            let source = r#"
+import os
+
+def main():
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "mysite.settings")
+"#;
+
+            let module = django_settings_module_from_manage_source(source)
+                .expect("canonical manage.py should declare its settings module");
+
+            assert_eq!(module.as_str(), "mysite.settings");
+        }
+
+        #[test]
+        fn accepts_repeated_identical_declarations() {
+            let source = r#"
+import os
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "mysite.settings")
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "mysite.settings")
+"#;
+
+            let module = django_settings_module_from_manage_source(source)
+                .expect("identical declarations should be unambiguous");
+
+            assert_eq!(module.as_str(), "mysite.settings");
+        }
+
+        #[test]
+        fn rejects_dynamic_declaration() {
+            let source = r#"
+import os
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", choose_settings())
+"#;
+
+            assert!(django_settings_module_from_manage_source(source).is_none());
+        }
+
+        #[test]
+        fn rejects_dynamic_declaration_before_literal_declaration() {
+            let source = r#"
+import os
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", choose_settings())
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "mysite.settings")
+"#;
+
+            assert!(django_settings_module_from_manage_source(source).is_none());
+        }
+
+        #[test]
+        fn rejects_dynamic_key_before_literal_declaration() {
+            let source = r#"
+import os
+os.environ.setdefault(choose_key(), "other.settings")
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "mysite.settings")
+"#;
+
+            assert!(django_settings_module_from_manage_source(source).is_none());
+        }
+
+        #[test]
+        fn rejects_whitespace_padded_module() {
+            let source = r#"
+import os
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", " mysite.settings ")
+"#;
+
+            assert!(django_settings_module_from_manage_source(source).is_none());
+        }
+
+        #[test]
+        fn rejects_whitespace_padded_module_before_literal_declaration() {
+            let source = r#"
+import os
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", " mysite.settings ")
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "mysite.settings")
+"#;
+
+            assert!(django_settings_module_from_manage_source(source).is_none());
+        }
+
+        #[test]
+        fn rejects_conflicting_declarations() {
+            let source = r#"
+import os
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "site1.settings")
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "site2.settings")
+"#;
+
+            assert!(django_settings_module_from_manage_source(source).is_none());
+        }
+    }
 
     mod env_file {
         use std::io;
