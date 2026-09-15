@@ -130,6 +130,24 @@ impl SearchPaths {
             .push(SearchPath::FirstParty(root.to_path_buf()));
 
         let discovered_site_packages = interpreter.site_packages_path(fs, root);
+        match (&discovered_site_packages, interpreter) {
+            (Some(site_packages), _) => {
+                tracing::debug!("Using discovered site-packages search path: {site_packages}");
+            }
+            (None, Interpreter::VenvPath(venv_path)) => {
+                tracing::warn!(
+                    "Could not discover site-packages under configured venv_path '{venv_path}'; \
+                     expected lib/python*/site-packages or Lib/site-packages; continuing with \
+                     project and configured pythonpath roots"
+                );
+            }
+            (None, Interpreter::Auto) => {
+                tracing::debug!(
+                    "No virtual-environment site-packages discovered for project {root}; \
+                     continuing with project and configured pythonpath roots"
+                );
+            }
+        }
 
         for path in pythonpath {
             if !fs.is_dir(path) || search_paths.contains_path(path) {
