@@ -212,6 +212,18 @@ impl ConstraintNode {
         Self::branch(join, arms)
     }
 
+    fn selected_arms(join: BranchJoin, selected: &[usize]) -> Self {
+        let mut arms = vec![Self::Impossible; join.arm_count];
+        for &arm in selected {
+            let Some(selected_arm) = arms.get_mut(arm) else {
+                // An invalid internal selection must not exclude any feasible arm.
+                return Self::Unconstrained;
+            };
+            *selected_arm = Self::Unconstrained;
+        }
+        Self::branch(join, arms)
+    }
+
     fn branch(join: BranchJoin, arms: Vec<Self>) -> Self {
         assert_eq!(
             arms.len(),
@@ -441,6 +453,14 @@ impl BranchConstraints {
             .root
             .forget(&join)
             .intersection(&ConstraintNode::selected(join, arm));
+    }
+
+    pub(super) fn select_arms(&mut self, join: impl Into<BranchJoin>, arms: &[usize]) {
+        let join = join.into();
+        *self.root = self
+            .root
+            .forget(&join)
+            .intersection(&ConstraintNode::selected_arms(join, arms));
     }
 
     /// Require one arm without forgetting an earlier requirement for the same
@@ -674,6 +694,58 @@ mod tests {
         }
 
         assert_eq!(constraints, BranchConstraints::unconstrained());
+    }
+
+    #[test]
+    fn selecting_arms_matches_unioning_individual_selections() {
+        let branch = join(origin(15, 1), 4);
+        let mut grouped = BranchConstraints::unconstrained();
+        grouped.select_arms(branch, &[0, 2, 3]);
+
+        let mut individual = selected(branch, 0);
+        individual.merge(selected(branch, 2));
+        individual.merge(selected(branch, 3));
+
+        assert_eq!(grouped, individual);
+    }
+
+    #[test]
+    fn selecting_arms_preserves_residual_constraints_and_replaces_the_same_coordinate() {
+        let before = join(origin(14, 1), 2);
+        let branch = join(origin(15, 1), 3);
+        let after = join(origin(16, 1), 2);
+        let residual = selected(before, 1).intersection(&selected(after, 0));
+
+        let mut grouped = residual.clone().intersection(&selected(branch, 1));
+        grouped.select_arms(branch, &[0, 2]);
+
+        let mut first = residual.clone();
+        first.select(branch, 0);
+        let mut third = residual;
+        third.select(branch, 2);
+        first.merge(third);
+
+        assert_eq!(grouped, first);
+    }
+
+    #[test]
+    fn selecting_a_complete_arm_domain_reduces_to_the_residual() {
+        let branch = join(origin(15, 1), 3);
+        let residual = selected(join(origin(16, 1), 2), 1);
+        let mut grouped = residual.clone();
+        grouped.select_arms(branch, &[0, 1, 2]);
+
+        assert_eq!(grouped, residual);
+    }
+
+    #[test]
+    fn selecting_an_invalid_arm_forgets_only_that_coordinate() {
+        let branch = join(origin(15, 1), 3);
+        let residual = selected(join(origin(16, 1), 2), 1);
+        let mut grouped = residual.clone().intersection(&selected(branch, 0));
+        grouped.select_arms(branch, &[0, 3]);
+
+        assert_eq!(grouped, residual);
     }
 
     #[test]

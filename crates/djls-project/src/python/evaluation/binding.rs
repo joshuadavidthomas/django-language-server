@@ -310,6 +310,13 @@ impl PythonBinding {
         }
     }
 
+    pub(super) fn select_branches(&mut self, join: impl Into<BranchJoin>, arms: &[usize]) {
+        let join = join.into();
+        for case in &mut self.cases {
+            case.constraints.select_arms(join.clone(), arms);
+        }
+    }
+
     pub(super) fn replace_unbound_with(self, prior: Option<Self>, overflow_origin: Origin) -> Self {
         if !self
             .alternatives()
@@ -577,6 +584,47 @@ impl PythonBinding {
             joined.cases = retained;
             joined.normalize(Some(overflow_origin));
         }
+        joined
+    }
+
+    pub(super) fn supports_grouped_branch_join(bindings: &[Self]) -> bool {
+        bindings
+            .iter()
+            .flat_map(|binding| &binding.cases)
+            .all(|case| match &case.state {
+                PythonBindingState::Unbound => true,
+                PythonBindingState::Bound(bound) => {
+                    !case.is_limit_remainder()
+                        && !matches!(
+                            bound.value.kind,
+                            PythonValueKind::List(_)
+                                | PythonValueKind::Tuple(_)
+                                | PythonValueKind::Dict(_)
+                        )
+                }
+            })
+            && bindings
+                .iter()
+                .map(|binding| binding.cases.len())
+                .sum::<usize>()
+                <= MAX_EXACT_PYTHON_ALTERNATIVES
+    }
+
+    pub(super) fn join_grouped_branches(bindings: Vec<Self>, overflow_origin: Origin) -> Self {
+        debug_assert!(
+            Self::supports_grouped_branch_join(&bindings),
+            "grouped branch joins require simple values below the alternative limit"
+        );
+        let cases = bindings
+            .into_iter()
+            .flat_map(|binding| binding.cases)
+            .collect();
+        let mut joined = Self { cases };
+        joined.normalize(Some(overflow_origin));
+        debug_assert!(
+            joined.cases.len() <= MAX_EXACT_PYTHON_ALTERNATIVES,
+            "grouped branch joins must stay below the alternative limit"
+        );
         joined
     }
 
@@ -1117,6 +1165,37 @@ mod tests {
             binding(BindingValue::Exact("a".to_string()), 10),
             binding(BindingValue::Exact("b".to_string()), 20),
         ]);
+    }
+
+    #[test]
+    fn grouped_scalar_join_matches_pairwise_join_below_the_limit() {
+        let bindings = vec![
+            binding(BindingValue::Exact("same".to_string()), 30),
+            binding(BindingValue::Exact("different".to_string()), 20),
+            binding(BindingValue::Exact("same".to_string()), 10),
+        ];
+
+        assert!(PythonBinding::supports_grouped_branch_join(&bindings));
+        assert_eq!(
+            PythonBinding::join_grouped_branches(bindings.clone(), origin(0, 1_000)),
+            joined(bindings, false)
+        );
+    }
+
+    #[test]
+    fn grouped_join_rejects_containers_and_inputs_above_the_limit() {
+        let container = binding(BindingValue::NestedUnknownElement, 10);
+        assert!(!PythonBinding::supports_grouped_branch_join(&[container]));
+
+        let bindings = (0..=MAX_EXACT_PYTHON_ALTERNATIVES)
+            .map(|index| {
+                binding(
+                    BindingValue::Exact(index.to_string()),
+                    u32::try_from(index).expect("test alternative index should fit in u32"),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert!(!PythonBinding::supports_grouped_branch_join(&bindings));
     }
 
     #[test]

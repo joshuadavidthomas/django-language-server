@@ -34,6 +34,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - **Internal**: Added cold settings-analysis benchmarks for conditional bindings and corpus projects.
 - **Internal**: Consolidated Salsa execution-event assertions in shared test infrastructure.
 - Reduced analysis time for Django settings with many conditional branches.
+- Reduced analysis time for Django settings with long `try` blocks.
 - Removed eager Django Model scanning and Model Graph construction from project discovery and cache warm-up.
 - Swapped the order of environments when automatically finding a project's Python interpreter, preferring the project venv dirs to `VIRTUAL_ENV`, to account for pre-commit isolated environments.
 - **Internal**: Reorganized `CONTRIBUTING.md` around a first-contribution path with editor/server orientation and an architecture overview, and grouped maintainer version and tool-pin updates into a Maintaining section.
