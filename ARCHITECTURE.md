@@ -71,6 +71,8 @@ The Project Facts layer. This crate owns mechanical facts about a Django project
 
 `djls-project` depends on `djls-source` for filesystem/source access, but it does not depend on `djls-semantic`. That one-way seam lets semantic analysis consume observed source facts without project discovery needing to know about template validation, scoping, or diagnostics. Each Template Library has a database-lifetime-bound interned `(Option<File>, PythonModuleName)` identity and equality-bearing definition, Tag, and Filter facts. `TemplateLibraryCatalog` assembles backend-correlated catalog evidence and shared definition-name indexes; it does not hold one project-global semantic Tag or Filter result.
 
+Registration inventory owns names, kinds, source navigation, discovery dependencies, and ordered callable descriptors. Independent queries reuse those descriptors to derive Block Specs, Tag Rules, and Filter Arity without storing Ruff AST nodes. Inventory openness describes uncertainty in registration discovery; recovered helpers reached only during Tag Rule inference weaken the rules without opening an otherwise exact inventory.
+
 #### Static Python import evaluation
 
 One evaluator entrypoint handles both ordinary and `from` import statements. The resolver returns an ordered root-to-leaf chain of source modules and namespace packages; one loader evaluates project-code components through the cycle-enabled module query, records an import trace with typed outcomes, and attaches loaded children only after successful resolution. First-party and extra-root source is evaluated, while site-packages and editable-root modules retain identity but remain open external namespaces whose bodies are never executed.

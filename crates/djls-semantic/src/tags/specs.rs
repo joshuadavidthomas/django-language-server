@@ -1157,6 +1157,56 @@ mod tests {
     }
 
     #[test]
+    fn rule_preentry_changes_unknown_block_intermediate_merge() {
+        let key = SymbolKey::tag("myapp.templatetags.custom", "mixed");
+        let mut tag_rules = TagRuleMap::default();
+        tag_rules.insert(
+            key.clone(),
+            TagRule {
+                arg_constraints: vec![ArgumentCountConstraint::Exact(2)],
+                ..TagRule::default()
+            }
+            .into(),
+        );
+        let mut block_specs = BlockSpecs::default();
+        block_specs.insert(
+            key,
+            BlockSpec {
+                end_tag: None,
+                intermediates: vec!["otherwise".to_string()],
+                body_analysis_evidence: BodyAnalysisEvidence::Mixed,
+            },
+        );
+
+        let mut full_merge = TagSpecs::default();
+        full_merge
+            .merge_tag_rules(&tag_rules)
+            .merge_block_specs(&block_specs);
+        let mut structure_only = TagSpecs::default();
+        structure_only.merge_block_specs(&block_specs);
+
+        assert!(
+            full_merge
+                .get("mixed")
+                .expect("rule merge should create the Tag spec")
+                .intermediate_tags
+                .is_empty(),
+            "an unknown closer preserves the empty structure installed by Tag Rules"
+        );
+        assert_eq!(
+            structure_only
+                .get("mixed")
+                .expect("block merge should create the Tag spec")
+                .intermediate_tags
+                .iter()
+                .map(|tag| tag.name.as_ref())
+                .collect::<Vec<_>>(),
+            ["otherwise"],
+            "Stage 2 must not substitute structure-only merge for the current full merge order"
+        );
+    }
+
+    #[test]
     fn test_merge_block_specs_adds_new_tag() {
         let mut specs = create_test_specs();
         let original_count = specs.len();

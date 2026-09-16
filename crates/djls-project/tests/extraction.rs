@@ -22,6 +22,7 @@ use djls_project::UniqueKeyCardinality;
 use djls_project::template_library_definition_facts;
 use djls_project::template_library_filter_facts;
 use djls_project::template_library_registration_dependencies;
+use djls_project::template_library_structure_facts;
 use djls_project::template_library_tag_facts;
 use djls_project::template_symbol_source;
 use djls_project::testing::PythonSyntaxErrorClass;
@@ -1813,7 +1814,7 @@ fn template_symbol_location_shift_backdates_semantic_products() {
         .take()
         .expect("Salsa event log should be readable after the fixture edit");
     assert_eq!(
-        will_execute_count(&db, &events, "template_library_source_analysis"),
+        will_execute_count(&db, &events, "template_library_registration_inventory"),
         1
     );
     assert_eq!(
@@ -1821,8 +1822,16 @@ fn template_symbol_location_shift_backdates_semantic_products() {
         1
     );
     assert_eq!(
-        will_execute_count(&db, &events, "template_library_tag_facts"),
+        will_execute_count(&db, &events, "template_library_tag_rule_analysis"),
         1
+    );
+    assert_eq!(
+        will_execute_count(&db, &events, "template_library_structure_facts"),
+        1
+    );
+    assert_eq!(
+        will_execute_count(&db, &events, "template_library_tag_facts"),
+        0
     );
     assert_eq!(
         will_execute_count(&db, &events, "template_library_filter_facts"),
@@ -2028,6 +2037,7 @@ fn comment_only_edit_backdates_parsed_body_consumers() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn template_library_extraction_products_execute_once_and_share_parsing() {
     let event_log = SalsaEventLog::default();
     let db = TestDatabase::with_event_log(event_log.clone());
@@ -2042,16 +2052,43 @@ fn template_library_extraction_products_execute_once_and_share_parsing() {
     let tags_key = TemplateLibraryId::new(&db, Some(tags_file), tags_module);
     let facts = template_library_definition_facts(&db, tags_key);
     assert!(facts.is_library());
-    assert!(facts.symbol(TemplateSymbolKind::Tag, "for").is_some());
+    let for_symbol = facts
+        .symbol(TemplateSymbolKind::Tag, "for")
+        .expect("for Tag should be indexed");
+    assert!(template_symbol_source(&db, for_symbol).is_some());
     assert!(facts.symbol(TemplateSymbolKind::Filter, "for").is_none());
-    let tag_facts = template_library_tag_facts(&db, tags_key);
-    assert!(
-        tag_facts.tag_rules().keys().any(
-            |key| key.name == "for" && key.registration_module == "django.template.defaulttags"
-        )
+
+    let events = event_log
+        .take()
+        .expect("Salsa event log should be readable after inventory facts are queried");
+    assert_eq!(will_execute_count(&db, &events, "parse_python_file"), 1);
+    assert_eq!(
+        will_execute_count(&db, &events, "template_library_registration_inventory"),
+        1
     );
+    assert_eq!(
+        will_execute_count(&db, &events, "template_library_definition_facts"),
+        1
+    );
+    assert_eq!(
+        will_execute_count(&db, &events, "template_library_symbol_sources"),
+        1
+    );
+    for detail in [
+        "template_library_tag_rule_analysis",
+        "template_library_structure_facts",
+        "template_library_filter_facts",
+    ] {
+        assert_eq!(
+            will_execute_count(&db, &events, detail),
+            0,
+            "definition and source demand unexpectedly executed {detail}"
+        );
+    }
+
+    let structure = template_library_structure_facts(&db, tags_key);
     assert!(
-        tag_facts
+        structure
             .block_specs()
             .as_map()
             .keys()
@@ -2060,16 +2097,46 @@ fn template_library_extraction_products_execute_once_and_share_parsing() {
 
     let events = event_log
         .take()
-        .expect("Salsa event log should be readable after Tag facts are queried");
-    assert_eq!(will_execute_count(&db, &events, "parse_python_file"), 1);
+        .expect("Salsa event log should be readable after structure facts are queried");
     assert_eq!(
-        will_execute_count(&db, &events, "template_library_source_analysis"),
-        1,
-        "definitions, Tag Rules, and Block Specs must share one registration analysis",
+        will_execute_count(&db, &events, "template_library_registration_inventory"),
+        0
     );
     assert_eq!(
-        will_execute_count(&db, &events, "template_library_definition_facts"),
+        will_execute_count(&db, &events, "template_library_structure_facts"),
         1
+    );
+    assert_eq!(
+        will_execute_count(&db, &events, "template_library_tag_rule_analysis"),
+        0,
+        "structure demand must not infer Tag Rules"
+    );
+    assert_eq!(
+        will_execute_count(&db, &events, "template_library_filter_facts"),
+        0,
+        "structure demand must not infer Filter Arity"
+    );
+
+    let tag_facts = template_library_tag_facts(&db, tags_key);
+    assert!(
+        tag_facts.tag_rules().keys().any(
+            |key| key.name == "for" && key.registration_module == "django.template.defaulttags"
+        )
+    );
+    assert_eq!(tag_facts.block_specs(), structure.block_specs());
+
+    let events = event_log
+        .take()
+        .expect("Salsa event log should be readable after Tag facts are queried");
+    assert_eq!(
+        will_execute_count(&db, &events, "template_library_tag_rule_analysis"),
+        1,
+        "Tag detail must be derived only when requested",
+    );
+    assert_eq!(
+        will_execute_count(&db, &events, "template_library_structure_facts"),
+        0,
+        "the existing structure product should stay cached",
     );
     assert_eq!(
         will_execute_count(&db, &events, "template_library_tag_facts"),
@@ -2101,8 +2168,8 @@ fn template_library_extraction_products_execute_once_and_share_parsing() {
         .expect("Salsa event log should be readable after Filter facts are queried");
     assert_eq!(will_execute_count(&db, &events, "parse_python_file"), 1);
     assert_eq!(
-        will_execute_count(&db, &events, "template_library_source_analysis"),
-        1,
+        will_execute_count(&db, &events, "template_library_registration_inventory"),
+        1
     );
     assert_eq!(
         will_execute_count(&db, &events, "template_library_filter_facts"),
@@ -2120,6 +2187,107 @@ fn template_library_extraction_products_execute_once_and_share_parsing() {
         ),
         0,
         "same-revision extraction should be memoized",
+    );
+}
+
+#[test]
+fn registration_name_and_block_option_edits_update_split_products() {
+    let event_log = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(event_log.clone());
+    let path = Utf8Path::new("/test/templatetags/blocks.py");
+    let source = r"from django import template
+register = template.Library()
+@register.simple_block_tag(name='panel', end_name='finish')
+def panel(content): pass
+";
+    db.add_file(path.as_str(), source)
+        .expect("block fixture should be added");
+    let file = db.file(path).expect("block fixture should exist");
+    let module = PythonModuleName::parse("test.templatetags.blocks")
+        .expect("block fixture module should be valid");
+    let key = TemplateLibraryId::new(&db, Some(file), module.clone());
+    let definitions = template_library_definition_facts(&db, key);
+    assert!(
+        definitions
+            .symbol(TemplateSymbolKind::Tag, "panel")
+            .is_some()
+    );
+    assert_eq!(
+        template_library_structure_facts(&db, key)
+            .block_specs()
+            .as_map()[&SymbolKey::tag("test.templatetags.blocks", "panel")]
+            .end_tag
+            .as_deref(),
+        Some("finish")
+    );
+    drop(
+        event_log
+            .take()
+            .expect("Salsa event log should be readable before block edits"),
+    );
+
+    let changed_end = source.replace("finish", "closed");
+    db.add_file(path.as_str(), &changed_end)
+        .expect("block closer edit should be written");
+    SourceChanges::new([ChangeEvent::ContentChanged(path.to_path_buf())]).apply(&mut db);
+    let key = TemplateLibraryId::new(&db, Some(file), module.clone());
+    assert!(
+        template_library_definition_facts(&db, key)
+            .symbol(TemplateSymbolKind::Tag, "panel")
+            .is_some()
+    );
+    assert_eq!(
+        template_library_structure_facts(&db, key)
+            .block_specs()
+            .as_map()[&SymbolKey::tag("test.templatetags.blocks", "panel")]
+            .end_tag
+            .as_deref(),
+        Some("closed")
+    );
+    let events = event_log
+        .take()
+        .expect("Salsa event log should be readable after the block closer edit");
+    assert_eq!(
+        will_execute_count(&db, &events, "template_library_structure_facts"),
+        1
+    );
+    assert_eq!(
+        will_execute_count(&db, &events, "template_library_tag_rule_analysis"),
+        0
+    );
+    assert_eq!(
+        will_execute_count(&db, &events, "template_library_filter_facts"),
+        0
+    );
+
+    let changed_name = changed_end.replace("name='panel'", "name='frame'");
+    db.add_file(path.as_str(), &changed_name)
+        .expect("registration name edit should be written");
+    SourceChanges::new([ChangeEvent::ContentChanged(path.to_path_buf())]).apply(&mut db);
+    let key = TemplateLibraryId::new(&db, Some(file), module);
+    let definitions = template_library_definition_facts(&db, key);
+    assert!(
+        definitions
+            .symbol(TemplateSymbolKind::Tag, "panel")
+            .is_none()
+    );
+    assert!(
+        definitions
+            .symbol(TemplateSymbolKind::Tag, "frame")
+            .is_some()
+    );
+    let structure = template_library_structure_facts(&db, key);
+    assert!(
+        !structure
+            .block_specs()
+            .as_map()
+            .contains_key(&SymbolKey::tag("test.templatetags.blocks", "panel"))
+    );
+    assert_eq!(
+        structure.block_specs().as_map()[&SymbolKey::tag("test.templatetags.blocks", "frame")]
+            .end_tag
+            .as_deref(),
+        Some("closed")
     );
 }
 
@@ -2541,10 +2709,17 @@ fn imported_source_edits_invalidate_registration_products() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn nested_helper_sources_are_dependencies_and_same_length_edits_change_rules() {
-    let (mut db, file, module) = imported_registration_fixture(
-        "",
-        r#"from django import template
+    let event_log = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(event_log.clone());
+    ProjectFixture::new("/test/project")
+        .django_settings_module("settings")
+        .file("/test/project/settings.py", "INSTALLED_APPS = []\n")
+        .file("/test/project/pkg/__init__.py", "")
+        .file(
+            "/test/project/pkg/tags.py",
+            r#"from django import template
 from .implementation import first
 register = template.Library()
 @register.tag(name="nested")
@@ -2554,39 +2729,88 @@ def compile_tag(parser, token):
         raise template.TemplateSyntaxError("wrong count")
     return template.Node()
 "#,
-        "from .helper import second\ndef first(token):\n    return second(token)\n",
-    )
-    .expect("nested-helper fixture should install");
+        )
+        .file(
+            "/test/project/pkg/implementation.py",
+            r"from .helper import second
+def first(token):
+    return second(token)
+",
+        )
+        .install(&mut db)
+        .expect("nested-helper fixture should install");
+    let file = db
+        .file(Utf8Path::new("/test/project/pkg/tags.py"))
+        .expect("registration source should exist");
+    let module = PythonModuleName::parse("pkg.tags").expect("fixture module should be valid");
     let helper_path = Utf8Path::new("/test/project/pkg/helper.py");
     let helper_source = "def second(token):\n    return token.split_contents()[1:]\n";
     db.add_file(helper_path.as_str(), helper_source)
         .expect("helper source should install");
     let helper_file = db.file(helper_path).expect("helper file should exist");
-    {
-        let key = TemplateLibraryId::new(&db, Some(file), module.clone());
-        let definitions = template_library_definition_facts(&db, key);
-        assert!(!definitions.symbols_are_unobserved());
-        let symbol = definitions
-            .symbol(TemplateSymbolKind::Tag, "nested")
-            .expect("exact registration should be indexed");
-        assert!(template_symbol_source(&db, symbol).is_some());
-        assert_eq!(
-            template_library_tag_facts(&db, key).tag_rules()[&SymbolKey::tag("pkg.tags", "nested")]
-                .arg_constraints,
-            vec![ArgumentCountConstraint::Exact(3)]
-        );
-        let dependencies = template_library_registration_dependencies(&db, key);
-        assert!(
-            dependencies.contains(&helper_file),
-            "nested source must enter priming coverage"
-        );
-        assert!(
-            dependencies.contains(
-                &db.file(Utf8Path::new("/test/project/pkg/implementation.py"))
-                    .expect("outer helper should exist")
-            )
-        );
-    }
+    let key = TemplateLibraryId::new(&db, Some(file), module.clone());
+    let definitions = template_library_definition_facts(&db, key);
+    assert!(!definitions.symbols_are_unobserved());
+    let symbol = definitions
+        .symbol(TemplateSymbolKind::Tag, "nested")
+        .expect("exact registration should be indexed");
+    assert!(template_symbol_source(&db, symbol).is_some());
+    let inventory_events = event_log
+        .take()
+        .expect("Salsa event log should be readable after inventory demand");
+    assert_eq!(
+        will_execute_count(&db, &inventory_events, "analyze_helper"),
+        0,
+        "definition and source demand must not analyze rule helpers"
+    );
+
+    assert!(
+        template_library_structure_facts(&db, key)
+            .block_specs()
+            .is_empty()
+    );
+    let structure_events = event_log
+        .take()
+        .expect("Salsa event log should be readable after structure demand");
+    assert_eq!(
+        will_execute_count(&db, &structure_events, "analyze_helper"),
+        0,
+        "structure demand must not analyze rule helpers"
+    );
+    assert_eq!(
+        will_execute_count(&db, &structure_events, "template_library_tag_rule_analysis"),
+        0
+    );
+
+    assert_eq!(
+        template_library_tag_facts(&db, key).tag_rules()[&SymbolKey::tag("pkg.tags", "nested")]
+            .arg_constraints,
+        vec![ArgumentCountConstraint::Exact(3)]
+    );
+    let dependencies = template_library_registration_dependencies(&db, key);
+    assert!(
+        dependencies.contains(&helper_file),
+        "nested source must enter priming coverage"
+    );
+    assert!(
+        dependencies.contains(
+            &db.file(Utf8Path::new("/test/project/pkg/implementation.py"))
+                .expect("outer helper should exist")
+        )
+    );
+    let detail_events = event_log
+        .take()
+        .expect("Salsa event log should be readable after detail demand");
+    assert_eq!(
+        will_execute_count(&db, &detail_events, "template_library_tag_rule_analysis"),
+        1
+    );
+    assert_eq!(
+        will_execute_count(&db, &detail_events, "analyze_helper"),
+        2,
+        "the controlled two-helper chain should be analyzed only on detail demand"
+    );
+
     let changed = helper_source.replace("[1:]", "[2:]");
     assert_eq!(changed.len(), helper_source.len());
     db.add_file(helper_path.as_str(), &changed)
@@ -2600,6 +2824,30 @@ def compile_tag(parser, token):
             vec![ArgumentCountConstraint::Exact(4)]
         );
     }
+    let events = event_log
+        .take()
+        .expect("Salsa event log should be readable after the helper edit");
+    assert_eq!(
+        will_execute_count(&db, &events, "template_library_registration_inventory"),
+        0,
+        "a rule-helper-only edit must not recompute registration inventory"
+    );
+    assert_eq!(
+        will_execute_count(&db, &events, "template_library_definition_facts"),
+        0
+    );
+    assert_eq!(
+        will_execute_count(&db, &events, "template_library_tag_rule_analysis"),
+        1
+    );
+    assert_eq!(
+        will_execute_count(&db, &events, "template_library_structure_facts"),
+        0
+    );
+    assert_eq!(
+        will_execute_count(&db, &events, "template_library_filter_facts"),
+        0
+    );
     db.add_file(helper_path.as_str(), &format!("{changed}\ndef broken(\n"))
         .expect("recovered helper source should be written");
     SourceChanges::new([ChangeEvent::ContentChanged(helper_path.to_path_buf())]).apply(&mut db);
@@ -2633,6 +2881,52 @@ def compile_tag(parser, token):
             [&SymbolKey::tag("pkg.tags", "nested")]
             .arg_constraints,
         vec![ArgumentCountConstraint::Exact(4)]
+    );
+}
+
+#[test]
+fn overwritten_rule_retains_earlier_helper_dependencies() {
+    let (db, file, module) = imported_registration_fixture(
+        "",
+        r"from django import template
+from .implementation import first
+register = template.Library()
+def earlier(parser, token):
+    bits = first(token)
+    if len(bits) != 2: raise ValueError()
+def later(parser, token):
+    bits = token.split_contents()
+    if len(bits) != 5: raise ValueError()
+register.tag('shared', earlier)
+register.tag('shared', later)
+",
+        r"from .helper import second
+def first(token):
+    return second(token)
+",
+    )
+    .expect("overwritten-helper fixture should install");
+    db.add_file(
+        "/test/project/pkg/helper.py",
+        r"def second(token):
+    return token.split_contents()
+",
+    )
+    .expect("transitive helper should install");
+    let helper = db
+        .file(Utf8Path::new("/test/project/pkg/helper.py"))
+        .expect("transitive helper should exist");
+    let library = TemplateLibraryId::new(&db, Some(file), module);
+
+    assert_eq!(
+        template_library_tag_facts(&db, library).tag_rules()[&SymbolKey::tag("pkg.tags", "shared")]
+            .arg_constraints,
+        vec![ArgumentCountConstraint::Exact(5)],
+        "the later registration should own the final rule"
+    );
+    assert!(
+        template_library_registration_dependencies(&db, library).contains(&helper),
+        "overwriting a rule must not discard helper coverage from the earlier registration"
     );
 }
 
@@ -4275,6 +4569,34 @@ def do_block(parser, token):
     let key = SymbolKey::tag("app.templatetags.custom", "mystery");
     let spec = &result.block_specs.as_map()[&key];
     assert!(spec.end_tag.is_none());
+}
+
+#[test]
+fn unknown_closer_with_intermediate_and_rule_is_reachable() {
+    let source = r#"
+from django import template
+register = template.Library()
+
+@register.tag("mixed")
+def do_block(parser, token):
+    bits = token.split_contents()
+    if len(bits) != 2:
+        raise template.TemplateSyntaxError("wrong count")
+    if bits[1]:
+        parser.skip_past("endother")
+    else:
+        body = parser.parse(("otherwise", "endmixed"))
+        if parser.next_token().contents == "otherwise":
+            alternate = parser.parse(("endmixed",))
+    return BlockNode(body, alternate)
+"#;
+    let result = extract_source(source, "app.templatetags.custom")
+        .expect("mixed-evidence extraction fixture should build");
+    let key = SymbolKey::tag("app.templatetags.custom", "mixed");
+    assert!(result.tag_rules.contains_key(&key));
+    let spec = &result.block_specs.as_map()[&key];
+    assert!(spec.end_tag.is_none());
+    assert_eq!(spec.intermediates, vec!["otherwise".to_string()]);
 }
 
 #[test]

@@ -651,6 +651,17 @@ mod invalidation_tests {
             will_execute_count(&db, &events, "template_library_catalog"),
             1
         );
+        for detail in [
+            "template_library_tag_rule_analysis",
+            "template_library_structure_facts",
+            "template_library_filter_facts",
+        ] {
+            assert_eq!(
+                will_execute_count(&db, &events, detail),
+                0,
+                "catalog demand unexpectedly executed {detail}"
+            );
+        }
 
         for library in ScopedTemplateLibraries::from_project_inventory(libraries)
             .resolved_libraries()
