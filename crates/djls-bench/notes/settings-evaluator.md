@@ -690,3 +690,232 @@ and potential cache hit rates before considering memoized apply or interning, pr
 the current public widening boundaries and self-owned query lifetimes. Factored
 aggregates, export-demand summaries and demand-informed precision allocation remain
 separate research; this profile does not justify expanding into them or server work.
+
+## Follow-up: repeated operations versus shared module identity
+
+This pass starts at `dd5ecd039fc222b15fd4d8a8e9d46b9d93fab6b9`, after rebasing the
+retained constraint-sharing work onto `6aeef2fec4a8e2a18d271559c58dee194a2f4a74`.
+The baseline executable is byte-identical to the preceding pass's shared-constraint
+executable (`206de0b2…bb500`). All comparisons use the same measurement orb, libc
+u14, toolchain, corpus, benchmark profile and fixtures. No new demand policy,
+precision budget, normalization schedule or benchmark contract is introduced.
+
+### Prior art and the cost it must actually remove
+
+- [Bryant's Apply algorithm](https://www.cs.cmu.edu/~bryant/pubdir/ieeetc86.pdf),
+  §4.3, memoizes pairs within one operation; §6 discusses cross-operation reuse.
+  [CUDD's implementation](https://github.com/ivmai/cudd/blob/master/cudd/cuddBddIte.c)
+  separates this computed cache from unique-node construction. A DJLS-local pointer
+  cache can borrow live input roots, but cannot safely span `forget`'s successive
+  union-fold accumulators without retaining operands: freed addresses can be reused.
+  Separate exact Apply caches from already-widened public results, and preserve
+  validation → Apply → ordered single-coordinate forgetting at every public call.
+- [CUDD's node/support traversal](https://github.com/ivmai/cudd/blob/master/cudd/cuddUtil.c)
+  visits each physical node once. DJLS also needs complete coordinate/domain checks
+  under all arms. Skipping a repeated allocation is safe during a borrowed-root
+  traversal; skipping a repeated coordinate can miss different descendants or an
+  incompatible arm domain. Persistent support vectors are a larger tradeoff: querying
+  every suffix of a chain can retain quadratic metadata, including owned module paths.
+- [LLVM's immutable maps](https://github.com/llvm/llvm-project/blob/main/llvm/include/llvm/ADT/ImmutableMap.h)
+  and [sets](https://github.com/llvm/llvm-project/blob/main/llvm/include/llvm/ADT/ImmutableSet.h)
+  reuse unchanged paths. This supports testing unchanged-node reconstruction avoidance,
+  not skipping guarded effects. An unchanged module-effect table still needs each
+  branch's individual restriction before joining; `Combine(a, a) == a` is not justified
+  merely by equal source tables. Persistent effect maps and query-owned contexts would
+  require broader changes than the experiments below.
+
+### Fresh profile and bounded reuse diagnostics
+
+The normal baseline suite completed with ten samples/iterations per row. The initial
+pinned reproduction was 4.278s, enclosing cargo wall 5.31s, peak RSS 136,172KiB.
+A separate 499Hz, 32KiB-DWARF user-space CPU profile contains 1,849 samples:
+
+| Baseline category | Inclusive samples | Share |
+| --- | ---: | ---: |
+| Guarded module-effect joins | 1,482 | 80.15% |
+| Constraint intersection | 799 | 43.21% |
+| Predicate widening | 618 | 33.42% |
+| Forgetting | 582 | 31.48% |
+| Join collection | 309 | 16.71% |
+| Domain validation | 194 | 10.49% |
+| Module structural comparison | 416 | 22.50% |
+| Module equality | 239 | 12.93% |
+
+These categories overlap. In particular, forgetting occurs inside widening, and
+module comparison occurs inside join operations. `identity_cmp` under forgetting
+accounts for 395 samples (21.36%), while construction under forgetting accounts for
+80 (4.33%). The profile suggests checking identity work rather than inferring a cache
+opportunity from intersection's inclusive percentage.
+
+Temporary instrumentation, removed before candidate timing, found:
+
+- Canonical union: 344,543 root Apply invocations, 292,503 branch-pair visits,
+  1,668 repeated physical pairs (0.57%). Intersection: 128,347 root invocations,
+  1,415,758 branch-pair visits, 33,047 repeats (2.33%). These are observed repeated
+  visits, not effective cache hit rates after pruning descendants of a hit.
+- Forgetting: 6,476 root invocations, 1,805,463 branch visits, 162,434 physical
+  repeats (9.00%). Union folds use separate pointer-lifetime scopes.
+- Domain collection: 5,122,320 expanded branch visits and 436,613 known repeats
+  (8.52%); 25,476 visits exceeded the diagnostic tracking cap. Predicate collection:
+  4,147,410 visits and 267,125 repeats (6.44%), without cap misses. Coordinate identity
+  comparisons total 51,465,251 and 44,804,471, respectively.
+- Sampled structural duplication is higher than physical reuse. In a window of 128
+  recent weakly held sampled nodes, 43,233 of 92,024 construction samples matched a
+  structurally equal live node; only 8,674 matches also had identical physical child
+  identities. Weak upgrades check liveness. This bounded sample is not a global
+  interner hit rate. Cross-call pair screens include trivial cases and likewise do
+  not establish a nontrivial computed-cache benefit.
+
+Low physical reuse argues against adding a hash table to every Apply. Independently
+allocated equal trees remain an interning research lead, but introducing a manager,
+structural fingerprints or pervasive query-context plumbing is not justified by these
+bounded observations alone.
+
+### Rejected: traversal-local visited nodes
+
+Candidate `0f7be9d13db4b76d51be4aa87d551137ddd22dac` added one local visited-Arc set to
+join collection, shared across both roots during domain validation. Coordinate checks,
+first-DFS encounter order, predicate sorting and forgetting were unchanged. A test
+distinguished shared residuals from distinct nodes at the same coordinate.
+
+The isolated screen had no build or diagnostic competition. Ordinary Pretix changed
+303.7 → 313.8ms (+3.3%), required-8 121.9 → 154.2ms (+26.5%), each ten samples/ten
+iterations. Required-8 ranges were disjoint: 119.5–127.1 versus 151.2–182.5ms. Pinned
+Pretix changed 3.878 → 4.118s (+6.2%), one sample/iteration each, with RSS
+135,824 → 136,068KiB. All runs exited zero. The modest observed reuse did not pay for
+the added traversal table. No further timing rounds were used to seek a favorable result.
+
+### Rejected: copy only changed paths during forgetting
+
+Independent candidate `0d6eee5c4bcf3de39b12761c739ae95ed46e6125` delayed arm-vector
+allocation until the first changed child, retaining the original node if all children
+were unchanged. It kept recursive order and the exact existing union fold. Its initial
+screen suggested 4–8% less time, but three full AB/BA/AB pairs did not confirm that:
+
+| Workload | Baseline batch times | Candidate batch times |
+| --- | --- | --- |
+| Ordinary Pretix (ms) | 322.9, 291.7, 291.8 | 318.7, 311.5, 285.6 |
+| Required-8 (ms) | 133.9, 118.2, 119.8 | 131.9, 130.4, 117.1 |
+| Pinned Pretix (s) | 3.938, 3.615, 3.646 | 3.939, 4.387, 3.623 |
+
+Ordinary rows have ten samples/iterations per batch; pinned rows have one. Median batch
+times rose 6.8%, 8.8% and 8.0%, respectively, with overlapping ranges and a broadly slow
+second candidate batch. Peak pinned RSS did consistently fall: baseline 135,920 /
+136,000 / 135,992KiB versus candidate 132,320 / 132,280 / 132,380KiB (median -2.7%).
+The small memory reduction did not earn retention without a repeatable timing benefit.
+
+A separate profile investigated the new equality check rather than dismissing the
+unfavorable measurements. It reduced construction under forgetting from 80/1,849 to
+37/2,214 samples, but added 47 samples (2.12%) whose first constraint-operation caller
+of structural equality was `forget`. This is observable extra work, not an explanation
+of all timing variation. No pointer-only variant was pursued; the larger module-identity
+comparison cost supplied a more direct experiment.
+
+### Retained: share complete immutable module identities
+
+Independent candidate `e31a67f1693ce10820e923bb3b2f1d79970121c1` wraps the existing
+five-field `PythonSourceModule` identity in an immutable `Arc`. Evaluator forks,
+different branch joins, predicate identities and cloned results can retain that one
+payload. Module comparison returns equal immediately for the same allocation, then
+uses the unchanged name → package → path → file → search-path comparison for distinct
+allocations. The enclosing branch comparison still compares origin and discriminator;
+domain validation still checks arm counts. Derived equality/hash remain value-based,
+and the custom Debug representation is unchanged. No resolver key, interner, computed
+cache, constraint operation, widening boundary or effect join changes.
+
+This is immutable sharing at the identity owner, not hash-consing. Independently
+resolved equal identities can have different allocations and must still compare equal.
+It targets the common module shared by different coordinates rather than requiring
+repeated physical pairs of entire constraint nodes. It also reduces copied identity
+storage; sampling does not separate all representation/layout and cache effects.
+
+The initial isolated screen improved ordinary Pretix 297.5 → 130.9ms, required-8
+121.5 → 54.61ms, and pinned Pretix 3.729 → 0.9134s. The full repeated comparison
+confirmed the gain. Three AB/BA/AB pairs used the unchanged ordinary 13-row suite
+(ten samples/ten iterations per batch, 30 per row/revision) and pinned workload
+(one sample/one iteration per batch, three per revision):
+
+| Pinned pair | Baseline time / wall | Shared time / wall | Baseline RSS | Shared RSS |
+| --- | --- | --- | ---: | ---: |
+| 1 | 3.950 / 3.97s | 1.077 / 1.09s | 135,776KiB | 61,496KiB |
+| 2 | 3.987 / 4.01s | 1.029 / 1.04s | 135,944KiB | 61,284KiB |
+| 3 | 4.011 / 4.03s | 0.9665 / 0.98s | 135,896KiB | 61,436KiB |
+
+Median pinned time fell 3.987 → 1.029s (74.2% less time, 3.87× faster); median peak
+RSS fell 135,896 → 61,436KiB (54.8%). These are additional gains against the already
+shared-constraint baseline, not against the pre-sharing or historical demand baseline.
+
+The ordinary table lists every batch median in milliseconds. Changes compare medians
+of the three batch medians, not pooled observations. Names retain `settings_cold_`:
+
+| Benchmark suffix | Baseline batch medians (ms) | Shared batch medians (ms) | Median change |
+| --- | --- | --- | ---: |
+| `branches::8` | 0.08724, 0.1241, 0.1133 | 0.1114, 0.07004, 0.07557 | -33.3% |
+| `branches::32` | 0.1249, 0.1247, 0.2147 | 0.1221, 0.2208, 0.1241 | -0.6% |
+| `branches::64` | 0.1773, 0.1903, 0.3098 | 0.1831, 0.3052, 0.1725 | -3.8% |
+| `corpus::healthchecks` | 109.9, 116.9, 111.5 | 66.45, 61.82, 65.85 | -40.9% |
+| `corpus::netbox` | 161.9, 161.9, 147.5 | 92.60, 90.16, 89.74 | -44.3% |
+| `corpus::pretix` | 317.1, 316.0, 322.2 | 141.1, 138.1, 142.8 | -55.5% |
+| `external_constants` | 0.1236, 0.1212, 0.1624 | 0.1205, 0.1129, 0.1139 | -7.8% |
+| `required_branches::2` | 0.2528, 0.3014, 0.2540 | 0.2014, 0.2702, 0.3064 | +6.4% |
+| `required_branches::4` | 2.277, 2.457, 2.685 | 1.447, 1.468, 1.494 | -40.3% |
+| `required_branches::8` | 130.8, 140.6, 133.4 | 61.61, 61.40, 58.50 | -54.0% |
+| `try_prefixes::2` | 0.07335, 0.1293, 0.06998 | 0.06312, 0.06907, 0.06999 | -5.8% |
+| `try_prefixes::9` | 0.1594, 0.2850, 0.1735 | 0.1358, 0.1691, 0.1468 | -15.4% |
+| `try_prefixes::64` | 2.272, 3.227, 2.446 | 2.217, 2.197, 2.022 | -10.2% |
+
+Individual-iteration ranges were 289.6–345.6 versus 129.0–161.8ms for ordinary Pretix,
+and 120.5–196.1 versus 56.42–71.10ms for required-8. Small rows remain noisy. The
+unfavorable required-2 row was investigated with three further AB/BA/AB pairs, each
+100 samples/100 iterations: baseline medians 368.4 / 355.9 / 304.7µs versus shared
+189.7 / 183.8 / 186.0µs. The apparent regression did not repeat. These followups do
+not replace the original row or establish precise small-row savings.
+
+The final profile used the same 499Hz event and DWARF configuration, with 510 samples
+versus the baseline's 1,849. `BranchJoin::identity_cmp` fell from 777 samples (42.02%)
+to 19 (3.73%); module structural comparison from 416 (22.50%) to two (0.39%); module
+equality from 239 (12.93%) to three (0.59%). This supports the intended mechanism,
+without treating tiny remaining counts as precise estimates. Guarded-effect samples
+fell 1,482 → 319, intersection 799 → 157, join collection 309 → 132, and forgetting
+582 → 82. Join collection's rising share of the smaller denominator is not a
+regression. Categories overlap; whole-process sampling includes setup/drop, excludes
+kernel/blocked time and can lose ancestor information through inlining/truncation.
+There are no formal confidence intervals or total-import-work claims.
+
+### Follow-up reproduction and verification
+
+Build/fixed-binary commands and measurement boundaries are unchanged from the preceding
+pass. Each iteration still uses a fresh database and computes the first settings
+result; filesystem caches may be warm. All measured runs exited zero, with builds and
+downloads outside timing and no competing benchmark processes. The final measured
+binary SHA-256 is `22f3ccb0218d7d99c89848d53f984361e1677e8af0c6a6fe69d9eb2339ca36f7`;
+lockfile, corpus and harness hashes match the previous table.
+
+The evidence archive SHA-256 is
+`7c00725fac0363b93bb27bab145ebb60548ae7630fa8d9ff7f6b50150e92db24`.
+It preserves all 49 raw measurement/profile logs, all ordinary rows for both accepted
+and rejected full comparisons, environment/commands, diagnostic source and bounds,
+and profile selection rules/counts. The parent independently parsed the raw timing
+rows, checked them against the supplied JSON, and recomputed every retained table
+median/sample count. Large perf recordings and preserved binaries remain in the
+measurement orb rather than this small archive.
+
+Final source differs from the measured candidate only by making the now module-local
+`PythonSourceModule::package` getter private, as required by Hawk, plus changelog and
+these notes. It is not claimed byte-identical to the measured source. Neither rejected
+constraint experiment nor temporary instrumentation is retained.
+
+Verification of the retained implementation:
+
+- `cargo test -q`: 2,410 passed, zero failed, seven existing ignored tests; rerun after
+  the visibility fix. Existing snapshots are unchanged.
+- Focused Python unit tests: 214 passed; extraction/resolver/settings/corpus integration
+  tests: 691 passed. The identity test checks shared clones and independent equal
+  allocations, structural order, hash-table lookup and Debug agreement; field coverage
+  includes distinct search roots of the same kind and distinct File identities.
+- `just e2e`: all 48 existing Python LSP tests passed on the measured implementation.
+  The later getter-visibility reduction changes no runtime behavior.
+- `just fmt --check`, `just clippy`, and `just lint` passed after the visibility fix.
+  Hawk reported zero findings after applying that one fix; no new public API was added.
+- The retained diff leaves `constraints.rs`, operation/cap schedules, effects, import
+  policies, query keys and benchmark inputs untouched relative to this pass's baseline.

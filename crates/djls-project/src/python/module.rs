@@ -696,7 +696,7 @@ impl PythonSourceModule {
         self.0.package.as_ref() == Some(&self.0.name)
     }
 
-    pub(crate) fn package(&self) -> Option<&PythonModuleName> {
+    fn package(&self) -> Option<&PythonModuleName> {
         self.0.package.as_ref()
     }
 
