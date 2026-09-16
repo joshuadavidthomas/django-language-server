@@ -142,7 +142,7 @@ impl BranchJoin {
     }
 
     #[cfg(test)]
-    fn predicate_for_test(origin: Origin) -> Self {
+    pub(super) fn predicate_for_test(origin: Origin) -> Self {
         let mut join = Self::for_test(origin, 2);
         join.kind = BranchJoinKind::Predicate;
         join

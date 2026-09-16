@@ -36,6 +36,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - **Internal**: Consolidated Salsa execution-event assertions in shared test infrastructure.
 - Reduced analysis time for Django settings with many conditional branches.
 - Reduced analysis time for Django settings with long `try` blocks.
+- Reduced analysis time for Django settings when installed Django packages are resolvable.
 - Removed eager Django Model scanning and Model Graph construction from project discovery and cache warm-up.
 - Expanded Python Environment discovery to support active Conda environments, Python installations on `PATH`, executable symlinks, and additional system package layouts without executing Python.
 - Swapped the automatic Python Environment order to prefer project venv directories over `VIRTUAL_ENV`, accounting for pre-commit isolated environments.

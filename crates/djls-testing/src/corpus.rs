@@ -236,36 +236,27 @@ impl Corpus {
                 && entry_name["django-".len()..].starts_with(|c: char| c.is_ascii_digit()))
     }
 
-    /// Latest synced version directory for a package under `repos/`.
+    /// Latest locked and synced version directory for a package under `repos/`.
     ///
     /// Handles both single-entry names (e.g. `repos/django-allauth/`)
     /// and multi-version names (e.g. `repos/django-6.0/`).
     #[must_use]
     pub fn latest_package(&self, name: &str) -> Option<Utf8PathBuf> {
-        let repos_dir = self.root().join("repos");
-
-        // Single-version: repos/{name}/
-        let exact = repos_dir.join(name);
-        if exact.join(".complete.json").as_std_path().exists() {
+        // Single-version: repos/{name}/. Only lockfile entries are eligible so
+        // stale or manually synced directories cannot change corpus behavior.
+        if let Some((_, exact)) = self.locked_repos().find(|(locked, directory)| {
+            *locked == name && directory.join(".complete.json").as_std_path().exists()
+        }) {
             return Some(exact);
         }
 
         // Multi-version: repos/{name}-{version}/ — find highest version
         let prefix = format!("{name}-");
-        let Ok(entries) = std::fs::read_dir(repos_dir.as_std_path()) else {
-            return None;
-        };
-
         let mut best: Option<(Vec<u32>, Utf8PathBuf)> = None;
-        for entry in entries.filter_map(Result::ok) {
-            let Some(dir_name) = entry.file_name().to_str().map(String::from) else {
+        for (locked, path) in self.locked_repos() {
+            let Some(version_str) = locked.strip_prefix(&prefix) else {
                 continue;
             };
-            if !dir_name.starts_with(&prefix) {
-                continue;
-            }
-
-            let version_str = &dir_name[prefix.len()..];
             // The suffix after "{name}-" must start with a digit to be a
             // version, otherwise it's a different package (e.g. "django-cms"
             // should not match prefix "django-").
@@ -273,9 +264,6 @@ impl Corpus {
                 continue;
             }
 
-            let Ok(path) = Utf8PathBuf::from_path_buf(entry.path()) else {
-                continue;
-            };
             if !path.join(".complete.json").as_std_path().exists() {
                 continue;
             }
@@ -624,6 +612,40 @@ mod tests {
         );
         assert_eq!(targets[0].path, registered_tags);
         assert_eq!(corpus.model_files(), vec![registered_models]);
+    }
+
+    #[test]
+    fn latest_package_ignores_completed_repositories_missing_from_the_lockfile() {
+        let tempdir = tempfile::tempdir().expect("temporary corpus root should be created");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf())
+            .expect("temporary corpus path should be UTF-8");
+        for name in ["django-5.2", "django-6.1", "django-99.0", "django"] {
+            let directory = root.join("repos").join(name);
+            std::fs::create_dir_all(directory.as_std_path())
+                .expect("test corpus directory should be created");
+            std::fs::write(directory.join(".complete.json").as_std_path(), "{}")
+                .expect("test completion marker should be written");
+        }
+        let corpus = Corpus {
+            manifest_path: root.join("manifest.toml"),
+            root: root.clone(),
+            lockfile: Lockfile {
+                repos: ["django-5.2", "django-6.1"]
+                    .into_iter()
+                    .map(|name| LockedRepo {
+                        name: name.to_string(),
+                        url: format!("https://example.com/{name}.git"),
+                        tag: name.to_string(),
+                        git_ref: "0123456789abcdef".to_string(),
+                    })
+                    .collect(),
+            },
+        };
+
+        assert_eq!(
+            corpus.latest_package("django"),
+            Some(root.join("repos/django-6.1"))
+        );
     }
 
     #[test]
