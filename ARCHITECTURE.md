@@ -51,7 +51,7 @@ The CLI application. It parses command-line arguments, starts the LSP server for
 
 The LSP server. This is the crate that wires everything together at runtime.
 
-`Session` owns the `DjangoDatabase`, open-document state, and intrinsic-product readiness. Open documents live in server-local buffers, and an overlay filesystem exposes those buffers through the `djls-source` filesystem seam before falling back to disk. Mutations briefly take the session's `tokio::Mutex`, update the overlay before applying Salsa source changes, and schedule any required Project work.
+`Session` owns the `DjangoDatabase`, open-document state, and intrinsic-product readiness. Open documents live in server-local buffers, and an overlay filesystem exposes those buffers through the `djls-source` filesystem seam before falling back to disk. Document mutations acquire the session's `tokio::Mutex` asynchronously, then move the guard to a blocking worker to update the overlay and apply Salsa source changes before scheduling any required Project work. This preserves mutation ordering without blocking the event loop while Salsa waits for background snapshots to be released.
 
 Project-aware requests use generation-checked `SessionSnapshot`s rather than computing under the session lock. A request waits on a race-safe readiness watch, locks the session long enough to verify the observed generation and clone a snapshot atomically, releases the lock, and computes on a blocking worker. Salsa cancellation restarts this sequence at readiness waiting. Syntax-only operations, currently formatting, may use an ungated snapshot.
 

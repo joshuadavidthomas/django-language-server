@@ -64,12 +64,21 @@ impl DjangoLanguageServer {
         f(&session)
     }
 
-    async fn with_session_mut<F, R>(&self, f: F) -> R
+    async fn with_session_mut<F, R>(&self, f: F) -> Option<R>
     where
-        F: FnOnce(&mut Session) -> R,
+        F: FnOnce(&mut Session) -> R + Send + 'static,
+        R: Send + 'static,
     {
-        let mut session = self.session.lock().await;
-        f(&mut session)
+        // Preserve lock acquisition order, but let the event loop release async-held
+        // snapshots while a Salsa setter waits for their storage handles to drop.
+        let mut session = Arc::clone(&self.session).lock_owned().await;
+        match spawn_blocking(move || f(&mut session)).await {
+            Ok(result) => Some(result),
+            Err(error) => {
+                error!(?error, "Document mutation task failed");
+                None
+            }
+        }
     }
 
     /// Wait for current-generation intrinsic products, atomically verify and
@@ -490,9 +499,12 @@ impl LanguageServer for DjangoLanguageServer {
     }
 
     async fn did_open(&self, params: ls_types::DidOpenTextDocumentParams) {
-        let mutation = self
-            .with_session_mut(|session| session.open_document(&params.text_document))
-            .await;
+        let Some(mutation) = self
+            .with_session_mut(move |session| session.open_document(&params.text_document))
+            .await
+        else {
+            return;
+        };
 
         if let Some(document) = self.schedule_document_mutation(mutation) {
             self.maybe_push_diagnostics(&document).await;
@@ -500,9 +512,12 @@ impl LanguageServer for DjangoLanguageServer {
     }
 
     async fn did_save(&self, params: ls_types::DidSaveTextDocumentParams) {
-        let mutation = self
-            .with_session_mut(|session| session.save_document(&params.text_document))
-            .await;
+        let Some(mutation) = self
+            .with_session_mut(move |session| session.save_document(&params.text_document))
+            .await
+        else {
+            return;
+        };
 
         if let Some(document) = self.schedule_document_mutation(mutation) {
             self.maybe_push_diagnostics(&document).await;
@@ -510,11 +525,14 @@ impl LanguageServer for DjangoLanguageServer {
     }
 
     async fn did_change(&self, params: ls_types::DidChangeTextDocumentParams) {
-        let mutation = self
-            .with_session_mut(|session| {
+        let Some(mutation) = self
+            .with_session_mut(move |session| {
                 session.update_document(&params.text_document, params.content_changes)
             })
-            .await;
+            .await
+        else {
+            return;
+        };
 
         if let Some(document) = self.schedule_document_mutation(mutation) {
             self.maybe_push_diagnostics(&document).await;
@@ -522,9 +540,12 @@ impl LanguageServer for DjangoLanguageServer {
     }
 
     async fn did_close(&self, params: ls_types::DidCloseTextDocumentParams) {
-        let mutation = self
-            .with_session_mut(|session| session.close_document(&params.text_document))
-            .await;
+        let Some(mutation) = self
+            .with_session_mut(move |session| session.close_document(&params.text_document))
+            .await
+        else {
+            return;
+        };
         drop(self.schedule_document_mutation(mutation));
     }
 
