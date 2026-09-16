@@ -89,6 +89,14 @@ fn lock_entry_matches_declaration(
             .is_none_or(|repo_ref| locked_repo.tag == repo_ref)
 }
 
+fn has_directory_component(path: &Utf8Path, names: &[&str]) -> bool {
+    path.parent().is_some_and(|parent| {
+        parent
+            .components()
+            .any(|component| names.contains(&component.as_str()))
+    })
+}
+
 impl Corpus {
     /// Check whether the corpus directory exists.
     #[must_use]
@@ -355,16 +363,16 @@ impl Corpus {
             let Some(path) = Utf8Path::from_path(entry.path()) else {
                 continue;
             };
-            let path_str = path.as_str();
+            let Ok(relative) = path.strip_prefix(dir) else {
+                continue;
+            };
 
-            if path_str.contains("__pycache__") {
+            if has_directory_component(relative, &["__pycache__"]) {
                 continue;
             }
 
             let is_py = path.extension().is_some_and(|ext| ext == "py");
-            let is_core_template_module = path
-                .components()
-                .any(|component| component.as_str() == "template")
+            let is_core_template_module = has_directory_component(relative, &["template"])
                 && matches!(
                     path.file_name(),
                     Some("defaulttags.py" | "defaultfilters.py" | "loader_tags.py")
@@ -372,10 +380,7 @@ impl Corpus {
 
             if is_py
                 && path.file_name() != Some("__init__.py")
-                && (path
-                    .components()
-                    .any(|component| component.as_str() == "templatetags")
-                    || is_core_template_module)
+                && (has_directory_component(relative, &["templatetags"]) || is_core_template_module)
             {
                 files.push(path.to_owned());
             }
@@ -413,13 +418,12 @@ impl Corpus {
             let Some(path) = Utf8Path::from_path(entry.path()) else {
                 continue;
             };
-            let path_str = path.as_str();
+            let Ok(relative) = path.strip_prefix(dir) else {
+                continue;
+            };
 
             if path.file_name() == Some("models.py")
-                && !path_str.contains("__pycache__")
-                && !path_str.contains("/docs/")
-                && !path_str.contains("/tests/")
-                && !path_str.contains("/test/")
+                && !has_directory_component(relative, &["__pycache__", "docs", "tests", "test"])
             {
                 files.push(path.to_owned());
             }
@@ -446,14 +450,15 @@ impl Corpus {
             let Some(path) = Utf8Path::from_path(entry.path()) else {
                 continue;
             };
-            let path_str = path.as_str();
+            let Ok(relative) = path.strip_prefix(dir) else {
+                continue;
+            };
 
-            if path_str.contains("/templates/")
-                && !path_str.contains("__pycache__")
-                && !path_str.contains("/docs/")
-                && !path_str.contains("/tests/")
-                && !path_str.contains("/jinja2/")
-                && !path_str.contains("/static/")
+            if has_directory_component(relative, &["templates"])
+                && !has_directory_component(
+                    relative,
+                    &["__pycache__", "docs", "tests", "jinja2", "static"],
+                )
             {
                 files.push(path.to_owned());
             }
@@ -641,6 +646,45 @@ mod tests {
         }
 
         assert_eq!(Corpus::extraction_targets_in(&root), vec![selected]);
+    }
+
+    #[test]
+    fn corpus_selectors_use_relative_directory_components() {
+        let tempdir = tempfile::tempdir().expect("temporary corpus root should be created");
+        let temp_root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf())
+            .expect("temporary corpus path should be UTF-8");
+        let root = temp_root.join("tests/docs/corpus");
+        for relative in [
+            "project/models.py",
+            "project/docs/models.py",
+            "project/templates/index.html",
+            "project/docs/templates/index.html",
+            "project/tests/templates/index.html",
+            "project/assets/templates",
+        ] {
+            let file = root.join(relative);
+            std::fs::create_dir_all(
+                file.parent()
+                    .expect("corpus source file should have a parent"),
+            )
+            .expect("corpus source directory should be created");
+            std::fs::write(file, "").expect("corpus source file should be created");
+        }
+
+        let corpus = Corpus {
+            root: root.clone(),
+            manifest_path: root.join("manifest.toml"),
+            lockfile: Lockfile::default(),
+        };
+
+        assert_eq!(
+            corpus.model_files_in(&root),
+            vec![root.join("project/models.py")]
+        );
+        assert_eq!(
+            corpus.templates_in(&root),
+            vec![root.join("project/templates/index.html")]
+        );
     }
 
     #[test]
