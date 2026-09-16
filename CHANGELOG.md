@@ -29,6 +29,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 - Added an S124 hint on `{% load %}` for unreadable library registrations, with a code action that opens a prefilled issue.
 - Avoided constructing unused scalar-only collections during Django settings analysis while preserving their effects and source dependencies.
+- Reduced time and memory use for Django settings analysis by sharing immutable branch constraints.
 - Deferred template-library validation details until needed while keeping registration inventory and block structure ready before requests.
 - **Internal**: Tag validation is tested against Django's own template libraries from the pinned corpus, with a fixture project comparing DJLS diagnostics against Django's compilation verdicts.
 - **Internal**: Test scenarios declare their own tag libraries and settings, either in markdown Python fences or from a typed `ProjectSettings` value.
