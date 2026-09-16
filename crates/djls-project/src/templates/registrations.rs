@@ -1572,7 +1572,6 @@ fn template_library_source_analysis<'db>(
                 tag_rules.insert(symbol_key.clone(), rule.into());
             }
             if let Some(source) = source {
-                symbols_unobserved |= source.lookup.has_recovered_source();
                 for dependency in source.lookup.consulted_files() {
                     if !registration_dependencies.contains(dependency) {
                         registration_dependencies.push(*dependency);

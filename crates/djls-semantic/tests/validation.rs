@@ -18,6 +18,7 @@ use djls_project::TemplateSymbolKind;
 use djls_project::UnreadRegistration;
 use djls_project::UnreadShape;
 use djls_project::template_library_catalog;
+use djls_project::template_symbol_source;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::TagArgumentKind;
 use djls_semantic::TagArgumentSyntax;
@@ -26,6 +27,7 @@ use djls_semantic::TagSpec;
 use djls_semantic::TagSpecs;
 use djls_semantic::ValidationError;
 use djls_semantic::builtin_tag_specs;
+use djls_semantic::effective_symbol_candidate_at;
 use djls_semantic::library_tag_specs;
 use djls_semantic::semantic_grammar_vocabulary;
 use djls_semantic::tag_spec_at;
@@ -644,6 +646,127 @@ fn loaded_imported_signature_rebinds_after_source_invalidation() {
         collect_file_errors(&db, template_path.as_str())
             .expect("updated imported argument should validate")
             .is_empty()
+    );
+}
+
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "keep multiline Python fixtures inline"
+)]
+fn recovered_rule_helper_does_not_open_exact_registration_inventory() {
+    let mut db = TestDatabase::new();
+    let template_source = "{% load nested %}{% nested %}{% missing %}";
+    let project = ProjectFixture::new("/proj")
+        .settings(&ProjectSettings {
+            dirs: vec!["/proj/templates".to_string()],
+            libraries: BTreeMap::from([("nested".to_string(), "pkg.tags".to_string())]),
+            ..ProjectSettings::default()
+        })
+        .file("/proj/django/__init__.py", "")
+        .file("/proj/django/template/__init__.py", "")
+        .file(
+            "/proj/django/template/defaulttags.py",
+            r"from django import template
+register = template.Library()
+",
+        )
+        .file(
+            "/proj/django/template/defaultfilters.py",
+            r"from django import template
+register = template.Library()
+",
+        )
+        .file(
+            "/proj/django/template/loader_tags.py",
+            r"from django import template
+register = template.Library()
+",
+        )
+        .file("/proj/pkg/__init__.py", "")
+        .file(
+            "/proj/pkg/tags.py",
+            r"from django import template
+from .implementation import first
+register = template.Library()
+@register.tag(name='nested')
+def compile_tag(parser, token):
+    bits = first(token)
+    if len(bits) != 2:
+        raise template.TemplateSyntaxError('wrong count')
+    return template.Node()
+",
+        )
+        .file(
+            "/proj/pkg/implementation.py",
+            r"from .helper import second
+def first(token):
+    return second(token)
+",
+        )
+        .file(
+            "/proj/pkg/helper.py",
+            r"def second(token):
+    return token.split_contents()[1:]
+def broken(
+",
+        )
+        .file("/proj/templates/page.html", template_source)
+        .build(&db)
+        .expect("recovered rule-helper fixture should build");
+    db.set_project(project);
+
+    let scoped =
+        ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project));
+    let library = scoped
+        .resolved_libraries()
+        .into_iter()
+        .find(|library| library.module_name_str() == "pkg.tags")
+        .expect("configured Template Library should resolve");
+    assert!(!library.symbols_are_unobserved());
+    let symbol = library
+        .symbol(TemplateSymbolKind::Tag, "nested")
+        .expect("exact registered name should remain indexed");
+    assert!(template_symbol_source(&db, symbol).is_some());
+
+    let template_file = djls_source::path_to_file(&db, Utf8Path::new("/proj/templates/page.html"))
+        .expect("template fixture should exist");
+    let nodelist = parse_template(&db, template_file).expect("template fixture should parse");
+    let nested_position = u32::try_from(
+        template_source
+            .rfind("nested")
+            .expect("template fixture should contain the nested Tag occurrence"),
+    )
+    .expect("nested Tag offset should fit in u32");
+    let candidate = effective_symbol_candidate_at(
+        &db,
+        template_file,
+        nodelist,
+        nested_position,
+        "nested",
+        TemplateSymbolKind::Tag,
+    )
+    .expect("loaded nested Tag should resolve definitively");
+    assert_eq!(candidate.symbol.name(), "nested");
+    assert_eq!(
+        candidate.symbol.definition,
+        SymbolDefinition::Exact {
+            library: library.id()
+        }
+    );
+
+    let errors = collect_file_errors(&db, "/proj/templates/page.html")
+        .expect("recovered rule-helper template should validate");
+    assert!(!errors.iter().any(|error| matches!(
+        error,
+        ValidationError::UnknownTag { tag, .. } | ValidationError::UnloadedTag { tag, .. }
+            if tag == "nested"
+    )));
+    assert!(
+        errors.iter().any(
+            |error| matches!(error, ValidationError::UnknownTag { tag, .. } if tag == "missing")
+        ),
+        "missing Tag should be definitive: {errors:?}"
     );
 }
 

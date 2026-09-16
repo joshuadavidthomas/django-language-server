@@ -2325,7 +2325,9 @@ fn unused_lazy_from_import_does_not_open_registration_evidence() {
         Some(file),
         PythonModuleName::parse("pkg.tags").expect("fixture module name should be valid"),
     );
-    let symbol = template_library_definition_facts(&db, key)
+    let definitions = template_library_definition_facts(&db, key);
+    assert!(!definitions.symbols_are_unobserved());
+    let symbol = definitions
         .symbol(TemplateSymbolKind::Tag, "focused")
         .expect("the exact registration should survive the unrelated recovered read");
 
@@ -2562,6 +2564,12 @@ def compile_tag(parser, token):
     let helper_file = db.file(helper_path).expect("helper file should exist");
     {
         let key = TemplateLibraryId::new(&db, Some(file), module.clone());
+        let definitions = template_library_definition_facts(&db, key);
+        assert!(!definitions.symbols_are_unobserved());
+        let symbol = definitions
+            .symbol(TemplateSymbolKind::Tag, "nested")
+            .expect("exact registration should be indexed");
+        assert!(template_symbol_source(&db, symbol).is_some());
         assert_eq!(
             template_library_tag_facts(&db, key).tag_rules()[&SymbolKey::tag("pkg.tags", "nested")]
                 .arg_constraints,
@@ -2595,7 +2603,16 @@ def compile_tag(parser, token):
     db.add_file(helper_path.as_str(), &format!("{changed}\ndef broken(\n"))
         .expect("recovered helper source should be written");
     SourceChanges::new([ChangeEvent::ContentChanged(helper_path.to_path_buf())]).apply(&mut db);
+    let repaired_module = module.clone();
     let key = TemplateLibraryId::new(&db, Some(file), module);
+    assert!(
+        !template_library_definition_facts(&db, key).symbols_are_unobserved(),
+        "recovered Tag Rule helper evidence must not open an exact registration inventory"
+    );
+    let symbol = template_library_definition_facts(&db, key)
+        .symbol(TemplateSymbolKind::Tag, "nested")
+        .expect("known Tag must remain indexed");
+    assert!(template_symbol_source(&db, symbol).is_some());
     assert!(
         template_library_tag_facts(&db, key)
             .tag_rules()
@@ -2605,6 +2622,17 @@ def compile_tag(parser, token):
     assert!(
         template_library_registration_dependencies(&db, key).contains(&helper_file),
         "an uncertain dependency must remain covered so repairing it triggers extraction"
+    );
+    db.add_file(helper_path.as_str(), &changed)
+        .expect("repaired helper source should be written");
+    SourceChanges::new([ChangeEvent::ContentChanged(helper_path.to_path_buf())]).apply(&mut db);
+    let repaired_key = TemplateLibraryId::new(&db, Some(file), repaired_module);
+    assert!(!template_library_definition_facts(&db, repaired_key).symbols_are_unobserved());
+    assert_eq!(
+        template_library_tag_facts(&db, repaired_key).tag_rules()
+            [&SymbolKey::tag("pkg.tags", "nested")]
+            .arg_constraints,
+        vec![ArgumentCountConstraint::Exact(4)]
     );
 }
 
@@ -3066,6 +3094,7 @@ fn recovered_import_retains_positive_facts_but_opens_inventory_and_navigation() 
     .expect("recovered-import fixture should install");
     let key = TemplateLibraryId::new(&db, Some(file), module);
     let facts = template_library_definition_facts(&db, key);
+    assert!(facts.symbols_are_unobserved());
     let imported = facts
         .symbol(TemplateSymbolKind::Tag, "recovered")
         .expect("recovered imported positive fact should survive");
