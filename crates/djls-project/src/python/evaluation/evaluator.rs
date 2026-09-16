@@ -2,8 +2,12 @@ pub(super) mod expression;
 mod imports;
 mod statement;
 
+#[cfg(test)]
+use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
+#[cfg(test)]
+use std::rc::Rc;
 
 use djls_source::File;
 use djls_source::Origin;
@@ -46,6 +50,13 @@ use crate::python::PythonIntrinsicNamespace;
 use crate::python::PythonSourceModule;
 use crate::python::PythonSyntaxError;
 
+#[cfg(test)]
+#[derive(Default)]
+struct EvaluationStats {
+    evaluated_expressions: Cell<usize>,
+    materialized_dictionaries: Cell<usize>,
+}
+
 fn merge_truth_guard(target: &mut Option<BranchConstraints>, incoming: BranchConstraints) {
     if incoming.is_impossible() {
         return;
@@ -57,31 +68,6 @@ fn merge_truth_guard(target: &mut Option<BranchConstraints>, incoming: BranchCon
     }
 }
 
-pub(super) fn evaluate_body(
-    db: &dyn ProjectDb,
-    project: Project,
-    module: PythonSourceModule,
-    body: &[ast::Stmt],
-    syntax_errors: Vec<PythonSyntaxError>,
-    syntax_impacts: Vec<PythonSyntaxErrorImpact>,
-    intrinsic_contamination: IntrinsicContamination,
-) -> (PythonModuleFacts, PythonImportTrace, PythonModuleEffects) {
-    let state = PythonEvaluationState::with_intrinsic_contamination(
-        module.file(),
-        intrinsic_contamination,
-        Some(module.clone()),
-    );
-    let mut evaluator = PythonModuleEvaluator {
-        db,
-        project,
-        module,
-        state,
-        active_constraints: BranchConstraints::unconstrained(),
-    };
-    evaluator.evaluate_body(body);
-    evaluator.state.finish(syntax_errors, syntax_impacts)
-}
-
 /// Context-bearing abstract evaluator that evaluates Python syntax into a forkable state.
 pub(super) struct PythonModuleEvaluator<'db> {
     db: &'db dyn ProjectDb,
@@ -89,6 +75,9 @@ pub(super) struct PythonModuleEvaluator<'db> {
     module: PythonSourceModule,
     pub(super) state: PythonEvaluationState,
     pub(super) active_constraints: BranchConstraints,
+    // Forks share work counts; independent module evaluations get fresh statistics.
+    #[cfg(test)]
+    stats: Rc<EvaluationStats>,
 }
 
 struct TruthPartition {
@@ -103,7 +92,48 @@ enum UnsupportedCallEffect {
     ReceiverAndArguments,
 }
 
-impl PythonModuleEvaluator<'_> {
+impl<'db> PythonModuleEvaluator<'db> {
+    pub(super) fn new(
+        db: &'db dyn ProjectDb,
+        project: Project,
+        module: PythonSourceModule,
+        intrinsic_contamination: IntrinsicContamination,
+    ) -> Self {
+        let state = PythonEvaluationState::with_intrinsic_contamination(
+            module.file(),
+            intrinsic_contamination,
+            Some(module.clone()),
+        );
+        Self {
+            db,
+            project,
+            module,
+            state,
+            active_constraints: BranchConstraints::unconstrained(),
+            #[cfg(test)]
+            stats: Rc::default(),
+        }
+    }
+
+    pub(super) fn evaluate<'ast>(
+        mut self,
+        body: impl IntoIterator<Item = impl Into<super::slice::SelectedStatement<'ast>>>,
+        syntax_errors: Vec<PythonSyntaxError>,
+        syntax_impacts: Vec<PythonSyntaxErrorImpact>,
+    ) -> (PythonModuleFacts, PythonImportTrace, PythonModuleEffects) {
+        for statement in body {
+            match statement.into() {
+                super::slice::SelectedStatement::Full(statement) => {
+                    self.evaluate_body(std::slice::from_ref(statement));
+                }
+                super::slice::SelectedStatement::UnobservedAssignment(assign) => {
+                    self.walk_unobserved_assign(assign);
+                }
+            }
+        }
+        self.state.finish(syntax_errors, syntax_impacts)
+    }
+
     fn fork(&self) -> Self {
         Self {
             db: self.db,
@@ -111,6 +141,8 @@ impl PythonModuleEvaluator<'_> {
             module: self.module.clone(),
             state: self.state.clone(),
             active_constraints: self.active_constraints.clone(),
+            #[cfg(test)]
+            stats: Rc::clone(&self.stats),
         }
     }
 
@@ -244,7 +276,10 @@ impl PythonModuleEvaluator<'_> {
         merge_truth_guard(truthy, truthy_constraints);
     }
 
-    pub(super) fn record_unsupported_call_effects(&mut self, expression: &ast::Expr) {
+    /// Invalidate intrinsic namespaces and aliases exposed to unsupported calls.
+    /// Value evaluation is read-only, so statement execution applies this separately,
+    /// even when the expression's result will be discarded.
+    pub(super) fn invalidate_intrinsics_for_calls(&mut self, expression: &ast::Expr) {
         let calls = reachable_expr_calls(expression, &|value| {
             Truthiness::of_expr(value, &|name| self.state.known_truthiness(name))
         });
@@ -1012,8 +1047,14 @@ impl PythonEvaluationState {
 
 #[cfg(test)]
 mod tests {
+    use std::fmt::Write as _;
+    use std::rc::Rc;
+
+    use camino::Utf8Path;
+    use djls_conf::Settings;
     use djls_source::File;
     use djls_source::Span;
+    use djls_testing::TestDatabase;
     use salsa::plumbing::FromId;
     use salsa::plumbing::Id;
 
@@ -1021,6 +1062,7 @@ mod tests {
     use super::PythonBinding;
     use super::PythonEvaluationState;
     use super::PythonImportOutcome;
+    use super::PythonModuleEvaluator;
     use super::PythonMutation;
     use super::PythonMutationOperation;
     use super::PythonMutationPath;
@@ -1032,6 +1074,319 @@ mod tests {
     use crate::python::PythonModule;
     use crate::python::PythonModuleName;
     use crate::python::PythonNamespacePackage;
+
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "keep multiline Python fixtures inline"
+    )]
+    fn settings_slice_preserves_effects_and_alias_certificates() {
+        for (prefix, omitted, contaminated) in [
+            (
+                r"import pathlib
+UNUSED = {'result': opaque(pathlib)}
+",
+                true,
+                true,
+            ),
+            // The early scalar passes inspection, but the later alias must keep the binding.
+            (
+                r"import pathlib
+UNUSED = {'scalar': 'first', 'alias': pathlib.Path}
+unknown().attr = 1
+",
+                false,
+                true,
+            ),
+            (
+                r"import pathlib as UNUSED
+UNUSED = {'scalar': unknown.attr}
+unknown().attr = 1
+",
+                true,
+                true,
+            ),
+            (
+                r"A = ['other']
+UNUSED = ['first', A, INSTALLED_APPS]
+for item in unknown:
+    A.append('changed')
+",
+                false,
+                false,
+            ),
+            (
+                r"UNUSED = [INSTALLED_APPS]
+UNUSED = {'scalar': unknown.attr}
+for item in unknown:
+    INSTALLED_APPS.append('changed')
+",
+                true,
+                false,
+            ),
+            (
+                r"if FLAG:
+    A = 'scalar'
+else:
+    A = INSTALLED_APPS
+UNUSED = {'value': A}
+opaque(INSTALLED_APPS)
+",
+                false,
+                false,
+            ),
+        ] {
+            let db = TestDatabase::new();
+            let project =
+                crate::project::Project::initial(&db, Utf8Path::new("/proj"), &Settings::default());
+            let source = format!(
+                r"INSTALLED_APPS = ['blog']
+{prefix}TEMPLATES = []
+"
+            );
+            db.add_file("/proj/settings.py", &source)
+                .expect("fixture should be writable");
+            let module = crate::python::file_to_module(&db, project, "/proj/settings.py".into())
+                .expect("module should resolve");
+            let parsed = ruff_python_parser::parse_module(&source)
+                .expect("fixture should parse")
+                .into_syntax();
+            let (full, full_trace, full_effects) = PythonModuleEvaluator::new(
+                &db,
+                project,
+                module.clone(),
+                super::IntrinsicContamination::default(),
+            )
+            .evaluate(&parsed.body, Vec::new(), Vec::new());
+            let selected = crate::python::evaluation::slice::selected_statements(
+                &parsed.body,
+                crate::python::evaluation::EvaluationDemand::Settings,
+                false,
+            );
+            let evaluator = PythonModuleEvaluator::new(
+                &db,
+                project,
+                module,
+                super::IntrinsicContamination::default(),
+            );
+            let stats = Rc::clone(&evaluator.stats);
+            let (sliced, trace, effects) = evaluator.evaluate(selected, Vec::new(), Vec::new());
+            assert_eq!(!sliced.bindings.contains_key("UNUSED"), omitted, "{source}");
+            if omitted {
+                assert_eq!(stats.materialized_dictionaries.get(), 0, "{source}");
+                assert!(
+                    sliced
+                        .mutations
+                        .iter()
+                        .all(|mutation| mutation.binding != "UNUSED")
+                );
+            }
+            assert_eq!(
+                effects.namespace_is_contaminated(crate::python::PythonIntrinsicNamespace::Pathlib),
+                contaminated,
+                "{source}"
+            );
+            for name in ["INSTALLED_APPS", "TEMPLATES"] {
+                assert_eq!(
+                    sliced.bindings.get(name),
+                    full.bindings.get(name),
+                    "{source}"
+                );
+            }
+            assert_eq!(trace, full_trace);
+            assert_eq!(effects, full_effects);
+        }
+    }
+
+    #[test]
+    fn settings_slice_avoids_unobserved_dictionary_materialization() {
+        for demanded in [false, true] {
+            let db = TestDatabase::new();
+            let project =
+                crate::project::Project::initial(&db, Utf8Path::new("/proj"), &Settings::default());
+            let source = format!(
+                r"import constants as messages
+MESSAGE_TAGS = {{messages.INFO: 'info', messages.ERROR: 'error', messages.WARNING: 'warning', messages.SUCCESS: 'success'}}
+INSTALLED_APPS = ['blog']
+TEMPLATES = {}
+",
+                if demanded { "[MESSAGE_TAGS]" } else { "[]" }
+            );
+            db.add_file(
+                "/proj/constants.py",
+                r"if A:
+    INFO = 'i'
+else:
+    INFO = 'j'
+if B:
+    ERROR = 'e'
+else:
+    ERROR = 'f'
+if C:
+    WARNING = 'w'
+else:
+    WARNING = 'x'
+if D:
+    SUCCESS = 's'
+else:
+    SUCCESS = 't'
+",
+            )
+            .expect("fixture should be writable");
+            db.add_file("/proj/settings.py", &source)
+                .expect("fixture should be writable");
+            let module = crate::python::file_to_module(&db, project, "/proj/settings.py".into())
+                .expect("module should resolve");
+            let parsed = ruff_python_parser::parse_module(&source)
+                .expect("fixture should parse")
+                .into_syntax();
+            let evaluator = PythonModuleEvaluator::new(
+                &db,
+                project,
+                module.clone(),
+                super::IntrinsicContamination::default(),
+            );
+            let full_stats = Rc::clone(&evaluator.stats);
+            let (full, full_trace, full_effects) =
+                evaluator.evaluate(&parsed.body, Vec::new(), Vec::new());
+            let selected = crate::python::evaluation::slice::selected_statements(
+                &parsed.body,
+                crate::python::evaluation::EvaluationDemand::Settings,
+                false,
+            );
+            let evaluator = PythonModuleEvaluator::new(
+                &db,
+                project,
+                module,
+                super::IntrinsicContamination::default(),
+            );
+            let sliced_stats = Rc::clone(&evaluator.stats);
+            let (sliced, trace, effects) = evaluator.evaluate(selected, Vec::new(), Vec::new());
+            assert_eq!(full_stats.materialized_dictionaries.get(), 1);
+            assert_eq!(
+                sliced_stats.materialized_dictionaries.get(),
+                usize::from(demanded)
+            );
+            assert_eq!(sliced.bindings.contains_key("MESSAGE_TAGS"), demanded);
+            for name in ["INSTALLED_APPS", "TEMPLATES"] {
+                assert_eq!(sliced.bindings.get(name), full.bindings.get(name));
+            }
+            assert_eq!(trace, full_trace);
+            assert_eq!(effects, full_effects);
+            assert_eq!(full.bindings["MESSAGE_TAGS"].alternatives().count(), 16);
+        }
+    }
+
+    #[test]
+    fn settings_slice_does_not_evaluate_irrelevant_guards_or_values() {
+        let db = TestDatabase::new();
+        let project =
+            crate::project::Project::initial(&db, Utf8Path::new("/proj"), &Settings::default());
+        let mut source = String::new();
+        for index in 0..20 {
+            writeln!(
+                source,
+                r"if UNKNOWN_{index}:
+    UNUSED_{index} = ['a', 'b', 'c']
+else:
+    UNUSED_{index} = ['d', 'e', 'f']"
+            )
+            .expect("writing fixture source should succeed");
+        }
+        source.push_str(
+            r"INSTALLED_APPS = ['blog']
+TEMPLATES = []
+",
+        );
+        db.add_file("/proj/settings.py", &source)
+            .expect("fixture should be writable");
+        let module = crate::python::file_to_module(&db, project, "/proj/settings.py".into())
+            .expect("fixture module should resolve");
+        let parsed = ruff_python_parser::parse_module(&source)
+            .expect("fixture should parse")
+            .into_syntax();
+        let evaluator = PythonModuleEvaluator::new(
+            &db,
+            project,
+            module.clone(),
+            super::IntrinsicContamination::default(),
+        );
+        let full_stats = Rc::clone(&evaluator.stats);
+        let (full, _, _) = evaluator.evaluate(&parsed.body, Vec::new(), Vec::new());
+        let selected = crate::python::evaluation::slice::selected_statements(
+            &parsed.body,
+            crate::python::evaluation::EvaluationDemand::Settings,
+            false,
+        );
+        assert_eq!(selected.len(), 2);
+        let evaluator = PythonModuleEvaluator::new(
+            &db,
+            project,
+            module,
+            super::IntrinsicContamination::default(),
+        );
+        let sliced_stats = Rc::clone(&evaluator.stats);
+        let (sliced, _, _) = evaluator.evaluate(selected, Vec::new(), Vec::new());
+        assert_eq!(sliced_stats.evaluated_expressions.get(), 3);
+        assert_eq!(full_stats.evaluated_expressions.get(), 183);
+        for name in ["INSTALLED_APPS", "TEMPLATES"] {
+            assert_eq!(sliced.bindings.get(name), full.bindings.get(name));
+        }
+        assert_eq!(sliced.bindings.len(), 2);
+    }
+
+    #[test]
+    fn settings_slice_preserves_private_predicate_constraints_and_origins() {
+        let db = TestDatabase::new();
+        let project =
+            crate::project::Project::initial(&db, Utf8Path::new("/proj"), &Settings::default());
+        let source = r"FLAG = unknown_flag
+UNUSED = ['skip']
+APPS = ['initial']
+if FLAG:
+    APPS = ['left']
+else:
+    APPS = ['right', 'extra']
+INSTALLED_APPS = APPS
+APPS = ['too_late']
+if not FLAG:
+    TEMPLATES = []
+else:
+    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates'}]
+";
+        db.add_file("/proj/settings.py", source)
+            .expect("fixture should be writable");
+        let module = crate::python::file_to_module(&db, project, "/proj/settings.py".into())
+            .expect("fixture module should resolve");
+        let parsed = ruff_python_parser::parse_module(source)
+            .expect("fixture should parse")
+            .into_syntax();
+        let (full, _, _) = PythonModuleEvaluator::new(
+            &db,
+            project,
+            module.clone(),
+            super::IntrinsicContamination::default(),
+        )
+        .evaluate(&parsed.body, Vec::new(), Vec::new());
+        let selected = crate::python::evaluation::slice::selected_statements(
+            &parsed.body,
+            crate::python::evaluation::EvaluationDemand::Settings,
+            false,
+        );
+        assert_eq!(selected.len(), 5);
+        let (sliced, _, _) = PythonModuleEvaluator::new(
+            &db,
+            project,
+            module,
+            super::IntrinsicContamination::default(),
+        )
+        .evaluate(selected, Vec::new(), Vec::new());
+        for name in ["INSTALLED_APPS", "TEMPLATES"] {
+            assert_eq!(sliced.bindings.get(name), full.bindings.get(name));
+            assert_eq!(sliced.bindings[name].alternatives().count(), 2);
+        }
+        assert!(!sliced.bindings.contains_key("UNUSED"));
+    }
 
     fn test_file(index: u64) -> File {
         File::from_id(Id::from_bits(index + 1))

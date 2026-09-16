@@ -13,6 +13,10 @@ use crate::python::PythonPath;
 
 impl PythonModuleEvaluator<'_> {
     pub(super) fn evaluate_binding(&self, expression: &ast::Expr) -> PythonBinding {
+        #[cfg(test)]
+        self.stats
+            .evaluated_expressions
+            .set(self.stats.evaluated_expressions.get() + 1);
         let origin = self.origin(expression);
         if let Some(value) = expression.string_literal() {
             return PythonBinding::bound(PythonValue::string(value.to_string(), origin), origin);
@@ -582,6 +586,10 @@ impl PythonModuleEvaluator<'_> {
     }
 
     fn evaluate_dict_binding(&self, dictionary: &ast::ExprDict, origin: Origin) -> PythonBinding {
+        #[cfg(test)]
+        self.stats
+            .materialized_dictionaries
+            .set(self.stats.materialized_dictionaries.get() + 1);
         let mut dictionaries = PythonBinding::bound(PythonValue::empty_dict(origin), origin);
         for item in &dictionary.items {
             let item_origin = self.origin(&item.value);

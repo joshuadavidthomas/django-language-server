@@ -16,6 +16,33 @@ use super::PythonModuleEvaluator;
 use crate::ast::ExprExt;
 use crate::ast::RangedExt;
 
+fn scalar_leaf_syntax(expression: &ast::Expr) -> bool {
+    if let ast::Expr::Attribute(attribute) = expression {
+        return scalar_leaf_syntax(&attribute.value);
+    }
+    // This is not call purity: effects have already run, and the result must still
+    // pass the runtime scalar check. No aggregate arguments are materialized here.
+    if let ast::Expr::Call(call) = expression {
+        return scalar_leaf_syntax(&call.func)
+            && call.arguments.args.iter().all(scalar_leaf_syntax)
+            && call
+                .arguments
+                .keywords
+                .iter()
+                .all(|keyword| scalar_leaf_syntax(&keyword.value));
+    }
+    matches!(
+        expression,
+        ast::Expr::Name(_)
+            | ast::Expr::StringLiteral(_)
+            | ast::Expr::BytesLiteral(_)
+            | ast::Expr::NumberLiteral(_)
+            | ast::Expr::BooleanLiteral(_)
+            | ast::Expr::NoneLiteral(_)
+            | ast::Expr::EllipsisLiteral(_)
+    )
+}
+
 impl<'db> PythonModuleEvaluator<'db> {
     pub(super) fn evaluate_body(&mut self, body: &[ast::Stmt]) {
         for stmt in body {
@@ -28,7 +55,7 @@ impl<'db> PythonModuleEvaluator<'db> {
             ast::Stmt::Assign(assign) => self.walk_assign(assign),
             ast::Stmt::AnnAssign(assign) => {
                 if let Some(value) = &assign.value {
-                    self.record_unsupported_call_effects(value);
+                    self.invalidate_intrinsics_for_calls(value);
                     let evaluated = self.evaluate_binding(value);
                     self.assign_target(&assign.target, value, evaluated, self.origin(assign));
                 }
@@ -43,7 +70,7 @@ impl<'db> PythonModuleEvaluator<'db> {
                 self.degrade_loop_bodies(&[&stmt_for.body, &stmt_for.orelse], stmt_for.span());
             }
             ast::Stmt::While(stmt_while) => {
-                self.record_unsupported_call_effects(&stmt_while.test);
+                self.invalidate_intrinsics_for_calls(&stmt_while.test);
                 match self.test_truthiness(&stmt_while.test) {
                     Some(Truthiness::Falsy) => self.evaluate_body(&stmt_while.orelse),
                     Some(Truthiness::Truthy) | None => self.degrade_loop_bodies(
@@ -139,7 +166,7 @@ impl<'db> PythonModuleEvaluator<'db> {
         remaining: &mut super::BranchConstraints,
         branches: &mut Vec<(usize, PythonModuleEvaluator<'db>)>,
     ) {
-        self.record_unsupported_call_effects(test);
+        self.invalidate_intrinsics_for_calls(test);
         let binding = self.evaluate_binding(test);
         let partition = self.truth_partition(&binding, self.origin(test), false);
         let body_constraints = remaining.intersection(&partition.truthy);
@@ -222,7 +249,99 @@ impl<'db> PythonModuleEvaluator<'db> {
     }
 
     fn walk_assign(&mut self, assign: &ast::StmtAssign) {
-        self.record_unsupported_call_effects(&assign.value);
+        self.invalidate_intrinsics_for_calls(&assign.value);
+        self.finish_assign(assign);
+    }
+
+    pub(super) fn walk_unobserved_assign(&mut self, assign: &ast::StmtAssign) {
+        // Same effect pass and ordering as ordinary assignment, including on fallback.
+        self.invalidate_intrinsics_for_calls(&assign.value);
+        if matches!(
+            assign.value.as_ref(),
+            ast::Expr::Dict(_) | ast::Expr::List(_) | ast::Expr::Tuple(_)
+        ) && self.discardable_aggregate(&assign.value)
+            && let [ast::Expr::Name(target)] = assign.targets.as_slice()
+        {
+            self.state.bindings.remove(target.id.as_str());
+            self.state
+                .mutations
+                .retain(|mutation| mutation.binding != target.id.as_str());
+        } else {
+            self.finish_assign(assign);
+        }
+    }
+
+    /// A fresh aggregate with only scalar leaves cannot bridge aliases during later loop
+    /// degradation. Inspect leaves separately: constructing their Cartesian product is the
+    /// work we are avoiding. Unpacking and opaque expression shapes keep normal evaluation.
+    fn discardable_aggregate(&self, expression: &ast::Expr) -> bool {
+        match expression {
+            ast::Expr::Dict(dict) => dict.items.iter().all(|item| {
+                item.key
+                    .as_ref()
+                    .is_some_and(|key| self.discardable_aggregate(key))
+                    && self.discardable_aggregate(&item.value)
+            }),
+            ast::Expr::List(list) => list
+                .elts
+                .iter()
+                .all(|item| self.discardable_aggregate(item)),
+            ast::Expr::Tuple(tuple) => tuple
+                .elts
+                .iter()
+                .all(|item| self.discardable_aggregate(item)),
+            ast::Expr::BoolOp(_)
+            | ast::Expr::Named(_)
+            | ast::Expr::BinOp(_)
+            | ast::Expr::UnaryOp(_)
+            | ast::Expr::Lambda(_)
+            | ast::Expr::If(_)
+            | ast::Expr::Set(_)
+            | ast::Expr::ListComp(_)
+            | ast::Expr::SetComp(_)
+            | ast::Expr::DictComp(_)
+            | ast::Expr::Generator(_)
+            | ast::Expr::Await(_)
+            | ast::Expr::Yield(_)
+            | ast::Expr::YieldFrom(_)
+            | ast::Expr::Compare(_)
+            | ast::Expr::Call(_)
+            | ast::Expr::FString(_)
+            | ast::Expr::TString(_)
+            | ast::Expr::StringLiteral(_)
+            | ast::Expr::BytesLiteral(_)
+            | ast::Expr::NumberLiteral(_)
+            | ast::Expr::BooleanLiteral(_)
+            | ast::Expr::NoneLiteral(_)
+            | ast::Expr::EllipsisLiteral(_)
+            | ast::Expr::Attribute(_)
+            | ast::Expr::Subscript(_)
+            | ast::Expr::Starred(_)
+            | ast::Expr::Name(_)
+            | ast::Expr::Slice(_)
+            | ast::Expr::IpyEscapeCommand(_) => {
+                scalar_leaf_syntax(expression)
+                    && self
+                        .evaluate_binding(expression)
+                        .alternatives()
+                        .all(|alternative| {
+                            let super::super::PythonBindingState::Bound(bound) = alternative else {
+                                return true;
+                            };
+                            matches!(
+                                bound.value.kind,
+                                PythonValueKind::Str(_)
+                                    | PythonValueKind::Bool(_)
+                                    | PythonValueKind::Path(_)
+                                    | PythonValueKind::UnsupportedLiteral
+                                    | PythonValueKind::Unknown(_)
+                            )
+                        })
+            }
+        }
+    }
+
+    fn finish_assign(&mut self, assign: &ast::StmtAssign) {
         let mut value = self.evaluate_binding(&assign.value);
         let aliases_mutable_value =
             assign.targets.len() > 1 && !value.reachable_allocation_sites().is_empty();

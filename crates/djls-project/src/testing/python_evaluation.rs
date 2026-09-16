@@ -250,8 +250,33 @@ pub fn python_module_evaluation_for_module(
     project: Project,
     module: PythonSourceModule,
 ) -> PythonModuleEvaluationView {
-    let facts = evaluation::python_module_facts(db, project, module.clone()).clone();
-    let import_trace = evaluation::python_import_trace(db, project, module).clone();
+    evaluation_view(db, project, module, evaluation::EvaluationDemand::Full)
+}
+
+pub fn python_settings_evaluation(
+    db: &dyn Db,
+    project: Project,
+    file: File,
+) -> Result<PythonModuleEvaluationView, PythonModuleEvaluationError> {
+    let path = file.path(db).to_path_buf();
+    let module = file_to_module(db, project, path.clone())
+        .ok_or(PythonModuleEvaluationError::UnresolvedFile { path })?;
+    Ok(evaluation_view(
+        db,
+        project,
+        module,
+        evaluation::EvaluationDemand::Settings,
+    ))
+}
+
+fn evaluation_view(
+    db: &dyn Db,
+    project: Project,
+    module: PythonSourceModule,
+    demand: evaluation::EvaluationDemand,
+) -> PythonModuleEvaluationView {
+    let facts = evaluation::python_module_facts(db, project, module.clone(), demand).clone();
+    let import_trace = evaluation::python_import_trace(db, project, module, demand).clone();
     let (bindings, namespace_unknowns, syntax_errors, mutations, read_error) = match facts {
         Ok(facts) => (
             facts

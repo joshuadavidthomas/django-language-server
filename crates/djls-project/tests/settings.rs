@@ -370,6 +370,487 @@ fn settings_consumers_share_one_core_evaluation_without_mutation() {
 }
 
 #[test]
+fn settings_slice_caches_facts_and_import_trace() {
+    use djls_project::testing::python_settings_evaluation;
+
+    for demanded in [false, true] {
+        let event_log = SalsaEventLog::default();
+        let mut db = TestDatabase::with_event_log(event_log.clone());
+        let source = format!(
+            r"import constants
+MESSAGE_TAGS = {{constants.INFO: 'info'}}
+INSTALLED_APPS = ['blog']
+TEMPLATES = {}
+",
+            if demanded { "[MESSAGE_TAGS]" } else { "[]" }
+        );
+        let project = ProjectFixture::new("/proj")
+            .django_settings_module("settings")
+            .file("/proj/settings.py", &source)
+            .file("/proj/constants.py", "INFO = 'level'\n")
+            .install(&mut db)
+            .expect("settings fixture should install");
+        let file = db
+            .file(Utf8Path::new("/proj/settings.py"))
+            .expect("settings file");
+        let first =
+            python_settings_evaluation(&db, project, file).expect("settings should evaluate");
+        assert_eq!(first.binding("MESSAGE_TAGS").is_some(), demanded);
+        assert_eq!(first.dependency_files.len(), 2);
+        let events = event_log.take().expect("events should be readable");
+        assert_eq!(
+            will_execute_count(&db, &events, "evaluate_python_module"),
+            2
+        );
+        assert_eq!(will_execute_count(&db, &events, "python_module_facts"), 1);
+        assert_eq!(will_execute_count(&db, &events, "python_import_trace"), 1);
+
+        for _ in 0..2 {
+            assert_eq!(
+                python_settings_evaluation(&db, project, file)
+                    .expect("cached settings should evaluate"),
+                first
+            );
+        }
+        let events = event_log.take().expect("events should be readable");
+        for query in [
+            "evaluate_python_module",
+            "python_module_facts",
+            "python_import_trace",
+        ] {
+            assert_eq!(will_execute_count(&db, &events, query), 0, "{query}");
+        }
+    }
+}
+
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "keep multiline Python fixtures inline"
+)]
+fn settings_slice_preserves_dependencies_and_effect_barriers() {
+    use djls_project::testing::python_module_evaluation;
+    use djls_project::testing::python_settings_evaluation;
+
+    for source in [
+        r"APPS = ['early']
+if FLAG:
+    APPS = ['late']
+INSTALLED_APPS = APPS
+APPS = ['too_late']
+TEMPLATES = []
+",
+        r"if FLAG:
+    APPS = ['a']
+    BACKENDS = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['one']}]
+else:
+    APPS = ['b', 'c']
+    BACKENDS = []
+INSTALLED_APPS = APPS
+TEMPLATES = BACKENDS
+",
+        r"APPS = ['a']
+INSTALLED_APPS = APPS
+APPS += ['b']
+TEMPLATES = []
+",
+        r"INSTALLED_APPS = ['a']
+ALIAS = INSTALLED_APPS
+ALIAS.append('b')
+TEMPLATES = []
+",
+        r"INSTALLED_APPS = ['a']
+ALIAS = INSTALLED_APPS
+UNUSED = opaque(ALIAS)
+TEMPLATES = []
+",
+        r"INSTALLED_APPS = ['a']
+LEFT = RIGHT = INSTALLED_APPS
+TEMPLATES = []
+",
+        r"from .base import INSTALLED_APPS
+TEMPLATES = []
+",
+        "from .base import *\n",
+        r"from .dynamic import *
+if FLAG:
+    UNUSED = ['a']
+else:
+    UNUSED = ['b']
+",
+        r"from .base import *
+from . import poison as UNUSED_IMPORT
+from pathlib import Path
+TEMPLATES = [{'DIRS': [Path('templates')]}]
+",
+        r"import myproject.child
+from myproject import INSTALLED_APPS
+TEMPLATES = myproject.child.TEMPLATES
+",
+        r"from .cycle import *
+INSTALLED_APPS = ['local']
+",
+        r"from .settings import *
+INSTALLED_APPS = ['local']
+TEMPLATES = []
+",
+        r"INSTALLED_APPS = ['a']
+TEMPLATES = []
+def broken(
+",
+        r"INSTALLED_APPS = ['a']
+if FLAG:
+    del INSTALLED_APPS
+TEMPLATES = []
+",
+        r"INSTALLED_APPS = ['a']
+try:
+    INSTALLED_APPS += ['b']
+except Exception:
+    INSTALLED_APPS = ['c']
+TEMPLATES = []
+",
+        // An unread aggregate can bridge alias degradation back into a demanded value.
+        r"INSTALLED_APPS = ['a']
+A = ['other']
+UNUSED = [A, INSTALLED_APPS]
+for item in unknown:
+    A.append('changed')
+TEMPLATES = []
+",
+        r"import pathlib
+UNUSED = [pathlib, pathlib.Path]
+unknown().attr = 1
+TEMPLATES = [{'DIRS': [pathlib.Path('templates')]}]
+INSTALLED_APPS = []
+",
+        r"import pathlib
+UNUSED = {'result': opaque(pathlib)}
+TEMPLATES = [{'DIRS': [pathlib.Path('templates')]}]
+INSTALLED_APPS = []
+",
+        r"import pathlib as UNUSED
+UNUSED = {'key': unknown.attr}
+unknown().attr = 1
+INSTALLED_APPS = []
+TEMPLATES = []
+",
+        r"INSTALLED_APPS = ['a']
+UNUSED = [INSTALLED_APPS]
+UNUSED = {'key': unknown.attr}
+for item in unknown:
+    INSTALLED_APPS.append('b')
+TEMPLATES = []
+",
+        r"UNUSED = {'key': unknown.attr}
+for item in unknown:
+    UNUSED = ['nested']
+INSTALLED_APPS = []
+TEMPLATES = []
+",
+        r"UNUSED = {'key': unknown.attr}
+if FLAG:
+    from .dynamic import *
+INSTALLED_APPS = []
+TEMPLATES = []
+",
+        r"INSTALLED_APPS = ['a']
+UNUSED = {'key': [*INSTALLED_APPS]}
+opaque(INSTALLED_APPS)
+TEMPLATES = []
+",
+    ] {
+        let mut db = TestDatabase::new();
+        let project = ProjectFixture::new("/proj")
+            .django_settings_module("myproject.settings")
+            .file(
+                "/proj/myproject/__init__.py",
+                "INSTALLED_APPS = ['parent']\n",
+            )
+            .file("/proj/myproject/settings.py", source)
+            .file(
+                "/proj/myproject/base.py",
+                r"__all__ = ['INSTALLED_APPS', 'TEMPLATES']
+INSTALLED_APPS = ['base']
+TEMPLATES = []
+",
+            )
+            .file(
+                "/proj/myproject/dynamic.py",
+                r"__all__ = unknown()
+INSTALLED_APPS = ['dynamic']
+",
+            )
+            .file(
+                "/proj/myproject/poison.py",
+                r"import pathlib
+pathlib.Path = unknown
+",
+            )
+            .file("/proj/myproject/child.py", "TEMPLATES = []\n")
+            .file(
+                "/proj/myproject/cycle.py",
+                r"from .settings import *
+TEMPLATES = []
+",
+            )
+            .install(&mut db)
+            .expect("fixture should install");
+        let file = db
+            .file(Utf8Path::new("/proj/myproject/settings.py"))
+            .expect("fixture file should exist");
+        let sliced =
+            python_settings_evaluation(&db, project, file).expect("settings should evaluate");
+        let full = python_module_evaluation(&db, project, file).expect("module should evaluate");
+        for name in ["INSTALLED_APPS", "TEMPLATES"] {
+            assert_eq!(sliced.binding(name), full.binding(name), "{name}: {source}");
+        }
+        assert_eq!(
+            sliced.namespace_unknowns, full.namespace_unknowns,
+            "{source}"
+        );
+        assert_eq!(sliced.dependency_files, full.dependency_files, "{source}");
+        assert_eq!(sliced.imports, full.imports, "{source}");
+        assert_eq!(sliced.mutations, full.mutations, "{source}");
+    }
+}
+
+#[test]
+fn settings_slice_recomputes_discarded_aggregate_and_imported_leaves() {
+    use djls_project::testing::python_settings_evaluation;
+
+    let mut db = TestDatabase::new();
+    let source = r"from . import constants
+UNUSED = [constants.APP]
+INSTALLED_APPS = ['initial']
+TEMPLATES = []
+";
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/__init__.py", "")
+        .file("/proj/myproject/settings.py", source)
+        .file("/proj/myproject/constants.py", "APP = 'first'\n")
+        .install(&mut db)
+        .expect("fixture should install");
+    let file = db
+        .file(Utf8Path::new("/proj/myproject/settings.py"))
+        .expect("fixture file");
+    assert!(
+        python_settings_evaluation(&db, project, file)
+            .expect("settings should evaluate")
+            .binding("UNUSED")
+            .is_none()
+    );
+    let initial = to_value(django_settings(&db, project)).expect("settings should serialize");
+    assert_eq!(
+        initial["installed_apps"]["cases"][0]["known"]["apps"][0]["value"],
+        "initial"
+    );
+    let source_count = ProjectFactsPhase::SettingsSources.run(&db, project).count();
+    assert_eq!(source_count, 3);
+    update_settings_file(&mut db, &source.replace("['initial']", "UNUSED"))
+        .expect("settings should update");
+    let changed = to_value(django_settings(&db, project)).expect("settings should serialize");
+    assert_eq!(
+        changed["installed_apps"]["cases"][0]["known"]["apps"][0]["value"],
+        "first"
+    );
+    update_project_file(&mut db, "/proj/myproject/constants.py", "APP = 'second'\n")
+        .expect("constant should update");
+    let changed = to_value(django_settings(&db, project)).expect("settings should serialize");
+    assert_eq!(
+        changed["installed_apps"]["cases"][0]["known"]["apps"][0]["value"],
+        "second"
+    );
+    assert_eq!(
+        ProjectFactsPhase::SettingsSources.run(&db, project).count(),
+        source_count
+    );
+}
+
+#[test]
+fn settings_slice_recomputes_when_unused_code_becomes_a_dependency() {
+    use djls_project::testing::python_settings_evaluation;
+
+    let events = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(events.clone());
+    let source = r"if FLAG:
+    UNUSED = ['left']
+else:
+    UNUSED = ['right', 'extra']
+INSTALLED_APPS = ['initial']
+TEMPLATES = []
+";
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/__init__.py", "")
+        .file("/proj/myproject/settings.py", source)
+        .install(&mut db)
+        .expect("fixture should install");
+    let file = db
+        .file(Utf8Path::new("/proj/myproject/settings.py"))
+        .expect("fixture file should exist");
+    assert!(
+        python_settings_evaluation(&db, project, file)
+            .expect("settings should evaluate")
+            .binding("UNUSED")
+            .is_none()
+    );
+    let initial = to_value(django_settings(&db, project)).expect("settings should serialize");
+    assert_eq!(
+        initial["installed_apps"]["cases"][0]["known"]["apps"][0]["value"],
+        "initial"
+    );
+    assert_eq!(
+        ProjectFactsPhase::SettingsSources.run(&db, project).count(),
+        1
+    );
+    assert_eq!(
+        will_execute_count(
+            &db,
+            &events.take().expect("events should be readable"),
+            "evaluate_python_module"
+        ),
+        1
+    );
+
+    update_settings_file(&mut db, &source.replace("['initial']", "UNUSED"))
+        .expect("settings should update");
+    let changed = to_value(django_settings(&db, project)).expect("settings should serialize");
+    let mut alternatives = changed["installed_apps"]["cases"]
+        .as_array()
+        .expect("app cases")
+        .iter()
+        .map(|case| {
+            case["known"]["apps"]
+                .as_array()
+                .expect("known apps")
+                .iter()
+                .map(|app| app["value"].as_str().expect("app string"))
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    alternatives.sort();
+    assert_eq!(alternatives, [vec!["left"], vec!["right", "extra"]]);
+    assert!(
+        python_settings_evaluation(&db, project, file)
+            .expect("settings should evaluate")
+            .binding("UNUSED")
+            .is_some()
+    );
+    assert_eq!(
+        ProjectFactsPhase::SettingsSources.run(&db, project).count(),
+        1
+    );
+    assert_eq!(
+        will_execute_count(
+            &db,
+            &events.take().expect("events should be readable"),
+            "evaluate_python_module"
+        ),
+        1
+    );
+}
+
+#[test]
+fn settings_slice_keeps_full_cycle_and_recovered_syntax_results() {
+    use djls_project::testing::python_module_evaluation;
+    use djls_project::testing::python_settings_evaluation;
+
+    for source in [
+        r"from .settings import *
+INSTALLED_APPS = ['local']
+UNUSED = ['retained']
+",
+        r"UNUSED = ['retained']
+INSTALLED_APPS = ['local']
+def broken(
+",
+    ] {
+        let mut db = TestDatabase::new();
+        let project = ProjectFixture::new("/proj")
+            .django_settings_module("myproject.settings")
+            .file("/proj/myproject/__init__.py", "")
+            .file("/proj/myproject/settings.py", source)
+            .install(&mut db)
+            .expect("fixture should install");
+        let file = db
+            .file(Utf8Path::new("/proj/myproject/settings.py"))
+            .expect("fixture file should exist");
+        let sliced =
+            python_settings_evaluation(&db, project, file).expect("settings should evaluate");
+        assert!(sliced.binding("UNUSED").is_some());
+        assert_eq!(
+            sliced,
+            python_module_evaluation(&db, project, file).expect("module should evaluate")
+        );
+        let settings = to_value(django_settings(&db, project)).expect("settings should serialize");
+        assert_eq!(
+            settings["installed_apps"]["cases"][0]["known"]["apps"][0]["value"],
+            "local"
+        );
+    }
+}
+
+#[test]
+fn settings_slice_discovers_imports_added_to_a_previously_skipped_region() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("myproject.settings")
+        .file("/proj/myproject/__init__.py", "")
+        .file(
+            "/proj/myproject/settings.py",
+            r"if True:
+    UNUSED = ['ignored']
+TEMPLATES = []
+",
+        )
+        .file(
+            "/proj/myproject/dependency.py",
+            "INSTALLED_APPS = ['imported']\n",
+        )
+        .install(&mut db)
+        .expect("fixture should install");
+    assert_eq!(
+        ProjectFactsPhase::SettingsSources.run(&db, project).count(),
+        1
+    );
+    assert!(has_case(
+        &to_value(django_settings(&db, project)).expect("settings should serialize")["installed_apps"],
+        "unset"
+    ));
+
+    update_settings_file(
+        &mut db,
+        r"if True:
+    from .dependency import INSTALLED_APPS
+TEMPLATES = []
+",
+    )
+    .expect("settings should update");
+    assert_eq!(
+        ProjectFactsPhase::SettingsSources.run(&db, project).count(),
+        3
+    );
+    let imported = to_value(django_settings(&db, project)).expect("settings should serialize");
+    assert_eq!(
+        imported["installed_apps"]["cases"][0]["known"]["apps"][0]["value"],
+        "imported"
+    );
+    update_project_file(
+        &mut db,
+        "/proj/myproject/dependency.py",
+        "INSTALLED_APPS = ['edited']\n",
+    )
+    .expect("dependency should update");
+    let edited = to_value(django_settings(&db, project)).expect("settings should serialize");
+    assert_eq!(
+        edited["installed_apps"]["cases"][0]["known"]["apps"][0]["value"],
+        "edited"
+    );
+}
+
+#[test]
 fn comment_only_leaf_edit_backdates_before_evaluation_root_and_sibling() {
     let event_log = SalsaEventLog::default();
     let mut db = TestDatabase::with_event_log(event_log.clone());
