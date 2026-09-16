@@ -644,6 +644,58 @@ mod tests {
     }
 
     #[test]
+    fn predicate_widening_preserves_each_intermediate_forgetting_boundary() {
+        let joins = (0..6)
+            .map(|start| BranchJoin::predicate_for_test(origin(0, start)))
+            .collect::<Vec<_>>();
+        let mut constraints = BranchConstraints::required(joins[4].clone(), 1);
+        assert!(
+            constraints
+                .intersection(&BranchConstraints::required(joins[4].clone(), 0))
+                .is_impossible()
+        );
+
+        // Build the expected exact diagram directly, independently of Apply and
+        // widening. At the fourth addition, P4 must already have disappeared.
+        let expected_coordinates: &[&[usize]] =
+            &[&[0, 4], &[0, 1, 4], &[0, 1, 2, 4], &[0, 1, 2, 3]];
+        for (next, coordinates) in expected_coordinates.iter().enumerate() {
+            constraints =
+                constraints.intersection(&BranchConstraints::required(joins[next].clone(), 1));
+            let expected =
+                coordinates
+                    .iter()
+                    .rev()
+                    .fold(ConstraintNode::Unconstrained, |residual, &index| {
+                        ConstraintNode::branch(
+                            joins[index].clone(),
+                            vec![ConstraintNode::Impossible, residual],
+                        )
+                    });
+            assert_eq!(constraints.root, expected);
+            assert_eq!(constraints.root.structural_cmp(&expected), Ordering::Equal);
+        }
+
+        let four_predicates = constraints.clone();
+        for (index, arm) in [(4, 0), (5, 1), (5, 0)] {
+            constraints =
+                constraints.intersection(&BranchConstraints::required(joins[index].clone(), arm));
+            assert_eq!(constraints, four_predicates);
+            assert!(!constraints.is_impossible());
+        }
+
+        // This call forgets two predicates at the same boundary, in structural
+        // order; neither operand alone exceeds the predicate budget.
+        let mut even = BranchConstraints::unconstrained();
+        let mut odd = BranchConstraints::unconstrained();
+        for index in [0, 2, 4] {
+            even = even.intersection(&BranchConstraints::required(joins[index].clone(), 1));
+            odd = odd.intersection(&BranchConstraints::required(joins[index + 1].clone(), 1));
+        }
+        assert_eq!(even.intersection(&odd), four_predicates);
+    }
+
+    #[test]
     fn required_arms_for_one_join_conflict() {
         let coordinate = BranchJoin::for_test(origin(0, 1), 2);
         let falsy = BranchConstraints::required(coordinate.clone(), 0);

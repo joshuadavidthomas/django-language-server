@@ -919,3 +919,211 @@ Verification of the retained implementation:
   Hawk reported zero findings after applying that one fix; no new public API was added.
 - The retained diff leaves `constraints.rs`, operation/cap schedules, effects, import
   policies, query keys and benchmark inputs untouched relative to this pass's baseline.
+
+## Follow-up: bounded constraint hash-consing
+
+This pass starts at `0b316c11bd9632c939860259341b55bc4776e238`, including both
+retained immutable-sharing changes. **Neither interner is enabled by default.**
+Both reduce pinned Pretix time and memory substantially, but neither removes
+ordinary-workload overhead. Production remains at that baseline; only a regression
+test for intermediate predicate forgetting and these measurements are retained.
+The local `constraint-interning-experiment` branch preserves the complete prototypes.
+
+### Construction reuse, not Apply-cache reuse
+
+The previous pass found little repeated physical-pair Apply work. Hash-consing asks
+a different question: do newly constructed branches equal other live branches?
+Fresh 499Hz user-CPU sampling on the shared-module baseline found 83/495 samples
+under branch construction (16.77%) and 154/495 exclusive allocator samples (31.11%).
+These are cost observations, not predicted savings or cache hits.
+
+Temporary diagnostics sampled every 32nd public call of each operation kind. A scope
+includes that operation's existing Apply and ordered forgetting, without adopting
+input graphs. An initial owned-representative table measured only an upper bound;
+the decision used a separate weak-only run, with no owned payloads and liveness
+checked before full structural equality. Counts below exclude reduced constructors:
+
+| Workload / operation | Sampled scopes | Nonreduced candidates | Live equal prior construction | Same physical children |
+| --- | ---: | ---: | ---: | ---: |
+| Pinned / union | 162 | 7,094 | 4,592 (64.7%) | 401 |
+| Pinned / intersection | 3,892 | 58,909 | 48,648 (82.6%) | 9,296 |
+| Pinned / select | 118 | 21,219 | 15,154 (71.4%) | 0 |
+| Ordinary Pretix / union | 57 | 297 | 114 | 38 |
+| Ordinary Pretix / intersection | 3,649 | 5,005 | 2,054 | 560 |
+| Ordinary Pretix / select | 15 | 169 | 54 | 2 |
+| Required-8 / union | 38 | 266 | 0 | 0 |
+| Required-8 / intersection | 2,265 | 1,573 | 0 | 0 |
+| Required-8 / select | 12 | 144 | 0 | 0 |
+
+All observed owned-table duplicates also had a live equivalent in the weak run.
+That does not make these production cache-hit rates: the observer stores different
+representatives, performs no interning, and uses a deliberately shallow fingerprint.
+Its 5.236 million pinned equality checks, mostly unequal, are not factory cost.
+The weak table had an 8,192-record cap with no cap misses. Pinned maximum occupancy
+was 634/5,058/1,475 for union/intersection/select; 9,982 expired intersection records
+were removed. Occupancy is not a per-operation construction histogram. Weak records
+can retain allocation backing after payload death, but do not retain child graphs.
+Fourteen `select_arms` calls had no systematic sample; NetBox was not instrumented.
+The separate 2,048-slot cross-call weak window is only a sampled lower-bound screen,
+not a reason to expand ownership to a query or database.
+
+### The factory preserves structural semantics and operation boundaries
+
+[weak-table-rs](https://github.com/tov/weak-table-rs/blob/master/src/inner.rs)
+provides useful precedent for cached hashes, weak keys, liveness checks and equality
+verification, but its cleanup policy is not a hard bound. The Rust
+[hashconsing crate](https://github.com/AdrienChampion/hashconsing/blob/master/src/lib.rs)
+is not a drop-in solution: `HConsign` owns complete `T` keys even though its values
+are weak, so keys retain children and collection may require a fixed point. Its
+UID-based equality/order must not replace DJLS structural identity. This experiment
+is a unique-node construction table, not CUDD's computed Apply cache.
+
+Control `c05b9046ee54345725d070fb28fad2c65bceb50b` adds one cached fingerprint word
+per immutable branch, computed from kind, origin, domain, discriminator and ordered
+child fingerprints. Module data is intentionally omitted from bucket selection to
+avoid rehashing paths; complete equality still checks it. Fingerprints never enter
+semantic equality, order or Debug. The control allocates every original node and
+isolates metadata cost from interning benefit.
+
+Eager factory `e586e944b9689bb5932e06317cf3eb4b9050cd1a` adds a private per-public-call
+`FxHashMap<u64, Weak<ConstraintBranch>>`. It keeps at most 512 weak entries, one
+candidate per fingerprint, upgrades before comparing the complete join and ordered
+children, and prunes dead entries then clears when full. Collisions replace sharing
+metadata, not graph nodes. The table owns no child-bearing keys. Reductions still
+precede lookup; standalone literals do not allocate a pointless table. Unregistered
+input residuals and independently allocated equal children need no adoption because
+lookup uses full structural equality. Pointer inequality remains nonsemantic.
+
+The scope includes validation → canonical Apply → ordered single-coordinate
+forgetting without moving any boundary. Select still forgets before requiring its
+new arm. Returned nodes own their data and retain no factory, borrowed identity,
+global manager or query-context state. Eviction only loses sharing. Four predicates,
+64 exact alternatives plus unknown, branch/arm order, provenance and cycle equality
+are unchanged.
+
+### Eager interning wins the pinned workload but slows ordinary controls
+
+All comparisons use fixed uninstrumented executables, unchanged Rust 1.97.1, libc
+`2.36-9+deb12u14`, corpus/harness locks and explicit missing hermetic virtualenv.
+Builds, diagnostics and downloads are outside timing, with no competing benchmark.
+The initial cargo-enclosing baseline RSS (103,696KiB) is not compared with direct
+executable RSS. Normal rows use ten samples/ten fresh-DB iterations per process;
+pinned rows use one/one. Filesystem caches may be warm. These are cold settings
+operations, not whole-server or cached-query measurements.
+
+An initial control-only AB/BA/AB comparison found about 4MiB more pinned RSS from
+fingerprints alone. Its median batch times were 931.3 → 1,083ms, but large variation
+and a slow first baseline run prevent a precise overhead claim. Those runs remain
+in the archive rather than being replaced by the following comparison.
+
+The full baseline/control/eager comparison ran ABC/BCA/CAB: three batches, 30
+samples/iterations per normal row/revision and three/three pinned. This table shows
+medians of batch medians in milliseconds, not pooled medians. Names retain
+`settings_cold_`; small rows remain noisy.
+
+| Benchmark suffix | Baseline | Fingerprint only | Eager factory | Eager change |
+| --- | ---: | ---: | ---: | ---: |
+| `branches::8` | 0.07452 | 0.1017 | 0.08943 | +20.0% |
+| `branches::32` | 0.1395 | 0.1224 | 0.1349 | -3.3% |
+| `branches::64` | 0.1890 | 0.2275 | 0.1865 | -1.3% |
+| `corpus::healthchecks` | 64.84 | 61.97 | 67.18 | +3.6% |
+| `corpus::netbox` | 88.31 | 86.15 | 94.06 | +6.5% |
+| `corpus::pretix` | 138.8 | 138.1 | 144.0 | +3.7% |
+| `external_constants` | 0.1185 | 0.1204 | 0.1405 | +18.6% |
+| `required_branches::2` | 0.2031 | 0.2022 | 0.2004 | -1.3% |
+| `required_branches::4` | 1.404 | 1.458 | 1.574 | +12.1% |
+| `required_branches::8` | 58.91 | 60.70 | 66.32 | +12.6% |
+| `try_prefixes::2` | 0.08122 | 0.07398 | 0.08199 | +0.9% |
+| `try_prefixes::9` | 0.1516 | 0.1720 | 0.1513 | -0.2% |
+| `try_prefixes::64` | 2.104 | 2.236 | 2.311 | +9.8% |
+
+Pinned baseline batches were 989.1 / 1,173 / 1,065ms; fingerprint control 1,035 /
+1,068 / 1,111ms; eager factory 711.0 / 723.6 / 704.5ms. Baseline → eager median
+improved 33.2%, and median peak RSS fell 61,324 → 19,184KiB (68.7%). However,
+required-8 baseline medians 58.91 / 59.90 / 58.72ms were all below eager medians
+67.30 / 66.32 / 65.80ms. NetBox likewise had disjoint baseline/eager batch-median
+ranges. These are unfavorable results, not benchmark contracts to rename or remove.
+
+A separate eager profile contained 323 samples versus baseline 495. Exclusive
+allocator samples fell 154 → 52, while the new factory appeared in 79 samples
+(24.46% inclusive). Node equality fell 43 → 19. Constructor coverage rose 83 → 106;
+intersection 157 → 159; collection fell 96 → 77; forgetting 81 → 77. These categories
+overlap, the denominators differ, and neither count differences nor percentage
+changes alone establish exact time savings. Sampling covers whole-process user CPU,
+including setup/drop, excludes kernel/blocked time, and can lose ancestors through
+inlining or the 32KiB DWARF window. Actual production hits/evictions were not counted.
+
+### Delaying table activation does not remove the tradeoff
+
+Variant `e7fa53a994f649aa7548ed91aca0af25d5888d22` skips lookup/storage for the first
+16 nonreduced constructions of each operation, then uses the identical bounded
+factory. Fingerprints are still computed. This single amortization heuristic was
+motivated by many small operations, not by a measured per-scope histogram or a
+proven cutoff for no-hit workloads. No threshold sweep or source-specific policy
+was used.
+
+A fresh balanced baseline/eager/delayed ABC/BCA/CAB screen included the three
+ordinary controls and pinned workload. Each ordinary cell has ten samples/iterations
+per batch, 30 per revision; each pinned cell one/one, three per revision. Values are
+all three batch medians in milliseconds; do not compare phase medians as matched pairs.
+
+| Workload | Baseline | Eager | Delayed | Delayed median change |
+| --- | --- | --- | --- | ---: |
+| NetBox | 90.44, 88.18, 90.07 | 96.84, 95.42, 91.36 | 96.64, 91.98, 93.35 | +3.6% |
+| Ordinary Pretix | 133.9, 149.4, 136.5 | 148.3, 150.1, 141.3 | 146.4, 140.2, 140.4 | +2.9% |
+| Required-8 | 59.55, 59.35, 58.47 | 65.36, 64.65, 61.39 | 62.40, 83.28, 55.68 | +5.1% |
+| Pinned Pretix | 1,051, 1,059, 1,040 | 758.6, 713.3, 753.6 | 737.2, 736.6, 710.1 | -29.9% |
+
+Delayed pinned median RSS was 19,540KiB versus baseline 61,252KiB (-68.1%). Every
+delayed NetBox batch median exceeded every baseline median. Ordinary Pretix ranges
+overlapped, and required-8 was too noisy to call a persistent delayed regression.
+The ordinary overhead was not clearly removed, so this variant stopped after the
+screen; it did not receive a further full 13-row timing pass. All runs exited zero.
+
+The default remains the simpler shared-node/shared-module implementation. Hash-consing
+has demonstrated a useful large-workload memory/time tradeoff, not a general speedup.
+A future memory-prioritized decision can revisit the preserved prototypes explicitly.
+This result does not establish that wider interning, Apply memoization, persistent
+effect maps or cached coordinate summaries would pay; those need their own evidence.
+
+### Semantic verification and reproducible evidence
+
+The eager experiment passed 2,414 Rust tests (seven existing ignored), 48 LSP E2E
+tests, fmt, Clippy and all lint hooks. The delayed experiment passed 2,415 Rust tests,
+48 LSP E2E tests and its fmt/Clippy commit hooks. Tests cover forced fingerprint
+collisions, complete identity/domain checks, independent equal children, reverse-arm
+ordering, bounded eviction, weak expiry, factory drop and self-owned Send/Sync results.
+An explicit warmup test checks both sides of the 16-construction boundary.
+
+An independent orb compiled the verbatim baseline alongside each candidate and
+replayed a 23-operation require/select/select_arms/union/intersection trace. For the
+delayed variant, capacities 0/1/2/512 × warmups 0/1/16 × ordinary/constant fingerprints
+gave 552 intermediate structural comparisons, 9,936 independently derived truth-table
+checks and 6,072 each equality/order comparisons. The small trace remains below
+activation at warmup 16; warmup 1 exercises mixed cached/uncached operations. Separate
+six-predicate tests check exact intermediate forgetting boundaries, including a later
+contradiction against an already forgotten predicate. No semantic defect was found.
+
+Fixed executable SHA-256 values:
+
+| Variant | SHA-256 |
+| --- | --- |
+| Baseline | `3e1104a7ee9531af578988abe9b06b7d4ff18f9f3b7197306733f7f7bc8ca884` |
+| Fingerprint only | `f818692bcfaa31afa8cb6c55792b92db52c8ab21b921962894a5e77c5e9ea9ac` |
+| Eager | `90a73029406e669f7366f05a203510994466efe87f4c1df9102101fc3cbe3ec8` |
+| Delayed | `0d8981feaeb438823372d26b409d2b934f04859e006e3bfbedeafd5c3c8a5be4` |
+
+The local archive `target/constraint-interning-evidence.tar.gz` has SHA-256
+`472e584ed84dd0df5bd392fe37cd5e506e2e45663423a4080270e5b534811285`.
+It contains raw timing logs, all favorable and unfavorable tables,
+counter source and caps, decoded baseline/eager stacks, selection rules and environment
+provenance. Large binaries/raw perf files remain in the measurement orb. The parent
+independently parsed all three comparisons' raw logs (60 records, 264 timing rows),
+recomputed all table medians, verified corpus/harness hashes, and reproduced all
+published baseline/eager profile counts from decoded stacks. There are no formal
+confidence intervals, global hit-rate claims or whole-import-work inferences.
+
+After restoring production to the baseline, `cargo test -q` passed 2,411 tests
+(zero failed, seven existing ignored); `just fmt`, `just clippy`, and `just lint`
+also passed. The final Rust diff is entirely inside the private test module. No
+runtime metadata, factory, new dependency, public API or benchmark change is retained.
