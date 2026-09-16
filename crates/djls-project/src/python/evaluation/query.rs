@@ -2,13 +2,16 @@ use djls_source::FileReadError;
 use salsa::Cycle;
 use salsa::Id;
 
+use super::PythonImportOutcome;
 use super::PythonImportTrace;
 use super::PythonModuleEffects;
 use super::PythonModuleFacts;
-use super::evaluator::evaluate_body;
+use super::evaluator::PythonModuleEvaluator;
 use super::module_object::IntrinsicContamination;
 use super::result::EvaluatedPythonModule;
 use super::result::PythonModuleEvaluation;
+use super::slice::EvaluationDemand;
+use super::slice::selected_statements;
 use super::touched_names::collect_syntax_impacts;
 use crate::db::Db as ProjectDb;
 use crate::project::Project;
@@ -27,6 +30,7 @@ pub(super) fn evaluate_python_module(
     project: Project,
     module: PythonSourceModule,
     intrinsic_contamination: IntrinsicContamination,
+    demand: EvaluationDemand,
 ) -> PythonModuleEvaluation {
     let file = module.file();
     let parsed = match RecoveredPythonModule::from_file(db, file) {
@@ -51,15 +55,22 @@ pub(super) fn evaluate_python_module(
     let body = parsed.body(db);
     let syntax_errors = parsed.syntax_errors(db).to_vec();
     let syntax_impacts = collect_syntax_impacts(body, &syntax_errors);
-    let (module_facts, import_trace, module_effects) = evaluate_body(
-        db,
-        project,
-        module.clone(),
-        body,
-        syntax_errors,
-        syntax_impacts,
-        intrinsic_contamination,
-    );
+    let (module_facts, import_trace, module_effects) =
+        PythonModuleEvaluator::new(db, project, module.clone(), intrinsic_contamination.clone())
+            .evaluate(
+                selected_statements(body, demand, !syntax_errors.is_empty()),
+                syntax_errors,
+                syntax_impacts,
+            );
+    // Imports still request Full. If they reach this root again, use that same fixed point rather
+    // than interpreting a finalized cyclic namespace as a fresh, acyclic Settings invocation.
+    if demand == EvaluationDemand::Settings
+        && import_trace.imports().any(|outcome| {
+            matches!(outcome, PythonImportOutcome::Evaluated { edge, .. } if edge.imported == module)
+        })
+    {
+        return evaluate_python_module(db, project, module, intrinsic_contamination, EvaluationDemand::Full);
+    }
     PythonModuleEvaluation::evaluated(EvaluatedPythonModule::new(
         Ok(module_facts),
         import_trace,
@@ -75,8 +86,15 @@ pub(crate) fn python_module_facts(
     db: &dyn ProjectDb,
     project: Project,
     module: PythonSourceModule,
+    demand: EvaluationDemand,
 ) -> Result<PythonModuleFacts, FileReadError> {
-    match evaluate_python_module(db, project, module, IntrinsicContamination::default()) {
+    match evaluate_python_module(
+        db,
+        project,
+        module,
+        IntrinsicContamination::default(),
+        demand,
+    ) {
         PythonModuleEvaluation::CycleSeed => Ok(PythonModuleFacts::cycle_seed()),
         PythonModuleEvaluation::Evaluated(evaluated) => evaluated.facts().clone(),
     }
@@ -89,9 +107,16 @@ pub(crate) fn python_import_trace(
     db: &dyn ProjectDb,
     project: Project,
     module: PythonSourceModule,
+    demand: EvaluationDemand,
 ) -> PythonImportTrace {
     let file = module.file();
-    match evaluate_python_module(db, project, module, IntrinsicContamination::default()) {
+    match evaluate_python_module(
+        db,
+        project,
+        module,
+        IntrinsicContamination::default(),
+        demand,
+    ) {
         PythonModuleEvaluation::CycleSeed => PythonImportTrace::rooted(file),
         PythonModuleEvaluation::Evaluated(evaluated) => evaluated.import_trace().clone(),
     }
@@ -103,12 +128,13 @@ fn evaluate_python_module_cycle_initial(
     _project: Project,
     _module: PythonSourceModule,
     _intrinsic_contamination: IntrinsicContamination,
+    _demand: EvaluationDemand,
 ) -> PythonModuleEvaluation {
     PythonModuleEvaluation::CycleSeed
 }
 
-// Salsa requires cycle recovery callbacks to accept the tracked-query keys by value.
-#[allow(clippy::needless_pass_by_value)]
+// Salsa requires this callback signature, including each tracked-query key by value.
+#[allow(clippy::needless_pass_by_value, clippy::too_many_arguments)]
 fn evaluate_python_module_cycle_recover(
     _db: &dyn ProjectDb,
     cycle: &Cycle,
@@ -117,6 +143,7 @@ fn evaluate_python_module_cycle_recover(
     _project: Project,
     module: PythonSourceModule,
     _intrinsic_contamination: IntrinsicContamination,
+    _demand: EvaluationDemand,
 ) -> PythonModuleEvaluation {
     // This is a defensive work budget, not a property of Python import cycles. Widening normally
     // converges in a few passes; twelve preserves the existing budget while staying well below

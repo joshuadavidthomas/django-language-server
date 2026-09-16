@@ -5,20 +5,20 @@ use djls_project::ScopedTemplateLibraries;
 use djls_project::template_directories;
 use djls_project::template_library_catalog;
 use djls_project::template_library_definition_facts;
-use djls_project::template_library_registration_dependencies;
+use djls_project::template_library_inventory_dependencies;
+use djls_project::template_library_structure_facts;
 use djls_project::template_resolution;
 use djls_semantic::Db as SemanticDb;
-use djls_semantic::library_filter_specs;
-use djls_semantic::library_tag_specs;
 use djls_semantic::semantic_grammar_vocabulary;
 use djls_source::File;
 use djls_source::path_to_file;
 
 /// The intrinsic Template Library products covered by one complete priming pass.
 ///
-/// The file set is the exact set of resolved Python sources whose keyed source,
-/// Tag, and Filter products were evaluated. Callers use it to distinguish edits
-/// that invalidate intrinsic readiness from unrelated Python changes.
+/// The file set covers registration discovery, callable sources, candidates, and settings. It is
+/// not exhaustive dependency coverage: rule-only helpers can be absent, including helpers read by
+/// the structural compatibility fallback. Callers must also invalidate on Python edits under
+/// active source roots so demand-driven detail cannot leave stale diagnostics.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PrimedTemplateLibraries {
     reprime_files: Arc<[File]>,
@@ -39,7 +39,7 @@ impl PrimedTemplateLibraries {
         &self.full_reload_files
     }
 
-    /// All Python source dependencies covered by this priming pass.
+    /// Published eager source coverage for this priming pass.
     pub fn covered_files(&self) -> impl Iterator<Item = File> + '_ {
         self.full_reload_files
             .iter()
@@ -53,12 +53,12 @@ impl PrimedTemplateLibraries {
     }
 }
 
-/// Evaluate every intrinsic product needed by project-aware Template analysis.
+/// Prepare registration inventory and global topology for project-aware Template analysis.
 ///
 /// This deliberately does no per-Template work. Catalog assembly provides the
-/// definition-name index; each active keyed library then contributes source
-/// facts and independently backdatable Tag/Filter products; finally the shared
-/// semantic grammar vocabulary is evaluated.
+/// definition-name index; each active keyed library then contributes source and Block Spec facts;
+/// finally the shared semantic grammar vocabulary is evaluated. Occurrence and completion demand
+/// evaluate detailed Tag Rules and Filter Arity after readiness when needed.
 #[must_use]
 pub fn prime_template_library_products(db: &dyn SemanticDb) -> Option<PrimedTemplateLibraries> {
     let project = db.project()?;
@@ -71,14 +71,13 @@ pub fn prime_template_library_products(db: &dyn SemanticDb) -> Option<PrimedTemp
         library_count += 1;
         let key = library.id();
         let _ = template_library_definition_facts(db, key);
-        let _ = library_tag_specs(db, project, key);
-        let _ = library_filter_specs(db, key);
+        let _ = template_library_structure_facts(db, key);
         if let Some(file) = library.source_file()
             && !reprime_files.contains(&file)
         {
             reprime_files.push(file);
         }
-        for &file in template_library_registration_dependencies(db, key) {
+        for &file in template_library_inventory_dependencies(db, key) {
             if !reprime_files.contains(&file) {
                 reprime_files.push(file);
             }

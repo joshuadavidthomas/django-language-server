@@ -24,6 +24,12 @@ struct TouchedNames {
     all: bool,
 }
 
+pub(super) fn closed_write_names(statement: &ast::Stmt) -> Option<FxHashSet<String>> {
+    let mut touched = TouchedNames::default();
+    touched.visit_stmt(statement);
+    (!touched.all).then_some(touched.names)
+}
+
 impl TouchedNames {
     fn from_body(body: &[ast::Stmt]) -> Self {
         let mut touched = Self::default();

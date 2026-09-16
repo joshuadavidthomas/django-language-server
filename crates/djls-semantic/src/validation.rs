@@ -7,6 +7,7 @@ use crate::TagSpec;
 use crate::db::Db;
 use crate::references::TemplateReferenceKind;
 use crate::scoping::TemplateAnalysisProjection;
+use crate::scoping::scoped_filter_facts;
 use crate::structure::ActiveTemplateNode;
 use crate::structure::ActiveTemplateTag;
 use crate::structure::ActiveTemplateVariable;
@@ -33,7 +34,8 @@ impl ExtendsPosition {
 
 /// Validator over one converged [`TemplateAnalysisProjection`].
 ///
-/// Construction performs no grammar, load, symbol, or Filter reconstruction.
+/// Tag validation reuses converged occurrence facts. Filter facts are requested lazily while
+/// validating variables, over the projection's already-converged tree and load state.
 pub(crate) struct TemplateValidator<'db> {
     db: &'db dyn Db,
     projection: TemplateAnalysisProjection<'db>,
@@ -129,10 +131,7 @@ impl<'db> TemplateValidator<'db> {
 
     fn validate_variable(&mut self, variable: ActiveTemplateVariable<'_>) {
         for filter in variable.filters {
-            let Some(facts) = self
-                .projection
-                .scoped_filter_facts(self.db)
-                .for_filter(filter)
+            let Some(facts) = scoped_filter_facts(self.db, self.projection).for_filter(filter)
             else {
                 continue;
             };

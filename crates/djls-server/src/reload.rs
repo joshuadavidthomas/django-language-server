@@ -332,9 +332,8 @@ async fn reload_project(
 }
 
 async fn reprime_project(session: Arc<Mutex<Session>>, client: Client) -> ReloadRunOutcome {
-    let (generation, snapshot) = {
-        let session = session.lock().await;
-        (session.desired_generation(), session.snapshot())
+    let Some((generation, snapshot)) = session.lock().await.reprime_snapshot() else {
+        return ReloadRunOutcome::Complete;
     };
     match prime_snapshot(snapshot).await {
         StageOutcome::Complete(primed) => {

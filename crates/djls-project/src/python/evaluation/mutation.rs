@@ -523,7 +523,7 @@ impl PythonEvaluationState {
 impl PythonModuleEvaluator<'_> {
     pub(super) fn evaluate_expression_statement(&mut self, expression: &ast::Expr) {
         let ast::Expr::Call(call) = expression else {
-            self.record_unsupported_call_effects(expression);
+            self.invalidate_intrinsics_for_calls(expression);
             self.state.degrade_names(
                 self.reachable_read_names(expression),
                 &PythonUnknownCause::UnsupportedExpression,
@@ -532,7 +532,7 @@ impl PythonModuleEvaluator<'_> {
             return;
         };
         if self.call_is_known_env_read(call) {
-            self.record_unsupported_call_effects(expression);
+            self.invalidate_intrinsics_for_calls(expression);
             return;
         }
         let ast::Expr::Attribute(attribute) = call.func.as_ref() else {

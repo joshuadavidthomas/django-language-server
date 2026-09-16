@@ -126,6 +126,44 @@ fn settings_cold_branches(bencher: Bencher, branches: usize) {
         });
 }
 
+/// Fresh settings parsing, evaluation, and projection where every conditional
+/// contributes an `INSTALLED_APPS` alternative. Source generation and database
+/// setup are not timed.
+#[divan::bench(args = [2, 4, 8])]
+fn settings_cold_required_branches(bencher: Bencher, branches: usize) {
+    let mut source = String::from("INSTALLED_APPS = ['core']\n");
+    for index in 0..branches {
+        require(
+            "write required conditional settings fixture",
+            writeln!(
+                source,
+                r"if FLAG_{index}:
+    INSTALLED_APPS += ['enabled-{index}']
+else:
+    INSTALLED_APPS += ['disabled-{index}']"
+            ),
+        );
+    }
+    bencher
+        .with_inputs(|| {
+            let mut db = TestDatabase::new();
+            let project = require(
+                "prepare cold required conditional settings input",
+                ProjectFixture::new("/corpus/repos/settings-project/src/project")
+                    .django_settings_module("settings")
+                    .file(
+                        "/corpus/repos/settings-project/src/project/settings.py",
+                        source.as_str(),
+                    )
+                    .install(&mut db),
+            );
+            (db, project)
+        })
+        .bench_local_values(|(db, project)| {
+            divan::black_box(django_settings(&db, project));
+        });
+}
+
 /// Fresh settings parsing, evaluation, and projection with a growing try body.
 /// The inputs cover a common small body, an upper-end real-world-sized body, and an
 /// explicit stress case. Source generation and database setup are not timed.
@@ -149,6 +187,54 @@ fn settings_cold_try_prefixes(bencher: Bencher, statements: usize) {
                     .file(
                         "/corpus/repos/settings-project/src/project/settings.py",
                         source.as_str(),
+                    )
+                    .install(&mut db),
+            );
+            (db, project)
+        })
+        .bench_local_values(|(db, project)| {
+            divan::black_box(django_settings(&db, project));
+        });
+}
+
+/// Fresh settings parsing, evaluation, and projection with an installed external
+/// module used only by an irrelevant setting. Fixture construction is not timed.
+#[divan::bench(sample_count = 10)]
+fn settings_cold_external_constants(bencher: Bencher) {
+    const PROJECT_ROOT: &str = "/corpus/repos/settings-project/src/project";
+    const SITE_PACKAGES: &str = "/venv/lib/python3.12/site-packages";
+    let search_paths = SearchPaths::from_paths(vec![
+        SearchPath::FirstParty(Utf8PathBuf::from(PROJECT_ROOT)),
+        SearchPath::SitePackages(Utf8PathBuf::from(SITE_PACKAGES)),
+    ]);
+    bencher
+        .with_inputs(|| {
+            let mut db = TestDatabase::new();
+            let project = require(
+                "prepare cold external constants settings input",
+                ProjectFixture::new(PROJECT_ROOT)
+                    .django_settings_module("settings")
+                    .search_paths(search_paths.clone())
+                    .file(
+                        format!("{PROJECT_ROOT}/settings.py"),
+                        "from django.contrib.messages import constants as messages\n\
+                         INSTALLED_APPS = ['core']\n\
+                         MESSAGE_TAGS = {\n\
+                             messages.INFO: 'alert-info',\n\
+                             messages.ERROR: 'alert-danger',\n\
+                             messages.WARNING: 'alert-warning',\n\
+                             messages.SUCCESS: 'alert-success',\n\
+                         }\n",
+                    )
+                    .file(format!("{SITE_PACKAGES}/django/__init__.py"), "")
+                    .file(format!("{SITE_PACKAGES}/django/contrib/__init__.py"), "")
+                    .file(
+                        format!("{SITE_PACKAGES}/django/contrib/messages/__init__.py"),
+                        "",
+                    )
+                    .file(
+                        format!("{SITE_PACKAGES}/django/contrib/messages/constants.py"),
+                        "",
                     )
                     .install(&mut db),
             );

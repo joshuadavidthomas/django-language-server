@@ -113,3 +113,300 @@ The slow workload is ignored so it does not add minutes to normal Divan or CodSp
 - All existing settings snapshots remained unchanged.
 - A new test checks identity equality against canonical comparison and checks full equality against structural comparison across different origins, kinds, discriminators, domains, and module search roots.
 - `just fmt` and all-target/all-feature Clippy passed.
+
+## Demand-driven baseline (2026-09-16)
+
+Revision `0e1a7679186d8bf3a769ae03e59036836e52c1ad` was measured on an Intel Xeon
+Processor @ 2.60GHz orb with 2 logical CPUs, Linux 6.1.158, Rust/Cargo 1.97.1,
+Python 3.11.6, and uv 0.12.13. `VIRTUAL_ENV` was unset. The corpus revisions were
+the same Healthchecks, NetBox, and pretix revisions listed above. Filesystem caches
+were not cleared, and the machine was not isolated from other orb work.
+
+The reproducible dependency-free command was:
+
+```console
+cargo bench -p djls-bench --bench extraction -- settings_ --sample-count 10
+```
+
+| Benchmark | Median | Samples | Total iterations |
+| --- | ---: | ---: | ---: |
+| `settings_cold_branches::8` | 349.2µs | 10 | 10 |
+| `settings_cold_branches::32` | 2.906ms | 10 | 10 |
+| `settings_cold_branches::64` | 10.01ms | 10 | 10 |
+| `settings_cold_try_prefixes::2` | 82.57µs | 10 | 10 |
+| `settings_cold_try_prefixes::9` | 220.0µs | 10 | 10 |
+| `settings_cold_try_prefixes::64` | 3.636ms | 10 | 10 |
+| `settings_cold_corpus::healthchecks` | 136.1ms | 10 | 10 |
+| `settings_cold_corpus::netbox` | 677.2ms | 10 | 10 |
+| `settings_cold_corpus::pretix` | 1.493s | 10 | 10 |
+
+These are current same-machine comparison anchors, not estimates of future savings.
+They are not directly comparable to the older 16-CPU machine's results or to the
+overlapping inclusive profile percentages above.
+
+Two fixed controls were added without changing existing benchmarks. The first keeps
+every branch relevant by appending a branch-specific value to `INSTALLED_APPS`; the
+second resolves an empty external `django.contrib.messages.constants` module and uses
+four unknown attributes only as keys in irrelevant `MESSAGE_TAGS`. Their command and
+baseline were:
+
+```console
+cargo bench -p djls-bench --bench extraction -- \
+  settings_cold_required_branches settings_cold_external_constants --sample-count 10
+```
+
+| Benchmark | Median | Samples | Total iterations |
+| --- | ---: | ---: | ---: |
+| `settings_cold_required_branches::2` | 468.7µs | 10 | 10 |
+| `settings_cold_required_branches::4` | 5.184ms | 10 | 10 |
+| `settings_cold_required_branches::8` | 263.6ms | 10 | 10 |
+| `settings_cold_external_constants` | 6.980ms | 10 | 10 |
+
+The historical installed-environment slowdown was reproduced. A temporary benchmark
+probe pointed pretix at this checkout's `.venv` (36 distributions, including Django)
+and timed out during one `django_settings` evaluation:
+
+```console
+/usr/bin/time -f 'elapsed=%e exit=%x' timeout 45s \
+  target/release/deps/extraction-00fbd43eb8ce32f7 \
+  --test --exact extraction::settings_cold_pretix_installed
+# elapsed=45.02 exit=124
+```
+
+The probe was then reduced to synthetic site-packages layouts. Merely resolving the
+`django` package completed in 3.17s, and resolving only `django.contrib.messages`
+completed in 4.11s. Adding an empty
+`django/contrib/messages/constants.py` was sufficient to exceed 20 seconds. Other
+single direct Django imports from pretix settings (`conf.locale`, `utils.translation`,
+`core.exceptions`, or `utils.crypto`) each completed in 4.52–4.89s. Each reduction
+was a single `--test` execution with a 10- or 20-second timeout, so these are bounded
+diagnostic timings rather than statistical benchmark results.
+
+External-package bodies are not evaluated: the minimized trigger's constants module
+was empty. The difference is instead caused by successful resolution of the external
+module changing later first-party evaluation: pretix uses `messages.INFO`, `ERROR`,
+`WARNING`, and `SUCCESS` as dictionary keys in `MESSAGE_TAGS`. The fixed external
+constants benchmark retains that shape without requiring an installed dependency.
+Because the conservative slice treats attribute access as an uncertain-effect barrier,
+this control is expected to retain its cost; an unchanged result is useful evidence,
+not a failed optimization. All temporary probes and instrumentation were removed.
+
+For the first same-machine after comparison, rerun both commands above at the
+implementation revision. Compare the irrelevant branch, try-prefix, external-constant,
+and corpus rows for avoided work, and require the `settings_cold_required_branches`
+control to continue evaluating demanded `INSTALLED_APPS` alternatives.
+
+### Conservative slice comparison
+
+The same commands were rerun on `2148e6d` (the slice implementation applied after
+the baseline fixture commit), on the same orb and without clearing filesystem caches:
+
+| Benchmark | Baseline median | Slice median | Change |
+| --- | ---: | ---: | ---: |
+| `settings_cold_branches::8` | 349.2µs | 70.80µs | -79.7% |
+| `settings_cold_branches::32` | 2.906ms | 116.1µs | -96.0% |
+| `settings_cold_branches::64` | 10.01ms | 185.6µs | -98.1% |
+| `settings_cold_try_prefixes::2` | 82.57µs | 75.74µs | -8.3% |
+| `settings_cold_try_prefixes::9` | 220.0µs | 208.7µs | -5.1% |
+| `settings_cold_try_prefixes::64` | 3.636ms | 3.524ms | -3.1% |
+| `settings_cold_corpus::healthchecks` | 136.1ms | 138.7ms | +1.9% |
+| `settings_cold_corpus::netbox` | 677.2ms | 680.8ms | +0.5% |
+| `settings_cold_corpus::pretix` | 1.493s | 1.447s | -3.1% |
+
+All rows used 10 samples with one iteration per sample, for 10 measured iterations
+total. Divan's `iters` column is the total across samples, not the sample size.
+The independent irrelevant conditionals show the intended scaling change. Try bodies and the three real projects are
+effectively null results at this sample count, consistent with a conservative slice
+that skips only pure top-level regions after the last uncertain-effect barrier.
+
+The controls were compared using the dedicated command, again with 10 samples and
+10 measured iterations total:
+
+| Benchmark | Baseline median | Slice median | Change |
+| --- | ---: | ---: | ---: |
+| `settings_cold_required_branches::2` | 468.7µs | 441.5µs | -5.8% |
+| `settings_cold_required_branches::4` | 5.184ms | 5.118ms | -1.3% |
+| `settings_cold_required_branches::8` | 263.6ms | 251.3ms | -4.7% |
+| `settings_cold_external_constants` | 6.980ms | 7.253ms | +3.9% |
+
+The demanded `INSTALLED_APPS` branch scaling remains, and the external-attribute
+barrier retains its cost. These small changes come from one noisy before/after run and
+should not be interpreted as improvements or regressions. The decisive comparison is
+the large reduction for irrelevant independent branches without a corresponding
+collapse in the required-branch control.
+
+## Wave 2 avoidable-work baseline (2026-09-16)
+
+Current `origin/main` at `aa0141898177890782ef806bc7b1b09eb08c3177` was compared
+with the rebased wave 1 slice at `0e2f431d0c4c26e6fcb0011c545114df4a94bed7` on the
+same orb and corpus. Both used the existing release benchmark profile, unchanged
+fixtures, warm filesystem caches, and an unset `VIRTUAL_ENV`.
+
+```console
+cargo bench -p djls-bench --bench extraction -- \
+  settings_cold_branches settings_cold_try_prefixes settings_cold_corpus \
+  --sample-count 10
+```
+
+| Benchmark | `origin/main` median | Wave 1 median | Change |
+| --- | ---: | ---: | ---: |
+| `settings_cold_branches::8` | 326.0µs | 63.34µs | -80.6% |
+| `settings_cold_branches::32` | 2.904ms | 102.3µs | -96.5% |
+| `settings_cold_branches::64` | 9.280ms | 172.6µs | -98.1% |
+| `settings_cold_try_prefixes::2` | 97.10µs | 79.28µs | -18.4% |
+| `settings_cold_try_prefixes::9` | 223.5µs | 198.8µs | -11.1% |
+| `settings_cold_try_prefixes::64` | 3.887ms | 3.350ms | -13.8% |
+| `settings_cold_corpus::healthchecks` | 144.7ms | 130.2ms | -10.0% |
+| `settings_cold_corpus::netbox` | 266.2ms | 246.8ms | -7.3% |
+| `settings_cold_corpus::pretix` | 637.9ms | 570.3ms | -10.6% |
+
+Each row used 10 samples with one iteration per sample: 10 total iterations. The
+synthetic branch result remains decisive. The smaller try and corpus differences are
+single paired runs and do not establish that wave 1 avoids their expensive regions.
+
+The pinned installed workload used its unchanged ignored harness:
+
+```console
+/usr/bin/time -f 'wall=%e exit=%x max_rss_kib=%M' timeout 180s \
+  cargo bench -p djls-bench --bench extraction -- \
+  --ignored settings_cold_pretix_with_django
+```
+
+It completed in 1.503 minutes on `origin/main` and 1.495 minutes on wave 1, each one
+sample and one total iteration. Enclosing wall time was 93.20s versus 90.57s and peak
+RSS was 2,739,948KiB versus 2,743,712KiB. This is a null result: wave 1 did not avoid
+the retained installed-Django work.
+
+Temporary statement instrumentation explained that result. The wave 1 slice selected
+184 of 185 top-level statements in `pretix/settings.py`. A bounded statement run
+completed 153 root statements through line 568, totaling 6.299s of instrumented
+statement time, before reaching the expensive tail. The targeted assignment split at
+lines 572–577 found:
+
+- `walk_assign` → `record_unsupported_call_effects(MESSAGE_TAGS)`: 2µs;
+- `walk_assign` → `evaluate_binding(MESSAGE_TAGS)`: did not complete within the
+  overall 45-second run limit.
+
+The dictionary uses four attributes from the external
+`django.contrib.messages.constants` module as keys. Resolution and the existing RHS
+effect traversal are not the retained cost; constructing and binding the irrelevant
+dictionary value is. The diagnostic runs were intentionally censored, are not
+benchmark samples, and were removed after recording these counts.
+
+Wave 1 control baselines for the next comparison were 460.7µs, 5.090ms, and 241.9ms
+for `settings_cold_required_branches::{2,4,8}`, and 6.925ms for
+`settings_cold_external_constants` (10 samples and 10 total iterations each). Wave 2
+must preserve demanded branch work and external effects while avoiding unnecessary
+value materialization; deferring that materialization to a later settings request does
+not count as avoided work.
+
+### Effect-preserving materialization avoidance
+
+Transferred wave 2 production commit `bdb5c474a74eb340a2a15c6c09f5451ac8d97a34`
+(locally cherry-picked as `fdfa83fe37bcd00d70ac4d4e9b2260f1c69c2569`) was measured
+with the same commands, benchmark inputs, corpus, release profile, and orb. Each
+normal row again used 10 samples with one iteration per sample (10 total iterations).
+
+| Benchmark | Wave 1 median | Wave 2 median | Change |
+| --- | ---: | ---: | ---: |
+| `settings_cold_branches::8` | 63.34µs | 79.18µs | +25.0% |
+| `settings_cold_branches::32` | 102.3µs | 135.7µs | +32.6% |
+| `settings_cold_branches::64` | 172.6µs | 216.1µs | +25.2% |
+| `settings_cold_try_prefixes::2` | 79.28µs | 93.42µs | +17.8% |
+| `settings_cold_try_prefixes::9` | 198.8µs | 241.2µs | +21.3% |
+| `settings_cold_try_prefixes::64` | 3.350ms | 3.865ms | +15.4% |
+| `settings_cold_corpus::healthchecks` | 130.2ms | 145.4ms | +11.7% |
+| `settings_cold_corpus::netbox` | 246.8ms | 273.1ms | +10.7% |
+| `settings_cold_corpus::pretix` | 570.3ms | 609.7ms | +6.9% |
+
+The extra dependency and aggregate-certification analysis is visible when there is
+little expensive materialization to remove. Relative to current `origin/main`, the
+wave 2 corpus medians are +0.5%, +2.6%, and -4.4%; one paired run cannot distinguish
+those differences from ordinary variation.
+
+The fixed external-constants control fell from 6.925ms to 156.4µs (-97.7%). A repeat
+was 145.1µs, confirming that effect traversal remains while its irrelevant dictionary
+is no longer constructed. Required branch medians changed from 460.7µs, 5.090ms, and
+241.9ms to 471.5µs, 5.199ms, and 294.9ms. A repeat produced 466.3µs, 5.281ms, and
+312.3ms. The apparent 8-branch regression required a controlled follow-up rather than
+being dismissed as noise.
+
+Uninstrumented executables were built separately at exact wave 1 and wave 2 revisions
+and run in three idle A/B pairs:
+
+```console
+target/amp-transfer/extraction-wave{1,2} \
+  'settings_cold_required_branches::8' --sample-count 10 --bench
+```
+
+| Pair | Wave 1 median | Wave 2 median |
+| --- | ---: | ---: |
+| 1 | 235.9ms | 236.2ms |
+| 2 | 238.0ms | 239.5ms |
+| 3 | 239.8ms | 267.0ms |
+
+Each cell is 10 samples and 10 total iterations, for 30 measured iterations per
+revision. The first two pairs differ by 0.1% and 0.6%; the third pair had a wider wave
+2 range (237.7–314.7ms) and raised its median by 11.3%. The median of batch medians is
+238.0ms versus 239.5ms (+0.6%). The isolated comparison therefore does not reproduce
+the earlier 22–29% result as a stable regression.
+
+Work-count diagnostics agree: the exact fixture has one demanded initial assignment
+followed by eight `if`/`else` regions of augmented assignments. All nine top-level
+statements remain `Full`, no unobserved-assignment certificate runs, full and sliced
+evaluation both visit 42 expressions, and the demanded result remains the same 65
+precision-bounded normalized alternatives. Wave 2 reaches ordinary `finish_assign`
+only for the initial `['core']`; all 16 branch bodies retain the existing augmented
+assignment path. No production hot-path change is justified by this control.
+
+The unchanged ignored installed workload completed in 8.196s, compared with 1.495
+minutes (about 89.7s) on wave 1: about 10.9× faster. Both measurements were one sample
+and one total iteration. Enclosing wall time fell from 90.57s to 9.03s, and peak RSS
+fell from 2,743,712KiB to 411,968KiB. The run completed well inside the same 180-second
+bound; neither result is censored.
+
+Every cold benchmark iteration constructs a fresh database and measures the first
+settings request. The implementation tests independently count one full dictionary
+materialization for a demanded value, zero for the undemanded value on its first
+request, and no additional materialization on cached facts/import-trace requests.
+Therefore the 81.5s first-request reduction is work avoided by the settings stage, not
+work deferred until a later request. Cached requests remain Salsa memo hits rather than
+a separate timed workload.
+
+### No-candidate observer guard
+
+Follow-up commit `7e7a67c549159707221a07ba3051219264024fa8` avoids scanning the
+whole original module for observers when the backward slice contains no possible
+unobserved simple assignment outside the needed set. The unchanged focused command was:
+
+```console
+cargo bench -p djls-bench --bench extraction -- \
+  settings_cold_branches settings_cold_required_branches \
+  settings_cold_try_prefixes settings_cold_external_constants --sample-count 10
+```
+
+| Benchmark | Wave 2 median | Guard median | Change |
+| --- | ---: | ---: | ---: |
+| `settings_cold_branches::8` | 79.18µs | 76.42µs | -3.5% |
+| `settings_cold_branches::32` | 135.7µs | 123.8µs | -8.8% |
+| `settings_cold_branches::64` | 216.1µs | 172.7µs | -20.1% |
+| `settings_cold_try_prefixes::2` | 93.42µs | 95.93µs | +2.7% |
+| `settings_cold_try_prefixes::9` | 241.2µs | 228.7µs | -5.2% |
+| `settings_cold_try_prefixes::64` | 3.865ms | 3.819ms | -1.2% |
+| `settings_cold_required_branches::2` | 471.5µs | 455.5µs | -3.4% |
+| `settings_cold_required_branches::4` | 5.199ms | 5.234ms | +0.7% |
+| `settings_cold_required_branches::8` | 294.9ms | 271.6ms | -7.9% |
+| `settings_cold_external_constants` | 156.4µs | 128.3µs | -18.0% |
+
+Each row is one run of 10 samples and 10 total iterations. These are timings, not
+claims that each fixture executes less semantic work. The irrelevant-branch fixture
+has no retained candidate and can skip observer traversal. The external-constants
+fixture still has an unobserved aggregate candidate and retains observation and effect
+work; its timing change is not evidence of another omitted operation. Required-branch
+work counts remain the identical `Full` evaluation documented above.
+
+The unchanged pinned workload completed in 7.335s (one sample, one total iteration),
+down from 8.196s before the guard and about 89.7s on wave 1. Peak RSS was 412,240KiB,
+effectively unchanged from wave 2's 411,968KiB. The guard therefore preserves the
+first-request materialization win and brings the total speedup over wave 1 to about
+12.2×. No result was censored.

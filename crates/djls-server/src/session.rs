@@ -93,6 +93,22 @@ struct IntrinsicCoverage {
     full_reload_files: Arc<[File]>,
 }
 
+impl IntrinsicCoverage {
+    fn with_reprime_file(&self, file: File) -> Self {
+        let reprime_files = if self.reprime_files.contains(&file) {
+            Arc::clone(&self.reprime_files)
+        } else {
+            let mut files = self.reprime_files.to_vec();
+            files.push(file);
+            files.into()
+        };
+        Self {
+            reprime_files,
+            full_reload_files: Arc::clone(&self.full_reload_files),
+        }
+    }
+}
+
 enum IntrinsicReadiness {
     NoProject {
         generation: IntrinsicGeneration,
@@ -206,10 +222,9 @@ impl IntrinsicReadiness {
         let next = match self {
             Self::Reprime { coverage, .. } | Self::Ready { coverage, .. } => Self::Reprime {
                 generation,
-                coverage: IntrinsicCoverage {
-                    reprime_files: Arc::clone(&coverage.reprime_files),
-                    full_reload_files: Arc::clone(&coverage.full_reload_files),
-                },
+                // Lazy rule helpers need not appear in published structural coverage. Keep
+                // edited helpers until publication so a failure records their revisions too.
+                coverage: coverage.with_reprime_file(file),
             },
             Self::RetryReprime {
                 coverage,
@@ -221,24 +236,22 @@ impl IntrinsicReadiness {
                 admitted_revisions,
                 ..
             } => {
-                let mut admitted_revisions = Arc::clone(admitted_revisions);
-                let Some((_, admitted_revision)) = Arc::make_mut(&mut admitted_revisions)
+                let mut admitted_revisions = admitted_revisions.to_vec();
+                if let Some((_, admitted_revision)) = admitted_revisions
                     .iter_mut()
                     .find(|(admitted_file, _)| *admitted_file == file)
-                else {
-                    return false;
-                };
-                if revision == *admitted_revision {
-                    return false;
+                {
+                    if revision == *admitted_revision {
+                        return false;
+                    }
+                    *admitted_revision = revision;
+                } else {
+                    admitted_revisions.push((file, revision));
                 }
-                *admitted_revision = revision;
                 Self::RetryReprime {
                     generation,
-                    coverage: IntrinsicCoverage {
-                        reprime_files: Arc::clone(&coverage.reprime_files),
-                        full_reload_files: Arc::clone(&coverage.full_reload_files),
-                    },
-                    admitted_revisions,
+                    coverage: coverage.with_reprime_file(file),
+                    admitted_revisions: admitted_revisions.into(),
                 }
             }
             Self::NoProject { .. }
@@ -416,6 +429,21 @@ impl Session {
         )
     }
 
+    pub(crate) fn reprime_snapshot(&self) -> Option<(IntrinsicGeneration, SessionSnapshot)> {
+        // A dequeued re-prime can wait behind a mutation that requires full discovery.
+        // Admit it against current readiness while the caller still holds the snapshot lock.
+        let generation = match &self.intrinsic_readiness {
+            IntrinsicReadiness::Reprime { generation, .. }
+            | IntrinsicReadiness::RetryReprime { generation, .. } => *generation,
+            IntrinsicReadiness::NoProject { .. }
+            | IntrinsicReadiness::FullDiscovery { .. }
+            | IntrinsicReadiness::Ready { .. }
+            | IntrinsicReadiness::FailedFullDiscovery { .. }
+            | IntrinsicReadiness::FailedReprime { .. } => return None,
+        };
+        Some((generation, self.snapshot()))
+    }
+
     pub(crate) fn readiness_receiver(&self) -> watch::Receiver<IntrinsicReadinessState> {
         self.readiness_tx.subscribe()
     }
@@ -524,7 +552,15 @@ impl Session {
                     .iter()
                     .find(|file| file.path(&self.db) == path)
             })
-            .copied();
+            .copied()
+            .or_else(|| {
+                // Readiness covers inventory and structure, not every lazy rule dependency.
+                // SourceChanges has already synchronized this file and its revision.
+                self.db
+                    .files()
+                    .root(&self.db, path)
+                    .and_then(|_| self.db.files().try_file(path))
+            });
         let work = if changed_membership
             || coverage.is_some_and(|coverage| {
                 coverage
@@ -533,13 +569,13 @@ impl Session {
                     .any(|file| file.path(&self.db) == path)
             }) {
             ProjectWork::FullReload
-        } else if reprime_file.is_some() {
-            ProjectWork::Reprime
         } else if coverage.is_none() {
             // Until current coverage publishes, every Python source is a
             // possible settings or catalog dependency. Full discovery is the
             // only operation that can safely classify it.
             ProjectWork::FullReload
+        } else if reprime_file.is_some() {
+            ProjectWork::Reprime
         } else {
             return None;
         };
@@ -825,7 +861,10 @@ impl SessionSnapshot {
 
 #[cfg(test)]
 mod tests {
+    use std::future::Future;
+    use std::future::poll_fn;
     use std::str::FromStr;
+    use std::task::Poll;
     use std::time::Duration;
 
     use djls_ide::prime_template_library_products;
@@ -833,6 +872,7 @@ mod tests {
     use djls_project::PythonEnvironment;
     use tempfile::tempdir;
     use tokio::spawn;
+    use tokio::sync::Mutex;
     use tokio::task::yield_now;
     use tokio::time::timeout;
 
@@ -1163,6 +1203,93 @@ mod tests {
     }
 
     #[test]
+    fn reprime_snapshot_requires_pending_reprime_work() {
+        let mut session = Session::default();
+        let file = File::new(
+            session.db(),
+            Utf8PathBuf::from("/tmp/reprime-admission.py"),
+            1,
+            FileStatus::Exists,
+        );
+        session.intrinsic_readiness = IntrinsicReadiness::new(false);
+        assert!(session.reprime_snapshot().is_none());
+        let generation = session.mark_project_changed();
+        assert!(session.reprime_snapshot().is_none());
+        assert!(session.fail_intrinsic_readiness(generation));
+        assert!(session.reprime_snapshot().is_none());
+
+        let generation = session.mark_project_changed();
+        let primed = prime_template_library_products(session.db())
+            .expect("default session should have a Project");
+        assert!(session.publish_intrinsic_readiness(generation, &primed));
+        assert!(session.reprime_snapshot().is_none());
+
+        for revision in [1, 2] {
+            assert!(session.intrinsic_readiness.begin_reprime(file, revision));
+            let generation = session.desired_generation();
+            assert_eq!(
+                session.reprime_snapshot().map(|(generation, _)| generation),
+                Some(generation)
+            );
+            assert!(session.fail_intrinsic_readiness(generation));
+            assert!(session.reprime_snapshot().is_none());
+        }
+    }
+
+    #[tokio::test]
+    async fn waiting_reprime_cannot_adopt_a_full_discovery_generation() {
+        let session = Arc::new(Mutex::new(Session::default()));
+        let mut mutation = Arc::clone(&session).lock_owned().await;
+        mutation.intrinsic_readiness = IntrinsicReadiness::Reprime {
+            generation: 1,
+            coverage: IntrinsicCoverage {
+                reprime_files: Arc::from([]),
+                full_reload_files: Arc::from([]),
+            },
+        };
+        assert_eq!(
+            mutation
+                .reprime_snapshot()
+                .map(|(generation, _)| generation),
+            Some(1)
+        );
+
+        // Poll the dequeued job until it is waiting on the mutation's mutex, without sleeps.
+        let mut reprime = std::pin::pin!(async {
+            let session = session.lock().await;
+            session.reprime_snapshot()
+        });
+        assert!(
+            poll_fn(|cx| Poll::Ready(reprime.as_mut().poll(cx)))
+                .await
+                .is_pending()
+        );
+
+        let generation = mutation.mark_project_changed();
+        assert_eq!(generation, 2);
+        drop(mutation);
+        assert!(
+            reprime.await.is_none(),
+            "a dequeued re-prime must not capture the newer full-discovery generation"
+        );
+        let mut session = session.lock().await;
+        assert_eq!(
+            session.readiness_state(),
+            IntrinsicReadinessState::Unready(generation)
+        );
+        let primed = prime_template_library_products(session.db())
+            .expect("default session should have a Project");
+        assert!(
+            session.publish_intrinsic_readiness(generation, &primed),
+            "the queued full reload must retain the right to publish its generation"
+        );
+        assert_eq!(
+            session.readiness_state(),
+            IntrinsicReadinessState::Ready(generation)
+        );
+    }
+
+    #[test]
     fn intrinsic_readiness_is_generation_scoped_and_stale_results_do_not_publish() {
         let mut session = Session::default();
         assert_eq!(
@@ -1213,6 +1340,261 @@ mod tests {
         );
         assert_eq!(session.desired_generation(), generation);
         assert_eq!(project_work, None);
+    }
+
+    #[test]
+    fn uncovered_content_edits_reprime_only_within_registered_python_roots() {
+        for (path, kind, expected) in [
+            (
+                "/tmp/lazy-project/helper.py",
+                FileKind::Python,
+                Some(ProjectWork::Reprime),
+            ),
+            (
+                "/tmp/lazy-search/helper.py",
+                FileKind::Python,
+                Some(ProjectWork::Reprime),
+            ),
+            (
+                "/tmp/lazy-project-sibling/helper.py",
+                FileKind::Python,
+                None,
+            ),
+            ("/tmp/outside/helper.py", FileKind::Python, None),
+            ("/tmp/lazy-project/page.html", FileKind::Template, None),
+        ] {
+            let mut session = Session::default();
+            for (root, kind) in [
+                ("/tmp/lazy-project", djls_source::FileRootKind::Project),
+                ("/tmp/lazy-search", djls_source::FileRootKind::SearchPath),
+            ] {
+                session
+                    .db()
+                    .files()
+                    .try_add_root(session.db(), root.into(), kind);
+            }
+            let uri = ls_types::Uri::from_file_path(path).expect("fixture URI");
+            assert!(matches!(
+                session.open_document(&ls_types::TextDocumentItem {
+                    uri: uri.clone(),
+                    language_id: if kind == FileKind::Python {
+                        "python"
+                    } else {
+                        "django-html"
+                    }
+                    .to_string(),
+                    version: 1,
+                    text: "initial".to_string(),
+                }),
+                DocumentMutation::Applied { .. }
+            ));
+            if expected.is_some() {
+                // A rooted file still requires full discovery until coverage has published.
+                assert_eq!(
+                    session.mark_intrinsic_change(&ChangeEvent::ContentChanged(path.into()), kind),
+                    Some(ProjectWork::FullReload)
+                );
+            }
+            session.install_ready_coverage_for_test(Vec::new(), Vec::new());
+            let generation = session.desired_generation();
+            let mutation = session.update_document(
+                &ls_types::VersionedTextDocumentIdentifier { uri, version: 2 },
+                vec![ls_types::TextDocumentContentChangeEvent {
+                    range: None,
+                    range_length: None,
+                    text: "changed".to_string(),
+                }],
+            );
+            let DocumentMutation::Applied { project_work, .. } = mutation else {
+                panic!("fixture should update");
+            };
+            assert_eq!(project_work, expected, "{path}");
+            assert_eq!(
+                session.desired_generation(),
+                generation + u64::from(expected.is_some()),
+                "{path}"
+            );
+            if expected.is_some() {
+                // Obsolete registered roots must not remain fallback dependency coverage.
+                session.db().files().replace_roots(session.db(), Vec::new());
+                session.install_ready_coverage_for_test(Vec::new(), Vec::new());
+                assert_eq!(
+                    session.mark_intrinsic_change(&ChangeEvent::ContentChanged(path.into()), kind),
+                    None
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn uncovered_helper_reprime_failure_tracks_revisions_and_gates_publication() {
+        let mut session = Session::default();
+        let path = Utf8Path::new("/tmp/lazy-retry/helper.py");
+        session.db().files().try_add_root(
+            session.db(),
+            "/tmp/lazy-retry".into(),
+            djls_source::FileRootKind::Project,
+        );
+        let uri = ls_types::Uri::from_file_path(path.as_std_path()).expect("fixture URI");
+        assert!(matches!(
+            session.open_document(&ls_types::TextDocumentItem {
+                uri: uri.clone(),
+                language_id: "python".to_string(),
+                version: 1,
+                text: "initial".to_string(),
+            }),
+            DocumentMutation::Applied { .. }
+        ));
+        let file = path_to_file(session.db(), path).expect("fixture file");
+        session.install_ready_coverage_for_test(Vec::new(), Vec::new());
+        let ready_generation = session.desired_generation();
+        for (version, text) in [(2, "changed"), (3, "newer")] {
+            let mutation = session.update_document(
+                &ls_types::VersionedTextDocumentIdentifier {
+                    uri: uri.clone(),
+                    version,
+                },
+                vec![ls_types::TextDocumentContentChangeEvent {
+                    range: None,
+                    range_length: None,
+                    text: text.to_string(),
+                }],
+            );
+            assert!(matches!(
+                mutation,
+                DocumentMutation::Applied {
+                    project_work: Some(ProjectWork::Reprime),
+                    ..
+                }
+            ));
+            let generation = session.desired_generation();
+            assert_eq!(
+                generation,
+                ready_generation + u64::try_from(version - 1).expect("positive version")
+            );
+            assert_eq!(
+                session.readiness_state(),
+                IntrinsicReadinessState::Unready(generation)
+            );
+            assert!(
+                session
+                    .intrinsic_readiness
+                    .coverage()
+                    .expect("temporary coverage")
+                    .reprime_files
+                    .contains(&file)
+            );
+            if version == 2 {
+                assert!(session.fail_intrinsic_readiness(generation));
+                assert_eq!(
+                    session.readiness_state(),
+                    IntrinsicReadinessState::Failed(generation)
+                );
+                assert_eq!(
+                    session.intrinsic_readiness.admitted_revisions(),
+                    Some([(file, file.revision(session.db()))].as_slice())
+                );
+                assert_eq!(
+                    session.mark_intrinsic_change(
+                        &ChangeEvent::ContentChanged(path.to_path_buf()),
+                        FileKind::Python
+                    ),
+                    None
+                );
+                assert_eq!(
+                    session.readiness_state(),
+                    IntrinsicReadinessState::Failed(generation)
+                );
+            }
+        }
+        let current = session.desired_generation();
+        let primed = prime_template_library_products(session.db()).expect("fixture project");
+        assert!(!session.publish_intrinsic_readiness(current - 1, &primed));
+        assert!(!session.fail_intrinsic_readiness(current - 1));
+        assert!(session.publish_intrinsic_readiness(current, &primed));
+        assert_eq!(
+            session.readiness_state(),
+            IntrinsicReadinessState::Ready(current)
+        );
+        assert!(
+            !session
+                .intrinsic_readiness
+                .coverage()
+                .expect("published coverage")
+                .reprime_files
+                .contains(&file)
+        );
+    }
+
+    #[test]
+    fn failed_and_retry_reprime_admit_previously_uncovered_helpers() {
+        let mut session = Session::default();
+        session.db().files().try_add_root(
+            session.db(),
+            "/tmp/lazy-admission".into(),
+            djls_source::FileRootKind::Project,
+        );
+        for name in ["first", "second", "third"] {
+            let path = Utf8PathBuf::from(format!("/tmp/lazy-admission/{name}.py"));
+            assert!(matches!(
+                session.open_document(&ls_types::TextDocumentItem {
+                    uri: ls_types::Uri::from_file_path(path.as_std_path()).expect("fixture URI"),
+                    language_id: "python".to_string(),
+                    version: 1,
+                    text: "initial".to_string(),
+                }),
+                DocumentMutation::Applied { .. }
+            ));
+        }
+        session.install_ready_coverage_for_test(Vec::new(), Vec::new());
+        for (index, name) in ["first", "second", "third"].into_iter().enumerate() {
+            let path = Utf8PathBuf::from(format!("/tmp/lazy-admission/{name}.py"));
+            let generation = session.desired_generation();
+            assert!(matches!(
+                session.update_document(
+                    &ls_types::VersionedTextDocumentIdentifier {
+                        uri: ls_types::Uri::from_file_path(path.as_std_path())
+                            .expect("fixture URI"),
+                        version: 2
+                    },
+                    vec![ls_types::TextDocumentContentChangeEvent {
+                        range: None,
+                        range_length: None,
+                        text: "changed".to_string()
+                    }],
+                ),
+                DocumentMutation::Applied {
+                    project_work: Some(ProjectWork::Reprime),
+                    ..
+                }
+            ));
+            assert_eq!(session.desired_generation(), generation + 1);
+            if index == 0 {
+                assert!(session.fail_intrinsic_readiness(generation + 1));
+            }
+            let file = path_to_file(session.db(), &path).expect("fixture file");
+            let revisions = session
+                .intrinsic_readiness
+                .admitted_revisions()
+                .expect("failed/retry admission");
+            assert_eq!(revisions.len(), index + 1);
+            assert!(revisions.contains(&(file, file.revision(session.db()))));
+            assert_eq!(
+                session.mark_intrinsic_change(&ChangeEvent::ContentChanged(path), FileKind::Python),
+                None
+            );
+            assert_eq!(session.desired_generation(), generation + 1);
+        }
+        let generation = session.desired_generation();
+        assert!(session.fail_intrinsic_readiness(generation));
+        assert_eq!(
+            session
+                .intrinsic_readiness
+                .admitted_revisions()
+                .expect("retained admission")
+                .len(),
+            3
+        );
     }
 
     #[test]

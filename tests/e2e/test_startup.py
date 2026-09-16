@@ -14,6 +14,14 @@ from .conftest import TEST_WORKSPACE
 from .utils import position_after
 
 BASE_TEMPLATE = TEST_WORKSPACE / "djls_app" / "templates" / "djls_app" / "base.html"
+FIRST_PARTY_TEMPLATE = (
+    TEST_WORKSPACE
+    / "djls_app"
+    / "templates"
+    / "djls_app"
+    / "tags"
+    / "first_party_load.html"
+)
 EXPECTED_STARTUP_PROGRESS_TITLES = {
     "Resolving Django environment",
     "Discovering Django project facts",
@@ -111,7 +119,9 @@ async def wait_for_notification(
 
 async def wait_for_log_message(client: LanguageClient, prefix: str) -> None:
     def found_message() -> bool:
-        return any(message.message.startswith(prefix) for message in client.log_messages)
+        return any(
+            message.message.startswith(prefix) for message in client.log_messages
+        )
 
     while not found_message():
         try:
@@ -119,7 +129,9 @@ async def wait_for_log_message(client: LanguageClient, prefix: str) -> None:
         except TimeoutError as exc:
             if found_message():
                 return
-            raise AssertionError(f"Timed out waiting for log message: {prefix}") from exc
+            raise AssertionError(
+                f"Timed out waiting for log message: {prefix}"
+            ) from exc
 
 
 async def wait_for_progress_titles(
@@ -175,6 +187,39 @@ async def test_initialize_returns_protocol_capabilities_without_project_loading(
     assert capabilities.text_document_sync is not None
     assert capabilities.completion_provider is not None
     assert capabilities.diagnostic_provider is not None
+
+
+@pytest.mark.asyncio
+async def test_first_party_completion_without_waiting_for_startup(
+    startup_client: LanguageClient,
+):
+    startup_client.text_document_did_open(
+        types.DidOpenTextDocumentParams(
+            text_document=types.TextDocumentItem(
+                uri=FIRST_PARTY_TEMPLATE.as_uri(),
+                language_id="htmldjango",
+                version=1,
+                text=FIRST_PARTY_TEMPLATE.read_text(encoding="utf-8"),
+            )
+        )
+    )
+    params = types.CompletionParams(
+        text_document=types.TextDocumentIdentifier(uri=FIRST_PARTY_TEMPLATE.as_uri()),
+        position=position_after(FIRST_PARTY_TEMPLATE, "{% djls_gre"),
+    )
+    first = await asyncio.wait_for(
+        startup_client.text_document_completion_async(params), timeout=5
+    )
+    assert first is not None
+    greeting = next(item for item in first if item.label == "djls_greeting")
+    assert greeting.kind == types.CompletionItemKind.Snippet
+    assert greeting.filter_text == "djls_greeting"
+    assert greeting.insert_text_format == types.InsertTextFormat.Snippet
+    assert greeting.text_edit.new_text == "djls_greeting ${1:name} %}"
+
+    await wait_for_progress_titles(startup_client, EXPECTED_STARTUP_PROGRESS_TITLES)
+    warm = await startup_client.text_document_completion_async(params)
+    assert warm == first
 
 
 @pytest.mark.asyncio
@@ -249,7 +294,9 @@ async def test_supported_client_receives_startup_progress_begin_report_end(
     report_events = [
         event for event in events if isinstance(event, types.WorkDoneProgressReport)
     ]
-    report_messages = [event.message for event in report_events if event.message is not None]
+    report_messages = [
+        event.message for event in report_events if event.message is not None
+    ]
     for expected in [
         "Resolving environment",
         "Resolving Python search paths",

@@ -26,6 +26,7 @@ pub use python_evaluation::PythonValueKindView;
 pub use python_evaluation::PythonValueView;
 pub use python_evaluation::python_module_evaluation;
 pub use python_evaluation::python_module_evaluation_for_module;
+pub use python_evaluation::python_settings_evaluation;
 use serde::Serialize;
 
 use crate::db::Db;

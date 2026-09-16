@@ -1405,22 +1405,28 @@ impl TemplateLibrarySymbolSources {
     }
 }
 
-/// Canonical indexed analysis of one Template Library source module.
-///
-/// Registration discovery happens here once. Equality-bearing projections below keep changes in
-/// Tag Definitions, Filter Definitions, source locations, Tag Rules, Block Specs, and Filter Arity
-/// independent.
-#[derive(Clone, Debug, PartialEq, salsa::SalsaValue)]
-struct TemplateLibrarySourceAnalysis<'db> {
-    definitions: TemplateLibraryDefinitionFacts<'db>,
-    symbol_sources: TemplateLibrarySymbolSources,
-    registration_dependencies: Vec<djls_source::File>,
-    tag_rules: TagRuleMap,
-    block_specs: BlockSpecs,
-    filter_arities: FilterArityMap,
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct RegistrationDescriptor {
+    key: SymbolKey,
+    kind: RegistrationKind,
+    options: RegistrationOptions,
+    trusted_callable: bool,
+    function: Option<PythonFunctionDefinition>,
 }
 
-impl TemplateLibrarySourceAnalysis<'_> {
+/// Canonical registration inventory for one Template Library source module.
+///
+/// Registration discovery and source navigation happen once. Detailed rule, structure, and arity
+/// products reuse the ordered descriptors without retaining Ruff AST nodes.
+#[derive(Clone, Debug, PartialEq, salsa::SalsaValue)]
+struct TemplateLibraryRegistrationInventory<'db> {
+    definitions: TemplateLibraryDefinitionFacts<'db>,
+    symbol_sources: TemplateLibrarySymbolSources,
+    inventory_dependencies: Vec<djls_source::File>,
+    descriptors: Vec<RegistrationDescriptor>,
+}
+
+impl TemplateLibraryRegistrationInventory<'_> {
     fn failed() -> Self {
         Self {
             definitions: TemplateLibraryDefinitionFacts {
@@ -1429,25 +1435,23 @@ impl TemplateLibrarySourceAnalysis<'_> {
                 filters: BTreeMap::new(),
             },
             symbol_sources: TemplateLibrarySymbolSources::default(),
-            registration_dependencies: Vec::new(),
-            tag_rules: TagRuleMap::default(),
-            block_specs: BlockSpecs::default(),
-            filter_arities: FilterArityMap::default(),
+            inventory_dependencies: Vec::new(),
+            descriptors: Vec::new(),
         }
     }
 }
 
 #[allow(clippy::too_many_lines)]
 #[salsa::tracked(returns(ref))]
-fn template_library_source_analysis<'db>(
+fn template_library_registration_inventory<'db>(
     db: &'db dyn ProjectDb,
     key: TemplateLibraryId<'db>,
-) -> TemplateLibrarySourceAnalysis<'db> {
+) -> TemplateLibraryRegistrationInventory<'db> {
     let Some(file) = key.file(db) else {
-        return TemplateLibrarySourceAnalysis::failed();
+        return TemplateLibraryRegistrationInventory::failed();
     };
     let Ok(Some(module)) = RecoveredPythonModule::from_file(db, file) else {
-        return TemplateLibrarySourceAnalysis::failed();
+        return TemplateLibraryRegistrationInventory::failed();
     };
     let parse_quality = if module.has_ordinary_syntax_errors(db) {
         TemplateLibraryParseQuality::Recovered
@@ -1458,9 +1462,7 @@ fn template_library_source_analysis<'db>(
     let mut tags = BTreeMap::new();
     let mut filters = BTreeMap::new();
     let mut symbol_sources = TemplateLibrarySymbolSources::default();
-    let mut tag_rules = TagRuleMap::default();
-    let mut block_specs = BlockSpecs::default();
-    let mut filter_arities = FilterArityMap::default();
+    let mut descriptors = Vec::new();
     let registration_module = key.module(db).as_str();
     let project_module = db.project().and_then(|project| {
         PythonSourceModule::resolve(db, project, key.module(db).clone())
@@ -1477,7 +1479,7 @@ fn template_library_source_analysis<'db>(
         Some(&mut python_facts),
     );
     let used_recovered_source = python_facts.has_recovered_source();
-    let mut registration_dependencies = python_facts.consulted_files().to_vec();
+    let inventory_dependencies = python_facts.consulted_files().to_vec();
     let mut symbols_unobserved = parse_quality == TemplateLibraryParseQuality::Recovered
         || used_recovered_source
         || registration_analysis.inventory_is_open();
@@ -1538,13 +1540,6 @@ fn template_library_source_analysis<'db>(
                 symbols_unobserved = true;
             }
 
-            tag_rules.remove(&symbol_key);
-            block_specs.0.remove(&symbol_key);
-            filter_arities.remove(&symbol_key);
-
-            let Some((func, _implementation_file, _imported)) = func else {
-                return;
-            };
             let trusted_callable = parse_quality == TemplateLibraryParseQuality::Exact
                 && registration.options.source_is_exact
                 && match &registration.callable {
@@ -1555,51 +1550,23 @@ fn template_library_source_analysis<'db>(
                     } => *resolution_is_exact && definition.source_is_exact(db),
                     RegistrationCallable::Unresolved(_) => false,
                 };
-            let definition = match &registration.callable {
-                RegistrationCallable::ResolvedFunction { definition, .. } => {
+            let function = match (&registration.callable, func) {
+                (RegistrationCallable::ResolvedFunction { definition, .. }, _) => {
                     Some(definition.clone())
                 }
-                RegistrationCallable::DecoratedLocal { .. } => Some(python_facts.definition(func)),
-                RegistrationCallable::Unresolved(_) => None,
-            };
-            let mut source = definition.map(|definition| TagSourceContext::new(db, definition));
-            if let Some(rule) = registration.kind.extract_tag_rule(
-                source.as_mut(),
-                func,
-                &registration.options,
-                trusted_callable,
-            ) {
-                tag_rules.insert(symbol_key.clone(), rule.into());
-            }
-            if let Some(source) = source {
-                symbols_unobserved |= source.lookup.has_recovered_source();
-                for dependency in source.lookup.consulted_files() {
-                    if !registration_dependencies.contains(dependency) {
-                        registration_dependencies.push(*dependency);
-                    }
+                (RegistrationCallable::DecoratedLocal { .. }, Some((func, _, _))) => {
+                    Some(python_facts.definition(func))
                 }
-            }
-            if let Some(block_spec) = registration
-                .kind
-                .extract_block_spec(func, &registration.options)
-            {
-                let end_tag = match block_spec.end_tag {
-                    EndTagEvidence::Literal(end_tag) => Some(end_tag),
-                    EndTagEvidence::SelfNamed => Some(format!("end{}", symbol_key.name)),
-                    EndTagEvidence::Unknown => None,
-                };
-                block_specs.insert(
-                    symbol_key.clone(),
-                    BlockSpec {
-                        end_tag,
-                        intermediates: block_spec.intermediates,
-                        body_analysis_evidence: block_spec.body_analysis_evidence,
-                    },
-                );
-            }
-            if let Some(arity) = registration.kind.extract_filter_arity(func) {
-                filter_arities.insert(symbol_key, arity);
-            }
+                (RegistrationCallable::Unresolved(_), _)
+                | (RegistrationCallable::DecoratedLocal { .. }, None) => None,
+            };
+            descriptors.push(RegistrationDescriptor {
+                key: symbol_key,
+                kind: registration.kind,
+                options: registration.options.clone(),
+                trusted_callable,
+                function,
+            });
         },
     );
 
@@ -1619,17 +1586,15 @@ fn template_library_source_analysis<'db>(
         } else {
             TemplateLibraryDefinitionState::ParsedNotLibrary { parse_quality }
         };
-    TemplateLibrarySourceAnalysis {
+    TemplateLibraryRegistrationInventory {
         definitions: TemplateLibraryDefinitionFacts {
             state,
             tags,
             filters,
         },
         symbol_sources,
-        registration_dependencies,
-        tag_rules,
-        block_specs,
-        filter_arities,
+        inventory_dependencies,
+        descriptors,
     }
 }
 
@@ -1652,6 +1617,19 @@ impl TemplateLibraryTagFacts {
     }
 }
 
+/// Independently backdatable structural analysis for one Template Library.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TemplateLibraryStructureFacts {
+    block_specs: BlockSpecs,
+}
+
+impl TemplateLibraryStructureFacts {
+    #[must_use]
+    pub fn block_specs(&self) -> &BlockSpecs {
+        &self.block_specs
+    }
+}
+
 /// Independently backdatable Filter analysis for one Template Library.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct TemplateLibraryFilterFacts {
@@ -1665,12 +1643,18 @@ impl TemplateLibraryFilterFacts {
     }
 }
 
+#[derive(Clone, Debug, Default, PartialEq, salsa::SalsaValue)]
+struct TemplateLibraryTagRuleAnalysis {
+    tag_rules: TagRuleMap,
+    dependencies: Vec<djls_source::File>,
+}
+
 #[salsa::tracked(returns(ref))]
 pub fn template_library_definition_facts<'db>(
     db: &'db dyn ProjectDb,
     key: TemplateLibraryId<'db>,
 ) -> TemplateLibraryDefinitionFacts<'db> {
-    template_library_source_analysis(db, key)
+    template_library_registration_inventory(db, key)
         .definitions
         .clone()
 }
@@ -1680,20 +1664,119 @@ fn template_library_symbol_sources<'db>(
     db: &'db dyn ProjectDb,
     key: TemplateLibraryId<'db>,
 ) -> TemplateLibrarySymbolSources {
-    template_library_source_analysis(db, key)
+    template_library_registration_inventory(db, key)
         .symbol_sources
         .clone()
 }
 
-/// Python source dependencies followed while resolving one Template Library's registrations.
+#[salsa::tracked(returns(ref))]
+fn template_library_tag_rule_analysis<'db>(
+    db: &'db dyn ProjectDb,
+    key: TemplateLibraryId<'db>,
+) -> TemplateLibraryTagRuleAnalysis {
+    let inventory = template_library_registration_inventory(db, key);
+    let mut tag_rules = TagRuleMap::default();
+    let mut dependencies = Vec::new();
+    for descriptor in &inventory.descriptors {
+        tag_rules.remove(&descriptor.key);
+        if descriptor.kind.symbol_kind() != TemplateSymbolKind::Tag {
+            continue;
+        }
+        let Some(definition) = &descriptor.function else {
+            continue;
+        };
+        let Some(func) = definition.statement(db) else {
+            continue;
+        };
+        let mut source = TagSourceContext::new(db, definition.clone());
+        if let Some(rule) = descriptor.kind.extract_tag_rule(
+            Some(&mut source),
+            func,
+            &descriptor.options,
+            descriptor.trusted_callable,
+        ) {
+            tag_rules.insert(descriptor.key.clone(), rule.into());
+        }
+        for dependency in source.lookup.consulted_files() {
+            if !dependencies.contains(dependency) {
+                dependencies.push(*dependency);
+            }
+        }
+    }
+    TemplateLibraryTagRuleAnalysis {
+        tag_rules,
+        dependencies,
+    }
+}
+
+#[salsa::tracked(returns(ref))]
+pub fn template_library_structure_facts<'db>(
+    db: &'db dyn ProjectDb,
+    key: TemplateLibraryId<'db>,
+) -> TemplateLibraryStructureFacts {
+    let inventory = template_library_registration_inventory(db, key);
+    let mut block_specs = BlockSpecs::default();
+    for descriptor in &inventory.descriptors {
+        block_specs.0.remove(&descriptor.key);
+        if descriptor.kind.symbol_kind() != TemplateSymbolKind::Tag {
+            continue;
+        }
+        let Some(func) = descriptor
+            .function
+            .as_ref()
+            .and_then(|definition| definition.statement(db))
+        else {
+            continue;
+        };
+        if let Some(block_spec) = descriptor
+            .kind
+            .extract_block_spec(func, &descriptor.options)
+        {
+            let end_tag = match block_spec.end_tag {
+                EndTagEvidence::Literal(end_tag) => Some(end_tag),
+                EndTagEvidence::SelfNamed => Some(format!("end{}", descriptor.key.name)),
+                EndTagEvidence::Unknown => None,
+            };
+            block_specs.insert(
+                descriptor.key.clone(),
+                BlockSpec {
+                    end_tag,
+                    intermediates: block_spec.intermediates,
+                    body_analysis_evidence: block_spec.body_analysis_evidence,
+                },
+            );
+        }
+    }
+    TemplateLibraryStructureFacts { block_specs }
+}
+
+/// Python source dependencies followed while discovering registrations.
+///
+/// This excludes dependencies consulted only while inferring Tag Rules. Callers that require
+/// complete detail coverage should use [`template_library_registration_dependencies`].
+#[salsa::tracked(returns(ref))]
+pub fn template_library_inventory_dependencies<'db>(
+    db: &'db dyn ProjectDb,
+    key: TemplateLibraryId<'db>,
+) -> Vec<djls_source::File> {
+    template_library_registration_inventory(db, key)
+        .inventory_dependencies
+        .clone()
+}
+
+/// Python source dependencies followed while resolving registrations and analyzing Tag Rules.
 #[salsa::tracked(returns(ref))]
 pub fn template_library_registration_dependencies<'db>(
     db: &'db dyn ProjectDb,
     key: TemplateLibraryId<'db>,
 ) -> Vec<djls_source::File> {
-    template_library_source_analysis(db, key)
-        .registration_dependencies
-        .clone()
+    let mut dependencies = template_library_inventory_dependencies(db, key).clone();
+    for dependency in &template_library_tag_rule_analysis(db, key).dependencies {
+        if !dependencies.contains(dependency) {
+            dependencies.push(*dependency);
+        }
+    }
+    dependencies
 }
 
 #[must_use]
@@ -1712,10 +1795,13 @@ pub fn template_library_tag_facts<'db>(
     db: &'db dyn ProjectDb,
     key: TemplateLibraryId<'db>,
 ) -> TemplateLibraryTagFacts {
-    let analysis = template_library_source_analysis(db, key);
     TemplateLibraryTagFacts {
-        tag_rules: analysis.tag_rules.clone(),
-        block_specs: analysis.block_specs.clone(),
+        tag_rules: template_library_tag_rule_analysis(db, key)
+            .tag_rules
+            .clone(),
+        block_specs: template_library_structure_facts(db, key)
+            .block_specs
+            .clone(),
     }
 }
 
@@ -1724,11 +1810,25 @@ pub fn template_library_filter_facts<'db>(
     db: &'db dyn ProjectDb,
     key: TemplateLibraryId<'db>,
 ) -> TemplateLibraryFilterFacts {
-    TemplateLibraryFilterFacts {
-        filter_arities: template_library_source_analysis(db, key)
-            .filter_arities
-            .clone(),
+    let inventory = template_library_registration_inventory(db, key);
+    let mut filter_arities = FilterArityMap::default();
+    for descriptor in &inventory.descriptors {
+        filter_arities.remove(&descriptor.key);
+        if descriptor.kind.symbol_kind() != TemplateSymbolKind::Filter {
+            continue;
+        }
+        let Some(func) = descriptor
+            .function
+            .as_ref()
+            .and_then(|definition| definition.statement(db))
+        else {
+            continue;
+        };
+        if let Some(arity) = descriptor.kind.extract_filter_arity(func) {
+            filter_arities.insert(descriptor.key.clone(), arity);
+        }
     }
+    TemplateLibraryFilterFacts { filter_arities }
 }
 
 #[cfg(test)]

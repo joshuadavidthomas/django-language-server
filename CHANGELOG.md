@@ -28,6 +28,8 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 ### Changed
 
 - Added an S124 hint on `{% load %}` for unreadable library registrations, with a code action that opens a prefilled issue.
+- Avoided constructing unused scalar-only collections during Django settings analysis while preserving their effects and source dependencies.
+- Deferred template-library validation details until needed while keeping registration inventory and block structure ready before requests.
 - **Internal**: Tag validation is tested against Django's own template libraries from the pinned corpus, with a fixture project comparing DJLS diagnostics against Django's compilation verdicts.
 - **Internal**: Test scenarios declare their own tag libraries and settings, either in markdown Python fences or from a typed `ProjectSettings` value.
 - **Internal**: Extraction snapshots record library symbol inventories and whether they are open, and a corpus census counts registration sites that no extracted definition matches.
@@ -49,6 +51,9 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Fixed
 
+- Fixed queued template-library re-primes incorrectly satisfying pending full project reloads.
+- Fixed the server hanging when Python document changes overlap background cache warm-up.
+- Fixed recovered helper source used only for tag-rule inference making exact Template Library inventories inconclusive.
 - Fixed relative `pythonpath` entries resolving outside the project root.
 - Fixed static Django settings evaluation of `Path.parents[index]` expressions.
 - Fixed zero-configuration Django settings discovery for standard `manage.py` projects, including `src` layouts.

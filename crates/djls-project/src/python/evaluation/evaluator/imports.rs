@@ -24,6 +24,7 @@ use super::ast;
 use crate::python::PythonIntrinsic;
 use crate::python::PythonModule;
 use crate::python::PythonModuleName;
+use crate::python::evaluation::EvaluationDemand;
 use crate::python::evaluation::PythonImportEdge;
 use crate::python::evaluation::PythonImportEvaluationStatus;
 use crate::python::evaluation::PythonSequenceAlternativeRef;
@@ -118,6 +119,7 @@ impl PythonModuleEvaluator<'_> {
                     self.project,
                     module.clone(),
                     self.state.module_effects.intrinsic_contamination().clone(),
+                    EvaluationDemand::Full,
                 ) {
                     PythonModuleEvaluation::CycleSeed => {
                         PythonBinding::unknown(&PythonUnknownCause::Cycle, origin)
@@ -979,6 +981,7 @@ impl PythonModuleEvaluator<'_> {
             self.project,
             module.clone(),
             self.state.module_effects.intrinsic_contamination().clone(),
+            EvaluationDemand::Full,
         ) {
             PythonModuleEvaluation::CycleSeed => {
                 self.state.record_component_edge(

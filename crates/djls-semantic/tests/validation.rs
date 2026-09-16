@@ -18,6 +18,8 @@ use djls_project::TemplateSymbolKind;
 use djls_project::UnreadRegistration;
 use djls_project::UnreadShape;
 use djls_project::template_library_catalog;
+use djls_project::template_library_structure_facts;
+use djls_project::template_symbol_source;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::TagArgumentKind;
 use djls_semantic::TagArgumentSyntax;
@@ -25,18 +27,25 @@ use djls_semantic::TagRole;
 use djls_semantic::TagSpec;
 use djls_semantic::TagSpecs;
 use djls_semantic::ValidationError;
+use djls_semantic::ValidationErrorAccumulator;
 use djls_semantic::builtin_tag_specs;
+use djls_semantic::effective_symbol_candidate_at;
 use djls_semantic::library_tag_specs;
 use djls_semantic::semantic_grammar_vocabulary;
 use djls_semantic::tag_spec_at;
 use djls_semantic::tag_specs_for_file;
+use djls_semantic::validate_template_file;
+use djls_source::ChangeEvent;
+use djls_source::SourceChanges;
 use djls_templates::parse_template;
 use djls_testing::OsTestDatabase;
 use djls_testing::ProjectFixture;
 use djls_testing::ProjectSettings;
+use djls_testing::SalsaEventLog;
 use djls_testing::TestDatabase;
 use djls_testing::collect_errors as collect_validation_errors;
 use djls_testing::corpus_project_database;
+use djls_testing::execution_count;
 
 fn configured_tag_specs(definitions: &[(&str, &str, TagTypeDef)]) -> TagSpecDef {
     TagSpecDef {
@@ -648,6 +657,127 @@ fn loaded_imported_signature_rebinds_after_source_invalidation() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "keep multiline Python fixtures inline"
+)]
+fn recovered_rule_helper_does_not_open_exact_registration_inventory() {
+    let mut db = TestDatabase::new();
+    let template_source = "{% load nested %}{% nested %}{% missing %}";
+    let project = ProjectFixture::new("/proj")
+        .settings(&ProjectSettings {
+            dirs: vec!["/proj/templates".to_string()],
+            libraries: BTreeMap::from([("nested".to_string(), "pkg.tags".to_string())]),
+            ..ProjectSettings::default()
+        })
+        .file("/proj/django/__init__.py", "")
+        .file("/proj/django/template/__init__.py", "")
+        .file(
+            "/proj/django/template/defaulttags.py",
+            r"from django import template
+register = template.Library()
+",
+        )
+        .file(
+            "/proj/django/template/defaultfilters.py",
+            r"from django import template
+register = template.Library()
+",
+        )
+        .file(
+            "/proj/django/template/loader_tags.py",
+            r"from django import template
+register = template.Library()
+",
+        )
+        .file("/proj/pkg/__init__.py", "")
+        .file(
+            "/proj/pkg/tags.py",
+            r"from django import template
+from .implementation import first
+register = template.Library()
+@register.tag(name='nested')
+def compile_tag(parser, token):
+    bits = first(token)
+    if len(bits) != 2:
+        raise template.TemplateSyntaxError('wrong count')
+    return template.Node()
+",
+        )
+        .file(
+            "/proj/pkg/implementation.py",
+            r"from .helper import second
+def first(token):
+    return second(token)
+",
+        )
+        .file(
+            "/proj/pkg/helper.py",
+            r"def second(token):
+    return token.split_contents()[1:]
+def broken(
+",
+        )
+        .file("/proj/templates/page.html", template_source)
+        .build(&db)
+        .expect("recovered rule-helper fixture should build");
+    db.set_project(project);
+
+    let scoped =
+        ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project));
+    let library = scoped
+        .resolved_libraries()
+        .into_iter()
+        .find(|library| library.module_name_str() == "pkg.tags")
+        .expect("configured Template Library should resolve");
+    assert!(!library.symbols_are_unobserved());
+    let symbol = library
+        .symbol(TemplateSymbolKind::Tag, "nested")
+        .expect("exact registered name should remain indexed");
+    assert!(template_symbol_source(&db, symbol).is_some());
+
+    let template_file = djls_source::path_to_file(&db, Utf8Path::new("/proj/templates/page.html"))
+        .expect("template fixture should exist");
+    let nodelist = parse_template(&db, template_file).expect("template fixture should parse");
+    let nested_position = u32::try_from(
+        template_source
+            .rfind("nested")
+            .expect("template fixture should contain the nested Tag occurrence"),
+    )
+    .expect("nested Tag offset should fit in u32");
+    let candidate = effective_symbol_candidate_at(
+        &db,
+        template_file,
+        nodelist,
+        nested_position,
+        "nested",
+        TemplateSymbolKind::Tag,
+    )
+    .expect("loaded nested Tag should resolve definitively");
+    assert_eq!(candidate.symbol.name(), "nested");
+    assert_eq!(
+        candidate.symbol.definition,
+        SymbolDefinition::Exact {
+            library: library.id()
+        }
+    );
+
+    let errors = collect_file_errors(&db, "/proj/templates/page.html")
+        .expect("recovered rule-helper template should validate");
+    assert!(!errors.iter().any(|error| matches!(
+        error,
+        ValidationError::UnknownTag { tag, .. } | ValidationError::UnloadedTag { tag, .. }
+            if tag == "nested"
+    )));
+    assert!(
+        errors.iter().any(
+            |error| matches!(error, ValidationError::UnknownTag { tag, .. } if tag == "missing")
+        ),
+        "missing Tag should be definitive: {errors:?}"
+    );
+}
+
+#[test]
 fn semantic_grammar_vocabulary_indexes_definition_identities_and_openness() {
     let (db, project, _) = validation_project_database("grammar-vocabulary")
         .expect("project fixture should install into the test database");
@@ -668,6 +798,199 @@ fn semantic_grammar_vocabulary_indexes_definition_identities_and_openness() {
             .intermediate_candidates("else")
             .contains(if_definition)
     );
+}
+
+fn ambiguous_topology_fixture(
+    with_rule: bool,
+    configured_end: &serde_json::Value,
+) -> Result<(TestDatabase, Project), Box<dyn std::error::Error>> {
+    let mut db = TestDatabase::new();
+    let rule = if with_rule {
+        r"    bits = token.split_contents()
+    if len(bits) != 2: raise template.TemplateSyntaxError('count')
+"
+    } else {
+        ""
+    };
+    let source = format!(
+        r"from django import template
+register = template.Library()
+@register.tag(name='if')
+def custom_if(parser, token):
+{rule}    if condition:
+        parser.skip_past('endother')
+    else:
+        body = parser.parse(('otherwise', 'endcustom'))
+        if parser.next_token().contents == 'otherwise':
+            alternate = parser.parse(('endcustom',))
+    return template.Node()
+"
+    );
+    let tag_specs: TagSpecDef = serde_json::from_value(serde_json::json!({
+        "libraries": [{
+            "module": "custom_tags",
+            "tags": [{
+                "name": "if",
+                "type": "block",
+                "end": configured_end.clone(),
+                "intermediates": [{"name": "configured_middle"}]
+            }]
+        }]
+    }))?;
+    let project = ProjectFixture::new("/proj")
+        .tag_specs(tag_specs)
+        .settings(&ProjectSettings {
+            builtins: vec!["custom_tags".to_string()],
+            ..ProjectSettings::default()
+        })
+        .file("/proj/custom_tags.py", &source)
+        .install(&mut db)?;
+    Ok((db, project))
+}
+
+#[test]
+fn ambiguous_custom_builtin_topology_uses_full_merge_only_for_the_narrow_fallback() {
+    let (with_rule, project) = ambiguous_topology_fixture(
+        true,
+        &serde_json::json!({"name": "configured_end", "required": false}),
+    )
+    .expect("ambiguous topology fixture should install");
+    let vocabulary = semantic_grammar_vocabulary(&with_rule, project);
+    let opener = vocabulary
+        .closer_candidates("configured_end")
+        .iter()
+        .find(|candidate| candidate.name() == "if")
+        .expect("configured optional closer should be indexed");
+    assert!(
+        vocabulary
+            .intermediate_candidates("configured_middle")
+            .contains(opener),
+        "a Tag Rule pre-entry must preserve configured intermediates after unknown BlockSpec evidence"
+    );
+    assert!(vocabulary.intermediate_candidates("otherwise").is_empty());
+    let library = ScopedTemplateLibraries::from_project_inventory(template_library_catalog(
+        &with_rule, project,
+    ))
+    .resolved_libraries()
+    .into_iter()
+    .find(|library| library.module_name_str() == "custom_tags")
+    .expect("custom builtin should resolve");
+    let block_specs_with_rule = template_library_structure_facts(&with_rule, library.id())
+        .block_specs()
+        .clone();
+    let full = library_tag_specs(&with_rule, project, library.id())
+        .get("if")
+        .expect("full custom if spec should exist");
+    assert_eq!(full.end_tag.as_ref().map(|end| end.required), Some(false));
+
+    let (without_rule, project) = ambiguous_topology_fixture(
+        false,
+        &serde_json::json!({"name": "configured_end", "required": false}),
+    )
+    .expect("ambiguous topology fixture without a rule should install");
+    let vocabulary = semantic_grammar_vocabulary(&without_rule, project);
+    assert!(
+        vocabulary
+            .closer_candidates("configured_end")
+            .iter()
+            .any(|candidate| candidate.name() == "if"),
+        "configured closer should remain indexed without a Tag Rule"
+    );
+    assert!(
+        vocabulary
+            .intermediate_candidates("otherwise")
+            .iter()
+            .any(|candidate| candidate.name() == "if"),
+        "without a Tag Rule pre-entry the extracted intermediate remains effective"
+    );
+    assert!(
+        vocabulary
+            .intermediate_candidates("configured_middle")
+            .is_empty()
+    );
+    let library = ScopedTemplateLibraries::from_project_inventory(template_library_catalog(
+        &without_rule,
+        project,
+    ))
+    .resolved_libraries()
+    .into_iter()
+    .find(|library| library.module_name_str() == "custom_tags")
+    .expect("custom builtin without a rule should resolve");
+    assert_eq!(
+        template_library_structure_facts(&without_rule, library.id()).block_specs(),
+        &block_specs_with_rule,
+        "the topology difference must come from Tag Rule merge order, not changed Block Specs"
+    );
+
+    let (implicit, project) = ambiguous_topology_fixture(true, &serde_json::Value::Null)
+        .expect("implicit closer topology fixture should install");
+    assert!(
+        semantic_grammar_vocabulary(&implicit, project)
+            .closer_candidates("endif")
+            .iter()
+            .any(|candidate| candidate.name() == "if"),
+        "an implicit configured block closer should trigger the same narrow fallback"
+    );
+}
+
+#[test]
+fn filter_validation_is_the_lazy_arity_boundary_and_recomputes_after_source_edits() {
+    let events = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(events.clone());
+    ProjectFixture::new("/proj")
+        .settings(&ProjectSettings {
+            builtins: vec!["filters".to_string()],
+            ..ProjectSettings::default()
+        })
+        .file(
+            "/proj/filters.py",
+            r"from django import template
+register = template.Library()
+@register.filter
+def selected(value, argument): pass
+",
+        )
+        .file("/proj/page.html", "{{ value|selected }}")
+        .install(&mut db)
+        .expect("Filter validation fixture should install");
+    let file = db
+        .file(Utf8Path::new("/proj/page.html"))
+        .expect("Filter validation Template should exist");
+    events.take().expect("fixture setup events should clear");
+
+    validate_template_file(&db, file);
+    let errors = validate_template_file::accumulated::<ValidationErrorAccumulator>(&db, file);
+    assert!(errors.iter().any(|error| matches!(
+        &error.0,
+        ValidationError::FilterMissingArgument { filter, .. } if filter == "selected"
+    )));
+    let names = events
+        .take_will_execute_names(&db)
+        .expect("first Filter validation events should be readable");
+    assert_eq!(execution_count(&names, "scoped_filter_facts"), 1);
+    assert_eq!(execution_count(&names, "template_library_filter_facts"), 1);
+
+    db.add_file(
+        "/proj/filters.py",
+        r"from django import template
+register = template.Library()
+@register.filter
+def selected(value, argument=None): pass
+",
+    )
+    .expect("Filter source should update");
+    SourceChanges::new([ChangeEvent::ContentChanged("/proj/filters.py".into())]).apply(&mut db);
+    validate_template_file(&db, file);
+    let errors = validate_template_file::accumulated::<ValidationErrorAccumulator>(&db, file);
+    assert!(
+        errors.is_empty(),
+        "optional Filter argument should validate"
+    );
+    let names = events
+        .take_will_execute_names(&db)
+        .expect("updated Filter validation events should be readable");
+    assert_eq!(execution_count(&names, "scoped_filter_facts"), 1);
+    assert_eq!(execution_count(&names, "template_library_filter_facts"), 1);
 }
 
 #[test]
