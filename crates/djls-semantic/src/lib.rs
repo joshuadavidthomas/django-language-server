@@ -82,7 +82,7 @@ pub use tags::TagSpecs;
 pub use tags::builtin_tag_specs;
 pub use tags::library_tag_specs;
 pub use tags::tag_spec_at;
-pub use tags::tag_specs_at;
+pub use tags::tag_specs_at_prefix;
 pub use tags::tag_specs_for_file;
 
 use crate::scoping::template_analysis_projection_for_file;

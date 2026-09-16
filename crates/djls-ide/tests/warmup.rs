@@ -5,6 +5,8 @@ use djls_ide::warm_cache_phases;
 use djls_project::Db as _;
 use djls_project::run_django_discovery;
 use djls_project::template_resolution;
+use djls_source::ChangeEvent;
+use djls_source::SourceChanges;
 use djls_testing::ProjectFixture;
 use djls_testing::SalsaEventLog;
 use djls_testing::TestDatabase;
@@ -58,15 +60,15 @@ fn final_state_matrix_01_04_shared_prime_is_exact_and_has_no_template_work() {
         .take_will_execute_names(&db)
         .expect("warmup Salsa events should be read");
     assert_eq!(
-        execution_count(&names, "library_tag_specs"),
-        primed.library_count()
-    );
-    assert_eq!(
-        execution_count(&names, "library_filter_specs"),
+        execution_count(&names, "template_library_structure_facts"),
         primed.library_count()
     );
     assert_eq!(execution_count(&names, "semantic_grammar_vocabulary"), 1);
     for forbidden in [
+        "template_library_tag_rule_analysis",
+        "template_library_filter_facts",
+        "library_tag_specs",
+        "library_filter_specs",
         "parse_template",
         "template_analysis_projection_for_file_in_scope",
         "validate_template_file",
@@ -85,6 +87,9 @@ fn final_state_matrix_01_04_shared_prime_is_exact_and_has_no_template_work() {
         .expect("repeated warmup Salsa events should be read");
     for intrinsic in [
         "template_library_definition_facts",
+        "template_library_structure_facts",
+        "template_library_inventory_dependencies",
+        "library_tag_structure_specs",
         "library_tag_specs",
         "library_filter_specs",
         "semantic_grammar_vocabulary",
@@ -93,6 +98,122 @@ fn final_state_matrix_01_04_shared_prime_is_exact_and_has_no_template_work() {
             execution_count(&names, intrinsic),
             0,
             "repeated prime ran {intrinsic}"
+        );
+    }
+}
+
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "keep multiline Python fixtures inline"
+)]
+fn priming_many_custom_libraries_and_rule_helper_edits_keep_details_cold() {
+    let events = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(events.clone());
+    ProjectFixture::new("/project")
+        .django_settings_module("settings")
+        .file(
+            "/project/settings.py",
+            r"INSTALLED_APPS = []
+TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'libraries': {'alpha': 'alpha_tags', 'beta': 'beta_tags', 'gamma': 'gamma_tags'}, 'builtins': []}}]
+",
+        )
+        .file(
+            "/project/alpha_tags.py",
+            r"from django import template
+from helper import bits
+register = template.Library()
+@register.tag(name='alpha')
+def alpha(parser, token):
+    parts = bits(token)
+    if len(parts) != 2: raise template.TemplateSyntaxError('count')
+    return template.Node()
+@register.filter
+def alpha_filter(value): pass
+",
+        )
+        .file(
+            "/project/beta_tags.py",
+            r"from django import template
+register = template.Library()
+@register.simple_tag
+def beta(value): pass
+@register.filter
+def beta_filter(value): pass
+",
+        )
+        .file(
+            "/project/gamma_tags.py",
+            r"from django import template
+register = template.Library()
+@register.simple_tag
+def gamma(value): pass
+@register.filter
+def gamma_filter(value): pass
+",
+        )
+        .file(
+            "/project/helper.py",
+            r"def bits(token):
+    return token.split_contents()[1:]
+",
+        )
+        .install(&mut db)
+        .expect("multi-library warmup fixture should install");
+    events.take().expect("fixture setup events should clear");
+
+    let primed = prime_template_library_products(&db).expect("fixture has a Project");
+    assert_eq!(primed.library_count(), 6);
+    assert!(
+        primed
+            .covered_files()
+            .all(|file| file.path(&db) != Utf8Path::new("/project/helper.py")),
+        "a dependency used only for Tag Rule inference must not be eager coverage"
+    );
+    let names = events
+        .take_will_execute_names(&db)
+        .expect("first prime events should be readable");
+    assert_eq!(
+        execution_count(&names, "template_library_structure_facts"),
+        primed.library_count(),
+        "{names:?}"
+    );
+    for detail in [
+        "template_library_tag_rule_analysis",
+        "template_library_filter_facts",
+        "library_tag_specs",
+        "library_filter_specs",
+    ] {
+        assert_eq!(
+            execution_count(&names, detail),
+            0,
+            "prime executed {detail}"
+        );
+    }
+
+    db.add_file(
+        "/project/helper.py",
+        r"def bits(token):
+    return token.split_contents()[2:]
+",
+    )
+    .expect("rule helper should change");
+    SourceChanges::new([ChangeEvent::ContentChanged("/project/helper.py".into())]).apply(&mut db);
+    let repeated = prime_template_library_products(&db).expect("fixture has a Project");
+    assert_eq!(repeated, primed);
+    let names = events
+        .take_will_execute_names(&db)
+        .expect("helper-edit prime events should be readable");
+    for detail in [
+        "template_library_tag_rule_analysis",
+        "template_library_filter_facts",
+        "library_tag_specs",
+        "library_filter_specs",
+    ] {
+        assert_eq!(
+            execution_count(&names, detail),
+            0,
+            "rule-helper-only edit caused prime to execute {detail}"
         );
     }
 }

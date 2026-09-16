@@ -104,13 +104,6 @@ struct ContextualTagFact {
     unknown_load_can_shadow: bool,
 }
 
-#[derive(Clone, Debug, PartialEq)]
-struct ContextualFilterFact {
-    availability: SymbolAvailability,
-    arity: Option<FilterArity>,
-    unknown_load_can_shadow: bool,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct UnreadableLibraryFact {
     pub(crate) registration_file: File,
@@ -165,17 +158,17 @@ impl ScopedFilterFacts {
     }
 }
 
-/// One correlated, converged semantic product for a source under an effective scope.
+/// Correlated, converged structure and Tag meaning for a source under an effective scope.
+/// Filter occurrence facts are a lazy projection over this result.
 #[salsa::tracked]
 pub(crate) struct TemplateAnalysisProjection<'db> {
+    #[returns(copy)]
+    pub(crate) scope_file: File,
     #[returns(ref)]
     pub(crate) loaded_libraries: LoadedLibraries,
     #[tracked]
     #[returns(ref)]
     pub(crate) scoped_tag_facts: ScopedTagFacts,
-    #[tracked]
-    #[returns(ref)]
-    pub(crate) scoped_filter_facts: ScopedFilterFacts,
     #[tracked]
     #[returns(ref)]
     pub(crate) captured_closers: Vec<CapturedClosingTag>,
@@ -244,149 +237,92 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
         }
 
         let mut tag_facts = BTreeMap::new();
-        let mut filter_facts = BTreeMap::new();
         let mut tag_context_cache = ContextualFactCache::default();
-        let mut filter_context_cache = ContextualFactCache::default();
         let mut load_cursor = loaded.cursor();
         for node in &active_nodes {
-            match node {
-                ActiveTemplateNode::Tag(tag) => {
-                    let Some(grammar_fact) = grammar.for_name_span(tag.name_span) else {
-                        continue;
-                    };
-                    let spec = occurrence_spec(&grammar, *tag);
-                    let load_state = load_cursor.advance_to(tag.span.start());
-                    let contextual_fact =
-                        tag_context_cache.resolve(load_state, tag.tag, || ContextualTagFact {
-                            availability: if project.is_none() {
-                                if grammar_fact.spec.is_some() {
-                                    SymbolAvailability::Available
-                                } else {
-                                    SymbolAvailability::Unknown
-                                }
-                            } else {
-                                resolve_occurrence_availability(
-                                    scoped_libraries,
-                                    &load_state,
-                                    tag.tag,
-                                    TemplateSymbolKind::Tag,
-                                )
-                            },
-                            unknown_load_can_shadow: load_state.unknown_load_can_shadow_symbol(
-                                tag.tag,
-                                TemplateSymbolKind::Tag,
-                                scoped_libraries,
-                            ),
-                        });
-                    let loader_arguments = if spec.and_then(TagSpec::role)
-                        == Some(TagRole::TemplateLibraryLoader)
-                    {
-                        LoadKind::from_loader_bits(tag.bits).map_or_else(Vec::new, |kind| {
-                            kind.into_library_arguments()
-                                .into_iter()
-                                .filter_map(|argument| {
-                                    let name = LibraryName::parse(argument.as_str()).ok()?;
-                                    let unreadable = scoped_libraries
-                                        .loadable_library(&name)
-                                        .found()
-                                        .and_then(|library| {
-                                            let registration_file = library.source_file()?;
-                                            let unread =
-                                                template_library_definition_facts(db, library.id())
-                                                    .unread_registrations();
-                                            (!unread.is_empty()).then(|| UnreadableLibraryFact {
-                                                registration_file,
-                                                unread: unread.to_vec(),
-                                            })
-                                        });
-                                    Some(LoaderArgumentFact {
-                                        availability: scoped_libraries.missing_library(&name),
-                                        argument,
-                                        unreadable,
-                                    })
-                                })
-                                .collect()
-                        })
+            let ActiveTemplateNode::Tag(tag) = node else {
+                continue;
+            };
+            let Some(grammar_fact) = grammar.for_name_span(tag.name_span) else {
+                continue;
+            };
+            let spec = occurrence_spec(&grammar, *tag);
+            let load_state = load_cursor.advance_to(tag.span.start());
+            let contextual_fact =
+                tag_context_cache.resolve(load_state, tag.tag, || ContextualTagFact {
+                    availability: if project.is_none() {
+                        if grammar_fact.spec.is_some() {
+                            SymbolAvailability::Available
+                        } else {
+                            SymbolAvailability::Unknown
+                        }
                     } else {
-                        Vec::new()
-                    };
-                    tag_facts.insert(
-                        TagOccurrenceKey::from_name_span(tag.name_span),
-                        ScopedTagFact {
-                            spec: spec.cloned(),
-                            structure_accepts_spelling: matches!(
-                                tag.structural_meaning,
-                                StructuralOccurrenceMeaning::CapturedIntermediate
-                                    | StructuralOccurrenceMeaning::CapturedCloser
-                            ) || (matches!(
-                                grammar_fact.classification,
-                                TagClassification::Inconclusive
-                            ) && !matches!(
-                                // An open grammar does not waive a proven load requirement.
-                                contextual_fact.availability,
-                                SymbolAvailability::Unloaded { .. }
-                                    | SymbolAvailability::AmbiguousUnloaded { .. }
-                            )),
-                            availability: contextual_fact.availability,
-                            unknown_load_can_shadow: contextual_fact.unknown_load_can_shadow,
-                            loader_arguments,
-                        },
-                    );
-                }
-                ActiveTemplateNode::Variable(variable) => {
-                    let load_state = load_cursor.advance_to(variable.span.start());
-                    for filter in variable.filters {
-                        let contextual_fact =
-                            filter_context_cache.resolve(load_state, &filter.name, || {
-                                let (availability, arity) = if project.is_none() {
-                                    let arity = db
-                                        .projectless_filter_arity_specs()
-                                        .get(&filter.name)
-                                        .copied();
-                                    let availability = if arity.is_some() {
-                                        SymbolAvailability::Available
-                                    } else {
-                                        SymbolAvailability::Unknown
-                                    };
-                                    (availability, arity)
-                                } else {
-                                    (
-                                        resolve_occurrence_availability(
-                                            scoped_libraries,
-                                            &load_state,
-                                            &filter.name,
-                                            TemplateSymbolKind::Filter,
-                                        ),
-                                        effective_filter_arity_in_scope(
-                                            db,
-                                            scoped_libraries,
-                                            &filter.name,
-                                            &load_state,
-                                        ),
-                                    )
-                                };
-                                ContextualFilterFact {
-                                    availability,
-                                    arity,
-                                    unknown_load_can_shadow: load_state
-                                        .unknown_load_can_shadow_symbol(
-                                            &filter.name,
-                                            TemplateSymbolKind::Filter,
-                                            scoped_libraries,
-                                        ),
-                                }
-                            });
-                        filter_facts.insert(
-                            FilterOccurrenceKey::from_filter(filter),
-                            ScopedFilterFact {
-                                availability: contextual_fact.availability,
-                                arity: contextual_fact.arity,
-                                unknown_load_can_shadow: contextual_fact.unknown_load_can_shadow,
-                            },
-                        );
-                    }
-                }
-            }
+                        resolve_occurrence_availability(
+                            scoped_libraries,
+                            &load_state,
+                            tag.tag,
+                            TemplateSymbolKind::Tag,
+                        )
+                    },
+                    unknown_load_can_shadow: load_state.unknown_load_can_shadow_symbol(
+                        tag.tag,
+                        TemplateSymbolKind::Tag,
+                        scoped_libraries,
+                    ),
+                });
+            let loader_arguments =
+                if spec.and_then(TagSpec::role) == Some(TagRole::TemplateLibraryLoader) {
+                    LoadKind::from_loader_bits(tag.bits).map_or_else(Vec::new, |kind| {
+                        kind.into_library_arguments()
+                            .into_iter()
+                            .filter_map(|argument| {
+                                let name = LibraryName::parse(argument.as_str()).ok()?;
+                                let unreadable = scoped_libraries
+                                    .loadable_library(&name)
+                                    .found()
+                                    .and_then(|library| {
+                                        let registration_file = library.source_file()?;
+                                        let unread =
+                                            template_library_definition_facts(db, library.id())
+                                                .unread_registrations();
+                                        (!unread.is_empty()).then(|| UnreadableLibraryFact {
+                                            registration_file,
+                                            unread: unread.to_vec(),
+                                        })
+                                    });
+                                Some(LoaderArgumentFact {
+                                    availability: scoped_libraries.missing_library(&name),
+                                    argument,
+                                    unreadable,
+                                })
+                            })
+                            .collect()
+                    })
+                } else {
+                    Vec::new()
+                };
+            tag_facts.insert(
+                TagOccurrenceKey::from_name_span(tag.name_span),
+                ScopedTagFact {
+                    spec: spec.cloned(),
+                    structure_accepts_spelling: matches!(
+                        tag.structural_meaning,
+                        StructuralOccurrenceMeaning::CapturedIntermediate
+                            | StructuralOccurrenceMeaning::CapturedCloser
+                    ) || (matches!(
+                        grammar_fact.classification,
+                        TagClassification::Inconclusive
+                    ) && !matches!(
+                        // An open grammar does not waive a proven load requirement.
+                        contextual_fact.availability,
+                        SymbolAvailability::Unloaded { .. }
+                            | SymbolAvailability::AmbiguousUnloaded { .. }
+                    )),
+                    availability: contextual_fact.availability,
+                    unknown_load_can_shadow: contextual_fact.unknown_load_can_shadow,
+                    loader_arguments,
+                },
+            );
         }
 
         for error in &tree_data.diagnostics {
@@ -396,14 +332,84 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
         let tree = tree_data.into_tree(db);
         return TemplateAnalysisProjection::new(
             db,
+            scope_file,
             loaded,
             ScopedTagFacts(tag_facts),
-            ScopedFilterFacts(filter_facts),
             captured_closers,
             tree,
         );
     }
     panic!("template load discovery did not converge within the number of template tags")
+}
+
+/// Occurrence-specific Filter facts are independent of structural/load convergence and are
+/// evaluated only by consumers that need Filter diagnostics or arity.
+#[salsa::tracked(returns(ref))]
+pub(crate) fn scoped_filter_facts<'db>(
+    db: &'db dyn Db,
+    projection: TemplateAnalysisProjection<'db>,
+) -> ScopedFilterFacts {
+    let project = db.project();
+    let scoped_libraries = scoped_template_libraries_for_file(db, projection.scope_file(db));
+    let tree = projection.tree(db);
+    let mut variables = active_template_nodes(tree.regions(db), tree.root(db))
+        .into_iter()
+        .filter_map(|node| match node {
+            ActiveTemplateNode::Variable(variable) => Some(variable),
+            ActiveTemplateNode::Tag(_) => None,
+        })
+        .collect::<Vec<_>>();
+    variables.sort_by_key(|variable| variable.span.start());
+
+    let mut facts = BTreeMap::new();
+    let mut context_cache = ContextualFactCache::default();
+    let loaded = projection.loaded_libraries(db);
+    let mut load_cursor = loaded.cursor();
+    for variable in variables {
+        let load_state = load_cursor.advance_to(variable.span.start());
+        for filter in variable.filters {
+            let fact = context_cache.resolve(load_state, &filter.name, || {
+                let (availability, arity) = if project.is_none() {
+                    let arity = db
+                        .projectless_filter_arity_specs()
+                        .get(&filter.name)
+                        .copied();
+                    let availability = if arity.is_some() {
+                        SymbolAvailability::Available
+                    } else {
+                        SymbolAvailability::Unknown
+                    };
+                    (availability, arity)
+                } else {
+                    (
+                        resolve_occurrence_availability(
+                            scoped_libraries,
+                            &load_state,
+                            &filter.name,
+                            TemplateSymbolKind::Filter,
+                        ),
+                        effective_filter_arity_in_scope(
+                            db,
+                            scoped_libraries,
+                            &filter.name,
+                            &load_state,
+                        ),
+                    )
+                };
+                ScopedFilterFact {
+                    availability,
+                    arity,
+                    unknown_load_can_shadow: load_state.unknown_load_can_shadow_symbol(
+                        &filter.name,
+                        TemplateSymbolKind::Filter,
+                        scoped_libraries,
+                    ),
+                }
+            });
+            facts.insert(FilterOccurrenceKey::from_filter(filter), fact);
+        }
+    }
+    ScopedFilterFacts(facts)
 }
 
 fn occurrence_spec<'a>(

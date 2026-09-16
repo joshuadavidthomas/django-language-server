@@ -498,11 +498,7 @@ mod invalidation_tests {
         }));
         let prime_events = event_log.take();
         assert_eq!(
-            will_execute_count(&db, &prime_events, "library_tag_specs"),
-            3
-        );
-        assert_eq!(
-            will_execute_count(&db, &prime_events, "library_filter_specs"),
+            will_execute_count(&db, &prime_events, "template_library_structure_facts"),
             3
         );
         assert_eq!(
@@ -510,6 +506,10 @@ mod invalidation_tests {
             1
         );
         for forbidden in [
+            "template_library_tag_rule_analysis",
+            "template_library_filter_facts",
+            "library_tag_specs",
+            "library_filter_specs",
             "parse_template",
             "template_analysis_projection_for_file_in_scope",
             "validate_template_file",
@@ -531,13 +531,17 @@ mod invalidation_tests {
             1,
             "one scoped Template Library view should be computed for the whole file",
         );
+        assert_eq!(
+            will_execute_count(&db, &first_request, "library_tag_specs"),
+            1,
+            "the first actual Tag occurrence should demand only its matching library detail",
+        );
         for intrinsic in [
             "template_library_definition_facts",
-            "library_tag_specs",
             "library_filter_specs",
             "semantic_grammar_vocabulary",
             "tag_specs_for_file",
-            "tag_specs_at",
+            "tag_specs_at_prefix",
         ] {
             assert_eq!(will_execute_count(&db, &first_request, intrinsic), 0);
         }
@@ -611,7 +615,6 @@ mod invalidation_tests {
         );
         for intrinsic in [
             "template_library_definition_facts",
-            "library_tag_specs",
             "library_filter_specs",
             "semantic_grammar_vocabulary",
         ] {
@@ -763,18 +766,21 @@ mod invalidation_tests {
             (
                 "{% load missing %}\n{% block content %}{{ one }}{% endblock %}",
                 Some("S120"),
+                0,
             ),
             (
                 "{% extends \"base.html\" %}\n{% block sidebar %}{{ one }}{% endblock %}",
                 None,
+                0,
             ),
             (
                 "{% extends \"base.html\" %}\n{% block content %}{{ one|missing }}{% endblock %}",
                 None,
+                1,
             ),
         ];
 
-        for (source, expected_code) in cases {
+        for (source, expected_code, expected_filter_detail) in cases {
             fs.lock()
                 .expect("test mutex should not be poisoned")
                 .add_file(child_path.clone(), source.to_string());
@@ -803,13 +809,15 @@ mod invalidation_tests {
                 will_execute_count(&db, &events, "validate_template_file"),
                 1
             );
-            for intrinsic in [
-                "template_library_definition_facts",
-                "library_tag_specs",
-                "library_filter_specs",
-            ] {
-                assert_eq!(will_execute_count(&db, &events, intrinsic), 0);
-            }
+            assert_eq!(
+                will_execute_count(&db, &events, "template_library_definition_facts"),
+                0
+            );
+            assert_eq!(
+                will_execute_count(&db, &events, "library_filter_specs"),
+                expected_filter_detail,
+                "actual Filter occurrences should demand detail only when present: {source}"
+            );
         }
     }
 
@@ -2031,8 +2039,8 @@ env_file = ".env.local"
             will_execute_count(&db, &events, "template_library_catalog"),
             0
         );
-        assert_eq!(will_execute_count(&db, &events, "library_tag_specs"), 0);
-        assert_eq!(will_execute_count(&db, &events, "library_filter_specs"), 1);
+        assert_eq!(will_execute_count(&db, &events, "library_tag_specs"), 2);
+        assert_eq!(will_execute_count(&db, &events, "library_filter_specs"), 2);
 
         fs.lock()
             .expect("test mutex should not be poisoned")

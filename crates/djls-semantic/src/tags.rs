@@ -9,6 +9,7 @@ use djls_project::TemplateLibraryChainStep;
 use djls_project::TemplateLibraryId;
 use djls_project::TemplateSymbolKind;
 use djls_project::scoped_template_libraries;
+use djls_project::template_library_structure_facts;
 use djls_project::template_library_tag_facts;
 use djls_source::File;
 use djls_source::Offset;
@@ -60,6 +61,12 @@ impl LibraryTagSpecs {
     }
 }
 
+fn module_builtin_tag_specs(db: &dyn Db, key: TemplateLibraryId<'_>) -> TagSpecs {
+    let mut specs = builtin_tag_specs();
+    specs.retain(|_, spec| spec.module() == key.module(db).as_str());
+    specs
+}
+
 /// Fuse builtin/manual fallback meaning with one library's extracted Tag facts.
 #[salsa::tracked(returns(ref))]
 #[allow(clippy::needless_pass_by_value)]
@@ -68,8 +75,7 @@ pub fn library_tag_specs<'db>(
     project: Project,
     key: TemplateLibraryId<'db>,
 ) -> LibraryTagSpecs {
-    let mut specs = builtin_tag_specs();
-    specs.retain(|_, spec| spec.module() == key.module(db).as_str());
+    let mut specs = module_builtin_tag_specs(db, key);
 
     let facts = template_library_tag_facts(db, key);
     if !facts.tag_rules().is_empty() {
@@ -80,6 +86,42 @@ pub fn library_tag_specs<'db>(
     }
 
     specs.merge_fallback(configured_library_tag_specs(db, project, key).clone());
+    LibraryTagSpecs(specs)
+}
+
+/// Structural Tag meaning needed before occurrence-specific detail is demanded.
+///
+/// Most libraries can derive topology from builtins, Block Specs, and configured fallback without
+/// evaluating Tag Rules. The exceptional merge shape below uses the full product because a Tag
+/// Rule pre-entry changes how an unknown extracted closer combines with configured structure.
+#[salsa::tracked(returns(ref))]
+pub(crate) fn library_tag_structure_specs<'db>(
+    db: &'db dyn Db,
+    project: Project,
+    key: TemplateLibraryId<'db>,
+) -> LibraryTagSpecs {
+    let mut specs = module_builtin_tag_specs(db, key);
+    let structure = template_library_structure_facts(db, key);
+    let configured = configured_library_tag_specs(db, project, key);
+    let requires_full_merge = structure
+        .block_specs()
+        .as_map()
+        .iter()
+        .any(|(symbol, block)| {
+            symbol.kind == TemplateSymbolKind::Tag
+                && !specs.contains_key(&symbol.name)
+                && block.end_tag.is_none()
+                && !block.intermediates.is_empty()
+                && configured
+                    .get(&symbol.name)
+                    .is_some_and(|spec| spec.end_tag.is_some())
+        });
+    if requires_full_merge {
+        return library_tag_specs(db, project, key).clone();
+    }
+
+    specs.merge_block_specs(structure.block_specs());
+    specs.merge_fallback(configured.clone());
     LibraryTagSpecs(specs)
 }
 
@@ -100,6 +142,26 @@ fn configured_library_tag_specs<'db>(
             specs.merge(configured);
             specs
         })
+}
+
+#[salsa::tracked(returns(ref))]
+fn library_fallback_tag_names<'db>(
+    db: &'db dyn Db,
+    project: Project,
+    key: TemplateLibraryId<'db>,
+) -> Vec<String> {
+    let mut names = module_builtin_tag_specs(db, key)
+        .keys()
+        .cloned()
+        .collect::<Vec<_>>();
+    names.extend(
+        configured_library_tag_specs(db, project, key)
+            .keys()
+            .cloned(),
+    );
+    names.sort();
+    names.dedup();
+    names
 }
 
 /// Return the effective tag spec at one occurrence, but only when every feasible backend agrees.
@@ -155,11 +217,12 @@ pub(crate) fn effective_tag_spec_in_scope(
                 alternative.unknown = true;
                 return;
             };
-            if let Some(spec) = library_tag_specs(db, project, library.id()).get(name) {
-                alternative.effective = Some(spec);
-                alternative.unknown = false;
-            } else if library.symbol(TemplateSymbolKind::Tag, name).is_some() {
-                alternative.effective = None;
+            let has_definition = library.symbol(TemplateSymbolKind::Tag, name).is_some();
+            let has_fallback = library_fallback_tag_names(db, project, library.id())
+                .binary_search_by(|candidate| candidate.as_str().cmp(name))
+                .is_ok();
+            if has_definition || has_fallback {
+                alternative.effective = library_tag_specs(db, project, library.id()).get(name);
                 alternative.unknown = false;
             } else if library.symbols_are_unobserved()
                 && !hardcoded_tag_inventory_is_complete(library.module_name_str())
@@ -190,7 +253,7 @@ pub(crate) fn effective_tag_spec_in_scope(
 #[salsa::tracked(returns(ref))]
 pub fn tag_specs_for_file(db: &dyn Db, file: File) -> TagSpecs {
     let empty = LoadedLibraries::default();
-    completion_tag_specs_for_load_state(db, file, &empty.available_at(0))
+    completion_tag_specs_for_load_state(db, file, &empty.available_at(0), "")
 }
 
 /// Return the converged spec for the active tag occurrence at `position`.
@@ -241,13 +304,22 @@ pub fn tag_spec_at(
     )
 }
 
+/// Return completion Tag specs after narrowing candidate opener and closer spellings by prefix.
 #[salsa::tracked(returns(ref))]
-pub fn tag_specs_at(db: &dyn Db, file: File, nodelist: NodeList<'_>, position: u32) -> TagSpecs {
+#[allow(clippy::needless_pass_by_value)]
+pub fn tag_specs_at_prefix(
+    db: &dyn Db,
+    file: File,
+    nodelist: NodeList<'_>,
+    position: u32,
+    prefix: String,
+) -> TagSpecs {
     let projection = template_analysis_projection_for_file(db, file, nodelist);
     completion_tag_specs_for_load_state(
         db,
         file,
         &projection.loaded_libraries(db).available_at(position),
+        &prefix,
     )
 }
 
@@ -255,11 +327,27 @@ fn completion_tag_specs_for_load_state(
     db: &dyn Db,
     file: File,
     load_state: &LoadState<'_>,
+    prefix: &str,
 ) -> TagSpecs {
     let names = if let Some(project) = db.project() {
-        completion_tag_candidate_names(db, project, scoped_template_libraries(db, project, file))
+        completion_tag_candidate_names(
+            db,
+            project,
+            scoped_template_libraries(db, project, file),
+            prefix,
+        )
     } else {
-        db.projectless_tag_specs().keys().cloned().collect()
+        db.projectless_tag_specs()
+            .iter()
+            .filter(|(name, spec)| {
+                name.starts_with(prefix)
+                    || spec
+                        .end_tag
+                        .as_ref()
+                        .is_some_and(|end| end.name.starts_with(prefix))
+            })
+            .map(|(name, _)| name.clone())
+            .collect()
     };
 
     let mut specs = TagSpecs::default();
@@ -284,6 +372,7 @@ fn completion_tag_candidate_names(
     db: &dyn Db,
     project: Project,
     scoped_libraries: ScopedTemplateLibraries<'_, '_>,
+    prefix: &str,
 ) -> HashSet<String> {
     let mut names: HashSet<_> = scoped_libraries
         .inventory_symbol_names(TemplateSymbolKind::Tag)
@@ -291,10 +380,25 @@ fn completion_tag_candidate_names(
         .collect();
     for library in scoped_libraries.resolved_libraries() {
         names.extend(
-            library_tag_specs(db, project, library.id())
+            library_fallback_tag_names(db, project, library.id())
                 .iter()
-                .map(|(name, _spec)| name.clone()),
+                .cloned(),
         );
+    }
+    names.retain(|name| name.starts_with(prefix));
+    if prefix.starts_with("end") {
+        for library in scoped_libraries.resolved_libraries() {
+            names.extend(
+                library_tag_structure_specs(db, project, library.id())
+                    .iter()
+                    .filter(|(_name, spec)| {
+                        spec.end_tag
+                            .as_ref()
+                            .is_some_and(|end| end.name.starts_with(prefix))
+                    })
+                    .map(|(name, _spec)| name.clone()),
+            );
+        }
     }
     names
 }

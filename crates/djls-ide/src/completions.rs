@@ -22,7 +22,7 @@ use djls_semantic::TagSpecs;
 use djls_semantic::effective_symbol_candidate_at;
 use djls_semantic::scoped_template_libraries_for_file;
 use djls_semantic::tag_spec_at;
-use djls_semantic::tag_specs_at;
+use djls_semantic::tag_specs_at_prefix;
 use djls_semantic::tag_specs_for_file;
 use djls_source::File;
 use djls_source::FileKind;
@@ -520,7 +520,9 @@ pub fn completion(
             let nodelist = parsed_nodelist(db, file);
             let tag_specs = nodelist.map_or_else(
                 || tag_specs_for_file(db, file),
-                |nodelist| tag_specs_at(db, file, nodelist, offset.get()),
+                |nodelist| {
+                    tag_specs_at_prefix(db, file, nodelist, offset.get(), prefix.text.to_string())
+                },
             );
             generate_tag_name_candidates(
                 db,

@@ -9,6 +9,7 @@ use djls_conf::TagLibraryDef;
 use djls_conf::TagSpecDef;
 use djls_conf::TagTypeDef;
 use djls_ide::completion;
+use djls_ide::prime_template_library_products;
 use djls_project::ScopedTemplateLibraries;
 use djls_project::SymbolDefinition;
 use djls_project::TemplateSymbolKind;
@@ -26,6 +27,7 @@ use djls_testing::ProjectFixture;
 use djls_testing::ProjectSettings;
 use djls_testing::SalsaEventLog;
 use djls_testing::TestDatabase;
+use djls_testing::execution_count;
 use tower_lsp_server::ls_types;
 
 type TestResult<T> = Result<T, Box<dyn std::error::Error>>;
@@ -61,6 +63,80 @@ fn install_template_completion_project(
     Ok(())
 }
 
+fn lazy_library_completion_fixture(
+    marked_source: &str,
+) -> TestResult<(TestDatabase, SalsaEventLog, djls_source::File, Offset)> {
+    let events = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(events.clone());
+    let (source, offset) = source_and_offset(marked_source)?;
+    ProjectFixture::new("/test/project")
+        .django_settings_module("settings")
+        .file(
+            "/test/project/settings.py",
+            r"INSTALLED_APPS = []
+TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'builtins': ['alpha_tags', 'beta_tags']}}]
+",
+        )
+        .file(
+            "/test/project/alpha_tags.py",
+            r"from django import template
+register = template.Library()
+@register.simple_tag(name='alpha')
+def alpha(value): pass
+@register.tag(name='alpha_block')
+def alpha_block(parser, token):
+    bits = token.split_contents()
+    if len(bits) != 1: raise template.TemplateSyntaxError('count')
+    body = parser.parse(('endalpha',))
+    parser.delete_first_token()
+    return template.Node()
+@register.filter(name='alpha_filter')
+def alpha_filter(value, arg=None): pass
+",
+        )
+        .file(
+            "/test/project/beta_tags.py",
+            r"from django import template
+from beta_helper import beta_bits
+register = template.Library()
+@register.tag(name='beta')
+def beta(parser, token):
+    bits = beta_bits(token)
+    if len(bits) != 1: raise template.TemplateSyntaxError('count')
+    body = parser.parse(('alpha_end',))
+    parser.delete_first_token()
+    return template.Node()
+@register.filter(name='beta_filter')
+def beta_filter(value): pass
+",
+        )
+        .file(
+            "/test/project/beta_helper.py",
+            r"def beta_bits(token):
+    return token.split_contents()
+",
+        )
+        .file("/test/project/page.html", &source)
+        .install(&mut db)?;
+    prime_template_library_products(&db)
+        .ok_or_else(|| io::Error::other("completion fixture should prime"))?;
+    events.take()?;
+    let file = db.file(Utf8Path::new("/test/project/page.html"))?;
+    Ok((db, events, file, offset))
+}
+
+fn completion_labels(db: &TestDatabase, file: djls_source::File, offset: Offset) -> Vec<String> {
+    match completion(db, file, offset, PositionEncoding::Utf16, true) {
+        Some(ls_types::CompletionResponse::Array(items)) => {
+            items.into_iter().map(|item| item.label).collect()
+        }
+        Some(ls_types::CompletionResponse::List(list)) => {
+            list.items.into_iter().map(|item| item.label).collect()
+        }
+        None => Vec::new(),
+    }
+}
+
 #[test]
 fn completion_dispatches_before_requesting_semantic_inventory() {
     let cases = [
@@ -94,7 +170,7 @@ fn completion_dispatches_before_requesting_semantic_inventory() {
         let executed_query = |query: &str| executed.iter().any(|name| name.ends_with(query));
 
         assert_eq!(
-            executed_query("tag_specs_at"),
+            executed_query("tag_specs_at_prefix"),
             enumerates_tags,
             "{name} completion ran unexpected tracked functions: {executed:?}"
         );
@@ -118,6 +194,101 @@ fn completion_dispatches_before_requesting_semantic_inventory() {
             assert!(response.is_some());
         }
     }
+}
+
+#[test]
+fn tag_completion_prefixes_demand_only_matching_detail_and_cache_it() {
+    for (source, expected_label, expected_detail_count) in
+        [("{% alpha§ %}", "alpha", 1), ("{% enda§ %}", "endalpha", 2)]
+    {
+        let (db, events, file, offset) =
+            lazy_library_completion_fixture(source).expect("completion fixture should install");
+        let labels = completion_labels(&db, file, offset);
+        assert!(
+            labels.iter().any(|label| label == expected_label),
+            "{labels:?}"
+        );
+        let names = events
+            .take_will_execute_names(&db)
+            .expect("prefix completion events should be readable");
+        assert_eq!(
+            execution_count(&names, "template_library_tag_rule_analysis"),
+            expected_detail_count,
+            "{names:?}"
+        );
+        assert_eq!(
+            execution_count(&names, "library_tag_specs"),
+            expected_detail_count,
+            "{names:?}"
+        );
+        assert_eq!(
+            execution_count(&names, "analyze_helper"),
+            0,
+            "an alpha-only prefix must not infer beta's helper-backed rule: {names:?}"
+        );
+        assert_eq!(execution_count(&names, "template_library_filter_facts"), 0);
+
+        let repeated = completion_labels(&db, file, offset);
+        assert_eq!(repeated, labels);
+        let names = events
+            .take_will_execute_names(&db)
+            .expect("repeated completion events should be readable");
+        assert_eq!(
+            execution_count(&names, "template_library_tag_rule_analysis"),
+            0
+        );
+        assert_eq!(execution_count(&names, "library_tag_specs"), 0);
+    }
+}
+
+#[test]
+fn empty_tag_prefix_intentionally_demands_every_candidate_library_detail() {
+    let (db, events, file, offset) = lazy_library_completion_fixture("{% § %}")
+        .expect("empty-prefix completion fixture should install");
+    let labels = completion_labels(&db, file, offset);
+    assert!(labels.iter().any(|label| label == "alpha"));
+    assert!(labels.iter().any(|label| label == "beta"));
+    let names = events
+        .take_will_execute_names(&db)
+        .expect("empty-prefix completion events should be readable");
+    assert_eq!(
+        execution_count(&names, "template_library_tag_rule_analysis"),
+        4,
+        "{names:?}"
+    );
+    assert_eq!(execution_count(&names, "library_tag_specs"), 4, "{names:?}");
+    assert_eq!(execution_count(&names, "analyze_helper"), 1, "{names:?}");
+}
+
+#[test]
+fn opener_prefix_does_not_demand_a_non_emitted_custom_closer() {
+    let (db, events, file, offset) =
+        lazy_library_completion_fixture("{% al§ %}").expect("completion fixture should install");
+    let labels = completion_labels(&db, file, offset);
+    assert!(labels.iter().any(|label| label == "alpha"));
+    assert!(!labels.iter().any(|label| label == "alpha_end"));
+    let names = events
+        .take_will_execute_names(&db)
+        .expect("asymmetric prefix events should be readable");
+    assert_eq!(
+        execution_count(&names, "analyze_helper"),
+        0,
+        "closer-driven detail must follow the existing end-prefix emission gate: {names:?}"
+    );
+}
+
+#[test]
+fn exact_existing_filter_name_completion_does_not_demand_arity() {
+    let (db, events, file, offset) = lazy_library_completion_fixture("{{ value|alpha_filter§ }}")
+        .expect("filter completion fixture should install");
+    let labels = completion_labels(&db, file, offset);
+    assert!(labels.iter().any(|label| label == "alpha_filter"));
+    let names = events
+        .take_will_execute_names(&db)
+        .expect("filter completion events should be readable");
+    assert_eq!(execution_count(&names, "scoped_filter_facts"), 0);
+    assert_eq!(execution_count(&names, "template_library_filter_facts"), 0);
+    assert_eq!(execution_count(&names, "library_filter_specs"), 0);
 }
 
 #[test]

@@ -18,6 +18,7 @@ use crate::tags::BodyAnalysis;
 use crate::tags::TagSpec;
 use crate::tags::effective_tag_spec_in_scope;
 use crate::tags::library_tag_specs;
+use crate::tags::library_tag_structure_specs;
 
 /// Identity of an opening Tag Definition contributing semantic grammar.
 #[derive(Clone, Debug, PartialEq, Eq, salsa::SalsaValue)]
@@ -73,7 +74,7 @@ pub fn semantic_grammar_vocabulary(db: &dyn Db, project: Project) -> SemanticGra
         ..SemanticGrammarVocabulary::default()
     };
     for library in scoped_libraries.resolved_libraries() {
-        let specs = library_tag_specs(db, project, library.id());
+        let specs = library_tag_structure_specs(db, project, library.id());
         for (name, spec) in specs.iter() {
             if library.symbol(TemplateSymbolKind::Tag, name).is_none()
                 && !library.symbols_are_unobserved()
