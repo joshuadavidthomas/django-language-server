@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 use std::fmt;
+use std::sync::Arc;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
@@ -16,12 +17,31 @@ use crate::python::evaluation::StructuralOrd;
 use crate::python::search_paths::SearchPath;
 
 #[derive(Clone, PartialEq, Eq, Hash)]
-pub struct PythonSourceModule {
+pub struct PythonSourceModule(Arc<PythonSourceModuleData>);
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+struct PythonSourceModuleData {
     name: PythonModuleName,
     package: Option<PythonModuleName>,
     path: Utf8PathBuf,
     file: File,
     search_path: SearchPath,
+}
+
+impl StructuralOrd for PythonSourceModule {
+    fn structural_cmp(&self, other: &Self) -> Ordering {
+        // Many branch coordinates share one module identity. Independently
+        // resolved modules still need the complete structural comparison.
+        if Arc::ptr_eq(&self.0, &other.0) {
+            return Ordering::Equal;
+        }
+        self.name()
+            .cmp(other.name())
+            .then_with(|| self.package().cmp(&other.package()))
+            .then_with(|| self.path().cmp(other.path()))
+            .then_with(|| self.file().structural_cmp(&other.file()))
+            .then_with(|| self.search_path().structural_cmp(other.search_path()))
+    }
 }
 
 /// One search-path portion that contributes to a namespace package.
@@ -432,12 +452,8 @@ fn import_module_name(
             .ok_or(PythonImportNameError::EmptyAbsoluteImport)?;
         PythonModuleName::parse(module).map_err(PythonImportNameError::from)
     } else {
-        let source = relative_import_source(
-            import.importer.package.as_ref(),
-            import.level,
-            import.module,
-        )
-        .ok_or(PythonImportNameError::TooManyDots)?;
+        let source = relative_import_source(import.importer.package(), import.level, import.module)
+            .ok_or(PythonImportNameError::TooManyDots)?;
         PythonModuleName::parse(&source).map_err(PythonImportNameError::from)
     }
 }
@@ -628,13 +644,13 @@ impl PythonSourceModule {
         file: File,
         search_path: SearchPath,
     ) -> Self {
-        Self {
+        Self(Arc::new(PythonSourceModuleData {
             package: Some(name.clone()),
             name,
             path,
             file,
             search_path,
-        }
+        }))
     }
 
     pub(crate) fn file_module(
@@ -643,13 +659,13 @@ impl PythonSourceModule {
         file: File,
         search_path: SearchPath,
     ) -> Self {
-        Self {
+        Self(Arc::new(PythonSourceModuleData {
             package: name.parent(),
             name,
             path,
             file,
             search_path,
-        }
+        }))
     }
 
     /// Resolve an import operation into a contiguous root-to-leaf component
@@ -669,7 +685,7 @@ impl PythonSourceModule {
 
     #[must_use]
     pub fn name(&self) -> &PythonModuleName {
-        &self.name
+        &self.0.name
     }
 
     /// Whether this identity is a regular package rather than a file module.
@@ -677,26 +693,26 @@ impl PythonSourceModule {
     /// it from `__init__.py` path spelling.
     #[must_use]
     fn is_package(&self) -> bool {
-        self.package.as_ref() == Some(&self.name)
+        self.0.package.as_ref() == Some(&self.0.name)
     }
 
     pub(crate) fn package(&self) -> Option<&PythonModuleName> {
-        self.package.as_ref()
+        self.0.package.as_ref()
     }
 
     #[must_use]
     pub fn path(&self) -> &Utf8Path {
-        &self.path
+        &self.0.path
     }
 
     #[must_use]
     pub fn file(&self) -> File {
-        self.file
+        self.0.file
     }
 
     #[must_use]
     pub fn search_path(&self) -> &SearchPath {
-        &self.search_path
+        &self.0.search_path
     }
 }
 
@@ -738,9 +754,9 @@ impl StructuralOrd for PythonImportNameError {
 impl fmt::Debug for PythonSourceModule {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PythonSourceModule")
-            .field("name", &self.name)
-            .field("package", &self.package)
-            .field("path", &self.path)
+            .field("name", &self.0.name)
+            .field("package", &self.0.package)
+            .field("path", &self.0.path)
             .finish_non_exhaustive()
     }
 }
@@ -803,7 +819,7 @@ mod tests {
 
     #[test]
     fn typed_module_order_compares_every_equality_bearing_field() {
-        let base = PythonSourceModule {
+        let base = PythonSourceModuleData {
             name: PythonModuleName::parse("pkg.module")
                 .expect("test Python module name should be valid"),
             package: Some(
@@ -814,47 +830,71 @@ mod tests {
             search_path: SearchPath::FirstParty(Utf8PathBuf::from("/project")),
         };
         let unequal = [
-            PythonSourceModule {
+            PythonSourceModuleData {
                 name: PythonModuleName::parse("pkg.other")
                     .expect("test Python module name should be valid"),
                 ..base.clone()
             },
-            PythonSourceModule {
+            PythonSourceModuleData {
                 package: None,
                 ..base.clone()
             },
-            PythonSourceModule {
+            PythonSourceModuleData {
                 path: Utf8PathBuf::from("/project/pkg/other.py"),
                 ..base.clone()
             },
-            PythonSourceModule {
+            PythonSourceModuleData {
                 file: File::from_id(Id::from_bits(16)),
                 ..base.clone()
             },
-            PythonSourceModule {
+            PythonSourceModuleData {
                 search_path: SearchPath::Extra(Utf8PathBuf::from("/project")),
                 ..base.clone()
             },
+            PythonSourceModuleData {
+                search_path: SearchPath::FirstParty(Utf8PathBuf::from("/other")),
+                ..base.clone()
+            },
         ];
+        let base = PythonSourceModule(Arc::new(base));
 
         assert_eq!(base.structural_cmp(&base), Ordering::Equal);
-        for other in &unequal {
-            assert_ne!(base.structural_cmp(other), Ordering::Equal);
+        for data in unequal {
+            let other = PythonSourceModule(Arc::new(data));
+            assert_ne!(base, other);
+            assert_ne!(base.structural_cmp(&other), Ordering::Equal);
             assert_eq!(
-                base.structural_cmp(other),
+                base.structural_cmp(&other),
                 other.structural_cmp(&base).reverse()
             );
         }
     }
 
     #[test]
+    fn module_clones_share_storage_but_identity_remains_structural() {
+        use std::collections::HashSet;
+
+        let (name, path, file, search_path) = module_parts("pkg.module");
+        let original = PythonSourceModule::file_module(name, path, file, search_path);
+        let cloned = original.clone();
+        assert!(Arc::ptr_eq(&original.0, &cloned.0));
+        assert_eq!(original, cloned);
+        assert_eq!(original.structural_cmp(&cloned), Ordering::Equal);
+
+        let (name, path, file, search_path) = module_parts("pkg.module");
+        let rebuilt = PythonSourceModule::file_module(name, path, file, search_path);
+        assert!(!Arc::ptr_eq(&original.0, &rebuilt.0));
+        assert_eq!(original, rebuilt);
+        assert_eq!(original.structural_cmp(&rebuilt), Ordering::Equal);
+        assert_eq!(format!("{original:?}"), format!("{rebuilt:?}"));
+        assert!(HashSet::from([original]).contains(&rebuilt));
+    }
+
+    #[test]
     fn python_module_package_identity_is_derived_by_semantic_kind() {
         let (name, path, file, search_path) = module_parts("pkg");
         let package = PythonSourceModule::regular_package(name, path, file, search_path);
-        assert_eq!(
-            package.package.as_ref().map(PythonModuleName::as_str),
-            Some("pkg")
-        );
+        assert_eq!(package.package().map(PythonModuleName::as_str), Some("pkg"));
         assert!(package.is_package());
 
         for (name, expected_package) in [
@@ -866,7 +906,7 @@ mod tests {
             let (name, path, file, search_path) = module_parts(name);
             let module = PythonSourceModule::file_module(name, path, file, search_path);
             assert_eq!(
-                module.package.as_ref().map(PythonModuleName::as_str),
+                module.package().map(PythonModuleName::as_str),
                 expected_package
             );
             assert!(!module.is_package());
