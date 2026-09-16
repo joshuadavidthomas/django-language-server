@@ -5,12 +5,16 @@ use divan::Bencher;
 use djls_bench::Db;
 use djls_bench::Fixture;
 use djls_bench::REPEATED_INNER_ITERS;
+use djls_bench::fail;
 use djls_bench::python_fixtures;
 use djls_bench::require;
+use djls_bench::require_some;
 use djls_project::InvalidModuleName;
 use djls_project::Project;
 use djls_project::PythonEnvironment;
 use djls_project::PythonModuleName;
+use djls_project::PythonSourceModule;
+use djls_project::SearchPath;
 use djls_project::SearchPaths;
 use djls_project::testing::django_settings;
 use djls_project::testing::settings_module_file;
@@ -205,6 +209,100 @@ fn settings_cold_corpus(bencher: Bencher, name: &str) {
                 "resolve corpus settings entry",
                 settings_module_file(&db, project).ok_or("settings module must resolve"),
             );
+            (db, project)
+        })
+        .bench_local_values(|(db, project)| {
+            divan::black_box(django_settings(&db, project));
+        });
+}
+
+/// Real Pretix settings and imports with the latest pinned Django corpus checkout exposed as an
+/// installed package. This preserves both repositories unchanged while making the dependency
+/// source independent of the caller's `VIRTUAL_ENV`.
+///
+/// The workload is ignored because one cold evaluation currently takes about 90 seconds. Run it
+/// with:
+/// `cargo bench -p djls-bench --bench extraction -- --ignored settings_cold_pretix_with_django`.
+#[divan::bench(sample_count = 1, sample_size = 1)]
+#[ignore = "one cold evaluation currently takes about 90 seconds"]
+fn settings_cold_pretix_with_django(bencher: Bencher) {
+    let corpus = require("load settings corpus", Corpus::require());
+    let declaration = require(
+        "find Pretix settings corpus project",
+        require(
+            "load corpus project declarations",
+            corpus.repo_settings_projects(),
+        )
+        .into_iter()
+        .find(|project| project.repo_name == "pretix")
+        .ok_or("benchmark corpus must declare Pretix settings metadata"),
+    );
+    let [settings_module] = declaration.django_settings_modules.as_slice() else {
+        fail("Pretix settings corpus benchmark requires exactly one settings module");
+    };
+    let settings_module = require(
+        "parse Pretix settings module",
+        PythonModuleName::parse(settings_module),
+    );
+    let django_root = require_some(
+        "find latest pinned Django corpus checkout",
+        corpus.latest_package("django"),
+    );
+    let expected_django_init = django_root.join("django/__init__.py");
+
+    bencher
+        .with_inputs(|| {
+            let mut db = OsTestDatabase::with_disk_roots([
+                declaration.checkout_root.clone(),
+                django_root.clone(),
+            ]);
+            let python_environment =
+                PythonEnvironment::Path(corpus.root().join("hermetic-no-venv"));
+            let mut paths = Vec::with_capacity(3);
+            let src_root = declaration.project_root.join("src");
+            if db.file_system().is_dir(&src_root)
+                && !db.file_system().is_file(&src_root.join("__init__.py"))
+            {
+                paths.push(SearchPath::FirstParty(src_root));
+            }
+            paths.push(SearchPath::FirstParty(declaration.project_root.clone()));
+            paths.push(SearchPath::SitePackages(django_root.clone()));
+            let search_paths = SearchPaths::from_paths(paths);
+            search_paths.register_roots(&db);
+            let project = Project::new(
+                &db,
+                declaration.project_root.clone(),
+                search_paths,
+                python_environment,
+                Some(settings_module.clone()),
+                Vec::new(),
+                Vec::new(),
+                djls_conf::Settings::default().tagspecs().clone(),
+            );
+            db.set_project(project);
+            require(
+                "resolve Pretix settings entry",
+                settings_module_file(&db, project).ok_or("Pretix settings module must resolve"),
+            );
+            let django_module = require(
+                "resolve Django from the pinned corpus checkout",
+                PythonSourceModule::resolve(
+                    &db,
+                    project,
+                    require(
+                        "parse Django module name",
+                        PythonModuleName::parse("django"),
+                    ),
+                )
+                .ok_or("Django module must resolve"),
+            );
+            if django_module.path() != expected_django_init {
+                fail(format_args!(
+                    "Django resolved to {}, expected {}",
+                    django_module.path(),
+                    expected_django_init
+                ));
+            }
             (db, project)
         })
         .bench_local_values(|(db, project)| {

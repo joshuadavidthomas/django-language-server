@@ -422,12 +422,27 @@ impl PythonModuleEffects {
 
         let mut joined = Self::default();
         for (object, attribute) in keys {
+            let candidates = branches
+                .iter()
+                .map(|(_, branch)| {
+                    branch
+                        .read_child(&object, &attribute)
+                        .cloned()
+                        .unwrap_or_else(PythonBinding::unbound)
+                })
+                .collect::<Vec<_>>();
+            if let Some(first) = candidates.first()
+                && candidates.iter().all(|candidate| candidate == first)
+            {
+                joined.children.push(ModuleChildCoordinate {
+                    object,
+                    attribute,
+                    binding: first.clone(),
+                });
+                continue;
+            }
             let mut binding: Option<PythonBinding> = None;
-            for (arm, branch) in branches {
-                let mut candidate = branch
-                    .read_child(&object, &attribute)
-                    .cloned()
-                    .unwrap_or_else(PythonBinding::unbound);
+            for ((arm, _), mut candidate) in branches.iter().zip(candidates) {
                 candidate.select_branch(join.to_owned(), *arm);
                 binding = Some(match binding {
                     Some(current) => current.join(candidate, origin),
@@ -476,12 +491,37 @@ impl PythonModuleEffects {
 
         let mut joined = Self::default();
         for (object, attribute) in keys {
+            let candidates = branches
+                .iter()
+                .map(|(_, _, branch)| {
+                    branch
+                        .read_child(&object, &attribute)
+                        .cloned()
+                        .unwrap_or_else(PythonBinding::unbound)
+                })
+                .collect::<Vec<_>>();
+            if let Some(first) = candidates.first()
+                && candidates.iter().all(|candidate| candidate == first)
+            {
+                // Intersect before joining so predicate-budget widening cannot make an
+                // individually impossible branch appear feasible in combined coverage.
+                let binding = branches
+                    .iter()
+                    .filter_map(|(_, constraints, _)| {
+                        first.clone().intersect_constraints(constraints)
+                    })
+                    .reduce(|current, candidate| current.join(candidate, origin));
+                if let Some(binding) = binding {
+                    joined.children.push(ModuleChildCoordinate {
+                        object,
+                        attribute,
+                        binding,
+                    });
+                }
+                continue;
+            }
             let mut binding: Option<PythonBinding> = None;
-            for (arm, constraints, branch) in branches {
-                let mut candidate = branch
-                    .read_child(&object, &attribute)
-                    .cloned()
-                    .unwrap_or_else(PythonBinding::unbound);
+            for ((arm, constraints, _), mut candidate) in branches.iter().zip(candidates) {
                 candidate.select_branch(join.to_owned(), *arm);
                 let candidate = candidate.intersect_constraints(constraints);
                 let Some(candidate) = candidate else {
@@ -867,6 +907,164 @@ mod tests {
             .read_child(&parent, "child")
             .expect("coordinate present");
         assert_eq!(binding.alternatives().len(), 2);
+    }
+
+    #[test]
+    fn guarded_branch_join_does_not_rebranch_an_unchanged_attachment() {
+        let parent = source("pkg", 1);
+        let child = source("pkg.a", 2);
+        let mut effects = PythonModuleEffects::default();
+        effects.attach_child(parent.clone(), "child".to_string(), child, origin(1));
+        let expected = effects
+            .read_child(&parent, "child")
+            .expect("attached child")
+            .clone();
+
+        let guard = origin(20);
+        let mut left = BranchConstraints::unconstrained();
+        left.select(guard, 0);
+        let mut right = BranchConstraints::unconstrained();
+        right.select(guard, 1);
+        let joined = PythonModuleEffects::join_guarded_branches(
+            &[(0, left, effects.clone()), (1, right, effects)],
+            &origin(10).into(),
+        );
+
+        assert_eq!(
+            joined
+                .read_child(&parent, "child")
+                .expect("unchanged coordinate remains attached"),
+            &expected
+        );
+    }
+
+    #[test]
+    fn guarded_unchanged_attachment_is_restricted_to_partial_coverage() {
+        let parent = source("pkg", 1);
+        let child = source("pkg.a", 2);
+        let guard = origin(20);
+        let mut covered = BranchConstraints::unconstrained();
+        covered.select(guard, 0);
+        let mut omitted = BranchConstraints::unconstrained();
+        omitted.select(guard, 1);
+
+        let value_origin = origin(1);
+        let bound = PythonBinding::constrained_bound(
+            PythonValue::module(child, value_origin),
+            value_origin,
+            &covered,
+        )
+        .expect("covered attachment should be feasible");
+        let unbound = PythonBinding::unbound()
+            .intersect_constraints(&omitted)
+            .expect("omitted path should be feasible");
+        let mixed = bound.clone().join(unbound, origin(2));
+        let mut effects = PythonModuleEffects::default();
+        effects.children.push(ModuleChildCoordinate {
+            object: parent.clone(),
+            attribute: "child".to_string(),
+            binding: mixed,
+        });
+
+        let joined = PythonModuleEffects::join_guarded_branches(
+            &[(0, covered, effects)],
+            &origin(10).into(),
+        );
+
+        assert_eq!(
+            joined
+                .read_child(&parent, "child")
+                .expect("covered coordinate remains attached"),
+            &bound,
+            "the uncovered Unbound alternative must not survive partial coverage"
+        );
+    }
+
+    #[test]
+    fn guarded_unchanged_attachment_is_dropped_under_disjoint_coverage() {
+        let parent = source("pkg", 1);
+        let child = source("pkg.a", 2);
+        let guard = origin(20);
+        let mut attachment_constraints = BranchConstraints::unconstrained();
+        attachment_constraints.select(guard, 0);
+        let mut branch_constraints = BranchConstraints::unconstrained();
+        branch_constraints.select(guard, 1);
+
+        let value_origin = origin(1);
+        let binding = PythonBinding::constrained_bound(
+            PythonValue::module(child, value_origin),
+            value_origin,
+            &attachment_constraints,
+        )
+        .expect("attachment path should be feasible");
+        let mut effects = PythonModuleEffects::default();
+        effects.children.push(ModuleChildCoordinate {
+            object: parent.clone(),
+            attribute: "child".to_string(),
+            binding,
+        });
+
+        let joined = PythonModuleEffects::join_guarded_branches(
+            &[(0, branch_constraints, effects)],
+            &origin(10).into(),
+        );
+
+        assert!(
+            joined.read_child(&parent, "child").is_none(),
+            "a coordinate with no feasible covered path must be removed"
+        );
+    }
+
+    #[test]
+    fn guarded_unchanged_attachment_is_dropped_before_coverage_widens_predicates() {
+        let parent = source("pkg", 1);
+        let child = source("pkg.a", 2);
+        let predicates = (1..=5)
+            .map(|index| BranchJoin::predicate_for_test(origin(100 + index)))
+            .collect::<Vec<_>>();
+        let required = |selections: &[(usize, usize)]| {
+            selections.iter().fold(
+                BranchConstraints::unconstrained(),
+                |constraints, (predicate, arm)| {
+                    constraints.intersection(&BranchConstraints::required(
+                        predicates[*predicate].clone(),
+                        *arm,
+                    ))
+                },
+            )
+        };
+
+        let binding_constraints = required(&[(4, 0)]);
+        let value_origin = origin(1);
+        let binding = PythonBinding::constrained_bound(
+            PythonValue::module(child, value_origin),
+            value_origin,
+            &binding_constraints,
+        )
+        .expect("attachment path should be feasible");
+        let mut effects = PythonModuleEffects::default();
+        effects.children.push(ModuleChildCoordinate {
+            object: parent.clone(),
+            attribute: "child".to_string(),
+            binding,
+        });
+
+        let joined = PythonModuleEffects::join_guarded_branches(
+            &[
+                (
+                    0,
+                    required(&[(0, 1), (1, 1), (2, 1), (4, 1)]),
+                    effects.clone(),
+                ),
+                (1, required(&[(3, 1), (4, 1)]), effects),
+            ],
+            &origin(10).into(),
+        );
+
+        assert!(
+            joined.read_child(&parent, "child").is_none(),
+            "each branch is disjoint from the attachment before their coverage widens"
+        );
     }
 
     #[test]

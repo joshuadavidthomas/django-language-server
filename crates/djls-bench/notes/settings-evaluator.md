@@ -78,7 +78,35 @@ Candidates for the next experiments, not implemented here:
 4. Answer constraint compatibility without constructing a complete intersection. A direct overlap query would still need the domain checks and an equivalence test against the existing intersection result.
 5. Revisit linear join deduplication if it becomes significant again. Hashing full paths can cost more than the current cheap rejection on small trees. Predicate widening also collects control joins it later discards.
 
-## Validation
+## Follow-up: pinned Django dependency
+
+Recorded 2026-09-15. The ignored `settings_cold_pretix_with_django` workload keeps the pinned Pretix and latest lockfile-pinned Django corpus checkouts unchanged. The selected Django checkout was 6.1rc1 at `0f1b39b28b20a1094c4c02dd72d0ba840ed7e10b`. It exposes the Django checkout as an explicit site-packages search root, verifies that `django` resolves from that checkout, and uses an explicit nonexistent virtual environment so the caller's environment cannot change the workload. Completed but unpinned directories on disk are ineligible.
+
+The ordinary dependency-free corpus benchmark remains unchanged. On the same orb, its Pretix median was 1.695s over three samples. Before the evaluator changes below, the new Django-backed workload exceeded a 45-second limit before completing its single sample, reproducing the installed-Django behavior without relying on locally installed packages.
+
+Statement-level timing localized the cost to the root Pretix settings module rather than recursively evaluated Pretix imports. Two evaluator costs were investigated there:
+
+- Cartesian expression alternatives are joined one at a time, repeatedly normalizing the complete accumulated binding. Attempts to batch these joins changed bounded predicate evidence even below the 64-alternative limit. Conservative predicate fallback and exact incremental normalization did not improve this workload, so no expression-join optimization was retained.
+- Module-effect branch joins reselected every loaded-child coordinate even when every branch retained the same binding. Keeping an unchanged coordinate avoids adding a redundant control coordinate and repeatedly rebuilding its constraints. Guarded joins intersect the binding with each branch guard before joining those feasible contributions, preserving the predicate-widening order.
+
+Before overflow-equivalence review, the unchanged pinned-corpus workload completed in 20.47s without diagnostic instrumentation (one sample, one iteration). That batching implementation could change which provenance-sensitive container alternatives survived overflow and still materialized the Cartesian product, so it was not retained.
+
+An intermediate implementation completed in 48.04s, followed by 49.26s, 48.65s, and 49.81s in a controlled comparison. Further equivalence review found two precision bugs: batched joins skipped intermediate predicate-evidence widening, and merging branch coverage before intersecting an unchanged child binding could retain an infeasible coordinate. Those timings do not represent a valid implementation.
+
+A controlled follow-up on `0e1a7679` compared fixed binaries with the same benchmark harness, lockfile, corpus root, toolchain, and benchmark profile. The unchanged evaluator reached an explicit five-minute limit without completing and showed severe page-cache churn on the 4 GiB measurement orb. The final guarded module-effect shortcut completed in 90.78s (one sample, one iteration), establishing a conservative improvement of more than 3.3× over the censored baseline; the exact ratio remains unknown.
+
+After fixing the predicate regressions, conservative join batching completed in 90.36s and exact incremental pairwise normalization completed in 96.54s. Neither improved meaningfully on the module-effect shortcut alone, so both expression-join experiments were removed rather than retaining unearned complexity.
+
+The slow workload is ignored so it does not add minutes to normal Divan or CodSpeed runs. Run it explicitly with `cargo bench -p djls-bench --bench extraction -- --ignored settings_cold_pretix_with_django`. It uses one iteration and one sample to preserve the full operation honestly while it remains this slow.
+
+### Follow-up validation
+
+- Controlled unchanged evaluator on `0e1a7679`: over five minutes.
+- Final guarded module-effect shortcut on the same revision: 90.78s.
+- Partial, disjoint, and predicate-budget guard regressions check that unchanged module-child coordinates remain restricted to feasible branch coverage.
+- A corpus regression checks that a completed but unpinned newer Django directory cannot change package selection.
+
+## Validation for the original 2026-09-09 changes
 
 - `cargo test -q`: full workspace suite passed.
 - `cargo test --release -p djls-project --test settings_extraction --test corpus_settings`: 315 settings tests and 3 corpus tests passed before the final equality refinement; the full workspace run covered that refinement afterward.
