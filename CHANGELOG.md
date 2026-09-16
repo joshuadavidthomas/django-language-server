@@ -31,6 +31,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - **Internal**: Tag validation is tested against Django's own template libraries from the pinned corpus, with a fixture project comparing DJLS diagnostics against Django's compilation verdicts.
 - **Internal**: Test scenarios declare their own tag libraries and settings, either in markdown Python fences or from a typed `ProjectSettings` value.
 - **Internal**: Extraction snapshots record library symbol inventories and whether they are open, and a corpus census counts registration sites that no extracted definition matches.
+- **Internal**: Made corpus file selectors independent of checkout ancestor directory names.
 - **Internal**: Added cold settings-analysis benchmarks for conditional bindings and corpus projects.
 - **Internal**: Consolidated Salsa execution-event assertions in shared test infrastructure.
 - Reduced analysis time for Django settings with many conditional branches.
