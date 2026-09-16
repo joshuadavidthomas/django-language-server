@@ -51,6 +51,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Fixed
 
+- Fixed queued template-library re-primes incorrectly satisfying pending full project reloads.
 - Fixed the server hanging when Python document changes overlap background cache warm-up.
 - Fixed recovered helper source used only for tag-rule inference making exact Template Library inventories inconclusive.
 - Fixed relative `pythonpath` entries resolving outside the project root.

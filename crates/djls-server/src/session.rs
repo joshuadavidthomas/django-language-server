@@ -429,6 +429,21 @@ impl Session {
         )
     }
 
+    pub(crate) fn reprime_snapshot(&self) -> Option<(IntrinsicGeneration, SessionSnapshot)> {
+        // A dequeued re-prime can wait behind a mutation that requires full discovery.
+        // Admit it against current readiness while the caller still holds the snapshot lock.
+        let generation = match &self.intrinsic_readiness {
+            IntrinsicReadiness::Reprime { generation, .. }
+            | IntrinsicReadiness::RetryReprime { generation, .. } => *generation,
+            IntrinsicReadiness::NoProject { .. }
+            | IntrinsicReadiness::FullDiscovery { .. }
+            | IntrinsicReadiness::Ready { .. }
+            | IntrinsicReadiness::FailedFullDiscovery { .. }
+            | IntrinsicReadiness::FailedReprime { .. } => return None,
+        };
+        Some((generation, self.snapshot()))
+    }
+
     pub(crate) fn readiness_receiver(&self) -> watch::Receiver<IntrinsicReadinessState> {
         self.readiness_tx.subscribe()
     }
@@ -846,7 +861,10 @@ impl SessionSnapshot {
 
 #[cfg(test)]
 mod tests {
+    use std::future::Future;
+    use std::future::poll_fn;
     use std::str::FromStr;
+    use std::task::Poll;
     use std::time::Duration;
 
     use djls_ide::prime_template_library_products;
@@ -854,6 +872,7 @@ mod tests {
     use djls_project::PythonEnvironment;
     use tempfile::tempdir;
     use tokio::spawn;
+    use tokio::sync::Mutex;
     use tokio::task::yield_now;
     use tokio::time::timeout;
 
@@ -1181,6 +1200,93 @@ mod tests {
             assert!(!readiness.begin_reprime(file, 1));
             assert_eq!(readiness.watched_state(), expected_state);
         }
+    }
+
+    #[test]
+    fn reprime_snapshot_requires_pending_reprime_work() {
+        let mut session = Session::default();
+        let file = File::new(
+            session.db(),
+            Utf8PathBuf::from("/tmp/reprime-admission.py"),
+            1,
+            FileStatus::Exists,
+        );
+        session.intrinsic_readiness = IntrinsicReadiness::new(false);
+        assert!(session.reprime_snapshot().is_none());
+        let generation = session.mark_project_changed();
+        assert!(session.reprime_snapshot().is_none());
+        assert!(session.fail_intrinsic_readiness(generation));
+        assert!(session.reprime_snapshot().is_none());
+
+        let generation = session.mark_project_changed();
+        let primed = prime_template_library_products(session.db())
+            .expect("default session should have a Project");
+        assert!(session.publish_intrinsic_readiness(generation, &primed));
+        assert!(session.reprime_snapshot().is_none());
+
+        for revision in [1, 2] {
+            assert!(session.intrinsic_readiness.begin_reprime(file, revision));
+            let generation = session.desired_generation();
+            assert_eq!(
+                session.reprime_snapshot().map(|(generation, _)| generation),
+                Some(generation)
+            );
+            assert!(session.fail_intrinsic_readiness(generation));
+            assert!(session.reprime_snapshot().is_none());
+        }
+    }
+
+    #[tokio::test]
+    async fn waiting_reprime_cannot_adopt_a_full_discovery_generation() {
+        let session = Arc::new(Mutex::new(Session::default()));
+        let mut mutation = Arc::clone(&session).lock_owned().await;
+        mutation.intrinsic_readiness = IntrinsicReadiness::Reprime {
+            generation: 1,
+            coverage: IntrinsicCoverage {
+                reprime_files: Arc::from([]),
+                full_reload_files: Arc::from([]),
+            },
+        };
+        assert_eq!(
+            mutation
+                .reprime_snapshot()
+                .map(|(generation, _)| generation),
+            Some(1)
+        );
+
+        // Poll the dequeued job until it is waiting on the mutation's mutex, without sleeps.
+        let mut reprime = std::pin::pin!(async {
+            let session = session.lock().await;
+            session.reprime_snapshot()
+        });
+        assert!(
+            poll_fn(|cx| Poll::Ready(reprime.as_mut().poll(cx)))
+                .await
+                .is_pending()
+        );
+
+        let generation = mutation.mark_project_changed();
+        assert_eq!(generation, 2);
+        drop(mutation);
+        assert!(
+            reprime.await.is_none(),
+            "a dequeued re-prime must not capture the newer full-discovery generation"
+        );
+        let mut session = session.lock().await;
+        assert_eq!(
+            session.readiness_state(),
+            IntrinsicReadinessState::Unready(generation)
+        );
+        let primed = prime_template_library_products(session.db())
+            .expect("default session should have a Project");
+        assert!(
+            session.publish_intrinsic_readiness(generation, &primed),
+            "the queued full reload must retain the right to publish its generation"
+        );
+        assert_eq!(
+            session.readiness_state(),
+            IntrinsicReadinessState::Ready(generation)
+        );
     }
 
     #[test]
