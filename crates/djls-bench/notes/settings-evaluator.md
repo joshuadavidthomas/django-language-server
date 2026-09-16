@@ -410,3 +410,283 @@ down from 8.196s before the guard and about 89.7s on wave 1. Peak RSS was 412,24
 effectively unchanged from wave 2's 411,968KiB. The guard therefore preserves the
 first-request materialization win and brings the total speedup over wave 1 to about
 12.2×. No result was censored.
+
+## Demanded correlated values: research and measurement (2026-09-16)
+
+The next pass initially opened a clean checkout at
+`aa0141898177890782ef806bc7b1b09eb08c3177`, before the previous pass. The fixed
+baseline is instead `7bb5b27584a6fa9626a2e338a2d0b3c7ee1db33a`, recovered with
+its nine-commit history in a verified bundle whose sole prerequisite is the initial
+revision. Bundle SHA-256:
+`2b75e4898566611485640b49c9b94ad95ac7966bd375a572e256445893bbe10c`.
+Separate orbs owned measurement, representation research, and demand/precision
+research; production changes and integration remained in the parent checkout.
+
+### What the prior art does and does not supply
+
+- [MultiSE](https://people.eecs.berkeley.edu/~ksen/papers/multise_tr.pdf),
+  §§2.2, 3.2 and 5.1: guarded values, equal-value guard coalescing, and reduced
+  decision-diagram guards are already present in `PythonBinding` and
+  `BranchConstraints`. Figure 3 and §5.2 still combine operand alternatives;
+  these representations do not eliminate exponential worst cases. Its §3.3
+  path dropping/concretization is incompatible with conservative settings analysis.
+  The missing representation optimization here is sharing immutable subtrees,
+  not introducing value summaries or decision diagrams for the first time.
+- The [MultiSE implementation's BDD module](https://github.com/SRA-SiliconValley/jalangi/blob/symfront/src/js/analyses/puresymbolic/BDD.js)
+  separates node construction and memoized apply within an operation's graph.
+  [CUDD's apply implementation](https://github.com/ivmai/cudd/blob/master/cudd/cuddBddIte.c)
+  likewise distinguishes its computed-operation cache from unique-node construction;
+  its manager, reference counts and garbage collection own those lifetimes. A global
+  pointer-keyed cache without equivalent ownership would not be a safe translation.
+  Branch-only `Arc` sharing is a smaller experiment: it shares interior residuals,
+  keeps terminals allocation-free, and needs no manager across Salsa snapshots.
+  It does not intern independently constructed equal nodes or memoize operations.
+  Equality and ordering must remain structural, not depend on allocation addresses.
+- [Rosette sequence compression](https://github.com/emina/rosette/blob/master/rosette/base/adt/seq.rkt)
+  factors equal-length sequences by corresponding elements. Its vector/store handling
+  treats mutable identity separately. This is useful precedent, not a ready-made
+  replacement for DJLS's ordered dictionary write/unpack logs, mutable allocation
+  sites, and provenance-sensitive bounded sequence alternatives. A factored
+  representation must preserve cross-field correlation, positions and variable-length
+  unpacking, dictionary overwrite order, aliases, and every intermediate cap/widening
+  boundary. No aggregate representation or normalization schedule is changed here.
+- [Horwitz–Reps–Sagiv, Demand Interprocedural Dataflow Analysis](https://doi.org/10.1145/222132.222146),
+  §§2–3: demand propagates through cached realizable-path summaries over a finite,
+  distributive fact framework. DJLS's bounded alias/evidence domain has not been shown
+  to satisfy those assumptions. The paper's graph-cache amortization is not source-edit
+  invalidation, and §4.2 reports demand sequences that can cost more than exhaustive
+  analysis. Export demand needs module identity, incoming intrinsic contamination,
+  demanded correlated bindings, observable module effects, and typed dependency/coverage
+  summaries together. An unused export can still mutate an exported alias or contaminate
+  an intrinsic used by the importer. Star/open imports, recovery and root-reaching
+  cycles need an explicit Full fallback. This is a separate semantic contract, not a
+  local representation optimization.
+- [Rival–Mauborgne, The Trace Partitioning Abstract Domain](https://www.di.ens.fr/~rival/papers/toplas07.pdf),
+  §§3.2–3.3 and 5: partitioning must cover every original trace; merging joins the
+  represented possibilities rather than picking likely worlds. §7.2 explicitly
+  distinguishes execution frequency from the precision needed to prove a path safe.
+  Demand-informed partition allocation is future precision-policy work. The current
+  64 exact alternatives plus unknown remainder, four-predicate budget, structural
+  retention order, and intermediate forgetting remain fixed in this pass.
+
+Intermodule demand and per-symbol library detail therefore remain separate candidates,
+not additions to this pass. Existing library priming is latency deferral when full
+detail is immediately consumed; its narrow structural compatibility fallback remains
+unchanged. `compatible_with` also looked promising in isolation, but its only production
+caller is settings `feasible_cases`, not evaluator aggregate construction. Replacing
+that overlap check cannot be assumed to improve a settings-evaluation benchmark.
+
+### Current baseline profile
+
+The measurement orb has two logical Xeon 2.60GHz CPUs, about 3.84GiB RAM, no swap,
+and Rust 1.97.1. The benchmark uses the unchanged `bench` profile (`debug = 2`),
+lockfile-selected corpus and explicit nonexistent virtual environment. Builds and
+downloads completed outside timed runs; benchmarks ran sequentially, with warm
+filesystem caches. The initial required pinned command reproduced 9.741s (one sample,
+one iteration), enclosing wall 11.06s and peak RSS 411,884KiB. This is this orb's
+reproduction, not confirmation of the historical 7.335s sample.
+
+Installing libc debug symbols upgraded Debian libc from 2.36-9+deb12u3 to u14.
+The baseline was rerun after that change, and all candidate comparisons below use
+u14 throughout. The initial u3 timing is not used as an A/B denominator.
+
+The refreshed baseline profile used `perf record -e cpu-clock:u -F 499
+--call-graph dwarf,32768`, yielding 4,536 samples without lost samples. Profile runs
+are separate from uninstrumented timing. Inclusive percentages count each sample
+once per category even if recursion/inlining contributes several matching frames:
+
+| Baseline call path | Inclusive sampled CPU |
+| --- | ---: |
+| Guarded module-effect joins | 57.76% |
+| Constraint intersection | 28.11% |
+| Constraint-node cloning and descendants | 26.28% |
+| Module-identity cloning and descendants | 15.87% |
+| Binding normalization | 13.16% |
+| Join collection | 7.67% |
+| Value cloning and descendants | 6.68% |
+| Domain validation | 5.20% |
+| Sequence construction | 0.42% |
+| `combine_bindings` | 0.24% |
+| Dictionary construction | 0.20% |
+
+These rows overlap and cannot be summed. Exclusive leaf buckets, which do not
+overlap each other, attribute 29.78% to allocation/free, 11.57% to `memcpy`, and
+6.06% to `memcmp`. Of 525 `memcpy` leaf samples, 439 descend from constraint-node
+cloning; 248 of 1,351 allocator leaf samples do too. The clone function itself is
+only 1.85% exclusive. Thus its inclusive cost is not just a misleading large wrapper:
+it includes actual recursive copying/allocation. Sampling does not isolate layout or
+cache effects. Import-loader frames occurred in only 0.11% of samples and
+`compatible_with` in none; these are stack classifications, not an exhaustive causal
+accounting of every imported-module dependency.
+
+### Rejected smaller experiment: operand clone placement
+
+Candidate `74d57a97f266942d4f587d10e181523af2961b6a` moved operand copies in
+`combine_bindings` after the existing guard intersection, removing the redundant
+outer-left copy and copies of infeasible right operands. Pair order, operations,
+normalization and widening were unchanged. It passed the evaluator/settings tests,
+but only three baseline profile samples (0.066%) were value-clone descendants of
+`combine_bindings`, so a large pinned-workload benefit was unlikely.
+
+Three isolated pairs used order AB, BA, AB, where A is the fixed baseline binary and
+B is the clone-placement binary. Each ordinary cell is a median of ten samples with
+ten total iterations; each pinned cell is one sample/iteration:
+
+| Workload | Pair 1 A / B | Pair 2 A / B | Pair 3 A / B |
+| --- | ---: | ---: | ---: |
+| Ordinary Pretix | 725.6 / 719.9ms | 655.4 / 665.9ms | 671.5 / 712.4ms |
+| Required branches 8 | 313.9 / 311.1ms | 282.4 / 278.9ms | 323.8 / 323.6ms |
+| Pinned Pretix+Django | 9.071 / 8.908s | 7.943 / 8.314s | 8.776 / 9.357s |
+
+Median batch medians changed by +6.1%, -0.9%, and +1.5%, respectively, with no
+stable benefit. Pinned RSS was A: 411,976 / 412,076 / 411,936KiB versus
+B: 411,748 / 412,212 / 412,032KiB. This experiment is not in the retained branch.
+It is not evidence that removing copies is generally harmful; it is evidence that
+this particular small change did not earn retention in these workloads.
+
+### Retained experiment: immutable constraint branches
+
+The measured implementation is `91f62914ba5148491b8743d810096a3b68f57575`,
+directly on the fixed baseline, without the rejected operand-copy change. The retained
+implementation commit `93a8f547dcad21c70ce75ce5fcdebdabdeae24d4` adds only a
+changelog entry relative to that measured revision; its Rust source is identical.
+
+`ConstraintNode::Branch` now owns an `Arc<ConstraintBranch>`, while terminals and
+the root remain inline. Cloning a root or interior residual increments a reference
+count instead of recursively cloning descendants and module identities. There is no
+global interner, operation cache, mutable shared node, or new query key. Separately
+allocated equal trees still compare structurally equal; a shared pointer only shortcuts
+an equality already guaranteed by immutability. Structural order still uses the same
+join fields and reverse arm comparison, never allocation addresses.
+
+The guard union/intersection operations still perform whole-input domain validation,
+the same recursive apply, and the same ordered predicate forgetting. Selection still
+forgets/reassigns a coordinate, while a requirement still intersects it. No binding
+join, normalization, provenance merge, alternative cap, effect, import, or statement
+selection was moved. This preserves the evaluator's bounded operation sequence rather
+than relying on associativity or distributivity. Source dependencies and Salsa equality
+remain unchanged, including equal results reconstructed in another query execution.
+
+The final pinned comparison used three AB/BA/AB pairs, each one sample and one total
+iteration per binary, with no censored runs:
+
+| Pair | Baseline time | Shared time | Baseline RSS | Shared RSS |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 8.122s | 3.428s | 412,052KiB | 136,108KiB |
+| 2 | 9.031s | 3.662s | 411,900KiB | 136,152KiB |
+| 3 | 8.825s | 3.930s | 411,656KiB | 135,996KiB |
+
+The observed medians are 8.825s versus 3.662s (58.5% less time, 2.41× faster),
+and 411,900KiB versus 136,108KiB (67.0% less peak RSS). These are three full
+first-request iterations per revision on one orb, not cross-machine estimates or
+formal confidence intervals. Every timed input uses a fresh database; no cost is moved
+to a later settings/detail request. Cached requests are not a separate timed workload.
+
+The post-change profile has 1,737 samples at the same 499Hz rate. Constraint-clone
+inclusive samples fell from 1,192/4,536 (26.28%) to 12/1,737 (0.69%). Exclusive
+allocator samples fell from 1,351 (29.78%) to 320 (18.42%), and `memcpy` samples
+from 525 (11.57%) to 56 (3.22%). Guarded effect joins rose from 57.76% to 80.08%
+of the smaller profile, but their sample count fell from 2,620 to 1,391. That rising
+percentage is not a regression. Counts here are sampled CPU observations, not
+deterministic invocation/allocation counters; the unchanged execution schedule and
+the removed recursive clone are independently visible in the implementation.
+
+The full ordinary suite ran in the same three AB/BA/AB pairs. Each cell below lists
+the three batch medians in milliseconds; each batch has ten samples and ten total
+iterations, giving 30 samples/30 iterations per row/revision. The last column compares
+medians of batch medians, **not** pooled observation medians. Benchmark names retain
+the `settings_cold_` prefix:
+
+| Benchmark suffix | Baseline batch medians (ms) | Shared batch medians (ms) | Median change |
+| --- | --- | --- | ---: |
+| `branches::8` | 0.07785, 0.07187, 0.08153 | 0.1029, 0.06417, 0.07228 | -7.2% |
+| `branches::32` | 0.2398, 0.1295, 0.1762 | 0.1593, 0.1197, 0.1273 | -27.8% |
+| `branches::64` | 0.3157, 0.1772, 0.2026 | 0.2273, 0.1770, 0.3381 | +12.2% |
+| `corpus::healthchecks` | 165.5, 152.7, 170.0 | 107.6, 107.0, 118.1 | -35.0% |
+| `corpus::netbox` | 289.4, 335.7, 325.4 | 150.4, 146.9, 164.4 | -53.8% |
+| `corpus::pretix` | 685.4, 706.0, 716.6 | 297.6, 291.8, 320.5 | -57.8% |
+| `external_constants` | 0.1468, 0.1542, 0.1463 | 0.1251, 0.1275, 0.1462 | -13.1% |
+| `required_branches::2` | 0.4779, 0.5541, 0.5151 | 0.2541, 0.2560, 0.2559 | -50.3% |
+| `required_branches::4` | 5.331, 5.628, 6.045 | 2.299, 2.245, 2.312 | -59.2% |
+| `required_branches::8` | 268.9, 311.9, 299.0 | 118.8, 126.9, 130.0 | -57.6% |
+| `try_prefixes::2` | 0.09078, 0.09748, 0.1026 | 0.07333, 0.07476, 0.1095 | -23.3% |
+| `try_prefixes::9` | 0.2270, 0.2513, 0.2508 | 0.1651, 0.1579, 0.1653 | -34.2% |
+| `try_prefixes::64` | 3.768, 3.922, 4.767 | 2.249, 2.245, 2.697 | -42.7% |
+
+The demanded eight-branch control's individual-iteration ranges were 260.5–381.6ms
+versus 117.3–155.6ms. Ordinary Pretix ranges were 630.2–842.3ms versus
+287.3–466.8ms. These gains are substantially larger than observed run variation.
+Tiny irrelevant-branch rows have much wider relative variation, including a 4.606ms
+baseline outlier for `branches::8`; their percentages should not be read as precise
+savings. The apparent `branches::64` regression was investigated rather than hidden:
+five additional alternating ten-sample batches gave median batch medians 196.9µs
+versus 190.8µs, while `branches::32` varied in the opposite direction. Three further
+100-sample/100-iteration batches per row/revision (300 total each, same AB/BA/AB
+order and unchanged fixture) produced these medians in microseconds:
+
+| Branches | Baseline batches (µs) | Shared batches (µs) |
+| --- | --- | --- |
+| 8 | 112.3, 73.4, 72.47 | 67.84, 67.70, 66.49 |
+| 32 | 211.7, 120.6, 120.2 | 120.2, 120.0, 121.1 |
+| 64 | 193.7, 188.0, 183.3 | 183.7, 185.3, 191.0 |
+
+Those followups do not establish a small-row regression or precise speedup. They do
+not replace the unfavorable original rows above. No confidence intervals are claimed.
+
+### Reproduction details, limits, and verification
+
+Each exact revision was built once with
+`cargo bench -p djls-bench --bench extraction --no-run`; its executable was preserved
+before switching revisions. Fixed binaries used `--bench settings_ --sample-count 10`
+for the ordinary suite and `--bench --ignored settings_cold_pretix_with_django`
+under `/usr/bin/time -f 'wall=%e exit=%x max_rss_kib=%M' timeout 180s` for the pinned
+case. Pinned enclosing walls were 8.16 / 9.07 / 8.86s versus 3.44 / 3.68 / 3.95s.
+Every measured run exited zero. No CPU affinity, frequency control, or filesystem-cache
+flush was used. This measures first settings requests, not whole CLI/LSP startup.
+
+SHA-256 identities for the controlled comparison:
+
+| Input or executable | SHA-256 |
+| --- | --- |
+| `Cargo.lock` | `0d00393441e45c9a927b4b906a9f37af6f37b2b88d4233a36af1afe2ee272453` |
+| Corpus `manifest.lock` | `6b5ce6ee4899819101557dbd417f0d7df27855724131f0bb63028e03c2d99b7d` |
+| `benches/extraction.rs` | `a31b00dc2b95f7826b55ac269bb2bf67c87a2ce6d1635d56eee6f458b5cd1fbd` |
+| Baseline executable | `e7e4d219bad53fe492ddcf1d6c3bd821a3533ab5bc1efc4f39364dab2cd55dcf` |
+| Rejected clone executable | `229b90df382b28bd106a68ace113d61c593bf18977e1618ca0c23b724c66e672` |
+| Shared-constraint executable | `206de0b2348a70827dad6fe319c6b2f4e4fb05fb290fc57ad267d7b4b8fbb500` |
+
+The measurement orb's raw timing logs, parsed data, environment and exact profile
+category rules were transferred and verified in an evidence archive with SHA-256
+`202673cfdeec53797feac651ad7226f05defa156ffed4284e79a73c44c3ecea6`.
+The parent independently recomputed the final table and checked the local lockfile
+and benchmark hashes against that archive.
+
+Sampling covers the whole process, including harness/setup/drop, without timed-region
+markers. User-space CPU-clock samples exclude kernel/blocked time; 32KiB DWARF stacks
+can truncate, and inlining/tail calls can obscure ancestors. The baseline has 168
+samples with unknown ancestor frames but no unknown leaves; the shared profile has
+one unknown leaf. Missing symbols are not proof of absent work. In particular,
+`load_import_chain` frame coverage is not total transitive imported-module work.
+
+Verification on the retained Rust implementation:
+
+- `cargo test -q`: 2,409 passed, zero failed, seven existing ignored tests.
+- Targeted evaluator tests: 175 passed; settings extraction: 315; project settings:
+  106; corpus settings: seven. Existing snapshots were unchanged.
+- A new private test verifies physical sharing, independent reselection of a clone,
+  reuse of an interior residual, and structural equality/order of separately allocated
+  equal trees. Existing tests cover multi-arm domains, disjoint domain mismatches,
+  module/search-root identity, predicate forgetting, the 64-plus-unknown cap,
+  provenance, alias mutation, import cycles, recovery and source invalidation.
+- `just e2e`: all 48 existing Python protocol tests passed, including startup and
+  diagnostic republishing. No parallel Rust LSP harness was added.
+- `just fmt`, `just fmt --check`, `just clippy`, `just lint`, and `just hawk` passed;
+  Hawk reported zero findings. No temporary production instrumentation was added.
+
+The next justified investigation is repeated intersection and domain/identity work
+inside guarded module-effect joins: intersection still has 788/1,737 inclusive
+samples (45.37%), overlapping the effect-join samples. Measure repeated operand pairs
+and potential cache hit rates before considering memoized apply or interning, preserving
+the current public widening boundaries and self-owned query lifetimes. Factored
+aggregates, export-demand summaries and demand-informed precision allocation remain
+separate research; this profile does not justify expanding into them or server work.
