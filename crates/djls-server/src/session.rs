@@ -665,7 +665,7 @@ impl Session {
             return DocumentMutation::Ignored;
         };
 
-        let change = if self.workspace.get_document(&path).is_some() {
+        let change = if self.workspace.contains_document(&path) {
             ChangeEvent::ContentChanged(path.clone())
         } else {
             self.open_document_change(&path)
@@ -736,13 +736,8 @@ impl Session {
 
     /// Get a document from the buffer if it's open.
     #[cfg(test)]
-    fn get_document(&self, path: &Utf8Path) -> Option<TextDocument> {
+    fn get_document(&self, path: &Utf8Path) -> Option<Arc<TextDocument>> {
         self.workspace.get_document(path)
-    }
-
-    /// Get all currently open documents.
-    pub(crate) fn open_documents(&self) -> Vec<TextDocument> {
-        self.workspace.open_documents()
     }
 
     fn queue_document_diagnostics(&mut self, document: &TextDocument) {

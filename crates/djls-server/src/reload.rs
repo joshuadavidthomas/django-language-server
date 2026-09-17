@@ -46,7 +46,6 @@ use tracing::warn;
 
 use crate::client::ClientInfo;
 use crate::diagnostics::DiagnosticPublisher;
-use crate::document::TextDocument;
 use crate::progress::ProgressItem;
 use crate::progress::ProgressReporter;
 use crate::session::CancellationRetryAction;
@@ -302,7 +301,7 @@ async fn reload_project(
     }
     finish_progress(&mut facts_progress, ProgressEnd::Complete).await;
 
-    let Some((intrinsic_snapshot, _)) = snapshot_session(&session).await else {
+    let Some(intrinsic_snapshot) = snapshot_session(&session).await else {
         fail_generation(&session, generation).await;
         return ReloadRunOutcome::Complete;
     };
@@ -460,12 +459,10 @@ async fn apply_facts(session: &Arc<Mutex<Session>>, facts: &ProjectFactsData) ->
     true
 }
 
-async fn snapshot_session(
-    session: &Arc<Mutex<Session>>,
-) -> Option<(SessionSnapshot, Vec<TextDocument>)> {
+async fn snapshot_session(session: &Arc<Mutex<Session>>) -> Option<SessionSnapshot> {
     let session_lock = session.lock().await;
     session_lock.db().project()?;
-    Some((session_lock.snapshot(), session_lock.open_documents()))
+    Some(session_lock.snapshot())
 }
 
 async fn load_project_settings(session: &Arc<Mutex<Session>>) -> StageOutcome<Settings> {
