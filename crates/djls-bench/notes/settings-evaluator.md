@@ -1127,3 +1127,497 @@ After restoring production to the baseline, `cargo test -q` passed 2,411 tests
 (zero failed, seven existing ignored); `just fmt`, `just clippy`, and `just lint`
 also passed. The final Rust diff is entirely inside the private test module. No
 runtime metadata, factory, new dependency, public API or benchmark change is retained.
+
+## Follow-up: explain overhead and test a genuinely inactive path
+
+The user requested a matched dependency comparison and an explanation of the
+ordinary-workload cost before choosing a tradeoff. This experiment retains the same
+`0b316c11` baseline. Reachable dependency sources, a discoverable interpreter, and a
+working application runtime are different conditions: the earlier winning fixture
+has an explicitly missing virtualenv and an explicit Django source search root.
+Interpreter presence would therefore be the wrong switch for that fixture.
+
+### Actual factory counters isolate wasted work
+
+A temporary diagnostic based on the delayed factory ran each workload once, with
+warmup set to either zero or 16. It counted every operation using fixed-size counters,
+without retaining node payloads or pointer history. These are actual factory lookups,
+not the earlier observational weak-table opportunity counts. Diagnostic runs are
+excluded from performance comparisons.
+
+| Workload | Nonreduced constructions | Eager lookups / hits | Delayed lookups / hits | Eager first table allocations | Delayed first table allocations |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| NetBox | 37,993 | 37,941 / 1,002 | 2,057 / 548 | 10,898 | 93 |
+| Ordinary Pretix | 146,364 | 146,298 / 45,953 | 64,965 / 35,307 | 26,216 | 611 |
+| Required-8 | 64,568 | 64,568 / 0 | 0 / 0 | 10,168 | 0 |
+| Pinned Pretix | 2,944,795 | 2,944,729 / 2,283,142 | 2,761,942 / 2,168,173 | 34,595 | 6,145 |
+
+The lookup-free standalone `required` constructor explains counts below the total
+nonreduced constructions. Empty maps allocate nothing; first insertion and later
+capacity growth are counted separately. Required-8 eager had another 10,296 growths;
+delayed had none. Its measured maximum nonreduced constructions per operation were
+7 for union, 7 for intersection, and 15 for selection. Unlike the earlier occupancy
+maxima, these actual per-operation counts prove that this trace never activates at 16.
+Any remaining delayed Required-8 difference cannot be table lookup/allocation cost;
+fingerprint computation, the larger node layout, generated code, and noise remain.
+
+All eight diagnostic runs had zero unequal full-equality misses and zero capacity
+cleanup/clear events. Collision handling and the 512-entry cleanup policy are not
+the observed cause on these traces. This is not a proof that those paths never cost
+anything on other inputs. Pinned eager avoided 2,283,142 branch allocations, leaving
+661,653; delayed left 776,622. Both still constructed arm vectors before looking up a
+parent. The pinned vectors presented to constructors totalled 102,267,616 capacity
+bytes in either mode, versus 2,105,600 for Required-8. These totals describe allocation
+work, not peak memory, live memory, or allocator-rounded bytes.
+
+The parent reviewed the diagnostic hooks and independently checked histogram totals,
+lookup-outcome sums, and `nonreduced constructions = allocations + hits` in all
+eight reports.
+No collision/cleanup performance bug was demonstrated. The evidence instead shows
+that eager sharing adds many unproductive lookups and small table allocations on
+low-reuse inputs, while eliminating millions of branches on the pinned input.
+
+### Side tables remove hashing and node metadata from the inactive path
+
+Experimental `23cd0530c6a6ff600b39e5e2ca3e3b6133cdb3f0` restores the original
+`ConstraintBranch { join, arms }` layout (88 bytes on this x64 orb). The operation
+factory holds two weak side tables: a structural-fingerprint reuse table and an
+address-keyed fingerprint cache. Each is capped at 512 records. Cache reads upgrade
+the weak reference and verify pointer equality; structural reuse still verifies
+complete equality. No raw pointer is dereferenced, and no table owns a child graph.
+
+The first 16 nonreduced constructions neither hash nor probe or allocate either
+table; construction 17 activates. Capacity zero is a fully disabled diagnostic mode,
+and warmup zero is eager. Reductions precede counting. Nodes contain no factory or
+metadata, and equality, order, validation, forgetting, and widening schedules remain
+unchanged. Active costs now include hashing unregistered descendants, weak-cache
+probes, and possible recomputation after eviction. A cheap inactive path does not
+establish that the active path is cheaper than the cached-word experiment.
+
+The parent independently ran `cargo test -q -p djls-project`: 1,506 passed, zero
+failed. The verbatim-baseline differential trace also passed 552 exact shapes,
+9,936 world-membership checks, and 6,072 each equality/order comparisons. As before,
+warmup 16 stays inactive on that small trace; warmup 1 exercises mixed operation
+behavior, and separate tests verify activation on construction 17, zero inactive
+hash/lookup work, bounds, collisions, expiry, stale-address rejection and factory drop.
+
+### The side-table screen does not improve the tradeoff
+
+Four balanced orders compared A=baseline, B=eager, C=sidecar-16, D=sidecar-disabled:
+ABCD / BDAC / CADB / DCBA. Each workload ran in its own process. Ordinary cells
+have ten samples/iterations per process (40 total); pinned cells one (four total).
+These fixed executables contain no diagnostics. All 64 processes exited zero.
+Values below are medians of the four process medians, in milliseconds.
+
+| Workload | Baseline | Eager | Sidecar-16 | Sidecar disabled | Sidecar-16 change |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| NetBox | 86.475 | 91.080 | 94.965 | 85.295 | +9.8% |
+| Ordinary Pretix | 126.85 | 137.60 | 147.30 | 132.35 | +16.1% |
+| Required-8 | 56.055 | 60.470 | 59.810 | 55.720 | +6.7% |
+| Pinned Pretix | 1,067.5 | 725.6 | 901.0 | 954.9 | -15.6% |
+
+Pinned peak RSS ranges were baseline 61,096–61,376KiB, eager 19,092–19,392KiB,
+sidecar-16 19,064–19,292KiB, and disabled 61,296–61,332KiB. The sidecar preserves
+the memory benefit but gives up much of eager's time benefit and does not remove
+ordinary overhead. No threshold sweep or second sidecar design followed this screen.
+
+Process drift is visible even in the disabled control: its pinned medians were
+865.6 / 870.8 / 1,055 / 1,039ms, versus baseline 970.7 / 1,104 / 1,054 / 1,081ms.
+Ranges overlap for all disabled-control workloads. This is not evidence that doing
+no interning makes the pinned workload 10.5% faster, nor proof of identical code
+generation. Disabled is a compile-time constant build, not a measured runtime
+policy switch. Likewise, the sidecar's Required-8 delta cannot be assigned to table
+work: that operation trace never activates. Counter/branch/frame costs, generated
+code, and shared-orb timing variation have not been individually isolated.
+
+### Matched fixtures separate source availability from interpreter availability
+
+Harness `28a0938e01e551b01ba37080d456d9f2f852b8d1` adds a separate ignored benchmark,
+without changing any existing name or body. Healthchecks, NetBox, and Pretix each
+have three modes: project-only, common pinned Django 6.1rc1-only, and manifest-matched
+dependency sources. Each mode retains the identical discovered first-party prefix,
+settings entry, and explicit missing virtualenv; only `SitePackages` roots differ.
+External module bodies are not evaluated.
+
+Manifest inputs are the projects' default requirements plus their resolved transitive
+closure, frozen into hash-locked fixtures on 2026-09-16. Healthchecks has 29
+distributions including Django 6.0.2; NetBox 104 including Django 5.2.11; Pretix 130
+including Django 4.2.30. The common Django-only fixture is deliberately incomplete
+and not version-matched. Unrequested optional/dev extras, stdlib sources, editable
+application installation, native-runtime success and application execution are not
+claimed. Dependency `.py`/`.pyi` path/content hashes matched an independent replay.
+
+Preflight checks separately report external-root presence, successful Django/nested
+module resolution, and manifest-source completeness. Report mode uses a fresh
+database with the same entry-resolution history as timing and serializes complete
+settings products. The parent checked all nine root/entry/witness contracts, exact
+equality with replay reports, and all three project-only products against existing
+corpus snapshots. The combined harness/sidecar benchmark passes `cargo check`.
+Only within-fixture baseline/candidate products must agree; different dependency
+modes may legitimately yield different evidence.
+
+### Declared dependencies confirm the Pretix benefit, not a universal rule
+
+The final identical-harness matrix ran baseline/eager/sidecar-16 in three balanced
+ABC/BCA/CAB passes. Each fixture ran in a separate fixed-executable process with five
+samples/iterations: 81 processes and 405 measured operations, all successful. All 27
+variant/fixture preflight reports matched the corresponding reference exactly.
+This remains cold settings evaluation, not server startup or per-keystroke latency.
+Values are medians of three process medians, in milliseconds.
+
+| Project / dependency sources | Baseline | Eager | Sidecar-16 | Eager difference |
+| --- | ---: | ---: | ---: | ---: |
+| Healthchecks / project-only | 60.69 | 61.20 | 68.93 | +0.51 (+0.8%) |
+| Healthchecks / Django-only | 61.10 | 64.12 | 65.39 | +3.02 (+4.9%) |
+| Healthchecks / manifest | 65.99 | 60.33 | 63.36 | -5.66 (-8.6%) |
+| NetBox / project-only | 81.60 | 86.98 | 94.59 | +5.38 (+6.6%) |
+| NetBox / Django-only | 219.8 | 227.6 | 263.4 | +7.8 (+3.5%) |
+| NetBox / manifest | 236.2 | 248.2 | 279.6 | +12.0 (+5.1%) |
+| Pretix / project-only | 123.2 | 129.6 | 146.6 | +6.4 (+5.2%) |
+| Pretix / Django-only | 1,063.0 | 738.8 | 830.0 | -324.2 (-30.5%) |
+| Pretix / manifest | 1,018.0 | 774.3 | 977.2 | -243.7 (-23.9%) |
+
+Manifest-Pretix baseline pass medians were 1,097 / 1,018 / 921.5ms; eager 782.9 /
+774.3 / 643.6ms; sidecar 1,030 / 977.2 / 865.3ms. Eager's ranges are disjoint from
+baseline's, and the gain repeats in every pass. Median peak RSS fell 65,536 →
+19,960KiB, saving 44.5MiB (69.5%). The sidecar retains similar memory savings but
+its median time benefit is only 40.8ms (4.0%).
+
+Manifest-NetBox baseline medians were 236.2 / 237.0 / 234.3ms, versus eager 248.2 /
+270.0 / 234.8ms. Its source-present modes do not show the Pretix speedup; an early
+external-root check is not a demonstrated universal win predictor. Small Healthchecks
+differences and some ordinary rows have broad, overlapping ranges and process drift;
+the signed percentages are observations, not formal significance claims. No assumed
+frequency of these projects in the user population is attached to this matrix.
+
+### Profiles support bookkeeping cost, not a complete causal wall-time breakdown
+
+Fresh losing-workload profiles use 499Hz user-CPU sampling over 20 iterations per
+fixed binary. Captures with reported loss were preserved but excluded from inference;
+replacement captures and all selected decoded sample totals were checked. Factory
+frames include existing allocation work as well as newly introduced checks, so their
+sampled time must not all be labelled extra table overhead.
+Zero reported sample loss is not complete stack attribution: the selected captures
+have 0–32 stacks with unresolved frames and 0–1 unresolved leaves each. Inlining and
+the bounded DWARF stack window also limit ancestor attribution.
+
+NetBox baseline/eager captures have 820/864 samples. Constructor coverage rises
+17 → 39 samples, and eager factory coverage is 29 (roughly 2.9 sampled CPU ms per
+iteration). Pretix has 1,240/1,356 samples, constructor coverage 60 → 128, and eager
+factory coverage 87 (roughly 8.7ms per iteration). These inclusive categories overlap
+with normalization and allocation and are not additive wall-time deltas.
+
+Required-8 baseline/control/eager/delayed captures have 563/572/621/648 samples;
+factory coverage is 0/0/31/10. The delayed factory's ten samples cannot be table
+time: exact counters establish zero lookups and table allocations for that trace.
+Fingerprint-only profiles do not isolate a stable magnitude of timing overhead.
+
+There is concrete layout cost: on the measured x64 layout the baseline/sidecar
+branch payload is 88 bytes and the cached-word payload 96. Including the 16-byte
+Arc header gives requested sizes of 104 versus 112 bytes. A direct libc
+`malloc_usable_size` probe on the measurement orb maps those to 104 versus 120
+usable bytes, crossing an allocation size class. That is consistent with the earlier
+fingerprint-control RSS increase, but is not a causal wall-time attribution.
+Generated-code and locality effects remain possible, not demonstrated bugs.
+
+### Policy conclusion
+
+The original eager experiment remains the better candidate if the product accepts
+this tradeoff. A roughly 244ms/44.5MiB saving on declared-source Pretix can reasonably
+be worth a 12ms NetBox cost. Requiring every workload to improve is a policy choice,
+not a correctness requirement; the measurements do not prescribe that choice.
+The sidecar is not retained as an improvement, and no threshold sweep was performed.
+
+Search-path availability is known before settings evaluation, so an early policy is
+technically possible. A hypothetical selector could choose the baseline for
+project-only fixtures and eager interning when external sources are reachable. This
+would avoid the measured project-only penalties by construction but retain the
+source-present NetBox penalty. Such a table is a zero-dispatch/representation-cost
+estimate, not an implemented or measured runtime switch. Policy would need propagation
+through nested binding/value/effect operations, and simply disabling lookups does not
+remove the fingerprint field's layout cost. No switch or production interner is enabled
+by this experiment. No semantics, environment discovery, or import policy changed.
+
+### Reproducible follow-up evidence
+
+The separate `target/constraint-interning-round2-evidence.tar.gz` is 27,002,527 bytes,
+SHA-256 `adfb8c4b04169c76d8e25bfbb5cf17c09e9237d17ce4517060255cb881cc9acb`.
+The original archive remains unchanged. The new archive contains all 145 timing
+process logs (901 samples/iterations), 27 full preflight reports, eight actual counter
+traces and their source, twelve selected decoded profiles, excluded lossy/incomplete
+capture evidence, fixture locks/source hashes, exact candidate bundles, final harness,
+allocator probe and independent correctness evidence. Fixed binaries and raw perf
+recordings remain in the measurement orb.
+
+The parent verified the archive and bundled input checksums, independently parsed all
+145 raw timing rows including durations, iteration counts, RSS and exit status,
+recomputed every matrix median, compared all 27 complete output reports with the
+reviewed references, checked every raw diagnostic field and histogram, and recounted
+all twelve selected profiles against the documented selectors and perf sample totals.
+The audit output is `target/constraint-interning-round2-parent-audit.log`.
+
+The phone-friendly HTML explainer includes the follow-up separately from historical
+comparisons. Chromium inspection covered 320/390/1280 CSS-pixel layouts, the expanded
+side-table explanation, and the existing comparison/step controls; no horizontal
+overflow or JavaScript error was observed. This is narrow-layout testing, not a
+physical-phone or Safari test. Production source was not modified in this follow-up.
+
+## Follow-up: boxed child storage with and without sharing
+
+The next experiment isolates stored child representation from the sharing policy.
+The previous allocator probe establishes an avoidable-looking size boundary, not
+that a smaller container necessarily improves wall time. A `Vec<ConstraintNode>`
+stores pointer, length, and capacity; the immutable stored children do not need to
+grow. A boxed slice removes the capacity word, but converting a vector with spare
+capacity can introduce shrinking work, including before an eager cache hit.
+
+The four controls are A=exact baseline `0b316c11`, B=exact eager `e586e944`, C=A with
+boxed stored children, and D=B with boxed stored children. Child construction stays
+in vectors. Reduction, fingerprint, lookup/full-equality, ordering, validation,
+forgetting, widening, and table-capacity policies stay fixed. D deliberately boxes
+before the existing interner lookup; avoiding temporary construction on hits is a
+different experiment. No inline builder, side table, arena, Salsa node interner,
+fine-grained query memoization, environment switch, or threshold sweep is included.
+
+Predeclared checks include actual node/container layout and allocator classes;
+constructor length/capacity distributions; requested child-buffer bytes; branch
+allocations; fingerprint/lookup/hit counts; and boxed conversions with excess
+capacity, distinguishing allocator reallocation calls from pointer relocation.
+These diagnostics run separately from fixed, uninstrumented timing binaries.
+Correctness checks retain the exact-baseline structural/truth-table trace and
+compare all 36 variant/fixture settings reports with the nine reviewed references.
+
+The initial screen uses manifest-dependency Pretix and NetBox, project-only Pretix
+and NetBox, and unchanged Required-8. Four balanced orders (ABCD / BDAC / CADB /
+DCBA), five samples per separate variant/fixture process, yield 80 processes and
+400 measured iterations. Compare C against A, D against B, and especially D against
+the compact baseline C. Record process RSS, all pass timings and drift, not just a
+favorable aggregate. Broader timing of the existing nine fixtures is conditional
+on the initial screen. Prior archives remain unchanged and production stays on the
+baseline; no new result is claimed by this protocol.
+
+### Exact candidates recover the fingerprint word's space
+
+C is `9232d805255327f4691e4f77c2486a61754e91e5`, with sole bundle prerequisite A;
+D is `a979e2d044b6495da0698f90411be5fd4a14798a`, with sole prerequisite B. Parent
+review verified both bundle checksums and the complete diffs: only the stored arms
+type and conversion change production code. Each adds an excess-capacity test;
+the eager test also requires pointer reuse on a repeated construction. D converts
+after hashing the vector contents but before finishing the hash and entering the
+existing interner. No cache-hit construction optimization is hidden in this change.
+
+Observed x64 payload sizes are A=88, B=96, C=80, D=88 bytes, all aligned to eight.
+`ConstraintNode` remains 16 bytes; Vec and boxed-slice headers are 24 and 16 bytes.
+Including Arc headers gives allocation requests A=104, B=112, C=96, D=104 bytes.
+The measurement orb's unchanged libc maps requests 96 and 104 to 104 usable bytes,
+and 112 to 120. C therefore does not cross an allocator class relative to A; D
+does relative to B. This is per-node allocation evidence, not a wall-time result.
+
+The existing full project suites passed with 1,500 tests for C and 1,504 for D,
+zero failures. Parent parsing of the preserved test logs confirms those totals.
+Both candidates passed all-target Clippy and formatting checks. Quiet Clippy logs
+are empty; their exit statuses and formatter/hook results were recorded in tool
+responses, and the implementation archive labels that distinction explicitly.
+
+Independent focused verification passed two tests per candidate. C covers 23 exact
+trace shapes, 414 truth-table memberships, 253 each equality/order comparisons, and
+nine extra asymmetric truth checks. D repeats the trace for capacities 0/1/2/512
+and normal/constant fingerprints: 184 shapes, 3,312 memberships, 2,024 each
+equality/order comparisons, and 72 extra truth checks. Additional checks use spare
+capacities 127/129, ordered nested children and reversal, same-child reduction,
+metadata-independent equality/debug/order, and cross-thread result lifetime after
+dropping factories and local owners. No warmup behavior is claimed. Parent audit
+rechecked that the independent baseline source is byte-exact `0b316c11`.
+
+### Boxing did not resize any observed child buffer
+
+All 36 full settings reports matched the previously reviewed fixture references
+byte-for-byte. Parent and independent audits checked exact variants, the common
+harness (including its Cargo manifest/lockfile change), source hashes, ordered
+roots, complete output files, and all successful preflight process exits.
+
+Twenty untimed diagnostic processes covered all four variants on the five screen
+fixtures. Each exited zero and emitted one complete thread dump with zero histogram
+overflow. Every incoming vector had length equal to capacity. All boxed conversions
+had zero allocation/deallocation, reallocation/shrink calls, and pointer relocation.
+The separate spare-capacity smoke test recorded a real 256-to-24-byte realloc with
+no relocation, confirming that the hook distinguishes in-place shrinking from no
+allocator call. These observations do not establish that boxing arbitrary inputs
+never reallocates or that conversion has zero instruction cost.
+
+All ten A/C and B/D pairs matched exact constructor/reduction/hash/lookup/hit/miss
+and branch-allocation counts, child length/capacity histograms, and cumulative child
+byte totals. The boxed representation did not change the observed sharing rate.
+For full-dependency Pretix:
+
+| Variant | Branch allocations | Request per branch | Cumulative node requests |
+| --- | ---: | ---: | ---: |
+| A | 3,174,105 | 104 bytes | 330,106,920 bytes |
+| B | 702,146 | 112 bytes | 78,640,352 bytes |
+| C | 3,174,105 | 96 bytes | 304,714,080 bytes |
+| D | 702,146 | 104 bytes | 73,023,184 bytes |
+
+Every variant presented 110,176,112 cumulative child-capacity bytes to constructors.
+D converted 3,174,105 vectors, including 2,471,959 followed by sharing hits, without
+shrinking. These are cumulative requested/input bytes, not retained memory or RSS.
+The temporary allocator scopes are valid for the frozen, nonnested successful
+conversion/Arc calls; they are not a general nested or panic-safe instrumentation
+framework. The parser aggregates all dumps, but its request-size consistency check
+would reject mixed allocating/zero-allocation thread dumps; that limitation does
+not affect the observed single-dump runs. Fixed counters retain no graph nodes.
+
+### The screen supports a smaller representation, not a universal timing winner
+
+The approved screen completed all 80 separate timing processes, five samples and
+five iterations each, for 400 measured evaluations. The four fixed executables were
+built without diagnostics, their recorded hashes remained unchanged after diagnostic
+work, and no build/profile/diagnostic work overlapped timing. Warm filesystem caches
+were not cleared. This is cold settings evaluation, not startup or cached LSP latency.
+
+Values below are medians of four process medians, in milliseconds, in the declared
+ABCD / BDAC / CADB / DCBA order. All raw minima, maxima, means, medians, sample counts,
+wall times and per-process RSS were preserved and independently recomputed by parent.
+
+| Workload | A: baseline Vec | B: eager Vec | C: baseline Box | D: eager Box |
+| --- | ---: | ---: | ---: | ---: |
+| Pretix / manifest | 1,130.50 | 750.75 | 1,095.50 | 766.45 |
+| NetBox / manifest | 266.25 | 264.95 | 241.10 | 247.10 |
+| Pretix / project-only | 137.85 | 141.70 | 136.00 | 139.35 |
+| NetBox / project-only | 92.630 | 89.380 | 86.775 | 86.120 |
+| Required-8 | 59.745 | 61.665 | 55.520 | 60.355 |
+
+Boxed eager D versus Vec eager B improved full NetBox by 17.85ms (6.7%) in aggregate,
+with all four paired-pass differences negative: -15.4/-6.6/-23.4/-51.9ms. Full Pretix
+instead cost 15.70ms (2.1%) more in aggregate; paired differences were
++46.1/+48.4/+42.6/-14.7ms. Thus the smaller allocation class did not translate into
+a uniform wall-time benefit. The screen does not isolate remaining instruction,
+generated-code, locality or environment effects, and showed no semantic defect.
+
+Sharing remains a large benefit on full Pretix even against the compact baseline:
+D versus C saves 329.05ms (30.0%), and every D process median is below every C median.
+Median peak RSS is A=65,456, B=19,922, C=65,580 and D=19,466KiB. D saves 45.0MiB
+against C, but only 456KiB against B: the large memory win remains sharing, not the
+extra container change. The other D-versus-C aggregate differences are +6.00ms for
+full NetBox, +3.35ms for project-only Pretix, -0.655ms for project-only NetBox, and
++4.835ms for Required-8. Small differences have overlapping ranges and mixed signs.
+
+Process drift limits causal conclusions. The unchanged B-versus-A full-NetBox
+aggregate changes sign from the previous round's +12ms to -1.3ms here. Medians of
+separate pass distributions also need not match typical paired differences:
+project-only Pretix C-minus-A is -1.85ms in aggregate despite C being slower in
+three of four paired passes. Do not present these small aggregate deltas as stable
+universal improvements, or compare absolute times across rounds as one experiment.
+
+The round stops at this screen, without a nine-fixture timing extension. Both boxed
+variants remain viable experiments; neither is enabled or declared the fastest
+default. The layout hypothesis is confirmed, while the measured performance
+tradeoff remains workload-dependent. Eliminating temporary child-buffer construction
+on sharing hits is still a distinct possible experiment, not part of these results.
+
+### Preserved round-three evidence and explainer verification
+
+The consolidated archive is `target/constraint-interning-round3-evidence.tar.gz`
+(496,950 bytes), SHA256
+`432757bb7f20138ca00c079bf127a732fd2fd51fdf68783775316f404c061907`.
+Parent verification of its top-level `SHA256SUMS` passed all 248 included files.
+It contains the 80 timing logs, 36 complete reports, 20 diagnostic logs, exact
+candidate bundles, sources/hooks, harness/fixture identities, and implementation,
+independent and parent audits. Large executables remain on the measurement orb;
+parent and independent verification checked their recorded manifests, not the
+executable bytes. Both earlier archives retain their previously recorded hashes.
+
+The HTML explainer separates all three round-three comparisons from historical
+phases. Executed Chromium checks compared every visible value pair, percentage,
+and accessible chart label with the audited screen summary; all 15 rows passed.
+Both historical comparison views and the repeated/unique step controls passed.
+The 320/390/1280 CSS-pixel layouts had no horizontal overflow, comparison controls
+were at least 44 pixels tall, and no JavaScript errors appeared. Inspected final
+screenshots cover all three comparisons, expanded allocation details, the header
+layout diagram, and the hero. These are Chromium narrow-layout checks, not
+physical-phone or Safari verification. Production remains unchanged.
+
+### Product recommendation after the screen (2026-09-17)
+
+The experiment letters and changing denominators obscured the product decision.
+Use three stable states: main, the current shared-node/shared-module branch, and
+that branch plus compact duplicate reuse. The checked `origin/main` revision
+`6aeef2fe` already contains demand-driven analysis; the current branch additionally
+retains the immutable constraint-tree and module-identity sharing improvements.
+Neither interning nor boxed children are enabled in the current implementation.
+
+The recommendation is to integrate bounded eager hash-consing with boxed child
+slices, the previously verified D candidate, then stop representation tuning.
+This prioritizes a substantial expensive-case benefit over small, workload-dependent
+cold-analysis costs. It is a product tradeoff, not a universal-fastest claim or an
+assertion that the tested projects represent the user population. The compact form
+fits immutable stored children and removes the eager allocation-class growth;
+the mixed timing difference between the two eager representations does not justify
+another tuning campaign.
+
+The stable current-to-recommended round-three comparison is A to D: full-dependency
+Pretix 1,130.50 to 766.45ms (364.05ms, 32.2% less), peak process RSS 65,456 to
+19,466KiB; full NetBox 266.25 to 247.10ms; project-only Pretix 137.85 to 139.35ms;
+project-only NetBox 92.63 to 86.12ms; Required-8 59.745 to 60.355ms. The expensive
+Pretix improvement holds in all four passes. Smaller differences remain noisy;
+earlier ordinary-control regressions are still part of the decision. Benchmark
+peak RSS is not a measured steady-state server-memory reduction.
+
+`django_settings` and `evaluate_python_module` are Salsa tracked functions.
+`settings_consumers_share_one_core_evaluation_without_mutation` and
+`settings_slice_caches_facts_and_import_trace` establish shared core evaluation and
+zero repeated evaluator executions without input changes. Settings and reached
+Python dependency edits can invalidate the result and trigger full project reload;
+configuration/resolution changes and fresh server databases can also require work.
+Ordinary template edits do not inherently rerun settings evaluation, although active
+editing of those Python dependencies can cause repeated recomputation. Local node
+reuse optimizes work inside an actual evaluation; it does not replace Salsa caching.
+
+The historical pinned-Django comparisons were 8.825 to 3.662s for shared trees and
+3.987 to 1.029s for shared module identities. They show the scale of retained gains,
+but are successive matched comparisons with remeasured baselines, not one verified
+84% main-to-current result. They must not be combined with the new dependency fixture.
+
+The revised overview keeps current-to-recommended costs fixed and moves the original
+interactive artifact to `experiment-notebook.html`, explicitly labeled historical.
+This recommendation changes neither production code nor the sealed evidence archives.
+The proposed remaining engineering work is candidate integration and combined
+workspace/LSP verification, not another data-structure experiment or automatic push.
+
+### Chosen implementation integrated (2026-09-17)
+
+After approval, integrated bounded eager hash-consing with boxed child slices into
+the shared-node/shared-module branch. The final `constraints.rs` is byte-identical
+to the verified `boxed-constraint-arms-D` candidate after formatting and linting.
+Its 512-entry weak table remains operation-local; complete structural equality
+checks reuse, and returned values own their graphs independently of the table.
+Vector builders, pre-lookup boxing, validation, ordering and intermediate widening
+remain exactly as tested. No thresholds, sidecars, routing rules or Salsa plumbing
+were added. The existing intermediate-forgetting regression remains covered.
+
+Combined integration verification passed:
+
+- `cargo test -q`: 2,415 passed, zero failed, seven ignored by the suite.
+- `cargo build -q -p djls` and `just e2e`: build succeeded; 48 LSP tests passed.
+- `just fmt`, `just clippy`, `just lint` and `git diff --check`: passed.
+
+Logs are preserved under `target/constraint-integration/`. No further comparative
+timings were run. All three sealed evidence archives retain their recorded hashes.
+The overview now labels the same comparison as **before the final step → finished
+branch**: its baseline is the retained foundation before duplicate reuse, not a
+moving reference to whatever is currently checked out. The research sections above
+remain historical, including their then-current recommendation/status statements.
+
+This finishes the representation experiments. Accept the measured occasional-analysis
+tradeoff and proceed with ordinary code review rather than another tuning round.
+Integration is local and uncommitted; nothing has been pushed or opened as a PR.
+
+### Review follow-up (2026-09-17)
+
+Restored the merge-base constraint `Debug` shape with a node-level formatter and
+fixed compact/pretty snapshots. The compact regression failed before the fix.
+Renamed the private operation-local `ConstraintFactory` to `ConstraintInterner`
+to name its reuse-table responsibility. After normalizing that mechanical rename,
+the only differences from the measured candidate are the formatter and its test;
+the earlier byte-identity statement describes the initial integration checkpoint.
+`cargo test -q -p djls-project` passed all 1,505 tests, and crate all-targets Clippy,
+`just fmt --check` and `git diff --check` passed. No benchmark rerun or policy change.
