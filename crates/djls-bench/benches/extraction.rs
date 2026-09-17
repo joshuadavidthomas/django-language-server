@@ -396,6 +396,50 @@ fn settings_cold_pretix_with_django(bencher: Bencher) {
         });
 }
 
+// Keep the largest repeated workloads in routine CI; opt into both sizes with:
+// DJLS_BENCH_PYTHON_SCALING=1 cargo bench -p djls-bench --bench extraction -- 'settings_cold_(module_members|repeated_imports)'
+fn repeated_workload_sizes() -> &'static [usize] {
+    if std::env::var("DJLS_BENCH_PYTHON_SCALING").as_deref() == Ok("1") {
+        &[8, 64]
+    } else {
+        &[64]
+    }
+}
+
+/// Repeated member reads from one fully evaluated, populated first-party module.
+/// Setup is excluded; each timed input computes its first settings result.
+#[divan::bench(args = repeated_workload_sizes())]
+fn settings_cold_module_members(bencher: Bencher, reads: usize) {
+    let mut helper = String::from("APP = 'core'\n");
+    for index in 0..256 {
+        require(
+            "write module member fixture",
+            writeln!(
+                helper,
+                "SETTING_{index} = 'a moderately long unrelated setting value'"
+            ),
+        );
+    }
+    let members = vec!["base.APP"; reads].join(", ");
+    let source = format!("import base\nINSTALLED_APPS = [{members}]\nTEMPLATES = []\n");
+    bencher
+        .with_inputs(|| {
+            let mut db = TestDatabase::new();
+            let project = require(
+                "prepare cold module member input",
+                ProjectFixture::new("/project")
+                    .django_settings_module("settings")
+                    .file("/project/settings.py", source.as_str())
+                    .file("/project/base.py", helper.as_str())
+                    .install(&mut db),
+            );
+            (db, project)
+        })
+        .bench_local_values(|(db, project)| {
+            divan::black_box(django_settings(&db, project));
+        });
+}
+
 #[divan::bench]
 fn merge_tags(bencher: Bencher) {
     let fixtures = require("load Python extraction fixtures", python_fixtures());

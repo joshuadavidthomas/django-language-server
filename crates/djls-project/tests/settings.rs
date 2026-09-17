@@ -370,6 +370,62 @@ fn settings_consumers_share_one_core_evaluation_without_mutation() {
 }
 
 #[test]
+fn repeated_module_members_keep_values_and_invalidate_after_helper_edit() {
+    let event_log = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(event_log.clone());
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("settings")
+        .file(
+            "/proj/settings.py",
+            "import base\nINSTALLED_APPS = [base.FIRST, base.SECOND, base.FIRST]\nTEMPLATES = []\n",
+        )
+        .file("/proj/base.py", "FIRST = 'alpha'\nSECOND = 'beta'\n")
+        .install(&mut db)
+        .expect("member fixture should install");
+
+    for (first, expected_executions) in [("alpha", 2), ("gamma", 2)] {
+        if first == "gamma" {
+            update_project_file(
+                &mut db,
+                "/proj/base.py",
+                "FIRST = 'gamma'\nSECOND = 'beta'\n",
+            )
+            .expect("helper should update");
+        }
+        let settings = to_value(django_settings(&db, project)).expect("settings should serialize");
+        let apps = settings["installed_apps"]["cases"][0]["known"]["apps"]
+            .as_array()
+            .expect("apps should be known");
+        assert_eq!(
+            apps.iter()
+                .map(|app| app["value"].as_str().expect("app name"))
+                .collect::<Vec<_>>(),
+            [first, "beta", first],
+        );
+        assert_eq!(
+            will_execute_count(
+                &db,
+                &event_log.take().expect("events"),
+                "evaluate_python_module"
+            ),
+            expected_executions,
+        );
+        assert_eq!(
+            to_value(django_settings(&db, project)).expect("settings should serialize"),
+            settings
+        );
+        assert_eq!(
+            will_execute_count(
+                &db,
+                &event_log.take().expect("events"),
+                "evaluate_python_module"
+            ),
+            0,
+        );
+    }
+}
+
+#[test]
 fn settings_slice_caches_facts_and_import_trace() {
     use djls_project::testing::python_settings_evaluation;
 

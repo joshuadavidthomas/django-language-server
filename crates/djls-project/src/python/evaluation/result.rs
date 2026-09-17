@@ -2,6 +2,7 @@ use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::mem;
+use std::sync::Arc;
 
 use djls_source::File;
 use djls_source::FileReadError;
@@ -113,12 +114,12 @@ impl PythonNamespaceRemainder {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum PythonModuleEvaluation {
     CycleSeed,
-    Evaluated(Box<EvaluatedPythonModule>),
+    Evaluated(Arc<EvaluatedPythonModule>),
 }
 
 impl PythonModuleEvaluation {
     pub(super) fn evaluated(module: EvaluatedPythonModule) -> Self {
-        Self::Evaluated(Box::new(module))
+        Self::Evaluated(Arc::new(module))
     }
 }
 
@@ -977,6 +978,43 @@ mod tests {
             File::from_id(Id::from_bits(id)),
             SearchPath::FirstParty(Utf8PathBuf::from("/project")),
         )
+    }
+
+    #[test]
+    fn completed_evaluations_share_payload_without_changing_structural_equality() {
+        let root = module("settings", 1);
+        let mut facts = PythonModuleFacts::default();
+        facts.bindings.insert(
+            "APP".to_string(),
+            PythonBinding::bound(
+                PythonValue::string("alpha".into(), origin(1, 5)),
+                origin(1, 5),
+            ),
+        );
+        let completed = EvaluatedPythonModule::new(
+            Ok(facts),
+            PythonImportTrace::rooted(root.file()),
+            PythonModuleEffects::default(),
+            &root,
+        );
+        let independent = PythonModuleEvaluation::evaluated(completed.clone());
+        let original = PythonModuleEvaluation::evaluated(completed);
+        let cloned = original.clone();
+        assert_eq!(original, independent);
+        assert_eq!(format!("{original:?}"), format!("{independent:?}"));
+        let PythonModuleEvaluation::Evaluated(original) = original else {
+            panic!("completed evaluation");
+        };
+        let PythonModuleEvaluation::Evaluated(cloned) = cloned else {
+            panic!("completed clone");
+        };
+        let PythonModuleEvaluation::Evaluated(independent) = independent else {
+            panic!("independent evaluation");
+        };
+        assert!(Arc::ptr_eq(&original, &cloned));
+        assert!(!Arc::ptr_eq(&original, &independent));
+        drop(original);
+        assert_eq!(cloned.facts(), independent.facts());
     }
 
     fn evaluated_edge(
