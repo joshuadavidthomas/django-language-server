@@ -1621,3 +1621,133 @@ the only differences from the measured candidate are the formatter and its test;
 the earlier byte-identity statement describes the initial integration checkpoint.
 `cargo test -q -p djls-project` passed all 1,505 tests, and crate all-targets Clippy,
 `just fmt --check` and `git diff --check` passed. No benchmark rerun or policy change.
+
+### Remaining evaluator/import work (2026-09-17)
+
+This is a new experiment series, not a reinterpretation of the historical
+constraint experiments above. Its baseline is main at
+`91023195273117726ede99ae0137b89fa38e91fa`, including #898, #906, #907 and #909.
+No constraint interning, batching, branch ordering, per-branch guarded
+intersection, or intermediate widening policy changed.
+
+Retained implementation stages:
+
+1. Completed module evaluations use structurally compared `Arc` payloads.
+   Single-member projection borrows the cached facts instead of cloning the
+   entire module. Cycle recovery still obtains mutable ownership through
+   `Arc::unwrap_or_clone`; full imported-module consumption still clones when
+   necessary. This removes work proportional to the entire cached payload from
+   each member read, not the cost of evaluating an imported module initially.
+2. Effect joins borrow branch effects, guards and candidate bindings. Unchanged
+   candidate bindings are cloned once for the output rather than once per
+   branch; changed candidates retain their original selection/intersection/join
+   sequence. Both whole-effect snapshot clones at the evaluator join boundary
+   are gone. Coordinate collection and lookup retain their original algorithms.
+3. Absolute import-chain resolution is a tracked query keyed by project and
+   normalized absolute module name. A test retaining 16 equivalent absolute and
+   relative import results observed 16 distinct source-identity allocations
+   before the change and one afterwards. A separate settings test verifies that
+   creating and deleting an imported file reruns the chain query, while editing
+   its contents updates settings without rerunning chain resolution. Hits still
+   clone the small component vector; cached source identities are shared.
+4. Search-path computation records which site-packages roots it has scanned for
+   `.pth` files. The explicit-plus-discovered overlap test goes from two walks
+   and four reads to one walk and two reads per computation, preserves editable
+   ordering and explicit classification, and observes changed `.pth` contents
+   on the next computation. This is computation-local deduplication, not a
+   persistent filesystem cache.
+
+#### New measurements and contracts
+
+Linux 6.1.158+, two Xeon 2.60GHz vCPUs, approximately 4 GiB RAM, Rust 1.97.1.
+Release executables were copied before changing candidates; no builds or tests
+ran during timing. Every pair used the same harness and lockfiles. Ordinary
+settings samples use fresh databases with setup outside timing; filesystem
+caches may be warm. Existing benchmark names and measured paths are unchanged.
+Two companion families were added: `settings_cold_module_members::{8,64}` reads
+one member repeatedly from a module with 256 unrelated constants;
+`settings_cold_repeated_imports::{8,64}` imports the same three-component package
+chain under distinct aliases. These are targeted stress cases, not representative
+claims about every Django project.
+
+Commands after `cargo bench -p djls-bench --bench extraction --no-run`:
+
+```text
+<fixed-binary> --bench settings_ --sample-count 10
+<fixed-binary> --bench --ignored settings_cold_pretix_with_django
+```
+
+Each comparison used three pairs ordered AB/BA/AB. Tables report the median of
+three batch medians, in milliseconds. The final isolated import-cache comparison
+used 30 ordinary samples per batch (90 per case/variant); earlier comparisons
+used 10 (30 total). Pinned-Django uses one sample per batch (three total).
+
+| Comparison | Workload | Before ms | After ms |
+| --- | --- | ---: | ---: |
+| Shared completed evaluations | Module members 8 | 0.8901 | 0.4926 |
+| Shared completed evaluations | Module members 64 | 5.386 | 1.953 |
+| Shared completed evaluations | Healthchecks | 61.65 | 60.26 |
+| Shared completed evaluations | NetBox | 86.58 | 83.53 |
+| Shared completed evaluations | Pretix | 148.2 | 131.9 |
+| Shared completed evaluations | Required branches 8 | 62.80 | 64.40 |
+| Shared completed evaluations | Pinned-Django Pretix | 684.1 | 679.6 |
+| Borrowed effects only | Healthchecks | 57.82 | 57.75 |
+| Borrowed effects only | NetBox | 79.80 | 79.41 |
+| Borrowed effects only | Pretix | 122.1 | 123.5 |
+| Borrowed effects only | Required branches 8 | 57.88 | 58.50 |
+| Borrowed effects only | Pinned-Django Pretix | 640.2 | 633.2 |
+| Isolated import cache | Repeated imports 8 | 0.1686 | 0.1549 |
+| Isolated import cache | Repeated imports 64 | 2.136 | 2.017 |
+| Isolated import cache | Healthchecks | 58.27 | 57.69 |
+| Isolated import cache | NetBox | 77.78 | 77.67 |
+| Isolated import cache | Pretix | 121.3 | 122.6 |
+| Isolated import cache | External constants | 0.09954 | 0.1086 |
+| Isolated import cache | Irrelevant branches 8 | 0.06858 | 0.07432 |
+| Isolated import cache | Irrelevant branches 64 | 0.1727 | 0.1941 |
+| Isolated import cache | Required branches 8 | 58.25 | 56.89 |
+| Isolated import cache | Pinned-Django Pretix | 638.9 | 642.8 |
+
+Repeated member reads improved 45–64%; repeated imports improved 6–8% with
+non-overlapping batch-median ranges. Retain the import cache for that measured
+benefit and the eliminated repeated constructions, accepting a few microseconds
+of additional small cold-query overhead. Some noisy microbenchmark batches were
+larger (including irrelevant-branches 64); do not advertise zero regressions.
+The corpus and pinned results do not establish a material general speedup for
+the latter stages. Borrowing removes identifiable copies without changing join
+complexity, but has no convincing broad elapsed-time win here. Cross-series
+timings drift: do not combine them into one main-to-final speedup. `.pth` savings
+are operation counts, not elapsed-time measurements.
+
+The final isolated cache pair differs only by the tracked-query annotation,
+owned name argument and two call-site clones, with the same completed payload,
+effect and `.pth` changes. Cached binary SHA-256:
+`0a13d36b810612b1a412c6dcc384bcb66f9308f59f17e33a03f8513301abbbba`;
+uncached: `0493273cd06deb873cc1fbef77336945f7ded1aa39f350b217dcca0c24f8db10`.
+Final harness SHA-256:
+`6f6be2301c9226cb7ec322271f7a32b42bddd521d7d39abecd61040111910975`.
+Raw batch output and summaries are retained locally in `target/python-perf/`.
+
+#### Rejected and deferred work
+
+- Sorted borrowed coordinate collection plus binary child lookup regressed
+  NetBox from 79.50 to 89.96 ms. All three baseline batch medians (78.52–80.35)
+  were below all candidate medians (89.90–90.48). It was removed; the narrower
+  borrowed-input version above was remeasured independently.
+- Temporary inline constraint child builders were inspected but not implemented
+  or measured. Surviving nodes still require boxed slices before interner lookup;
+  the immediate allocation saving is for branches that collapse before boxing.
+  There is no allocator profile proving this remaining path is worth another
+  representation or dependency. This is deferred, not a measured rejection.
+- No settings-only reload orchestration, discovery changes, new interning or
+  batching campaign, or constraint precision changes belong to this work.
+
+Verification: `cargo test -p djls-project` passed 1,511 tests; `cargo test -q`
+passed 2,422 tests with seven suite-ignored tests. Commit hooks passed workspace
+Clippy and formatting. `just hawk` completed analysis but reported four
+`hawk::unnecessary_public` findings for the unchanged
+`PythonSourceModule::{name,path,file,search_path}` getters; the integration owner
+will reassess them with the other workstreams. Its log is
+`/tmp/python-hawk.log`. No visibility cleanup was made. Warm settings requests
+and helper-edit reuse are covered by event-count tests, not new timing claims.
+No new sampling/allocator profile, Django/Python matrix, dependency-manifest
+benchmark matrix, or LSP end-to-end run was performed in this series.

@@ -440,6 +440,48 @@ fn settings_cold_module_members(bencher: Bencher, reads: usize) {
         });
 }
 
+/// Repeated imports of the same package chain under distinct settings aliases.
+/// Each timed input starts with an unevaluated settings module.
+#[divan::bench(args = repeated_workload_sizes())]
+fn settings_cold_repeated_imports(bencher: Bencher, imports: usize) {
+    let mut source = String::new();
+    for index in 0..imports {
+        require(
+            "write repeated import fixture",
+            writeln!(
+                source,
+                "from package.nested.values import APP as APP_{index}"
+            ),
+        );
+    }
+    let apps = (0..imports)
+        .map(|index| format!("APP_{index}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    require(
+        "write repeated import settings",
+        writeln!(source, "INSTALLED_APPS = [{apps}]"),
+    );
+    bencher
+        .with_inputs(|| {
+            let mut db = TestDatabase::new();
+            let project = require(
+                "prepare repeated import input",
+                ProjectFixture::new("/project")
+                    .django_settings_module("settings")
+                    .file("/project/settings.py", source.as_str())
+                    .file("/project/package/__init__.py", "")
+                    .file("/project/package/nested/__init__.py", "")
+                    .file("/project/package/nested/values.py", "APP = 'core'\n")
+                    .install(&mut db),
+            );
+            (db, project)
+        })
+        .bench_local_values(|(db, project)| {
+            divan::black_box(django_settings(&db, project));
+        });
+}
+
 #[divan::bench]
 fn merge_tags(bencher: Bencher) {
     let fixtures = require("load Python extraction fixtures", python_fixtures());
