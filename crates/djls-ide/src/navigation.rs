@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use djls_project::LoadableLibraryLookup;
 use djls_project::TemplateName;
 use djls_project::TemplateResolutionResult;
@@ -371,7 +373,12 @@ pub fn find_references(
             };
 
             let mut locations: Vec<ls_types::Location> = Vec::new();
+            let mut visited_names = HashSet::new();
+            let mut visited_sites = HashSet::new();
             for target_name in target_names {
+                if !visited_names.insert(target_name) {
+                    continue;
+                }
                 for reference in references_to_template_name(db, project, target_name) {
                     let ref_file = reference.source_file(db);
                     let Some(outcome) = reference.resolve(db, resolution) else {
@@ -383,6 +390,11 @@ pub fn find_references(
                     ) {
                         continue;
                     }
+                    // Deduplicate only after resolution: another alias at this site may
+                    // resolve to a different origin. Keep the first matching site's order.
+                    if !visited_sites.insert((ref_file, reference.span(db))) {
+                        continue;
+                    }
                     let Some(uri) = ref_file.path(db).to_lsp_uri() else {
                         continue;
                     };
@@ -390,17 +402,11 @@ pub fn find_references(
                         uri,
                         range: encoded_range(db, ref_file, reference.span(db), position_encoding)?,
                     };
-                    if !locations.contains(&location) {
-                        locations.push(location);
-                    }
+                    locations.push(location);
                 }
             }
 
-            if locations.is_empty() {
-                None
-            } else {
-                Some(locations)
-            }
+            (!locations.is_empty()).then_some(locations)
         }
         SemanticOffsetContext::LoadLibrary { .. }
         | SemanticOffsetContext::LoadSymbol { .. }

@@ -546,6 +546,62 @@ fn reverse_inheritance_starts_from_secondary_names_and_dedupes_physical_sites() 
 }
 
 #[test]
+fn block_overrides_preserves_breadth_first_order_through_non_overriding_templates() {
+    let mut db = TestDatabase::new();
+    let project = project_with_templates(
+        &db,
+        vec!["/test/project/templates"],
+        vec![
+            (
+                "/test/project/templates/z.html",
+                "{% block content %}base{% endblock %}",
+            ),
+            (
+                "/test/project/templates/a.html",
+                "{% extends 'z.html' %}{% block content %}a{% endblock %}",
+            ),
+            (
+                "/test/project/templates/b.html",
+                "{% extends 'a.html' %}{% block content %}b{% endblock %}",
+            ),
+            (
+                "/test/project/templates/c.html",
+                "{% extends 'z.html' %}{% block content %}c{% endblock %}",
+            ),
+            ("/test/project/templates/d.html", "{% extends 'c.html' %}"),
+            (
+                "/test/project/templates/e.html",
+                "{% extends 'd.html' %}{% block content %}e{% endblock %}",
+            ),
+            (
+                "/test/project/templates/f.html",
+                "{% block content %}unrelated{% endblock %}",
+            ),
+        ],
+    )
+    .expect("branching inheritance fixture should build");
+    db.set_project(project);
+    let base = db
+        .file(Utf8Path::new("/test/project/templates/z.html"))
+        .expect("base exists");
+    let overrides = block_overrides(&db, project, base, "content");
+    let paths = overrides
+        .iter()
+        .map(|site| site.file.path(&db).as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        paths,
+        [
+            "/test/project/templates/a.html",
+            "/test/project/templates/c.html",
+            "/test/project/templates/b.html",
+            "/test/project/templates/e.html",
+        ]
+    );
+    assert!(block_overrides(&db, project, base, "absent").is_empty());
+}
+
+#[test]
 fn originless_inheritance_keeps_the_exact_resolved_origin_for_relative_parents() {
     let mut db = TestDatabase::new();
     let project = ProjectFixture::new("/test/project")

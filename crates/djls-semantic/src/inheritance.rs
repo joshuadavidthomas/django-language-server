@@ -16,9 +16,9 @@ use djls_templates::TagBit;
 use djls_templates::TemplateParseResult;
 use djls_templates::TemplateString;
 use djls_templates::parse_template;
+use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 
-use crate::TagSpec;
 use crate::db::Db;
 use crate::references::TemplateReferenceKind;
 use crate::scoping::ScopedTagFacts;
@@ -28,6 +28,7 @@ use crate::structure::RegionId;
 use crate::structure::Regions;
 use crate::structure::TemplateNode;
 use crate::tags::TagRole;
+use crate::tags::TagSpec;
 
 // The loop is one state transition over a correlated parent chain; extracting its few remaining
 // lines would split cycle and inconclusive-parent decisions from the state they update.
@@ -340,11 +341,15 @@ pub fn block_overrides(db: &dyn Db, project: Project, file: File, name: &str) ->
         return Vec::new();
     }
 
-    let mut candidate_files = Vec::new();
+    let mut candidate_files = FxHashSet::from_iter([file]);
+    let mut children: FxHashMap<File, Vec<File>> = FxHashMap::default();
     for origin in resolution.origins(db) {
         let candidate = origin.file(db);
-        if !candidate_files.contains(&candidate) {
-            candidate_files.push(candidate);
+        if candidate_files.insert(candidate) {
+            let inheritance = template_inheritance(db, project, candidate);
+            if let Some(parent) = inheritance.ancestors(db).first() {
+                children.entry(parent.file(db)).or_default().push(candidate);
+            }
         }
     }
 
@@ -353,15 +358,8 @@ pub fn block_overrides(db: &dyn Db, project: Project, file: File, name: &str) ->
     let mut overrides = Vec::new();
 
     while let Some(target) = queue.pop_front() {
-        for descendant in &candidate_files {
-            if visited_files.contains(descendant) {
-                continue;
-            }
-            let inheritance = template_inheritance(db, project, *descendant);
-            let Some(parent) = inheritance.ancestors(db).first() else {
-                continue;
-            };
-            if parent.file(db) != target || !visited_files.insert(*descendant) {
+        for descendant in children.get(&target).into_iter().flatten() {
+            if !visited_files.insert(*descendant) {
                 continue;
             }
 
