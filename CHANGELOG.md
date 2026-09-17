@@ -27,6 +27,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Changed
 
+- Reduced copying during Python module evaluation and repeated imports, and avoided duplicate `.pth` scans.
 - Reduced semantic validation allocations and improved block override and reference lookup.
 - Reduced allocations during template parsing and source registration.
 - Added an S124 hint on `{% load %}` for unreadable library registrations, with a code action that opens a prefilled issue.
