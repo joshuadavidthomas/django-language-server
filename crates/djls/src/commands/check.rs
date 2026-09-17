@@ -5,6 +5,8 @@ use std::io::Write as _;
 use std::io::stdin;
 use std::io::stdout;
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 use std::sync::mpsc::channel;
 
 use anyhow::Context;
@@ -211,7 +213,7 @@ impl Command for Check {
         prepare_project_template_analysis(&db)
             .context("Failed to prepare project Template analysis")?;
 
-        let results = check_files_parallel(db, files)?;
+        let results = check_files_parallel(db, &files)?;
         report_results(results, &config, &fmt, quiet, input.summary())
     }
 }
@@ -288,34 +290,40 @@ impl std::error::Error for TemplateIndexError {
     }
 }
 
-/// Validate paths with the same per-clone Rayon execution used by the batch CLI.
-fn check_files_parallel(
-    db: DjangoDatabase,
-    files: Vec<Utf8PathBuf>,
-) -> Result<Vec<CheckedTemplate>> {
-    // DjangoDatabase is Send + !Sync (salsa::Storage has RefCell). Clone the
-    // already-primed database per task so validation cannot lazily become the
-    // owner of shared intrinsic work.
+/// Each worker reuses one primed snapshot and returns only diagnostic-bearing files.
+fn check_files_parallel(db: DjangoDatabase, files: &[Utf8PathBuf]) -> Result<Vec<CheckedTemplate>> {
+    // DjangoDatabase is Send + !Sync. Workers own their snapshots; the atomic
+    // cursor balances large and small files without one task/message per file.
+    let next = AtomicUsize::new(0);
+    let workers = files.len().min(rayon::current_num_threads());
     let (tx, rx) = channel();
+    let next = &next;
     scope(move |scope| {
-        for path in files {
+        for _ in 0..workers {
             let db = db.clone();
             let tx = tx.clone();
             scope.spawn(move |_| {
-                let result = (|| -> Result<Option<CheckedTemplate>> {
-                    let file = path_to_file(&db, &path).map_err(|source| TemplateIndexError {
-                        path: path.clone(),
-                        source,
-                    })?;
-                    let checked = check_template(&db, file)?;
-                    Ok(checked.has_diagnostics().then_some(checked))
+                let result = (|| -> Result<Vec<CheckedTemplate>> {
+                    let mut results = Vec::new();
+                    while let Some(path) = files.get(next.fetch_add(1, Ordering::Relaxed)) {
+                        let file =
+                            path_to_file(&db, path).map_err(|source| TemplateIndexError {
+                                path: path.clone(),
+                                source,
+                            })?;
+                        let checked = check_template(&db, file)?;
+                        if checked.has_diagnostics() {
+                            results.push(checked);
+                        }
+                    }
+                    Ok(results)
                 })();
                 drop(tx.send(result));
             });
         }
     });
 
-    let checked: Vec<Option<CheckedTemplate>> = rx.into_iter().collect::<Result<_>>()?;
+    let checked: Vec<Vec<CheckedTemplate>> = rx.into_iter().collect::<Result<_>>()?;
     Ok(checked.into_iter().flatten().collect())
 }
 
@@ -431,6 +439,43 @@ mod tests {
     }
 
     #[test]
+    fn worker_batches_preserve_every_diagnostic_file() {
+        for threads in [1, 4] {
+            let mut fs = InMemoryFileSystem::new();
+            let mut files = Vec::new();
+            let mut expected = Vec::new();
+            for index in 0..101 {
+                let path = Utf8PathBuf::from(format!("/project/{index:03}.html"));
+                let broken = index % 3 == 0;
+                fs.add_file(
+                    path.clone(),
+                    if broken { "{{ value" } else { "<p>ok</p>" }.repeat(index + 1),
+                );
+                if broken {
+                    expected.push(path.clone());
+                }
+                files.push(path);
+            }
+            let db = DjangoDatabase::new(Arc::new(fs), &Settings::default(), None);
+            let pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(threads)
+                .build()
+                .expect("test worker pool");
+            let mut results = pool
+                .install(move || check_files_parallel(db, &files))
+                .expect("all input files are readable");
+            results.sort_by(|left, right| left.path().cmp(right.path()));
+            assert_eq!(
+                results
+                    .iter()
+                    .map(|result| result.path().to_path_buf())
+                    .collect::<Vec<_>>(),
+                expected,
+            );
+        }
+    }
+
+    #[test]
     fn indexing_failure_reaches_batch_check_caller() {
         let db = DjangoDatabase::new(
             Arc::new(InMemoryFileSystem::new()),
@@ -439,7 +484,7 @@ mod tests {
         );
         let path = Utf8PathBuf::from("/project/disappeared.html");
 
-        let error = check_files_parallel(db, vec![path.clone()])
+        let error = check_files_parallel(db, std::slice::from_ref(&path))
             .err()
             .expect("a Template that disappeared before indexing should fail the check");
 
