@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
 use std::io;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
@@ -11,11 +13,15 @@ use djls_project::testing::compute_project_facts;
 use djls_project::testing::model_modules;
 use djls_project::testing::python_module_evaluation_for_module;
 use djls_project::*;
+use djls_source::CaseSensitivity;
 use djls_source::Db as _;
 use djls_source::File;
 use djls_source::FileRootKind;
+use djls_source::FileSystem;
 use djls_source::InMemoryFileSystem;
 use djls_source::OsFileSystem;
+use djls_source::RootWalk;
+use djls_source::WalkOptions;
 use djls_testing::OsTestDatabase;
 use djls_testing::ProjectFixture;
 use djls_testing::ProjectSettings;
@@ -176,6 +182,83 @@ fn search_paths_do_not_detect_top_level_src_when_src_is_package() {
         paths,
         vec![SearchPath::FirstParty(Utf8PathBuf::from("/project"))]
     );
+}
+
+#[test]
+fn explicit_discovered_site_packages_scan_pth_once_per_computation() {
+    let site = Utf8Path::new("/env/lib/python3.12/site-packages");
+    let mut fs = PthCountingFileSystem::default();
+    for name in ["editable", "replacement", "extra", "explicit"] {
+        fs.inner
+            .add_file(format!("/{name}/package.py").into(), String::new());
+    }
+    fs.inner
+        .add_file(site.join("b.pth"), "/extra\n/explicit\n/extra\n".into());
+    for (index, editable) in ["editable", "replacement"].into_iter().enumerate() {
+        fs.inner
+            .add_file(site.join("a.pth"), format!("/{editable}\n"));
+        let paths = SearchPaths::from_project_settings(
+            &fs,
+            Utf8Path::new("/project"),
+            &PythonEnvironment::Path("/env".into()),
+            &[site.to_path_buf(), "/explicit".into()],
+        );
+        assert_eq!(
+            paths.iter().cloned().collect::<Vec<_>>(),
+            [
+                SearchPath::FirstParty("/project".into()),
+                SearchPath::SitePackages(site.to_path_buf()),
+                SearchPath::Editable(format!("/{editable}").into()),
+                SearchPath::Editable("/extra".into()),
+                SearchPath::Extra("/explicit".into()),
+            ]
+        );
+        assert_eq!(fs.site_walks.load(Ordering::Relaxed), index + 1);
+        assert_eq!(fs.pth_reads.load(Ordering::Relaxed), 2 * (index + 1));
+    }
+}
+
+#[derive(Default)]
+struct PthCountingFileSystem {
+    inner: InMemoryFileSystem,
+    site_walks: AtomicUsize,
+    pth_reads: AtomicUsize,
+}
+
+impl FileSystem for PthCountingFileSystem {
+    fn read_to_string(&self, path: &Utf8Path) -> io::Result<String> {
+        if path.extension() == Some("pth") {
+            self.pth_reads.fetch_add(1, Ordering::Relaxed);
+        }
+        self.inner.read_to_string(path)
+    }
+
+    fn exists(&self, path: &Utf8Path) -> bool {
+        self.inner.exists(path)
+    }
+
+    fn is_file(&self, path: &Utf8Path) -> bool {
+        self.inner.is_file(path)
+    }
+
+    fn is_dir(&self, path: &Utf8Path) -> bool {
+        self.inner.is_dir(path)
+    }
+
+    fn case_sensitivity(&self) -> CaseSensitivity {
+        self.inner.case_sensitivity()
+    }
+
+    fn path_exists_case_sensitive(&self, path: &Utf8Path, prefix: &Utf8Path) -> bool {
+        self.inner.path_exists_case_sensitive(path, prefix)
+    }
+
+    fn walk_root(&self, root: &Utf8Path, options: &WalkOptions) -> RootWalk {
+        if root.ends_with("site-packages") {
+            self.site_walks.fetch_add(1, Ordering::Relaxed);
+        }
+        self.inner.walk_root(root, options)
+    }
 }
 
 #[test]
