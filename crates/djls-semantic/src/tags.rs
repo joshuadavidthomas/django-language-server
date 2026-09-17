@@ -2,6 +2,7 @@ mod rules;
 mod specs;
 
 use std::collections::HashSet;
+use std::sync::LazyLock;
 
 use djls_project::Project;
 use djls_project::ScopedTemplateLibraries;
@@ -61,10 +62,16 @@ impl LibraryTagSpecs {
     }
 }
 
-fn module_builtin_tag_specs(db: &dyn Db, key: TemplateLibraryId<'_>) -> TagSpecs {
-    let mut specs = builtin_tag_specs();
-    specs.retain(|_, spec| spec.module() == key.module(db).as_str());
-    specs
+static BUILTIN_TAG_SPECS: LazyLock<TagSpecs> = LazyLock::new(builtin_tag_specs);
+
+fn module_builtin_tag_specs(module: &str) -> TagSpecs {
+    TagSpecs::new(
+        BUILTIN_TAG_SPECS
+            .iter()
+            .filter(|(_, spec)| spec.module() == module)
+            .map(|(name, spec)| (name.clone(), spec.clone()))
+            .collect(),
+    )
 }
 
 /// Fuse builtin/manual fallback meaning with one library's extracted Tag facts.
@@ -75,7 +82,7 @@ pub fn library_tag_specs<'db>(
     project: Project,
     key: TemplateLibraryId<'db>,
 ) -> LibraryTagSpecs {
-    let mut specs = module_builtin_tag_specs(db, key);
+    let mut specs = module_builtin_tag_specs(key.module(db).as_str());
 
     let facts = template_library_tag_facts(db, key);
     if !facts.tag_rules().is_empty() {
@@ -100,7 +107,7 @@ pub(crate) fn library_tag_structure_specs<'db>(
     project: Project,
     key: TemplateLibraryId<'db>,
 ) -> LibraryTagSpecs {
-    let mut specs = module_builtin_tag_specs(db, key);
+    let mut specs = module_builtin_tag_specs(key.module(db).as_str());
     let structure = template_library_structure_facts(db, key);
     let configured = configured_library_tag_specs(db, project, key);
     let requires_full_merge = structure
@@ -150,9 +157,11 @@ fn library_fallback_tag_names<'db>(
     project: Project,
     key: TemplateLibraryId<'db>,
 ) -> Vec<String> {
-    let mut names = module_builtin_tag_specs(db, key)
-        .keys()
-        .cloned()
+    let module = key.module(db);
+    let mut names = BUILTIN_TAG_SPECS
+        .iter()
+        .filter(|(_, spec)| spec.module() == module.as_str())
+        .map(|(name, _)| name.clone())
         .collect::<Vec<_>>();
     names.extend(
         configured_library_tag_specs(db, project, key)
@@ -162,6 +171,39 @@ fn library_fallback_tag_names<'db>(
     names.sort();
     names.dedup();
     names
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TagSpecs;
+    use super::builtin_tag_specs;
+    use super::module_builtin_tag_specs;
+
+    #[test]
+    fn builtin_modules_are_disjoint_and_do_not_share_mutable_specs() {
+        let mut combined = TagSpecs::default();
+        for module in [
+            "django.template.defaulttags",
+            "django.template.loader_tags",
+            "django.templatetags.i18n",
+            "django.templatetags.cache",
+            "django.templatetags.l10n",
+            "django.templatetags.tz",
+            "django.templatetags.static",
+        ] {
+            let specs = module_builtin_tag_specs(module);
+            assert!(!specs.is_empty());
+            assert!(specs.values().all(|spec| spec.module() == module));
+            assert!(specs.keys().all(|name| !combined.contains_key(name)));
+            combined.merge(specs);
+        }
+        assert_eq!(combined, builtin_tag_specs());
+        assert!(module_builtin_tag_specs("custom.templatetags.extras").is_empty());
+        let mut loader = module_builtin_tag_specs("django.template.loader_tags");
+        assert!(loader.remove("extends").is_some());
+        assert!(module_builtin_tag_specs("django.template.loader_tags").contains_key("extends"));
+        assert!(!module_builtin_tag_specs("django.template.defaulttags").contains_key("extends"));
+    }
 }
 
 /// Return the effective tag spec at one occurrence, but only when every feasible backend agrees.
