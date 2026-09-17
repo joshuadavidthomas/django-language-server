@@ -11,6 +11,7 @@ use ruff_python_ast::StmtFunctionDef;
 use ruff_python_ast::visitor;
 use ruff_python_ast::visitor::Visitor;
 use ruff_text_size::Ranged;
+use rustc_hash::FxHashMap;
 
 use super::filters::FilterArityMap;
 use super::libraries::TemplateLibraryId;
@@ -746,11 +747,10 @@ fn for_each_registration<'db>(
                 function_name,
                 navigation,
             } => func_defs
-                .iter()
-                .find(|function| {
-                    function.name.as_str() == function_name
-                        && navigation.is_none_or(|source| function.span() == source.definition_span)
-                })
+                .get(&(
+                    function_name.as_str(),
+                    navigation.map(|source| source.definition_span),
+                ))
                 .copied()
                 .map(|function| (function, registration_file, false)),
             RegistrationCallable::ResolvedFunction { definition, .. } => {
@@ -774,16 +774,17 @@ fn for_each_registration<'db>(
 }
 
 /// Collect module-level function definitions that can own definite registrations.
-fn collect_func_defs(body: &[Stmt]) -> Vec<&StmtFunctionDef> {
-    body.iter()
-        .filter_map(|stmt| {
-            if let Stmt::FunctionDef(function) = stmt {
-                Some(function)
-            } else {
-                None
-            }
-        })
-        .collect()
+fn collect_func_defs(body: &[Stmt]) -> FxHashMap<(&str, Option<Span>), &StmtFunctionDef> {
+    let mut definitions = FxHashMap::default();
+    for stmt in body {
+        if let Stmt::FunctionDef(function) = stmt {
+            let name = function.name.as_str();
+            definitions.insert((name, Some(function.span())), function);
+            // Unlocated registrations retain the first matching declaration.
+            definitions.entry((name, None)).or_insert(function);
+        }
+    }
+    definitions
 }
 
 /// Extract registrations from a decorated function definition.
@@ -1835,6 +1836,32 @@ pub fn template_library_filter_facts<'db>(
 mod tests {
     use super::*;
     use crate::templates::tags::testing::fixture_source;
+
+    #[test]
+    fn function_index_matches_ordered_scan_with_repeated_names() {
+        let module = ruff_python_parser::parse_module(
+            "def repeated(a): pass\ndef other(): pass\ndef repeated(a, b): pass\n",
+        )
+        .expect("valid Python")
+        .into_syntax();
+        let definitions = collect_func_defs(&module.body);
+        for name in ["repeated", "other", "absent"] {
+            for span in
+                std::iter::once(None).chain(module.body.iter().map(|stmt| Some(stmt.span())))
+            {
+                let scanned = module.body.iter().find_map(|stmt| {
+                    let Stmt::FunctionDef(function) = stmt else {
+                        return None;
+                    };
+                    (function.name.as_str() == name
+                        && span.is_none_or(|span| function.span() == span))
+                    .then_some(function)
+                });
+                assert_eq!(definitions.get(&(name, span)).copied(), scanned);
+            }
+        }
+        assert_eq!(definitions[&("repeated", None)].parameters.args.len(), 1);
+    }
 
     fn fixture(path: &str) -> &'static str {
         fixture_source(path).expect("requested corpus fixture should exist")

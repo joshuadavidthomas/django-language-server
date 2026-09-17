@@ -222,10 +222,8 @@ fn inheritance_origins<'db>(
     file: File,
 ) -> Vec<(TemplateOrigin<'db>, TemplateBackendScope)> {
     resolution
-        .template_names_for_file(db, file)
+        .origins_for_file(db, file)
         .iter()
-        .flat_map(|name| resolution.origins_for_name(db, *name))
-        .filter(|origin| origin.file(db) == file)
         .map(|origin| (*origin, resolution.backend_scope_for_origin(db, *origin)))
         .collect()
 }
@@ -337,7 +335,7 @@ pub fn inherited_blocks(db: &dyn Db, project: Project, file: File) -> Vec<(Strin
 /// parent file. This is the reverse of `template_inheritance`, not a union of backend-local chains.
 pub fn block_overrides(db: &dyn Db, project: Project, file: File, name: &str) -> Vec<BlockSite> {
     let resolution = template_resolution(db, project);
-    if resolution.template_names_for_file(db, file).is_empty() {
+    if resolution.origins_for_file(db, file).is_empty() {
         return Vec::new();
     }
 

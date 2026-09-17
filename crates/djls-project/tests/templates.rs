@@ -585,7 +585,7 @@ fn origins_for_name_returns_empty_slice_for_unknown_template_name() {
 }
 
 #[test]
-fn template_names_for_file_returns_names_in_discovery_order() {
+fn origins_for_file_returns_only_its_aliases_in_discovery_order() {
     let mut db = TestDatabase::new();
     let project = project_with_templates(
         &mut db,
@@ -613,9 +613,12 @@ fn template_names_for_file_returns_names_in_discovery_order() {
         .file(Utf8Path::new("/test/project/templates/account/detail.html"))
         .expect("detail template fixture should exist in the test database");
     let names: Vec<_> = template_resolution(&db, project)
-        .template_names_for_file(&db, file)
+        .origins_for_file(&db, file)
         .iter()
-        .map(|name| name.name(&db).as_str())
+        .map(|origin| {
+            assert_eq!(origin.file(&db), file);
+            origin.template_name(&db).name(&db).as_str()
+        })
         .collect();
 
     assert_eq!(names, ["account/detail.html", "detail.html"]);
@@ -1292,6 +1295,23 @@ fn scoped_resolution_and_names_exclude_other_backends() {
         .collect::<Vec<_>>();
     assert!(names.contains(&"only-a.html".to_string()));
     assert!(!names.contains(&"only-b.html".to_string()));
+
+    for prefix in ["", "only-", "only-a.html", "only-b", "PAGE", "missing"] {
+        let prefixed = resolution
+            .template_names_for_backend_scope_with_prefix(&db, page, prefix)
+            .into_iter()
+            .map(|name| name.name(&db).clone())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            prefixed,
+            names
+                .iter()
+                .filter(|name| name.starts_with(prefix))
+                .cloned()
+                .collect::<Vec<_>>(),
+            "prefix {prefix:?} must preserve scoped enumeration order and membership"
+        );
+    }
 }
 
 #[test]

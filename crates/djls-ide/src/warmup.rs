@@ -3,6 +3,7 @@ use std::sync::Arc;
 use djls_project::ProjectFactsPhase;
 use djls_project::ScopedTemplateLibraries;
 use djls_project::template_directories;
+use djls_project::template_library_candidate_files;
 use djls_project::template_library_catalog;
 use djls_project::template_library_definition_facts;
 use djls_project::template_library_inventory_dependencies;
@@ -87,11 +88,8 @@ pub fn prime_template_library_products(db: &dyn SemanticDb) -> Option<PrimedTemp
     // Candidate sources can start or stop contributing registrations without
     // changing their file identity. Prime tracks every known candidate, not
     // only candidates selected into the current catalog.
-    let candidate_sources = ProjectFactsPhase::TemplateTagCandidates.run(db, project);
-    for path in candidate_sources.file_paths() {
-        if let Ok(file) = path_to_file(db, path)
-            && !reprime_files.contains(&file)
-        {
+    for &file in template_library_candidate_files(db, project) {
+        if !reprime_files.contains(&file) {
             reprime_files.push(file);
         }
     }
