@@ -102,7 +102,11 @@ pub fn lex_template(db: &dyn Db, file: File) -> Result<Vec<Token>, FileReadError
 #[must_use]
 pub fn lex_template_impl(source: &str) -> Vec<Token> {
     let mut lexer = lexer::Lexer::new(source);
-    lexer.tokenize()
+    lexer
+        .tokenize()
+        .into_iter()
+        .map(Token::into_owned)
+        .collect()
 }
 
 /// Parse a Django template file and accumulate diagnostics.
@@ -137,7 +141,7 @@ pub fn parse_template(db: &dyn Db, file: File) -> TemplateParseResult<'_> {
 /// Returns a tuple of (nodes, errors) where nodes include Error nodes for parse errors
 #[must_use]
 pub fn parse_template_impl(source: &str) -> (Vec<Node>, Vec<ParseError>) {
-    let tokens = lex_template_impl(source);
+    let tokens = lexer::Lexer::new(source).tokenize();
     let mut parser = parser::Parser::new(tokens);
     parser.parse()
 }

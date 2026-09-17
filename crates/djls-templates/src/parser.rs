@@ -10,14 +10,14 @@ use crate::nodelist::Node;
 use crate::quotes::split_on_unquoted_whitespace;
 use crate::tokens::Token;
 
-pub(crate) struct Parser {
-    tokens: Vec<Token>,
+pub(crate) struct Parser<'src> {
+    tokens: Vec<Token<&'src str>>,
     current: usize,
 }
 
-impl Parser {
+impl<'src> Parser<'src> {
     #[must_use]
-    pub(crate) fn new(tokens: Vec<Token>) -> Self {
+    pub(crate) fn new(tokens: Vec<Token<&'src str>>) -> Self {
         Self { tokens, current: 0 }
     }
 
@@ -245,7 +245,7 @@ impl Parser {
     }
 
     #[inline]
-    fn peek(&self) -> Result<&Token, ParseError> {
+    fn peek(&self) -> Result<&Token<&'src str>, ParseError> {
         self.tokens.get(self.current).ok_or_else(|| {
             if self.tokens.is_empty() {
                 ParseError::stream_error(StreamError::Empty)
@@ -256,7 +256,7 @@ impl Parser {
     }
 
     #[inline]
-    fn peek_previous(&self) -> Result<&Token, ParseError> {
+    fn peek_previous(&self) -> Result<&Token<&'src str>, ParseError> {
         if self.current == 0 {
             return Err(ParseError::stream_error(StreamError::BeforeStart));
         }
@@ -271,7 +271,7 @@ impl Parser {
     }
 
     #[inline]
-    fn consume(&mut self) -> Result<&Token, ParseError> {
+    fn consume(&mut self) -> Result<&Token<&'src str>, ParseError> {
         if self.is_at_end() {
             return Err(ParseError::stream_error(StreamError::AtEnd));
         }
