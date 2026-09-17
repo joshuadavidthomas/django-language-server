@@ -27,6 +27,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Changed
 
+- Reduced semantic validation allocations and improved block override and reference lookup.
 - Reduced allocations during template parsing and source registration.
 - Added an S124 hint on `{% load %}` for unreadable library registrations, with a code action that opens a prefilled issue.
 - Avoided constructing unused scalar-only collections during Django settings analysis while preserving their effects and source dependencies.
