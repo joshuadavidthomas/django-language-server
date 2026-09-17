@@ -288,7 +288,7 @@ fn resolve_name(
     project: Project,
     name: &PythonModuleName,
 ) -> ModuleLookupResult {
-    let chain = match resolve_chain_from_name(db, project, name) {
+    let chain = match resolve_chain_from_name(db, project, name.clone()) {
         PythonImportChainResolution::Resolved(chain) => chain,
         PythonImportChainResolution::Failed { .. } => return ModuleLookupResult::NotFound,
     };
@@ -338,10 +338,12 @@ fn resolve_name(
 /// portions, honors search-path order, and records package-init identities for
 /// intermediate packages. Unlike [`resolve_name`], it captures every
 /// intermediate component so an import can evaluate and attach parents.
+#[salsa::tracked(returns(clone))]
+#[allow(clippy::needless_pass_by_value)]
 fn resolve_chain_from_name(
     db: &dyn ProjectDb,
     project: Project,
-    name: &PythonModuleName,
+    name: PythonModuleName,
 ) -> PythonImportChainResolution {
     let mut candidate_dirs = project
         .search_paths(db)
@@ -679,7 +681,7 @@ impl PythonSourceModule {
         import: PythonImportRequest<'_>,
     ) -> Result<(PythonModuleName, PythonImportChainResolution), PythonImportNameError> {
         let name = import_module_name(import)?;
-        let resolution = resolve_chain_from_name(db, project, &name);
+        let resolution = resolve_chain_from_name(db, project, name.clone());
         Ok((name, resolution))
     }
 
@@ -763,10 +765,65 @@ impl fmt::Debug for PythonSourceModule {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
+    use djls_conf::Settings;
+    use djls_testing::TestDatabase;
     use salsa::plumbing::FromId;
     use salsa::plumbing::Id;
 
     use super::*;
+
+    #[test]
+    fn repeated_absolute_import_chains_reuse_component_allocations() {
+        let db = TestDatabase::new();
+        let project = Project::initial(&db, Utf8Path::new("/project"), &Settings::default());
+        for name in ["__init__", "first", "second", "child"] {
+            db.add_file(&format!("/project/pkg/{name}.py"), "")
+                .expect("fixture should install");
+        }
+        let importers = ["pkg.first", "pkg.second"].map(|name| {
+            PythonSourceModule::resolve(
+                &db,
+                project,
+                PythonModuleName::parse(name).expect("valid name"),
+            )
+            .expect("importer should resolve")
+        });
+        let mut leaves = Vec::new();
+        for index in 0..16 {
+            let relative = index % 2 == 0;
+            let (name, resolution) = PythonSourceModule::resolve_import_chain(
+                &db,
+                project,
+                PythonImportRequest {
+                    level: u32::from(relative),
+                    module: Some(if relative { "child" } else { "pkg.child" }),
+                    importer: &importers[index % importers.len()],
+                },
+            )
+            .expect("import name should resolve");
+            assert_eq!(name.as_str(), "pkg.child");
+            let PythonImportChainResolution::Resolved(chain) = resolution else {
+                panic!("chain should resolve");
+            };
+            assert_eq!(chain.components.len(), 2);
+            let Some(PythonModule::Source(leaf)) = chain.into_components().pop() else {
+                panic!("source leaf should resolve");
+            };
+            assert_eq!(leaf.path(), Utf8Path::new("/project/pkg/child.py"));
+            leaves.push(leaf);
+        }
+        let allocations = leaves
+            .iter()
+            .map(|leaf| Arc::as_ptr(&leaf.0))
+            .collect::<HashSet<_>>();
+        assert_eq!(
+            allocations.len(),
+            1,
+            "repeated absolute-name lookup must not rebuild identities"
+        );
+    }
 
     #[test]
     fn resolved_import_chain_exposes_ordered_components_and_empty_prefix() {
@@ -872,8 +929,6 @@ mod tests {
 
     #[test]
     fn module_clones_share_storage_but_identity_remains_structural() {
-        use std::collections::HashSet;
-
         let (name, path, file, search_path) = module_parts("pkg.module");
         let original = PythonSourceModule::file_module(name, path, file, search_path);
         let cloned = original.clone();
