@@ -22,18 +22,6 @@ use crate::python::NamespacePortion;
 use crate::python::PythonIntrinsicNamespace;
 use crate::python::PythonModule;
 use crate::python::PythonNamespacePackage;
-use crate::python::PythonSourceModule;
-
-impl StructuralOrd for PythonSourceModule {
-    fn structural_cmp(&self, other: &Self) -> Ordering {
-        self.name()
-            .cmp(other.name())
-            .then_with(|| self.package().cmp(&other.package()))
-            .then_with(|| self.path().cmp(other.path()))
-            .then_with(|| self.file().structural_cmp(&other.file()))
-            .then_with(|| self.search_path().structural_cmp(other.search_path()))
-    }
-}
 
 impl StructuralOrd for NamespacePortion {
     fn structural_cmp(&self, other: &Self) -> Ordering {

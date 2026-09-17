@@ -1,6 +1,13 @@
 use std::cmp::Ordering;
+use std::fmt;
+use std::hash::Hash;
+use std::hash::Hasher;
+use std::sync::Arc;
+use std::sync::Weak;
 
 use djls_source::Origin;
+use rustc_hash::FxHashMap;
+use rustc_hash::FxHasher;
 
 use super::StructuralOrd;
 use crate::python::PythonSourceModule;
@@ -11,7 +18,10 @@ use crate::python::PythonSourceModule;
 // worlds, but it never removes a feasible runtime world.
 const MAX_TRACKED_PREDICATES: usize = 4;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+// This bounds sharing metadata, independently of any semantic precision budget.
+const MAX_INTERNED_BRANCHES: usize = 512;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 enum BranchJoinKind {
     Control,
     BindingChoice,
@@ -193,15 +203,91 @@ impl StructuralOrd for BranchJoin {
 /// Branch nodes follow structural origin order along every path. A node whose
 /// arms all lead to the same child is reduced to that child, so exhaustive
 /// branch domains collapse without enumerating path conjunction products.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 enum ConstraintNode {
     Impossible,
     Unconstrained,
-    Branch { join: BranchJoin, arms: Vec<Self> },
+    Branch(Arc<ConstraintBranch>),
+}
+
+impl fmt::Debug for ConstraintNode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Impossible => f.write_str("Impossible"),
+            Self::Unconstrained => f.write_str("Unconstrained"),
+            // Preserve the original struct-variant shape, without sharing metadata.
+            Self::Branch(branch) => f
+                .debug_struct("Branch")
+                .field("join", &branch.join)
+                .field("arms", &branch.arms)
+                .finish(),
+        }
+    }
+}
+
+// Only branches allocate. Immutable sharing makes clones of both roots and
+// interior residuals cheap without introducing identities into equality or order.
+#[derive(Eq)]
+struct ConstraintBranch {
+    join: BranchJoin,
+    arms: Box<[ConstraintNode]>,
+    fingerprint: u64,
+}
+
+impl PartialEq for ConstraintBranch {
+    fn eq(&self, other: &Self) -> bool {
+        self.join == other.join && self.arms == other.arms
+    }
+}
+
+// One public operation owns the interner, including its ordered forgetting.
+// Weak entries do not keep intermediate children alive. Replaced/expired entries
+// merely lose sharing: input nodes and returned results remain self-owned values.
+struct ConstraintInterner {
+    branches: FxHashMap<u64, Weak<ConstraintBranch>>,
+    capacity: usize,
+    #[cfg(test)]
+    fingerprint_mask: u64,
+}
+
+impl ConstraintInterner {
+    fn new(capacity: usize) -> Self {
+        Self {
+            branches: FxHashMap::default(),
+            capacity,
+            #[cfg(test)]
+            fingerprint_mask: u64::MAX,
+        }
+    }
+
+    fn intern(&mut self, branch: ConstraintBranch) -> ConstraintNode {
+        if self.capacity == 0 {
+            return ConstraintNode::Branch(Arc::new(branch));
+        }
+        let fingerprint = branch.fingerprint;
+        #[cfg(test)]
+        let fingerprint = fingerprint & self.fingerprint_mask;
+        if let Some(existing) = self.branches.get(&fingerprint).and_then(Weak::upgrade)
+            && *existing == branch
+        {
+            return ConstraintNode::Branch(existing);
+        }
+        if self.branches.len() == self.capacity {
+            self.branches.retain(|_, branch| branch.strong_count() > 0);
+            if self.branches.len() == self.capacity {
+                self.branches.clear();
+            }
+        }
+        let branch = Arc::new(branch);
+        // Keep only one candidate per fingerprint. A collision replaces sharing
+        // metadata, never a node in the caller's graph or a feasible world.
+        self.branches.insert(fingerprint, Arc::downgrade(&branch));
+        ConstraintNode::Branch(branch)
+    }
 }
 
 impl ConstraintNode {
-    fn selected(join: BranchJoin, arm: usize) -> Self {
+    fn selected(join: BranchJoin, arm: usize, interner: &mut ConstraintInterner) -> Self {
         assert!(
             arm < join.arm_count,
             "branch arm {arm} is outside a {}-arm join",
@@ -209,10 +295,14 @@ impl ConstraintNode {
         );
         let mut arms = vec![Self::Impossible; join.arm_count];
         arms[arm] = Self::Unconstrained;
-        Self::branch(join, arms)
+        Self::branch(join, arms, interner)
     }
 
-    fn selected_arms(join: BranchJoin, selected: &[usize]) -> Self {
+    fn selected_arms(
+        join: BranchJoin,
+        selected: &[usize],
+        interner: &mut ConstraintInterner,
+    ) -> Self {
         let mut arms = vec![Self::Impossible; join.arm_count];
         for &arm in selected {
             let Some(selected_arm) = arms.get_mut(arm) else {
@@ -221,10 +311,10 @@ impl ConstraintNode {
             };
             *selected_arm = Self::Unconstrained;
         }
-        Self::branch(join, arms)
+        Self::branch(join, arms, interner)
     }
 
-    fn branch(join: BranchJoin, arms: Vec<Self>) -> Self {
+    fn branch(join: BranchJoin, arms: Vec<Self>, interner: &mut ConstraintInterner) -> Self {
         assert_eq!(
             arms.len(),
             join.arm_count,
@@ -235,13 +325,37 @@ impl ConstraintNode {
         {
             return first.clone();
         }
-        Self::Branch { join, arms }
+        // A fingerprint selects sharing candidates, never semantic identity.
+        // Omitting the module avoids rehashing its paths; full equality must
+        // still distinguish different modules and roots after a collision.
+        let mut hasher = FxHasher::default();
+        join.kind.hash(&mut hasher);
+        join.origin.hash(&mut hasher);
+        join.arm_count.hash(&mut hasher);
+        join.predicate_discriminator.hash(&mut hasher);
+        arms.len().hash(&mut hasher);
+        for arm in &arms {
+            match arm {
+                Self::Impossible => 0_u8.hash(&mut hasher),
+                Self::Unconstrained => 1_u8.hash(&mut hasher),
+                Self::Branch(branch) => {
+                    2_u8.hash(&mut hasher);
+                    branch.fingerprint.hash(&mut hasher);
+                }
+            }
+        }
+        interner.intern(ConstraintBranch {
+            join,
+            arms: arms.into_boxed_slice(),
+            fingerprint: hasher.finish(),
+        })
     }
 
     fn collect_joins<'a>(&'a self, joins: &mut Vec<&'a BranchJoin>) {
-        let Self::Branch { join, arms } = self else {
+        let Self::Branch(branch) = self else {
             return;
         };
+        let ConstraintBranch { join, arms, .. } = branch.as_ref();
         if let Some(existing) = joins.iter().find(|existing| existing.same_identity(join)) {
             existing.assert_same_domain(join);
         } else {
@@ -258,7 +372,7 @@ impl ConstraintNode {
         other.collect_joins(&mut joins);
     }
 
-    fn widen_predicates(self) -> Self {
+    fn widen_predicates(self, interner: &mut ConstraintInterner) -> Self {
         let mut joins = Vec::new();
         self.collect_joins(&mut joins);
         let mut predicates = joins
@@ -273,15 +387,16 @@ impl ConstraintNode {
             .collect::<Vec<_>>();
         forgotten
             .iter()
-            .fold(self, |constraints, join| constraints.forget(join))
+            .fold(self, |constraints, join| constraints.forget(join, interner))
     }
 
-    fn union(&self, other: &Self) -> Self {
+    fn union(&self, other: &Self, interner: &mut ConstraintInterner) -> Self {
         self.assert_compatible_domains(other);
-        self.union_canonical(other).widen_predicates()
+        self.union_canonical(other, interner)
+            .widen_predicates(interner)
     }
 
-    fn union_canonical(&self, other: &Self) -> Self {
+    fn union_canonical(&self, other: &Self, interner: &mut ConstraintInterner) -> Self {
         if self == other {
             return self.clone();
         }
@@ -289,51 +404,49 @@ impl ConstraintNode {
             (Self::Unconstrained, _) | (_, Self::Unconstrained) => Self::Unconstrained,
             (Self::Impossible, other) => other.clone(),
             (this, Self::Impossible) => this.clone(),
-            (
-                Self::Branch {
-                    join: left_join,
-                    arms: left_arms,
-                },
-                Self::Branch {
-                    join: right_join,
-                    arms: right_arms,
-                },
-            ) => match left_join.identity_cmp(right_join) {
-                Ordering::Less => Self::branch(
-                    left_join.clone(),
-                    left_arms
-                        .iter()
-                        .map(|arm| arm.union_canonical(other))
-                        .collect(),
-                ),
-                Ordering::Greater => Self::branch(
-                    right_join.clone(),
-                    right_arms
-                        .iter()
-                        .map(|arm| self.union_canonical(arm))
-                        .collect(),
-                ),
-                Ordering::Equal => {
-                    left_join.assert_same_domain(right_join);
-                    Self::branch(
-                        left_join.clone(),
-                        left_arms
+            (Self::Branch(left), Self::Branch(right)) => {
+                match left.join.identity_cmp(&right.join) {
+                    Ordering::Less => Self::branch(
+                        left.join.clone(),
+                        left.arms
                             .iter()
-                            .zip(right_arms)
-                            .map(|(left, right)| left.union_canonical(right))
+                            .map(|arm| arm.union_canonical(other, interner))
                             .collect(),
-                    )
+                        interner,
+                    ),
+                    Ordering::Greater => Self::branch(
+                        right.join.clone(),
+                        right
+                            .arms
+                            .iter()
+                            .map(|arm| self.union_canonical(arm, interner))
+                            .collect(),
+                        interner,
+                    ),
+                    Ordering::Equal => {
+                        left.join.assert_same_domain(&right.join);
+                        Self::branch(
+                            left.join.clone(),
+                            left.arms
+                                .iter()
+                                .zip(&right.arms)
+                                .map(|(left, right)| left.union_canonical(right, interner))
+                                .collect(),
+                            interner,
+                        )
+                    }
                 }
-            },
+            }
         }
     }
 
-    fn intersection(&self, other: &Self) -> Self {
+    fn intersection(&self, other: &Self, interner: &mut ConstraintInterner) -> Self {
         self.assert_compatible_domains(other);
-        self.intersection_canonical(other).widen_predicates()
+        self.intersection_canonical(other, interner)
+            .widen_predicates(interner)
     }
 
-    fn intersection_canonical(&self, other: &Self) -> Self {
+    fn intersection_canonical(&self, other: &Self, interner: &mut ConstraintInterner) -> Self {
         if self == other {
             return self.clone();
         }
@@ -341,60 +454,63 @@ impl ConstraintNode {
             (Self::Impossible, _) | (_, Self::Impossible) => Self::Impossible,
             (Self::Unconstrained, other) => other.clone(),
             (this, Self::Unconstrained) => this.clone(),
-            (
-                Self::Branch {
-                    join: left_join,
-                    arms: left_arms,
-                },
-                Self::Branch {
-                    join: right_join,
-                    arms: right_arms,
-                },
-            ) => match left_join.identity_cmp(right_join) {
-                Ordering::Less => Self::branch(
-                    left_join.clone(),
-                    left_arms
-                        .iter()
-                        .map(|arm| arm.intersection_canonical(other))
-                        .collect(),
-                ),
-                Ordering::Greater => Self::branch(
-                    right_join.clone(),
-                    right_arms
-                        .iter()
-                        .map(|arm| self.intersection_canonical(arm))
-                        .collect(),
-                ),
-                Ordering::Equal => {
-                    left_join.assert_same_domain(right_join);
-                    Self::branch(
-                        left_join.clone(),
-                        left_arms
+            (Self::Branch(left), Self::Branch(right)) => {
+                match left.join.identity_cmp(&right.join) {
+                    Ordering::Less => Self::branch(
+                        left.join.clone(),
+                        left.arms
                             .iter()
-                            .zip(right_arms)
-                            .map(|(left, right)| left.intersection_canonical(right))
+                            .map(|arm| arm.intersection_canonical(other, interner))
                             .collect(),
-                    )
+                        interner,
+                    ),
+                    Ordering::Greater => Self::branch(
+                        right.join.clone(),
+                        right
+                            .arms
+                            .iter()
+                            .map(|arm| self.intersection_canonical(arm, interner))
+                            .collect(),
+                        interner,
+                    ),
+                    Ordering::Equal => {
+                        left.join.assert_same_domain(&right.join);
+                        Self::branch(
+                            left.join.clone(),
+                            left.arms
+                                .iter()
+                                .zip(&right.arms)
+                                .map(|(left, right)| left.intersection_canonical(right, interner))
+                                .collect(),
+                            interner,
+                        )
+                    }
                 }
-            },
+            }
         }
     }
 
     /// Existentially remove one join so selecting it again replaces its prior
     /// arm, matching assignment at a repeated control-flow coordinate.
-    fn forget(&self, forgotten: &BranchJoin) -> Self {
+    fn forget(&self, forgotten: &BranchJoin, interner: &mut ConstraintInterner) -> Self {
         match self {
             Self::Impossible | Self::Unconstrained => self.clone(),
-            Self::Branch { join, arms } => match join.identity_cmp(forgotten) {
+            Self::Branch(branch) => match branch.join.identity_cmp(forgotten) {
                 Ordering::Less => Self::branch(
-                    join.clone(),
-                    arms.iter().map(|arm| arm.forget(forgotten)).collect(),
+                    branch.join.clone(),
+                    branch
+                        .arms
+                        .iter()
+                        .map(|arm| arm.forget(forgotten, interner))
+                        .collect(),
+                    interner,
                 ),
                 Ordering::Greater => self.clone(),
                 Ordering::Equal => {
-                    join.assert_same_domain(forgotten);
-                    arms.iter()
-                        .fold(Self::Impossible, |result, arm| result.union_canonical(arm))
+                    branch.join.assert_same_domain(forgotten);
+                    branch.arms.iter().fold(Self::Impossible, |result, arm| {
+                        result.union_canonical(arm, interner)
+                    })
                 }
             },
         }
@@ -407,20 +523,16 @@ impl StructuralOrd for ConstraintNode {
             (Self::Impossible, Self::Impossible) | (Self::Unconstrained, Self::Unconstrained) => {
                 Ordering::Equal
             }
-            (Self::Impossible, _) | (Self::Unconstrained, Self::Branch { .. }) => Ordering::Less,
-            (_, Self::Impossible) | (Self::Branch { .. }, Self::Unconstrained) => Ordering::Greater,
-            (
-                Self::Branch {
-                    join: left_join,
-                    arms: left_arms,
-                },
-                Self::Branch {
-                    join: right_join,
-                    arms: right_arms,
-                },
-            ) => left_join
-                .structural_cmp(right_join)
-                .then_with(|| structural_cmp_nodes(left_arms, right_arms)),
+            (Self::Impossible, _) | (Self::Unconstrained, Self::Branch(_)) => Ordering::Less,
+            (_, Self::Impossible) | (Self::Branch(_), Self::Unconstrained) => Ordering::Greater,
+            (Self::Branch(left), Self::Branch(right)) => {
+                if Arc::ptr_eq(left, right) {
+                    return Ordering::Equal;
+                }
+                left.join
+                    .structural_cmp(&right.join)
+                    .then_with(|| structural_cmp_nodes(&left.arms, &right.arms))
+            }
         }
     }
 }
@@ -437,30 +549,30 @@ fn structural_cmp_nodes(left: &[ConstraintNode], right: &[ConstraintNode]) -> Or
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct BranchConstraints {
-    root: Box<ConstraintNode>,
+    root: ConstraintNode,
 }
 
 impl BranchConstraints {
     pub(crate) fn unconstrained() -> Self {
         Self {
-            root: Box::new(ConstraintNode::Unconstrained),
+            root: ConstraintNode::Unconstrained,
         }
     }
 
     pub(super) fn select(&mut self, join: impl Into<BranchJoin>, arm: usize) {
         let join = join.into();
-        *self.root = self
-            .root
-            .forget(&join)
-            .intersection(&ConstraintNode::selected(join, arm));
+        let mut interner = ConstraintInterner::new(MAX_INTERNED_BRANCHES);
+        let residual = self.root.forget(&join, &mut interner);
+        let selected = ConstraintNode::selected(join, arm, &mut interner);
+        self.root = residual.intersection(&selected, &mut interner);
     }
 
     pub(super) fn select_arms(&mut self, join: impl Into<BranchJoin>, arms: &[usize]) {
         let join = join.into();
-        *self.root = self
-            .root
-            .forget(&join)
-            .intersection(&ConstraintNode::selected_arms(join, arms));
+        let mut interner = ConstraintInterner::new(MAX_INTERNED_BRANCHES);
+        let residual = self.root.forget(&join, &mut interner);
+        let selected = ConstraintNode::selected_arms(join, arms, &mut interner);
+        self.root = residual.intersection(&selected, &mut interner);
     }
 
     /// Require one arm without forgetting an earlier requirement for the same
@@ -468,28 +580,34 @@ impl BranchConstraints {
     /// replace one another as repeated control-flow executions do.
     pub(super) fn required(join: BranchJoin, arm: usize) -> Self {
         Self {
-            root: Box::new(ConstraintNode::selected(join, arm)),
+            // A literal constructs at most one node, so a lookup table cannot help.
+            root: ConstraintNode::selected(join, arm, &mut ConstraintInterner::new(0)),
         }
     }
 
     pub(super) fn impossible() -> Self {
         Self {
-            root: Box::new(ConstraintNode::Impossible),
+            root: ConstraintNode::Impossible,
         }
     }
 
     pub(crate) fn merge(&mut self, other: Self) {
         let Self { root } = other;
-        *self.root = self.root.union(&root);
+        self.root = self
+            .root
+            .union(&root, &mut ConstraintInterner::new(MAX_INTERNED_BRANCHES));
     }
 
     pub(crate) fn is_impossible(&self) -> bool {
-        *self.root == ConstraintNode::Impossible
+        self.root == ConstraintNode::Impossible
     }
 
     pub(crate) fn intersection(&self, other: &Self) -> Self {
         Self {
-            root: Box::new(self.root.intersection(&other.root)),
+            root: self.root.intersection(
+                &other.root,
+                &mut ConstraintInterner::new(MAX_INTERNED_BRANCHES),
+            ),
         }
     }
 
@@ -507,6 +625,7 @@ impl StructuralOrd for BranchConstraints {
 #[cfg(test)]
 mod tests {
     use std::cmp::Ordering;
+    use std::sync::Arc;
 
     use djls_source::File;
     use djls_source::Span;
@@ -515,7 +634,9 @@ mod tests {
 
     use super::BranchConstraints;
     use super::BranchJoin;
+    use super::ConstraintInterner;
     use super::ConstraintNode;
+    use super::MAX_INTERNED_BRANCHES;
     use super::MAX_TRACKED_PREDICATES;
     use super::Origin;
     use super::PythonSourceModule;
@@ -526,6 +647,99 @@ mod tests {
         // files are compared only as opaque IDs and are never read.
         let file = File::from_id(unsafe { Id::from_index(file_index) });
         Origin::new(file, Span::new(start, 1))
+    }
+
+    #[test]
+    fn debug_preserves_original_branch_shape() {
+        let constraints = BranchConstraints::required(BranchJoin::for_test(origin(0, 1), 2), 0);
+
+        insta::assert_snapshot!(format!("{constraints:?}"), @r#"BranchConstraints { root: Branch { join: BranchJoin { module: PythonSourceModule { name: PythonModuleName("test"), package: None, path: "/test.py", .. }, origin: Origin { file: File(Id(0)), span: Span { start: 1, length: 1 } }, arm_count: 2, kind: Control, predicate_discriminator: None }, arms: [Unconstrained, Impossible] } }"#);
+        insta::assert_debug_snapshot!(constraints, @r#"
+        BranchConstraints {
+            root: Branch {
+                join: BranchJoin {
+                    module: PythonSourceModule {
+                        name: PythonModuleName(
+                            "test",
+                        ),
+                        package: None,
+                        path: "/test.py",
+                        ..
+                    },
+                    origin: Origin {
+                        file: File(
+                            Id(0),
+                        ),
+                        span: Span {
+                            start: 1,
+                            length: 1,
+                        },
+                    },
+                    arm_count: 2,
+                    kind: Control,
+                    predicate_discriminator: None,
+                },
+                arms: [
+                    Unconstrained,
+                    Impossible,
+                ],
+            },
+        }
+        "#);
+    }
+
+    #[test]
+    fn stored_arms_preserve_excess_capacity_contents() {
+        use std::mem::align_of;
+        use std::mem::size_of;
+
+        use super::ConstraintBranch;
+
+        eprintln!(
+            "size/alignment: branch={}/{}, node={}/{}, Vec={}/{}, BoxSlice={}/{}",
+            size_of::<ConstraintBranch>(),
+            align_of::<ConstraintBranch>(),
+            size_of::<ConstraintNode>(),
+            align_of::<ConstraintNode>(),
+            size_of::<Vec<ConstraintNode>>(),
+            align_of::<Vec<ConstraintNode>>(),
+            size_of::<Box<[ConstraintNode]>>(),
+            align_of::<Box<[ConstraintNode]>>(),
+        );
+        let expected = [
+            ConstraintNode::Impossible,
+            ConstraintNode::Impossible,
+            ConstraintNode::Unconstrained,
+        ];
+        let mut arms = Vec::with_capacity(32);
+        arms.extend(expected.clone());
+        assert!(arms.capacity() > arms.len());
+        let join = BranchJoin::for_test(origin(0, 1), 3);
+        let mut interner = ConstraintInterner::new(2);
+        let node = ConstraintNode::branch(join.clone(), arms, &mut interner);
+        let ConstraintNode::Branch(branch) = &node else {
+            panic!("nonreduced input");
+        };
+        assert_eq!(&branch.arms[..], &expected);
+        let equal = ConstraintNode::branch(
+            join.clone(),
+            expected.to_vec(),
+            &mut ConstraintInterner::new(0),
+        );
+        assert_eq!(node, equal);
+        assert_eq!(node.structural_cmp(&equal), Ordering::Equal);
+        assert_eq!(format!("{node:?}"), format!("{equal:?}"));
+        let mut repeated = Vec::with_capacity(64);
+        repeated.extend(expected.clone());
+        assert!(repeated.capacity() > repeated.len());
+        let repeated = ConstraintNode::branch(join.clone(), repeated, &mut interner);
+        assert!(
+            matches!(&repeated, ConstraintNode::Branch(existing) if Arc::ptr_eq(branch, existing))
+        );
+        let reversed =
+            ConstraintNode::branch(join, expected.into_iter().rev().collect(), &mut interner);
+        assert_ne!(node, reversed);
+        assert_ne!(node.structural_cmp(&reversed), Ordering::Equal);
     }
 
     #[derive(Clone, Copy)]
@@ -552,7 +766,7 @@ mod tests {
 
     fn impossible() -> BranchConstraints {
         BranchConstraints {
-            root: Box::new(ConstraintNode::Impossible),
+            root: ConstraintNode::Impossible,
         }
     }
 
@@ -601,6 +815,20 @@ mod tests {
                     left.structural_cmp(right) == Ordering::Equal,
                     "full equality must also include the arm domain"
                 );
+                let mut interner = ConstraintInterner::new(1);
+                interner.fingerprint_mask = 0;
+                let first = ConstraintNode::selected(left.clone(), 0, &mut interner);
+                let second = ConstraintNode::selected(right.clone(), 0, &mut interner);
+                let (ConstraintNode::Branch(first), ConstraintNode::Branch(second)) =
+                    (first, second)
+                else {
+                    panic!("test domains have at least two arms");
+                };
+                assert_eq!(
+                    Arc::ptr_eq(&first, &second),
+                    left == right,
+                    "even a constant fingerprint must check the complete join"
+                );
             }
         }
     }
@@ -643,6 +871,84 @@ mod tests {
     }
 
     #[test]
+    fn predicate_widening_preserves_each_intermediate_forgetting_boundary() {
+        let joins = (0..6)
+            .map(|start| BranchJoin::predicate_for_test(origin(0, start)))
+            .collect::<Vec<_>>();
+        let mut constraints = BranchConstraints::required(joins[4].clone(), 1);
+        let mut candidates =
+            [0, 1, 2, MAX_INTERNED_BRANCHES].map(|capacity| (capacity, constraints.root.clone()));
+        assert!(
+            constraints
+                .intersection(&BranchConstraints::required(joins[4].clone(), 0))
+                .is_impossible()
+        );
+
+        // Build the expected exact diagram directly, independently of Apply and
+        // widening. At the fourth addition, P4 must already have disappeared.
+        let expected_coordinates: &[&[usize]] =
+            &[&[0, 4], &[0, 1, 4], &[0, 1, 2, 4], &[0, 1, 2, 3]];
+        for (next, coordinates) in expected_coordinates.iter().enumerate() {
+            constraints =
+                constraints.intersection(&BranchConstraints::required(joins[next].clone(), 1));
+            let expected =
+                coordinates
+                    .iter()
+                    .rev()
+                    .fold(ConstraintNode::Unconstrained, |residual, &index| {
+                        ConstraintNode::branch(
+                            joins[index].clone(),
+                            vec![ConstraintNode::Impossible, residual],
+                            &mut ConstraintInterner::new(0),
+                        )
+                    });
+            assert_eq!(constraints.root, expected);
+            assert_eq!(constraints.root.structural_cmp(&expected), Ordering::Equal);
+            for (capacity, candidate) in &mut candidates {
+                *candidate = candidate.intersection(
+                    &BranchConstraints::required(joins[next].clone(), 1).root,
+                    &mut ConstraintInterner::new(*capacity),
+                );
+                assert_eq!(*candidate, expected);
+                assert_eq!(candidate.structural_cmp(&expected), Ordering::Equal);
+                assert_eq!(format!("{candidate:?}"), format!("{expected:?}"));
+            }
+        }
+
+        let four_predicates = constraints.clone();
+        for (index, arm) in [(4, 0), (5, 1), (5, 0)] {
+            constraints =
+                constraints.intersection(&BranchConstraints::required(joins[index].clone(), arm));
+            assert_eq!(constraints, four_predicates);
+            assert!(!constraints.is_impossible());
+            for (capacity, candidate) in &mut candidates {
+                *candidate = candidate.intersection(
+                    &BranchConstraints::required(joins[index].clone(), arm).root,
+                    &mut ConstraintInterner::new(*capacity),
+                );
+                assert_eq!(*candidate, four_predicates.root);
+            }
+        }
+
+        // This call forgets two predicates at the same boundary, in structural
+        // order; neither operand alone exceeds the predicate budget.
+        let mut even = BranchConstraints::unconstrained();
+        let mut odd = BranchConstraints::unconstrained();
+        for index in [0, 2, 4] {
+            even = even.intersection(&BranchConstraints::required(joins[index].clone(), 1));
+            odd = odd.intersection(&BranchConstraints::required(joins[index + 1].clone(), 1));
+        }
+        assert_eq!(even.intersection(&odd), four_predicates);
+        for (capacity, _) in candidates {
+            assert_eq!(
+                even.root
+                    .intersection(&odd.root, &mut ConstraintInterner::new(capacity)),
+                four_predicates.root
+            );
+        }
+    }
+
+    #[test]
     fn required_arms_for_one_join_conflict() {
         let coordinate = BranchJoin::for_test(origin(0, 1), 2);
         let falsy = BranchConstraints::required(coordinate.clone(), 0);
@@ -658,6 +964,189 @@ mod tests {
         constraints.select(branch, 1);
 
         assert_eq!(constraints, selected(branch, 1));
+    }
+
+    #[test]
+    fn shared_constraints_keep_cloned_selections_independent_and_reuse_residuals() {
+        let branch = join(origin(15, 1), 3);
+        let residual_join = join(origin(16, 1), 2);
+        let residual = selected(residual_join, 1);
+        let original = selected(branch, 2).intersection(&residual);
+        let mut changed = original.clone();
+        assert!(matches!(
+            (&original.root, &changed.root),
+            (ConstraintNode::Branch(left), ConstraintNode::Branch(right)) if Arc::ptr_eq(left, right)
+        ));
+
+        changed.select_arms(branch, &[0, 1]);
+        assert_eq!(original, selected(branch, 2).intersection(&residual));
+        assert!(original.intersection(&changed).is_impossible());
+        assert_eq!(original.structural_cmp(&changed), Ordering::Greater);
+
+        changed.merge(original);
+        assert_eq!(changed, residual);
+        assert!(
+            matches!(
+                (&changed.root, &residual.root),
+                (ConstraintNode::Branch(left), ConstraintNode::Branch(right)) if Arc::ptr_eq(left, right)
+            ),
+            "exhausting the outer domain should reuse the interior residual"
+        );
+
+        let rebuilt = selected(residual_join, 1);
+        assert!(matches!(
+            (&residual.root, &rebuilt.root),
+            (ConstraintNode::Branch(left), ConstraintNode::Branch(right)) if !Arc::ptr_eq(left, right)
+        ));
+        assert_eq!(
+            residual, rebuilt,
+            "allocation identity is not semantic identity"
+        );
+        assert_eq!(residual.structural_cmp(&rebuilt), Ordering::Equal);
+    }
+
+    #[test]
+    fn fingerprints_agree_for_independent_equal_dags_without_becoming_semantic() {
+        let outer = join(origin(15, 1), 3);
+        let inner = join(origin(16, 1), 2);
+        let original = selected(outer, 2).intersection(&selected(inner, 1));
+        let mut rebuilt = selected(outer, 2).intersection(&selected(inner, 1));
+        let (ConstraintNode::Branch(left), ConstraintNode::Branch(right)) =
+            (&original.root, &mut rebuilt.root)
+        else {
+            panic!("test inputs must retain both joins");
+        };
+        assert!(!Arc::ptr_eq(left, right));
+        assert_eq!(left.fingerprint, right.fingerprint);
+
+        // Metadata is deliberately excluded from Eq, order and Debug. Corrupt
+        // it only in this test to detect accidentally derived semantic traits.
+        Arc::get_mut(right)
+            .expect("rebuilt root has one owner")
+            .fingerprint ^= 1;
+        assert_eq!(original, rebuilt);
+        assert_eq!(original.structural_cmp(&rebuilt), Ordering::Equal);
+        assert_eq!(format!("{original:?}"), format!("{rebuilt:?}"));
+    }
+
+    #[test]
+    fn interning_matches_independent_children_but_preserves_arm_order() {
+        let mut interner = ConstraintInterner::new(2);
+        interner.fingerprint_mask = 0;
+        let outer = BranchJoin::for_test(origin(0, 1), 3);
+        let mut parents = Vec::new();
+        for _ in 0..2 {
+            // Each child comes from a separate interner and module allocation.
+            let child = ConstraintNode::selected(
+                BranchJoin::for_test(origin(0, 2), 2),
+                1,
+                &mut ConstraintInterner::new(0),
+            );
+            parents.push(ConstraintNode::branch(
+                outer.clone(),
+                vec![
+                    ConstraintNode::Impossible,
+                    child,
+                    ConstraintNode::Unconstrained,
+                ],
+                &mut interner,
+            ));
+        }
+        assert!(matches!(
+            (&parents[0], &parents[1]),
+            (ConstraintNode::Branch(left), ConstraintNode::Branch(right)) if Arc::ptr_eq(left, right)
+        ));
+        let child = ConstraintNode::selected(
+            BranchJoin::for_test(origin(0, 2), 2),
+            1,
+            &mut ConstraintInterner::new(0),
+        );
+        let reversed = ConstraintNode::branch(
+            outer,
+            vec![
+                ConstraintNode::Unconstrained,
+                child,
+                ConstraintNode::Impossible,
+            ],
+            &mut interner,
+        );
+        assert_ne!(parents[0], reversed);
+        assert_eq!(parents[0].structural_cmp(&reversed), Ordering::Greater);
+        assert_eq!(
+            parents[0], parents[1],
+            "collision replacement cannot mutate results"
+        );
+    }
+
+    #[test]
+    fn interning_eviction_and_interner_drop_preserve_self_owned_results() {
+        fn assert_send_sync_static<T: Send + Sync + 'static>() {}
+        assert_send_sync_static::<BranchConstraints>();
+
+        for capacity in [1, 2] {
+            let mut interner = ConstraintInterner::new(capacity);
+            let mut live = Vec::new();
+            for index in 0..=capacity {
+                let start = u32::try_from(index).expect("test capacity fits u32");
+                live.push(ConstraintNode::selected(
+                    BranchJoin::for_test(origin(0, start), 2),
+                    1,
+                    &mut interner,
+                ));
+                assert!(interner.branches.len() <= capacity);
+            }
+            let ConstraintNode::Branch(original) = &live[0] else {
+                panic!("selected node must remain a branch");
+            };
+            assert!(!interner.branches.contains_key(&original.fingerprint));
+            let rebuilt =
+                ConstraintNode::selected(BranchJoin::for_test(origin(0, 0), 2), 1, &mut interner);
+            assert!(matches!(
+                &rebuilt,
+                ConstraintNode::Branch(branch) if !Arc::ptr_eq(original, branch)
+            ));
+            assert_eq!(live[0], rebuilt);
+            assert_eq!(live[0].structural_cmp(&rebuilt), Ordering::Equal);
+            assert_eq!(format!("{:?}", live[0]), format!("{rebuilt:?}"));
+
+            drop(interner);
+            let saved = BranchConstraints {
+                root: live.remove(0),
+            };
+            let rebuilt = BranchConstraints { root: rebuilt };
+            std::thread::spawn(move || {
+                assert_eq!(saved.intersection(&rebuilt), rebuilt);
+            })
+            .join()
+            .expect("results remain valid on another thread after interner drop");
+        }
+
+        let mut interner = ConstraintInterner::new(2);
+        let child = ConstraintNode::selected(
+            BranchJoin::for_test(origin(0, 2), 2),
+            1,
+            &mut ConstraintInterner::new(0),
+        );
+        let ConstraintNode::Branch(branch) = &child else {
+            panic!("selected node must remain a branch");
+        };
+        let weak_child = Arc::downgrade(branch);
+        let parent = ConstraintNode::branch(
+            BranchJoin::for_test(origin(0, 1), 2),
+            vec![ConstraintNode::Impossible, child],
+            &mut interner,
+        );
+        drop(parent);
+        assert!(
+            weak_child.upgrade().is_none(),
+            "weak keys must not own descendants"
+        );
+        assert!(
+            interner
+                .branches
+                .values()
+                .all(|branch| branch.upgrade().is_none())
+        );
     }
 
     #[test]
