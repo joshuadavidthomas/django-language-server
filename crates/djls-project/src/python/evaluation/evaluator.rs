@@ -928,7 +928,7 @@ impl PythonEvaluationState {
         }
         let branch_effects = branches
             .iter()
-            .map(|(arm, branch)| (*arm, branch.module_effects.clone()))
+            .map(|(arm, branch)| (*arm, &branch.module_effects))
             .collect::<Vec<_>>();
         base.module_effects = PythonModuleEffects::join_indexed_branches(&branch_effects, join);
         base
@@ -982,9 +982,7 @@ impl PythonEvaluationState {
         }
         let branch_effects = branches
             .iter()
-            .map(|(arm, constraints, branch)| {
-                (*arm, constraints.clone(), branch.module_effects.clone())
-            })
+            .map(|(arm, constraints, branch)| (*arm, constraints, &branch.module_effects))
             .collect::<Vec<_>>();
         base.module_effects = PythonModuleEffects::join_guarded_branches(&branch_effects, join);
         base
