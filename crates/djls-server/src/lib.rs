@@ -1,6 +1,7 @@
 #![cfg_attr(not(test), warn(clippy::expect_used))]
 
 mod client;
+mod diagnostics;
 mod document;
 mod ext;
 mod logging;

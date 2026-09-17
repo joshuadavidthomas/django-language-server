@@ -23,6 +23,7 @@ use tokio::sync::watch;
 use tower_lsp_server::ls_types;
 
 use crate::client::ClientInfo;
+use crate::diagnostics::DiagnosticQueue;
 use crate::document::TextDocument;
 use crate::ext::InitializeParamsExt;
 use crate::ext::PositionExt;
@@ -72,12 +73,10 @@ pub(crate) enum ProjectWork {
 }
 
 #[must_use = "document mutations can require project work to restore readiness"]
+#[derive(Clone, Copy)]
 pub(crate) enum DocumentMutation {
     Ignored,
-    Applied {
-        document: TextDocument,
-        project_work: Option<ProjectWork>,
-    },
+    Applied { project_work: Option<ProjectWork> },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -377,6 +376,7 @@ pub(crate) struct Session {
 
     intrinsic_readiness: IntrinsicReadiness,
     readiness_tx: watch::Sender<IntrinsicReadinessState>,
+    pub(crate) diagnostics: DiagnosticQueue,
 }
 
 impl Session {
@@ -418,6 +418,7 @@ impl Session {
             db,
             intrinsic_readiness,
             readiness_tx,
+            diagnostics: DiagnosticQueue::default(),
         }
     }
 
@@ -631,10 +632,8 @@ impl Session {
                 .open_document(&path, &text_document.text, text_document.version, kind);
         SourceChanges::new([change.clone()]).apply(&mut self.db);
         let project_work = self.mark_intrinsic_change(&change, kind);
-        DocumentMutation::Applied {
-            document,
-            project_work,
-        }
+        self.queue_document_diagnostics(&document);
+        DocumentMutation::Applied { project_work }
     }
 
     pub(crate) fn save_document(
@@ -652,10 +651,8 @@ impl Session {
         let change = ChangeEvent::ContentChanged(path);
         SourceChanges::new([change.clone()]).apply(&mut self.db);
         let project_work = self.mark_intrinsic_change(&change, document.kind());
-        DocumentMutation::Applied {
-            document,
-            project_work,
-        }
+        self.queue_document_diagnostics(&document);
+        DocumentMutation::Applied { project_work }
     }
 
     pub(crate) fn update_document(
@@ -683,10 +680,8 @@ impl Session {
         };
         SourceChanges::new([change.clone()]).apply(&mut self.db);
         let project_work = self.mark_intrinsic_change(&change, document.kind());
-        DocumentMutation::Applied {
-            document,
-            project_work,
-        }
+        self.queue_document_diagnostics(&document);
+        DocumentMutation::Applied { project_work }
     }
 
     /// Close a document.
@@ -702,6 +697,7 @@ impl Session {
             return DocumentMutation::Ignored;
         };
 
+        self.diagnostics.close(&path);
         let change = self.close_document_change(&path);
         let Some(document) = self.workspace.close_document(&path) else {
             return DocumentMutation::Ignored;
@@ -709,10 +705,7 @@ impl Session {
         SourceChanges::new([change.clone()]).apply(&mut self.db);
         let project_work = self.mark_intrinsic_change(&change, document.kind());
 
-        DocumentMutation::Applied {
-            document,
-            project_work,
-        }
+        DocumentMutation::Applied { project_work }
     }
 
     fn open_document_change(&self, path: &Utf8Path) -> ChangeEvent {
@@ -750,6 +743,22 @@ impl Session {
     /// Get all currently open documents.
     pub(crate) fn open_documents(&self) -> Vec<TextDocument> {
         self.workspace.open_documents()
+    }
+
+    fn queue_document_diagnostics(&mut self, document: &TextDocument) {
+        // Diagnostic eligibility belongs to the IDE's path-derived source kind,
+        // not the client language kind used for Project invalidation.
+        if !self.client_info.supports_pull_diagnostics()
+            || self.diagnostics.has_outstanding(document.path())
+        {
+            self.diagnostics.schedule(document);
+        }
+    }
+
+    pub(crate) fn queue_all_diagnostics(&mut self) {
+        for document in self.workspace.open_documents() {
+            self.diagnostics.schedule(&document);
+        }
     }
 }
 
@@ -949,20 +958,17 @@ mod tests {
         ));
 
         let (template_path, template_uri) = test_file_uri("test.html");
-        let (template, project_work) = match session.open_document(&ls_types::TextDocumentItem {
+        let project_work = match session.open_document(&ls_types::TextDocumentItem {
             uri: template_uri,
             language_id: "django-html".to_string(),
             version: 1,
             text: String::new(),
         }) {
-            DocumentMutation::Applied {
-                document,
-                project_work,
-            } => Some((document, project_work)),
+            DocumentMutation::Applied { project_work } => Some(project_work),
             DocumentMutation::Ignored => None,
         }
         .expect("template test document should open");
-        assert_eq!(template.path(), template_path);
+        assert!(session.get_document(&template_path).is_some());
         assert_eq!(project_work, None);
 
         let (path, uri) = test_file_uri("test.py");
@@ -972,13 +978,12 @@ mod tests {
             version: 1,
             text: "print('hello')".to_string(),
         };
-        let opened = match session.open_document(&text_document) {
-            DocumentMutation::Applied { document, .. } => Some(document),
+        match session.open_document(&text_document) {
+            DocumentMutation::Applied { .. } => Some(()),
             DocumentMutation::Ignored => None,
         }
         .expect("Python test document should open");
 
-        assert_eq!(opened.path(), path);
         assert!(session.get_document(&path).is_some());
 
         let db = session.db();
@@ -990,12 +995,11 @@ mod tests {
         assert_eq!(content, "print('hello')");
 
         let close_doc = ls_types::TextDocumentIdentifier { uri };
-        let closed = match session.close_document(&close_doc) {
-            DocumentMutation::Applied { document, .. } => Some(document),
+        match session.close_document(&close_doc) {
+            DocumentMutation::Applied { .. } => Some(()),
             DocumentMutation::Ignored => None,
         }
         .expect("open Python test document should close");
-        assert_eq!(closed.path(), path);
         assert!(session.get_document(&path).is_none());
     }
 
@@ -1022,13 +1026,12 @@ mod tests {
             text: "updated".to_string(),
         }];
         let versioned_document = ls_types::VersionedTextDocumentIdentifier { uri, version: 2 };
-        let updated = match session.update_document(&versioned_document, changes) {
-            DocumentMutation::Applied { document, .. } => Some(document),
+        match session.update_document(&versioned_document, changes) {
+            DocumentMutation::Applied { .. } => Some(()),
             DocumentMutation::Ignored => None,
         }
         .expect("open Python test document should update");
 
-        assert_eq!(updated.path(), path);
         let doc = session
             .get_document(&path)
             .expect("updated document should remain open");
@@ -1050,40 +1053,32 @@ mod tests {
         let path = Utf8Path::new("/tmp/mutation-outcome.py");
         let uri = ls_types::Uri::from_file_path(path.as_std_path())
             .expect("mutation test path should convert to a file URI");
-        let (document, project_work) = match session.open_document(&ls_types::TextDocumentItem {
+        let project_work = match session.open_document(&ls_types::TextDocumentItem {
             uri: uri.clone(),
             language_id: "python".to_string(),
             version: 1,
             text: String::new(),
         }) {
-            DocumentMutation::Applied {
-                document,
-                project_work,
-            } => Some((document, project_work)),
+            DocumentMutation::Applied { project_work } => Some(project_work),
             DocumentMutation::Ignored => None,
         }
         .expect("Python mutation test document should open");
-        assert_eq!(document.path(), path);
         assert_eq!(project_work, Some(ProjectWork::FullReload));
 
         let file = path_to_file(session.db(), path)
             .expect("open mutation test document should be interned");
         session.install_ready_coverage_for_test(vec![file], Vec::new());
 
-        let (document, project_work) =
+        let project_work =
             match session.save_document(&ls_types::TextDocumentIdentifier { uri: uri.clone() }) {
-                DocumentMutation::Applied {
-                    document,
-                    project_work,
-                } => Some((document, project_work)),
+                DocumentMutation::Applied { project_work } => Some(project_work),
                 DocumentMutation::Ignored => None,
             }
             .expect("open Python mutation test document should save");
-        assert_eq!(document.path(), path);
         assert_eq!(project_work, Some(ProjectWork::Reprime));
 
         session.install_ready_coverage_for_test(vec![file], Vec::new());
-        let (document, project_work) = match session.update_document(
+        let project_work = match session.update_document(
             &ls_types::VersionedTextDocumentIdentifier {
                 uri: uri.clone(),
                 version: 2,
@@ -1094,27 +1089,19 @@ mod tests {
                 text: "changed".to_string(),
             }],
         ) {
-            DocumentMutation::Applied {
-                document,
-                project_work,
-            } => Some((document, project_work)),
+            DocumentMutation::Applied { project_work } => Some(project_work),
             DocumentMutation::Ignored => None,
         }
         .expect("open Python mutation test document should update");
-        assert_eq!(document.path(), path);
         assert_eq!(project_work, Some(ProjectWork::Reprime));
 
         session.install_ready_coverage_for_test(vec![file], Vec::new());
-        let (document, project_work) =
+        let project_work =
             match session.close_document(&ls_types::TextDocumentIdentifier { uri }) {
-                DocumentMutation::Applied {
-                    document,
-                    project_work,
-                } => Some((document, project_work)),
+                DocumentMutation::Applied { project_work } => Some(project_work),
                 DocumentMutation::Ignored => None,
             }
             .expect("open Python mutation test document should close");
-        assert_eq!(document.path(), path);
         assert_eq!(project_work, Some(ProjectWork::FullReload));
     }
 
