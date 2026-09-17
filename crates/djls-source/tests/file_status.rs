@@ -242,6 +242,56 @@ fn sync_path_for_untracked_path_is_noop() {
 }
 
 #[test]
+fn concurrent_first_lookups_share_identity_and_synchronized_source() {
+    let mut db = TestDatabase::new();
+    let path = Utf8Path::new("/project/concurrent.py");
+    db.add_file(path.as_str(), "original")
+        .expect("fixture should be added");
+    let barrier = std::sync::Barrier::new(8);
+    let files = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                let db = db.clone();
+                let barrier = &barrier;
+                scope.spawn(move || {
+                    barrier.wait();
+                    let file = path_to_file(&db, path).expect("file should exist");
+                    assert_eq!(
+                        file.try_source(&db).expect("source should exist").as_str(),
+                        "original"
+                    );
+                    file
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|handle| handle.join().expect("lookup should finish"))
+            .collect::<Vec<_>>()
+    });
+    assert!(files.iter().all(|file| *file == files[0]));
+    db.add_file(path.as_str(), "replacement")
+        .expect("fixture should be updated");
+    assert_eq!(path_to_file(&db, path), Ok(files[0]));
+    assert_eq!(
+        files[0]
+            .try_source(&db)
+            .expect("source should exist")
+            .as_str(),
+        "original"
+    );
+    SourceChanges::new([ChangeEvent::Rescan]).apply(&mut db);
+    assert_eq!(path_to_file(&db, path), Ok(files[0]));
+    assert_eq!(
+        files[0]
+            .try_source(&db)
+            .expect("source should exist")
+            .as_str(),
+        "replacement"
+    );
+}
+
+#[test]
 fn path_to_file_deletion_invalidates_dependent_lookup() {
     let mut db = TestDatabase::new();
     let path = "/project/app.py";

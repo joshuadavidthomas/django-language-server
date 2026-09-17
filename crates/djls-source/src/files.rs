@@ -329,16 +329,15 @@ impl FileRootKind {
 impl SourceFiles {
     #[must_use]
     fn get_or_create_file(&self, db: &dyn Db, path: &Utf8Path) -> File {
-        let path = path.to_owned();
         self.0
             .by_path
-            .entry(path.clone())
+            .entry(path.to_owned())
             .or_insert_with(|| SourceFileEntry {
-                file: File::builder(path.clone(), 0, file_status(db, &path))
-                    .durability(self.durability_for(db, &path))
+                file: File::builder(path.to_owned(), 0, file_status(db, path))
+                    .durability(self.durability_for(db, path))
                     .path_durability(Durability::HIGH)
                     .new(db),
-                source: read_source(db, &path),
+                source: read_source(db, path),
             })
             .file
     }
