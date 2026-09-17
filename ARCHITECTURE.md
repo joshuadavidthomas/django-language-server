@@ -73,6 +73,8 @@ The Project Facts layer. This crate owns mechanical facts about a Django project
 
 Registration inventory owns names, kinds, source navigation, discovery dependencies, and ordered callable descriptors. Independent queries reuse those descriptors to derive Block Specs, Tag Rules, and Filter Arity without storing Ruff AST nodes. Inventory openness describes uncertainty in registration discovery; recovered helpers reached only during Tag Rule inference weaken the rules without opening an otherwise exact inventory.
 
+Candidate discovery has two contracts: `discover_templatetag_candidate_paths` performs a fresh filesystem scan, including before search-root revision bumps; tracked `template_library_candidate_files` supplies synchronized source coverage for intrinsic priming, including empty candidate files. Package membership follows search-root revisions, while content-only edits reuse membership. Template resolution indexes evidence by name and retains global failures in encounter order so narrowing candidates preserves uncertainty and backend precedence.
+
 #### Static Python import evaluation
 
 One evaluator entrypoint handles both ordinary and `from` import statements. The resolver returns an ordered root-to-leaf chain of source modules and namespace packages; one loader evaluates project-code components through the cycle-enabled module query, records an import trace with typed outcomes, and attaches loaded children only after successful resolution. First-party and extra-root source is evaluated, while site-packages and editable-root modules retain identity but remain open external namespaces whose bodies are never executed.
