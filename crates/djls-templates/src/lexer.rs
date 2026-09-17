@@ -6,6 +6,30 @@ use crate::tokens::TagDelimiter;
 use crate::tokens::Token;
 use crate::tokens::TokenStream;
 
+#[derive(Default)]
+enum CloserSearch {
+    #[default]
+    Unchecked,
+    Exhausted,
+}
+
+#[derive(Default)]
+struct CloserSearches {
+    block: CloserSearch,
+    variable: CloserSearch,
+    comment: CloserSearch,
+}
+
+impl CloserSearches {
+    fn for_delimiter(&mut self, delimiter: TagDelimiter) -> &mut CloserSearch {
+        match delimiter {
+            TagDelimiter::Block => &mut self.block,
+            TagDelimiter::Variable => &mut self.variable,
+            TagDelimiter::Comment => &mut self.comment,
+        }
+    }
+}
+
 pub(crate) struct Lexer {
     source: String,
     start: usize,
@@ -24,34 +48,37 @@ impl Lexer {
 
     pub(crate) fn tokenize(&mut self) -> Vec<Token> {
         let mut tokens = TokenStream::with_estimated_capacity(&self.source);
+        let mut closer_searches = CloserSearches::default();
 
         while !self.is_at_end() {
             self.start = self.current;
 
-            let token =
-                match self.peek() {
-                    TagDelimiter::CHAR_OPEN => {
-                        let remaining = self.remaining_source();
+            let token = match self.peek() {
+                TagDelimiter::CHAR_OPEN => {
+                    let remaining = self.remaining_source();
 
-                        match TagDelimiter::from_input(remaining) {
-                            Some(TagDelimiter::Block) => self
-                                .lex_django_tag(TagDelimiter::Block, |content, span| {
-                                    Token::Block { content, span }
-                                }),
-                            Some(TagDelimiter::Variable) => self
-                                .lex_django_tag(TagDelimiter::Variable, |content, span| {
-                                    Token::Variable { content, span }
-                                }),
-                            Some(TagDelimiter::Comment) => self
-                                .lex_django_tag(TagDelimiter::Comment, |content, span| {
-                                    Token::Comment { content, span }
-                                }),
-                            None => self.lex_text(),
-                        }
+                    match TagDelimiter::from_input(remaining) {
+                        Some(TagDelimiter::Block) => self.lex_django_tag(
+                            TagDelimiter::Block,
+                            &mut closer_searches,
+                            |content, span| Token::Block { content, span },
+                        ),
+                        Some(TagDelimiter::Variable) => self.lex_django_tag(
+                            TagDelimiter::Variable,
+                            &mut closer_searches,
+                            |content, span| Token::Variable { content, span },
+                        ),
+                        Some(TagDelimiter::Comment) => self.lex_django_tag(
+                            TagDelimiter::Comment,
+                            &mut closer_searches,
+                            |content, span| Token::Comment { content, span },
+                        ),
+                        None => self.lex_text(),
                     }
-                    c if c.is_whitespace() => self.lex_whitespace(c),
-                    _ => self.lex_text(),
-                };
+                }
+                c if c.is_whitespace() => self.lex_whitespace(c),
+                _ => self.lex_text(),
+            };
 
             tokens.push(token);
         }
@@ -64,13 +91,14 @@ impl Lexer {
     fn lex_django_tag(
         &mut self,
         delimiter: TagDelimiter,
+        closer_searches: &mut CloserSearches,
         token_fn: impl FnOnce(String, Span) -> Token,
     ) -> Token {
         let content_start = self.start + TagDelimiter::LENGTH;
 
         self.consume_n(TagDelimiter::LENGTH);
 
-        match self.consume_until_delimiter(delimiter.closer()) {
+        match self.consume_until_delimiter(delimiter, closer_searches) {
             Ok(text) => {
                 let len = text.len();
                 let span = Span::saturating_from_parts_usize(content_start, len);
@@ -167,12 +195,25 @@ impl Lexer {
         }
     }
 
-    fn consume_until_delimiter(&mut self, delimiter: &str) -> Result<String, String> {
+    fn consume_until_delimiter(
+        &mut self,
+        delimiter: TagDelimiter,
+        closer_searches: &mut CloserSearches,
+    ) -> Result<String, String> {
         let offset = self.current;
+        let closer_search = closer_searches.for_delimiter(delimiter);
 
-        if let Some(pos) = memmem::find(self.remaining_source().as_bytes(), delimiter.as_bytes()) {
-            self.current += pos;
-            return Ok(self.consumed_source_from(offset).to_string());
+        if matches!(closer_search, CloserSearch::Unchecked) {
+            if let Some(pos) = memmem::find(
+                self.remaining_source().as_bytes(),
+                delimiter.closer().as_bytes(),
+            ) {
+                self.current += pos;
+                return Ok(self.consumed_source_from(offset).to_string());
+            }
+            // The cursor only advances through immutable source. A closer absent
+            // from this suffix cannot occur in any later suffix either.
+            *closer_search = CloserSearch::Exhausted;
         }
 
         self.current += self.consume_until_stop_char();
@@ -212,6 +253,84 @@ impl Lexer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn missing_closers_are_independent_and_preserve_recovery_spans() {
+        let mut lexer = Lexer::new("{{é\r\n{%x%}{#y#}{{z");
+        assert_eq!(
+            lexer.tokenize(),
+            vec![
+                Token::Error {
+                    content: "é".into(),
+                    span: Span::new(2, 2),
+                    delimiter: TagDelimiter::Variable,
+                },
+                Token::Newline {
+                    span: Span::new(4, 2)
+                },
+                Token::Block {
+                    content: "x".into(),
+                    span: Span::new(8, 1)
+                },
+                Token::Comment {
+                    content: "y".into(),
+                    span: Span::new(13, 1)
+                },
+                Token::Error {
+                    content: "z".into(),
+                    span: Span::new(18, 1),
+                    delimiter: TagDelimiter::Variable,
+                },
+                Token::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn late_closers_still_cross_newlines_and_nested_openers() {
+        for (source, expected) in [
+            (
+                "{{é\r\n{{z}}",
+                Token::Variable {
+                    content: "é\r\n{{z".into(),
+                    span: Span::new(2, 7),
+                },
+            ),
+            (
+                "{%é\r\n{%z%}",
+                Token::Block {
+                    content: "é\r\n{%z".into(),
+                    span: Span::new(2, 7),
+                },
+            ),
+            (
+                "{#é\r\n{#z#}",
+                Token::Comment {
+                    content: "é\r\n{#z".into(),
+                    span: Span::new(2, 7),
+                },
+            ),
+        ] {
+            assert_eq!(Lexer::new(source).tokenize(), vec![expected, Token::Eof]);
+        }
+    }
+
+    #[test]
+    fn repeated_unmatched_delimiters_recover_at_each_opener() {
+        for repetitions in [4096, 8192] {
+            let source = "{{x\r\n{%é\n{#z\n".repeat(repetitions);
+            let mut lexer = Lexer::new(&source);
+            let tokens = lexer.tokenize();
+            assert_eq!(tokens.len(), 6 * repetitions + 1);
+            assert_eq!(
+                tokens
+                    .iter()
+                    .filter(|token| matches!(token, Token::Error { .. }))
+                    .count(),
+                3 * repetitions
+            );
+        }
+    }
 
     #[derive(serde::Serialize)]
     struct ContentToken<'a> {
