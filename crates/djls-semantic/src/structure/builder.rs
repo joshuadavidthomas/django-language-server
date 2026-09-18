@@ -17,23 +17,6 @@ use crate::structure::tree::Regions;
 use crate::structure::tree::TemplateNode;
 use crate::structure::tree::TemplateTree;
 
-#[derive(Debug, Clone)]
-enum TreeOp {
-    AddNode {
-        target: RegionId,
-        node: TemplateNode,
-    },
-    ExtendRegionSpan {
-        id: RegionId,
-        span: Span,
-    },
-    FinalizeSpanTo {
-        id: RegionId,
-        end: u32,
-    },
-    AccumulateDiagnostic(ValidationError),
-}
-
 pub(crate) struct TemplateTreeData {
     pub(crate) root: RegionId,
     pub(crate) regions: Regions,
@@ -51,20 +34,22 @@ pub(crate) struct TemplateTreeBuilder<'grammar> {
     grammar: &'grammar SparseTagGrammar,
     root: RegionId,
     stack: Vec<TreeFrame>,
-    region_allocs: Vec<(Span, Option<RegionId>)>,
+    regions: Regions,
     captured_closers: Vec<CapturedClosingTag>,
-    ops: Vec<TreeOp>,
+    diagnostics: Vec<ValidationError>,
 }
 
 impl<'grammar> TemplateTreeBuilder<'grammar> {
     pub(crate) fn new(grammar: &'grammar SparseTagGrammar) -> Self {
+        let mut regions = Regions::default();
+        let root = regions.alloc(Span::new(0, 0), None);
         Self {
             grammar,
-            root: RegionId::new(0),
+            root,
             stack: Vec::new(),
-            region_allocs: vec![(Span::new(0, 0), None)],
+            regions,
             captured_closers: Vec::new(),
-            ops: Vec::new(),
+            diagnostics: Vec::new(),
         }
     }
 
@@ -73,7 +58,12 @@ impl<'grammar> TemplateTreeBuilder<'grammar> {
             self.handle_node(node);
         }
         self.finish();
-        self.apply_operations()
+        TemplateTreeData {
+            root: self.root,
+            regions: self.regions,
+            captured_closers: self.captured_closers,
+            diagnostics: self.diagnostics,
+        }
     }
 
     fn handle_node(&mut self, node: &Node) {
@@ -111,16 +101,11 @@ impl<'grammar> TemplateTreeBuilder<'grammar> {
                 full_span: *full_span,
             },
         };
-        self.ops.push(TreeOp::AddNode {
-            target: self.active_region(),
-            node,
-        });
+        self.regions.push_node(self.active_region(), node);
     }
 
     fn alloc_region(&mut self, span: Span, parent: RegionId) -> RegionId {
-        let id = RegionId::new(self.region_allocs.len());
-        self.region_allocs.push((span, Some(parent)));
-        id
+        self.regions.alloc(span, Some(parent))
     }
 
     fn alloc_block_regions(
@@ -132,41 +117,6 @@ impl<'grammar> TemplateTreeBuilder<'grammar> {
         let container_id = self.alloc_region(container_span, parent);
         let segment_id = self.alloc_region(segment_span, container_id);
         (container_id, segment_id)
-    }
-
-    fn apply_operations(self) -> TemplateTreeData {
-        let TemplateTreeBuilder {
-            root,
-            region_allocs,
-            captured_closers,
-            ops,
-            ..
-        } = self;
-
-        let mut regions = Regions::from_allocations(region_allocs);
-        let mut diagnostics = Vec::new();
-
-        for op in ops {
-            match op {
-                TreeOp::AddNode { target, node } => {
-                    regions.push_node(target, node);
-                }
-                TreeOp::ExtendRegionSpan { id, span } => {
-                    regions.extend_region(id, span);
-                }
-                TreeOp::FinalizeSpanTo { id, end } => {
-                    regions.finalize_region_span(id, end);
-                }
-                TreeOp::AccumulateDiagnostic(error) => diagnostics.push(error),
-            }
-        }
-
-        TemplateTreeData {
-            root,
-            regions,
-            captured_closers,
-            diagnostics,
-        }
     }
 
     fn active_region(&self) -> RegionId {
@@ -225,9 +175,9 @@ impl<'grammar> TemplateTreeBuilder<'grammar> {
                     Span::new(span.end().saturating_add(TagDelimiter::LENGTH_U32), 0);
                 let (container, segment) = self.alloc_block_regions(span, segment_span, parent);
 
-                self.ops.push(TreeOp::AddNode {
-                    target: parent,
-                    node: TemplateNode::Block {
+                self.regions.push_node(
+                    parent,
+                    TemplateNode::Block {
                         tag: name.to_string(),
                         name_span,
                         bits: bits.to_vec(),
@@ -235,10 +185,10 @@ impl<'grammar> TemplateTreeBuilder<'grammar> {
                         body: container,
                         role: BlockRole::Opener,
                     },
-                });
-                self.ops.push(TreeOp::AddNode {
-                    target: container,
-                    node: TemplateNode::Block {
+                );
+                self.regions.push_node(
+                    container,
+                    TemplateNode::Block {
                         tag: name.to_string(),
                         name_span,
                         bits: bits.to_vec(),
@@ -246,7 +196,7 @@ impl<'grammar> TemplateTreeBuilder<'grammar> {
                         body: segment,
                         role: BlockRole::Segment,
                     },
-                });
+                );
 
                 self.stack.push(TreeFrame::Block(BlockFrame {
                     opener_name: name.to_string(),
@@ -302,15 +252,13 @@ impl<'grammar> TemplateTreeBuilder<'grammar> {
                 got,
                 got_span,
             } => {
-                self.ops.push(TreeOp::AccumulateDiagnostic(
-                    ValidationError::UnmatchedBlockName {
-                        expected,
-                        got,
-                        got_span,
-                        span: full_span,
-                        opener_span: frame.opener_span,
-                    },
-                ));
+                self.diagnostics.push(ValidationError::UnmatchedBlockName {
+                    expected,
+                    got,
+                    got_span,
+                    span: full_span,
+                    opener_span: frame.opener_span,
+                });
                 self.finalize_frame(TreeFrame::Opaque(frame), span, full_span);
             }
         }
@@ -325,15 +273,15 @@ impl<'grammar> TemplateTreeBuilder<'grammar> {
         bits: &[TagBit],
         full_span: Span,
     ) {
-        self.ops.push(TreeOp::AddNode {
-            target: self.active_region(),
-            node: TemplateNode::StandaloneTag {
+        self.regions.push_node(
+            self.active_region(),
+            TemplateNode::StandaloneTag {
                 tag: tag_name.to_string(),
                 name_span,
                 bits: bits.to_vec(),
                 full_span,
             },
-        });
+        );
     }
 
     fn accumulate_orphaned_closer(
@@ -342,16 +290,14 @@ impl<'grammar> TemplateTreeBuilder<'grammar> {
         possible_openers: &[String],
         span: Span,
     ) {
-        self.ops.push(TreeOp::AccumulateDiagnostic(
-            ValidationError::OrphanedClosingTag {
-                tag: closer_name.to_string(),
-                expected_opener: possible_openers
-                    .first()
-                    .cloned()
-                    .unwrap_or_else(|| "matching opener".to_string()),
-                span,
-            },
-        ));
+        self.diagnostics.push(ValidationError::OrphanedClosingTag {
+            tag: closer_name.to_string(),
+            expected_opener: possible_openers
+                .first()
+                .cloned()
+                .unwrap_or_else(|| "matching opener".to_string()),
+            span,
+        });
     }
 
     fn close_block_at(
@@ -382,15 +328,13 @@ impl<'grammar> TemplateTreeBuilder<'grammar> {
                 got,
                 got_span,
             } => {
-                self.ops.push(TreeOp::AccumulateDiagnostic(
-                    ValidationError::UnmatchedBlockName {
-                        expected,
-                        got,
-                        got_span,
-                        span: full_span,
-                        opener_span: frame.opener_span(),
-                    },
-                ));
+                self.diagnostics.push(ValidationError::UnmatchedBlockName {
+                    expected,
+                    got,
+                    got_span,
+                    span: full_span,
+                    opener_span: frame.opener_span(),
+                });
                 self.finalize_frame(frame, span, full_span);
             }
         }
@@ -409,18 +353,12 @@ impl<'grammar> TemplateTreeBuilder<'grammar> {
         match frame {
             TreeFrame::Block(frame) => {
                 let content_end = closer_span.start().saturating_sub(TagDelimiter::LENGTH_U32);
-                self.ops.push(TreeOp::FinalizeSpanTo {
-                    id: frame.segment_body,
-                    end: content_end,
-                });
-                self.ops.push(TreeOp::ExtendRegionSpan {
-                    id: frame.container_body,
-                    span: closer_full_span,
-                });
-                self.ops.push(TreeOp::ExtendRegionSpan {
-                    id: frame.parent_region,
-                    span: closer_full_span,
-                });
+                self.regions
+                    .finalize_region_span(frame.segment_body, content_end);
+                self.regions
+                    .extend_region(frame.container_body, closer_full_span);
+                self.regions
+                    .extend_region(frame.parent_region, closer_full_span);
             }
             TreeFrame::Opaque(frame) => {
                 let body_end = closer_span.start().saturating_sub(TagDelimiter::LENGTH_U32);
@@ -432,16 +370,16 @@ impl<'grammar> TemplateTreeBuilder<'grammar> {
                     frame.opener_span.start_usize(),
                     closer_full_span.end_usize(),
                 );
-                self.ops.push(TreeOp::AddNode {
-                    target: frame.parent_region,
-                    node: TemplateNode::Opaque {
+                self.regions.push_node(
+                    frame.parent_region,
+                    TemplateNode::Opaque {
                         tag: frame.opener_name,
                         name_span: frame.name_span,
                         bits: frame.bits,
                         full_span,
                         body_span,
                     },
-                });
+                );
             }
         }
     }
@@ -463,13 +401,11 @@ impl<'grammar> TemplateTreeBuilder<'grammar> {
             let body_start = span.end().saturating_add(TagDelimiter::LENGTH_U32);
             let new_segment_id = self.alloc_region(Span::new(body_start, 0), container);
 
-            self.ops.push(TreeOp::FinalizeSpanTo {
-                id: segment_to_finalize,
-                end: content_end,
-            });
-            self.ops.push(TreeOp::AddNode {
-                target: container,
-                node: TemplateNode::Block {
+            self.regions
+                .finalize_region_span(segment_to_finalize, content_end);
+            self.regions.push_node(
+                container,
+                TemplateNode::Block {
                     tag: tag_name.to_string(),
                     name_span,
                     bits: bits.to_vec(),
@@ -477,7 +413,7 @@ impl<'grammar> TemplateTreeBuilder<'grammar> {
                     body: new_segment_id,
                     role: BlockRole::Segment,
                 },
-            });
+            );
 
             if let Some(TreeFrame::Block(frame)) = self.stack.last_mut() {
                 frame.segment_body = new_segment_id;
@@ -491,12 +427,11 @@ impl<'grammar> TemplateTreeBuilder<'grammar> {
         possible_openers: &[String],
         span: Span,
     ) {
-        self.ops
-            .push(TreeOp::AccumulateDiagnostic(ValidationError::OrphanedTag {
-                tag: tag_name.to_string(),
-                context: describe_intermediate_parent(possible_openers),
-                span,
-            }));
+        self.diagnostics.push(ValidationError::OrphanedTag {
+            tag: tag_name.to_string(),
+            context: describe_intermediate_parent(possible_openers),
+            span,
+        });
     }
 
     fn finish(&mut self) {
@@ -507,10 +442,8 @@ impl<'grammar> TemplateTreeBuilder<'grammar> {
                     self.accumulate_unclosed(TreeFrame::Block(frame));
                 }
                 TreeFrame::Block(frame) => {
-                    self.ops.push(TreeOp::ExtendRegionSpan {
-                        id: frame.container_body,
-                        span: frame.opener_span,
-                    });
+                    self.regions
+                        .extend_region(frame.container_body, frame.opener_span);
                 }
             }
         }
@@ -518,11 +451,10 @@ impl<'grammar> TemplateTreeBuilder<'grammar> {
 
     fn accumulate_unclosed(&mut self, frame: TreeFrame) {
         let span = frame.opener_span();
-        self.ops
-            .push(TreeOp::AccumulateDiagnostic(ValidationError::UnclosedTag {
-                tag: frame.into_opener_name(),
-                span,
-            }));
+        self.diagnostics.push(ValidationError::UnclosedTag {
+            tag: frame.into_opener_name(),
+            span,
+        });
     }
 }
 

@@ -11,6 +11,8 @@ use djls_bench::realistic_db;
 use djls_bench::require;
 use djls_bench::structure_db;
 use djls_bench::template_fixtures;
+use djls_project::Db as _;
+use djls_semantic::block_overrides;
 use djls_semantic::build_template_tree_for_file;
 use djls_semantic::compute_opaque_regions;
 use djls_semantic::validate_template_file;
@@ -21,6 +23,46 @@ use djls_templates::parse_template;
 
 fn main() {
     divan::main();
+}
+
+// Keep the largest star in routine CI; opt into the full scaling sweep with:
+// DJLS_BENCH_INHERITANCE_SCALING=1 cargo bench -p djls-bench --bench semantic -- block_overrides_warm_star
+fn inheritance_sizes() -> &'static [usize] {
+    if std::env::var("DJLS_BENCH_INHERITANCE_SCALING").as_deref() == Ok("1") {
+        &[100, 500, 1000, 2000]
+    } else {
+        &[2000]
+    }
+}
+
+#[divan::bench(args = inheritance_sizes())]
+fn block_overrides_warm_star(bencher: Bencher, descendants: usize) {
+    let mut db = require("prepare inheritance database", realistic_db());
+    let base = require(
+        "register inheritance base",
+        db.file_with_contents(
+            "/templates/base.html",
+            "{% block content %}base{% endblock %}",
+        ),
+    );
+    for index in 0..descendants {
+        require(
+            "register inheritance child",
+            db.file_with_contents(
+                format!("/templates/child-{index}.html"),
+                "{% extends 'base.html' %}{% block content %}child{% endblock %}",
+            ),
+        );
+    }
+    let Some(project) = db.project() else {
+        fail("inheritance benchmark requires a project");
+    };
+    assert_eq!(
+        block_overrides(&db, project, base, "content").len(),
+        descendants
+    );
+
+    bencher.bench_local(|| black_box(block_overrides(&db, project, base, "content")));
 }
 
 #[derive(Debug, thiserror::Error)]

@@ -16,7 +16,7 @@ pub struct RegionId(usize);
 
 impl RegionId {
     #[must_use]
-    pub(crate) fn new(id: usize) -> Self {
+    fn new(id: usize) -> Self {
         Self(id)
     }
 
@@ -44,15 +44,10 @@ impl Regions {
         self.0.iter()
     }
 
-    pub(crate) fn from_allocations(
-        allocations: impl IntoIterator<Item = (Span, Option<RegionId>)>,
-    ) -> Self {
-        Self(
-            allocations
-                .into_iter()
-                .map(|(span, parent)| TemplateRegion::new(span, parent))
-                .collect(),
-        )
+    pub(crate) fn alloc(&mut self, span: Span, parent: Option<RegionId>) -> RegionId {
+        let id = RegionId::new(self.0.len());
+        self.0.push(TemplateRegion::new(span, parent));
+        id
     }
 
     pub(crate) fn extend_region(&mut self, id: RegionId, span: Span) {

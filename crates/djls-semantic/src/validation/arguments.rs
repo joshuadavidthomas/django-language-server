@@ -17,10 +17,7 @@ pub(crate) fn check_tag_arguments_rule(
     rules: &TagRule,
 ) {
     let full_span = span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32);
-    let bits = bits
-        .iter()
-        .map(|bit| bit.as_str().to_string())
-        .collect::<Vec<_>>();
+    let bits = bits.iter().map(TagBit::as_str).collect::<Vec<_>>();
     for error in evaluate_tag_rules(name, &bits, rules, full_span) {
         ValidationErrorAccumulator(error).accumulate(db);
     }

@@ -33,9 +33,9 @@ trait Constraint {
     fn validate(
         &self,
         tag_name: &str,
-        bits: &[String],
+        bits: &[&str],
         span: Span,
-        message: Option<String>,
+        message: impl FnOnce() -> Option<String>,
     ) -> Option<ValidationError>;
 }
 
@@ -49,9 +49,9 @@ impl Constraint for ArgumentCountConstraint {
     fn validate(
         &self,
         tag_name: &str,
-        bits: &[String],
+        bits: &[&str],
         span: Span,
-        message: Option<String>,
+        message: impl FnOnce() -> Option<String>,
     ) -> Option<ValidationError> {
         let split_len = bits.len() + 1;
 
@@ -63,7 +63,7 @@ impl Constraint for ArgumentCountConstraint {
         };
 
         if violated {
-            let message = message.unwrap_or_else(|| match self {
+            let message = message().unwrap_or_else(|| match self {
                 ArgumentCountConstraint::Exact(n) => {
                     let expected_args = n.saturating_sub(1);
                     let actual_args = split_len.saturating_sub(1);
@@ -114,19 +114,19 @@ impl Constraint for RequiredKeyword {
     fn validate(
         &self,
         tag_name: &str,
-        bits: &[String],
+        bits: &[&str],
         span: Span,
-        message: Option<String>,
+        message: impl FnOnce() -> Option<String>,
     ) -> Option<ValidationError> {
         let bits_index = self.position.to_bits_index(bits.len())?;
         let bit = bits.get(bits_index)?;
 
-        if bit == &self.value {
+        if *bit == self.value {
             None
         } else {
             Some(ValidationError::ExtractedRuleViolation {
                 tag: tag_name.to_string(),
-                message: match message {
+                message: match message() {
                     Some(message) => message,
                     None => format!(
                         "Tag '{tag_name}' expects '{}' at position {}",
@@ -143,22 +143,24 @@ impl Constraint for ChoiceAt {
     fn validate(
         &self,
         tag_name: &str,
-        bits: &[String],
+        bits: &[&str],
         span: Span,
-        message: Option<String>,
+        message: impl FnOnce() -> Option<String>,
     ) -> Option<ValidationError> {
         let bits_index = self.position.to_bits_index(bits.len())?;
         let bit = bits.get(bits_index)?;
 
-        if self.values.iter().any(|value| value == bit) {
+        if self.values.iter().any(|value| value == *bit) {
             None
         } else {
-            let choices = self.values.join("', '");
             Some(ValidationError::ExtractedRuleViolation {
                 tag: tag_name.to_string(),
-                message: match message {
+                message: match message() {
                     Some(message) => message,
-                    None => format!("Tag '{tag_name}' argument must be one of: '{choices}'"),
+                    None => format!(
+                        "Tag '{tag_name}' argument must be one of: '{}'",
+                        self.values.join("', '")
+                    ),
                 },
                 span,
             })
@@ -176,7 +178,7 @@ impl Constraint for ChoiceAt {
 #[must_use]
 pub(crate) fn evaluate_tag_rules(
     tag_name: &str,
-    bits: &[String],
+    bits: &[&str],
     rules: &TagRule,
     span: Span,
 ) -> Vec<ValidationError> {
@@ -193,12 +195,14 @@ pub(crate) fn evaluate_tag_rules(
     }
 
     for constraint in &rules.arg_constraints {
-        let message = message_for_constraint(
-            diagnostic_messages,
-            &ExtractedDiagnosticConstraint::ArgumentCount(constraint.clone()),
-            tag_name,
-            effective_bits,
-        );
+        let message = || {
+            message_for_constraint(
+                diagnostic_messages,
+                &ExtractedDiagnosticConstraint::ArgumentCount(constraint.clone()),
+                tag_name,
+                effective_bits,
+            )
+        };
         errors.extend(constraint.validate(tag_name, effective_bits, span, message));
     }
 
@@ -216,22 +220,25 @@ pub(crate) fn evaluate_tag_rules(
         for keywords in by_position.values() {
             if keywords.len() == 1 {
                 let keyword = keywords[0];
-                let message = message_for_constraint(
-                    diagnostic_messages,
-                    &ExtractedDiagnosticConstraint::RequiredKeyword {
-                        position: keyword.position,
-                        value: keyword.value.clone(),
-                    },
-                    tag_name,
-                    effective_bits,
-                );
+                let message = || {
+                    message_for_constraint(
+                        diagnostic_messages,
+                        &ExtractedDiagnosticConstraint::RequiredKeyword {
+                            position: keyword.position,
+                            value: keyword.value.clone(),
+                        },
+                        tag_name,
+                        effective_bits,
+                    )
+                };
                 errors.extend(keyword.validate(tag_name, effective_bits, span, message));
             } else {
                 // Multiple keywords at the same position → OR semantics.
                 // If any one matches, no error. If all fail, report the first.
-                let all_fail = keywords
-                    .iter()
-                    .all(|kw| kw.validate(tag_name, effective_bits, span, None).is_some());
+                let all_fail = keywords.iter().all(|kw| {
+                    kw.validate(tag_name, effective_bits, span, || None)
+                        .is_some()
+                });
                 if all_fail {
                     // Pick the first as representative error, but phrase it
                     // as a choice to be clearer.
@@ -254,15 +261,17 @@ pub(crate) fn evaluate_tag_rules(
     }
 
     for choice in &rules.choice_at_constraints {
-        let message = message_for_constraint(
-            diagnostic_messages,
-            &ExtractedDiagnosticConstraint::ChoiceAt {
-                position: choice.position,
-                values: choice.values.clone(),
-            },
-            tag_name,
-            effective_bits,
-        );
+        let message = || {
+            message_for_constraint(
+                diagnostic_messages,
+                &ExtractedDiagnosticConstraint::ChoiceAt {
+                    position: choice.position,
+                    values: choice.values.clone(),
+                },
+                tag_name,
+                effective_bits,
+            )
+        };
         errors.extend(choice.validate(tag_name, effective_bits, span, message));
     }
 
@@ -285,7 +294,7 @@ struct AssignmentMatch {
 
 fn validate_assignments(
     tag_name: &str,
-    bits: &[String],
+    bits: &[&str],
     operand: &AssignmentOperand,
     span: Span,
 ) -> Option<ValidationError> {
@@ -327,7 +336,7 @@ fn validate_assignments(
     })
 }
 
-fn match_assignments(bits: &[String], mode: AssignmentMode) -> AssignmentMatch {
+fn match_assignments(bits: &[&str], mode: AssignmentMode) -> AssignmentMatch {
     let mut keys = HashSet::new();
     let mut consumed = 0;
     if bits
@@ -343,14 +352,14 @@ fn match_assignments(bits: &[String], mode: AssignmentMode) -> AssignmentMatch {
             consumed += 1;
         }
     } else if mode == AssignmentMode::ModernOrLegacy {
-        while bits.get(consumed + 1).is_some_and(|bit| bit == "as")
+        while bits.get(consumed + 1).is_some_and(|bit| *bit == "as")
             && bits.get(consumed + 2).is_some()
         {
             if let Some(key) = bits.get(consumed + 2) {
-                keys.insert(key.as_str());
+                keys.insert(*key);
             }
             consumed += 3;
-            if bits.get(consumed).is_some_and(|bit| bit == "and") {
+            if bits.get(consumed).is_some_and(|bit| *bit == "and") {
                 consumed += 1;
             } else {
                 break;
@@ -376,7 +385,7 @@ fn is_python_word_key(value: &str) -> bool {
         .is_ok_and(|pattern| pattern.is_match(value))
 }
 
-fn effective_tag_bits(bits: &[String], strips_as_var: bool) -> &[String] {
+fn effective_tag_bits<'a>(bits: &'a [&str], strips_as_var: bool) -> &'a [&'a str] {
     if strips_as_var && bits.len() >= 2 && bits[bits.len() - 2] == "as" {
         &bits[..bits.len() - 2]
     } else {
@@ -387,7 +396,7 @@ fn effective_tag_bits(bits: &[String], strips_as_var: bool) -> &[String] {
 fn validate_argument_syntax(
     tag_name: &str,
     syntax: &TagArgumentSyntax,
-    bits: &[String],
+    bits: &[&str],
     span: Span,
 ) -> Option<ValidationError> {
     match syntax {
@@ -432,7 +441,7 @@ fn validate_django_signature(
     tag_name: &str,
     parameters: &[djls_project::TagArgument],
     variadic_keyword: Option<&str>,
-    bits: &[String],
+    bits: &[&str],
     span: Span,
 ) -> Option<ValidationError> {
     bind_django_signature(parameters, variadic_keyword, bits)
@@ -447,7 +456,7 @@ fn validate_django_signature(
 fn bind_django_signature(
     parameters: &[djls_project::TagArgument],
     variadic_keyword: Option<&str>,
-    bits: &[String],
+    bits: &[&str],
 ) -> Result<(), String> {
     let mut unhandled_positional = parameters
         .iter()
@@ -536,7 +545,7 @@ fn django_keyword_name(bit: &str) -> Option<&str> {
 
 fn match_complete_forms<'a>(
     forms: &'a [TagArgumentForm],
-    bits: &[String],
+    bits: &[&str],
 ) -> Result<(), TagArgumentFormMismatch<'a>> {
     let mut best_mismatch: Option<FormAtomMismatch<'a>> = None;
     for form in forms {
@@ -567,7 +576,7 @@ fn match_complete_forms<'a>(
 
 fn form_mismatch_error(
     tag_name: &str,
-    bits: &[String],
+    bits: &[&str],
     forms: &[TagArgumentForm],
     length_mismatch_message: Option<&ExtractedMessageTemplate>,
     mismatch: TagArgumentFormMismatch<'_>,
@@ -678,7 +687,7 @@ fn message_for_constraint(
     messages: &[ExtractedDiagnosticMessage],
     constraint: &ExtractedDiagnosticConstraint,
     tag_name: &str,
-    bits: &[String],
+    bits: &[&str],
 ) -> Option<String> {
     messages.iter().find_map(|message| {
         if &message.constraint == constraint {
@@ -692,7 +701,7 @@ fn message_for_constraint(
 fn render_message_template(
     message: &ExtractedMessageTemplate,
     tag_name: &str,
-    bits: &[String],
+    bits: &[&str],
 ) -> Option<String> {
     match message {
         ExtractedMessageTemplate::Static(message) => Some(message.clone()),
@@ -706,7 +715,7 @@ fn render_percent_format(
     template: &str,
     args: &[ExtractedMessageArg],
     tag_name: &str,
-    bits: &[String],
+    bits: &[&str],
 ) -> Option<String> {
     let mut rendered = String::new();
     let mut chars = template.chars().peekable();
@@ -757,7 +766,7 @@ enum FormatKind {
 fn format_arg(
     arg: &ExtractedMessageArg,
     tag_name: &str,
-    bits: &[String],
+    bits: &[&str],
     kind: FormatKind,
 ) -> Option<String> {
     match (arg, kind) {
@@ -788,26 +797,23 @@ fn format_arg(
     }
 }
 
-fn normalized_token_contents(tag_name: &str, bits: &[String]) -> String {
+fn normalized_token_contents(tag_name: &str, bits: &[&str]) -> String {
     std::iter::once(tag_name)
-        .chain(bits.iter().map(String::as_str))
+        .chain(bits.iter().copied())
         .collect::<Vec<_>>()
         .join(" ")
 }
 
-fn split_position_value(
-    position: SplitPosition,
-    tag_name: &str,
-    bits: &[String],
-) -> Option<String> {
+fn split_position_value(position: SplitPosition, tag_name: &str, bits: &[&str]) -> Option<String> {
     match position {
         SplitPosition::Forward(0) => Some(tag_name.to_string()),
-        SplitPosition::Forward(index) => bits.get(index - 1).cloned(),
+        SplitPosition::Forward(index) => bits.get(index - 1).map(|value| (*value).to_string()),
         SplitPosition::Backward(index) => {
             if index == 0 || index > bits.len() {
                 None
             } else {
-                bits.get(bits.len() - index).cloned()
+                bits.get(bits.len() - index)
+                    .map(|value| (*value).to_string())
             }
         }
     }
@@ -824,7 +830,7 @@ fn python_repr(value: &str) -> String {
 /// positional values, so validation needs tag-specific parsing context to use it.
 fn evaluate_known_options(
     tag_name: &str,
-    bits: &[String],
+    bits: &[&str],
     options: &KnownOptions,
     span: Span,
 ) -> Vec<ValidationError> {
@@ -837,7 +843,7 @@ fn evaluate_known_options(
     let mut seen = Vec::new();
 
     for bit in bits {
-        let is_known = options.values.iter().any(|v| v == bit);
+        let is_known = options.values.iter().any(|v| v == *bit);
 
         if is_known {
             if seen.contains(bit) {
@@ -847,7 +853,7 @@ fn evaluate_known_options(
                     span,
                 });
             }
-            seen.push(bit.clone());
+            seen.push(*bit);
         }
     }
 
@@ -865,8 +871,49 @@ mod tests {
 
     use super::*;
 
-    fn make_bits(args: &[&str]) -> Vec<String> {
-        args.iter().map(|s| (*s).to_string()).collect()
+    #[test]
+    fn passing_constraints_do_not_render_diagnostics() {
+        let bits = make_bits(&["item", "in", "items"]);
+        let span = Span::new(5, 20);
+        assert!(
+            ArgumentCountConstraint::Exact(4)
+                .validate("for", &bits, span, || panic!("valid count"))
+                .is_none()
+        );
+        assert!(
+            RequiredKeyword {
+                position: SplitPosition::Forward(2),
+                value: "in".into()
+            }
+            .validate("for", &bits, span, || panic!("valid keyword"))
+            .is_none()
+        );
+        assert!(
+            ChoiceAt {
+                position: SplitPosition::Backward(1),
+                values: vec!["items".into(), "others".into()]
+            }
+            .validate("for", &bits, span, || panic!("valid choice"))
+            .is_none()
+        );
+        let mut renders = 0;
+        let error = ArgumentCountConstraint::Min(5).validate("for", &bits, span, || {
+            renders += 1;
+            Some("source message".into())
+        });
+        assert_eq!(renders, 1);
+        assert_eq!(
+            error,
+            Some(ValidationError::ExtractedRuleViolation {
+                tag: "for".into(),
+                message: "source message".into(),
+                span
+            })
+        );
+    }
+
+    fn make_bits<'a>(args: &[&'a str]) -> Vec<&'a str> {
+        args.to_vec()
     }
 
     fn form(kinds: Vec<TagArgumentKind>) -> TagArgumentForm {
@@ -1636,10 +1683,7 @@ mod tests {
 
     #[test]
     fn assignment_matching_uses_python_word_categories() {
-        let modern = |bits: &[&str]| {
-            let owned = bits.iter().map(ToString::to_string).collect::<Vec<_>>();
-            match_assignments(&owned, AssignmentMode::Modern)
-        };
+        let modern = |bits: &[&str]| match_assignments(bits, AssignmentMode::Modern);
         assert_eq!(modern(&["\u{30000}=1"]).consumed, 1);
         assert_eq!(modern(&["\u{0345}=1"]).consumed, 0);
         assert_eq!(modern(&["\u{1885}=1"]).consumed, 0);
@@ -1682,20 +1726,18 @@ mod tests {
 
     #[test]
     fn assignment_matching_models_modern_legacy_and_remainder() {
-        let owned =
-            ["first", "as", "key", "and", "second", "as", "other", "and"].map(ToString::to_string);
-        let legacy = match_assignments(&owned, AssignmentMode::ModernOrLegacy);
-        assert_eq!(legacy.consumed, owned.len());
+        let bits = ["first", "as", "key", "and", "second", "as", "other", "and"];
+        let legacy = match_assignments(&bits, AssignmentMode::ModernOrLegacy);
+        assert_eq!(legacy.consumed, bits.len());
         assert_eq!(legacy.unique_keys, 2);
 
-        let duplicate =
-            ["first", "as", "key", "and", "second", "as", "key"].map(ToString::to_string);
+        let duplicate = ["first", "as", "key", "and", "second", "as", "key"];
         assert_eq!(
             match_assignments(&duplicate, AssignmentMode::ModernOrLegacy).unique_keys,
             1
         );
 
-        let mixed = ["modern=first", "second", "as", "legacy"].map(ToString::to_string);
+        let mixed = ["modern=first", "second", "as", "legacy"];
         assert_eq!(
             match_assignments(&mixed, AssignmentMode::ModernOrLegacy).consumed,
             1

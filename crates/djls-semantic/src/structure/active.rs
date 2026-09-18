@@ -270,14 +270,10 @@ mod tests {
 
     #[test]
     fn active_template_nodes_preserve_source_order() {
-        let root = RegionId::new(0);
-        let if_container = RegionId::new(1);
-        let if_segment = RegionId::new(2);
-        let mut regions = Regions::from_allocations([
-            (Span::new(0, 0), None),
-            (Span::new(20, 0), Some(root)),
-            (Span::new(30, 0), Some(if_container)),
-        ]);
+        let mut regions = Regions::default();
+        let root = regions.alloc(Span::new(0, 0), None);
+        let if_container = regions.alloc(Span::new(20, 0), Some(root));
+        let if_segment = regions.alloc(Span::new(30, 0), Some(if_container));
         let bits = empty_bits();
 
         regions.push_node(
@@ -346,8 +342,8 @@ mod tests {
 
     #[test]
     fn active_template_queries_skip_opaque_body_content() {
-        let root = RegionId::new(0);
-        let mut regions = Regions::from_allocations([(Span::new(0, 0), None)]);
+        let mut regions = Regions::default();
+        let root = regions.alloc(Span::new(0, 0), None);
         let bits = empty_bits();
 
         regions.push_node(
