@@ -64,6 +64,10 @@ fn final_state_matrix_01_04_shared_prime_is_exact_and_has_no_template_work() {
         primed.library_count()
     );
     assert_eq!(execution_count(&names, "semantic_grammar_vocabulary"), 1);
+    assert_eq!(
+        execution_count(&names, "template_library_candidate_files"),
+        1
+    );
     for forbidden in [
         "template_library_tag_rule_analysis",
         "template_library_filter_facts",
@@ -86,6 +90,7 @@ fn final_state_matrix_01_04_shared_prime_is_exact_and_has_no_template_work() {
         .take_will_execute_names(&db)
         .expect("repeated warmup Salsa events should be read");
     for intrinsic in [
+        "template_library_candidate_files",
         "template_library_definition_facts",
         "template_library_structure_facts",
         "template_library_inventory_dependencies",

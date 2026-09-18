@@ -27,6 +27,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Changed
 
+- Improved template-name completion and resolution, and reused synchronized template-library discovery.
 - Reduced copying during Python module evaluation and repeated imports, and avoided duplicate `.pth` scans.
 - Reduced semantic validation allocations and improved block override and reference lookup.
 - Reduced allocations during template parsing and source registration.

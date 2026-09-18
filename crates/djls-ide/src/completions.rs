@@ -883,7 +883,9 @@ fn generate_template_name_candidates(
 
     let resolution = template_resolution(db, project);
     let names = match file {
-        Some(file) => resolution.template_names_for_backend_scope(db, file),
+        Some(file) => {
+            resolution.template_names_for_backend_scope_with_prefix(db, file, input.prefix.text)
+        }
         None => resolution.template_names(db).collect(),
     };
     names

@@ -2,6 +2,7 @@ use std::cmp::Ordering;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+use djls_source::File;
 use djls_source::FileError;
 use djls_source::FileRootKind;
 use djls_source::FileSystem;
@@ -48,10 +49,6 @@ impl TemplateTagCandidate {
 
     fn path(&self) -> &Utf8Path {
         self.module.path()
-    }
-
-    fn into_path(self) -> Utf8PathBuf {
-        self.module.path().to_path_buf()
     }
 
     pub(crate) fn into_python_module(self) -> PythonSourceModule {
@@ -150,12 +147,6 @@ impl TemplateTagCandidateScan {
             .sort_by(TemplateTagCandidate::cmp_by_app_name_path);
     }
 
-    fn into_candidates(self) -> Vec<TemplateTagCandidate> {
-        match self {
-            Self::Exhaustive(candidates) | Self::WithOmissions { candidates, .. } => candidates,
-        }
-    }
-
     pub(crate) fn into_parts(self) -> (Vec<TemplateTagCandidate>, Vec<TemplateTagCandidateIssue>) {
         match self {
             Self::Exhaustive(candidates) => (candidates, Vec::new()),
@@ -180,18 +171,34 @@ pub(crate) fn discover_templatetag_candidate_paths(
     db: &dyn ProjectDb,
     project: Project,
 ) -> Vec<Utf8PathBuf> {
+    // Imperative discovery also observes files created before a root revision is bumped.
     search_path_templatetag_candidates(db, project)
-        .into_candidates()
-        .into_iter()
-        .map(TemplateTagCandidate::into_path)
+        .candidates()
+        .iter()
+        .map(|candidate| candidate.path().to_path_buf())
         .collect()
 }
 
+/// Candidate source coverage for priming after source changes have been synchronized.
+#[salsa::tracked(returns(ref))]
+pub fn template_library_candidate_files(db: &dyn ProjectDb, project: Project) -> Vec<File> {
+    templatetag_candidates(db, project)
+        .candidates()
+        .iter()
+        .map(|candidate| candidate.module.file())
+        .collect()
+}
+
+// Salsa owns the package identity as a query key.
+#[allow(clippy::needless_pass_by_value)]
+#[salsa::tracked(returns(clone))]
 pub(crate) fn templatetag_candidates_in_package(
     db: &dyn ProjectDb,
     project: Project,
-    package_module: &PythonModuleName,
+    package_module: PythonModuleName,
 ) -> TemplateTagCandidateScan {
+    // File membership changes must invalidate even when package resolution backdates.
+    project.touch_search_path_roots(db);
     let mut scan = TemplateTagCandidateScan::new();
 
     let package_dirs = resolve_package_dirs(db, project, package_module.clone());
@@ -212,7 +219,7 @@ pub(crate) fn templatetag_candidates_in_package(
             &templatetags_dir,
             &WalkOptions::shallow(),
             &[],
-            Some(package_module),
+            Some(&package_module),
         ));
     }
 

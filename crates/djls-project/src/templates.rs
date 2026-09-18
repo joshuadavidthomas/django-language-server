@@ -10,6 +10,7 @@ mod symbols;
 mod tags;
 
 pub(crate) use candidates::discover_templatetag_candidate_paths;
+pub use candidates::template_library_candidate_files;
 pub use filters::FilterArity;
 pub use filters::FilterArityMap;
 pub use libraries::AppTemplateSymbolLookup;

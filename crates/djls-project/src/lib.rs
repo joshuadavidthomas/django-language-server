@@ -116,6 +116,7 @@ pub use templates::UnreadShape;
 pub use templates::resolve_relative_name;
 pub use templates::scoped_template_libraries;
 pub use templates::template_directories;
+pub use templates::template_library_candidate_files;
 pub use templates::template_library_catalog;
 pub use templates::template_library_definition_facts;
 pub use templates::template_library_filter_facts;

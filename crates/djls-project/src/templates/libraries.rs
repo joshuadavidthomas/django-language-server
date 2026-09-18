@@ -356,13 +356,11 @@ impl<'db> TemplateLibrary<'db> {
     }
 }
 
-fn merge_symbols<'db>(symbols: Vec<TemplateSymbol<'db>>) -> Vec<TemplateSymbol<'db>> {
-    let mut merged: Vec<TemplateSymbol<'db>> = Vec::new();
-    for new_symbol in symbols {
-        if let Some(existing) = merged
-            .iter_mut()
-            .find(|symbol| symbol.kind == new_symbol.kind && symbol.name == new_symbol.name)
-        {
+fn merge_symbols(mut symbols: Vec<TemplateSymbol<'_>>) -> Vec<TemplateSymbol<'_>> {
+    // Stable sorting preserves the first definition when equal-ranked duplicates disagree.
+    symbols.sort_by(|left, right| left.kind.cmp(&right.kind).then(left.name.cmp(&right.name)));
+    symbols.dedup_by(|new_symbol, existing| {
+        if existing.kind == new_symbol.kind && existing.name == new_symbol.name {
             let existing_doc = existing
                 .doc
                 .as_deref()
@@ -378,17 +376,15 @@ fn merge_symbols<'db>(symbols: Vec<TemplateSymbol<'db>>) -> Vec<TemplateSymbol<'
             }
 
             if new_symbol.definition.rank() > existing.definition.rank() {
-                existing.definition = new_symbol.definition;
+                existing.definition.clone_from(&new_symbol.definition);
             }
 
-            continue;
+            true
+        } else {
+            false
         }
-
-        merged.push(new_symbol);
-    }
-
-    merged.sort_by(|left, right| left.kind.cmp(&right.kind).then(left.name.cmp(&right.name)));
-    merged
+    });
+    symbols
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -2399,7 +2395,7 @@ fn templatetag_package_libraries<'db>(
     package_module: &PythonModuleName,
 ) -> (Vec<DiscoveredLibrary<'db>>, Vec<TemplateLibraryIssue>) {
     let (candidates, candidate_issues) =
-        templatetag_candidates_in_package(db, project, package_module).into_parts();
+        templatetag_candidates_in_package(db, project, package_module.clone()).into_parts();
     let mut issues = candidate_issues
         .into_iter()
         .map(|_| TemplateLibraryIssue::Discovery)
@@ -2483,6 +2479,53 @@ fn same_available_in_app_library(left: &TemplateLibrary<'_>, right: &TemplateLib
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn symbol_merge_preserves_kind_rank_documentation_and_stable_ties() {
+        let first = PythonModuleName::parse("first.tags").expect("module");
+        let later = PythonModuleName::parse("later.tags").expect("module");
+        let symbols = vec![
+            TemplateSymbol {
+                kind: TemplateSymbolKind::Tag,
+                name: TemplateSymbolName::parse("z").expect("name"),
+                definition: SymbolDefinition::Unknown,
+                doc: Some("  ".to_string()),
+            },
+            TemplateSymbol {
+                kind: TemplateSymbolKind::Filter,
+                name: TemplateSymbolName::parse("z").expect("name"),
+                definition: SymbolDefinition::Unknown,
+                doc: None,
+            },
+            TemplateSymbol {
+                kind: TemplateSymbolKind::Tag,
+                name: TemplateSymbolName::parse("z").expect("name"),
+                definition: SymbolDefinition::Module(first.clone()),
+                doc: Some(" alpha ".to_string()),
+            },
+            TemplateSymbol {
+                kind: TemplateSymbolKind::Tag,
+                name: TemplateSymbolName::parse("a").expect("name"),
+                definition: SymbolDefinition::Unknown,
+                doc: None,
+            },
+            TemplateSymbol {
+                kind: TemplateSymbolKind::Tag,
+                name: TemplateSymbolName::parse("z").expect("name"),
+                definition: SymbolDefinition::Module(later),
+                doc: Some(" zulu ".to_string()),
+            },
+        ];
+        let merged = merge_symbols(symbols);
+        assert_eq!(merged.len(), 3);
+        assert_eq!(merged[0].name(), "a");
+        assert_eq!(merged[1].name(), "z");
+        assert_eq!(merged[1].kind, TemplateSymbolKind::Tag);
+        assert_eq!(merged[1].definition, SymbolDefinition::Module(first));
+        assert_eq!(merged[1].doc(), Some(" zulu "));
+        assert_eq!(merged[2].kind, TemplateSymbolKind::Filter);
+        assert_eq!(merged[2].doc(), None);
+    }
 
     #[test]
     fn missing_testing_loadable_returns_exact_fixture_error() {

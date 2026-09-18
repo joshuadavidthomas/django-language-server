@@ -321,8 +321,19 @@ impl<'db> TemplateResolution<'db> {
         db: &'db dyn ProjectDb,
         file: File,
     ) -> Vec<TemplateName<'db>> {
+        self.template_names_for_backend_scope_with_prefix(db, file, "")
+    }
+
+    /// Narrow names before resolving backend scope, which can scan loader evidence.
+    pub fn template_names_for_backend_scope_with_prefix(
+        self,
+        db: &'db dyn ProjectDb,
+        file: File,
+        prefix: &str,
+    ) -> Vec<TemplateName<'db>> {
         let scope = self.backend_scope_for_file(db, file);
         self.template_names(db)
+            .filter(|name| name.name(db).starts_with(prefix))
             .filter(
                 |name| match self.resolve_excluding_in_scope(db, *name, &[], &scope) {
                     TemplateResolutionResult::Found(_) => true,
@@ -346,13 +357,13 @@ impl<'db> TemplateResolution<'db> {
             .map_or(&[], Vec::as_slice)
     }
 
-    pub fn template_names_for_file(
+    pub fn origins_for_file(
         self,
         db: &'db dyn ProjectDb,
         file: File,
-    ) -> &'db [TemplateName<'db>] {
+    ) -> &'db [TemplateOrigin<'db>] {
         template_directory_index(db, self)
-            .names_by_file(db)
+            .origins_by_file(db)
             .get(&file)
             .map_or(&[], Vec::as_slice)
     }
@@ -509,7 +520,9 @@ impl<'db> TemplateResolution<'db> {
             TemplateBackendScopeKind::ProjectInventory => index
                 .searches(db)
                 .iter()
-                .map(|search| resolve_alternative(db, &search.evidence, name, &excluded))
+                .map(|search| {
+                    resolve_alternative(db, search.evidence_for_name(name), name, &excluded)
+                })
                 .collect::<Vec<_>>(),
             TemplateBackendScopeKind::Selected(selections) => selections
                 .as_slice()
@@ -526,12 +539,9 @@ impl<'db> TemplateResolution<'db> {
                             };
                         };
                         let filtered = search
-                            .evidence
-                            .iter()
-                            .filter(|evidence| evidence.matches_backend(backend))
-                            .cloned()
-                            .collect::<Vec<_>>();
-                        resolve_alternative(db, &filtered, name, &excluded)
+                            .evidence_for_name(name)
+                            .filter(|evidence| evidence.matches_backend(backend));
+                        resolve_alternative(db, filtered, name, &excluded)
                     }
                     TemplateBackendSelection::SettingsCaseRemainder(_) => {
                         TemplateSearchOutcome::Inconclusive {
@@ -689,17 +699,18 @@ impl<'db> TemplateScopeIndexBuilder<'db> {
     fn finish(
         mut self,
         db: &'db dyn ProjectDb,
-        names_by_file: &FxHashMap<File, Vec<TemplateName<'db>>>,
+        origins_by_file: &FxHashMap<File, Vec<TemplateOrigin<'db>>>,
     ) -> TemplateScopeIndexes {
         stable_deduplicate_backend_selections(&mut self.global);
 
         let mut by_origin = FxHashMap::default();
         let mut by_file = FxHashMap::default();
-        for (&file, names) in names_by_file {
+        for (&file, origins) in origins_by_file {
             let file_path = file.path(db);
             let mut file_selections = Vec::new();
 
-            for &name in names {
+            for origin in origins {
+                let name = origin.template_name(db);
                 let key = (file, name);
                 let mut selections = self.concrete_by_origin.remove(&key).unwrap_or_default();
                 selections.extend_from_slice(&self.global);
@@ -852,7 +863,7 @@ struct TemplateDirectoryIndex<'db> {
     by_template_name: FxHashMap<TemplateName<'db>, Vec<TemplateOrigin<'db>>>,
     #[tracked]
     #[returns(ref)]
-    names_by_file: FxHashMap<File, Vec<TemplateName<'db>>>,
+    origins_by_file: FxHashMap<File, Vec<TemplateOrigin<'db>>>,
     /// Equality-bearing direct scope evidence for each discovered Template Origin.
     #[tracked]
     #[returns(ref)]
@@ -873,6 +884,69 @@ struct TemplateDirectoryIndex<'db> {
 struct TemplateSettingsCaseSearch<'db> {
     settings_case: TemplateSettingsCaseId,
     evidence: Vec<TemplateSearchEvidence<'db>>,
+    evidence_positions_by_name: FxHashMap<TemplateName<'db>, Vec<usize>>,
+    global_uncertainty_positions: Vec<usize>,
+}
+
+impl<'db> TemplateSettingsCaseSearch<'db> {
+    fn new(
+        db: &'db dyn ProjectDb,
+        settings_case: TemplateSettingsCaseId,
+        evidence: Vec<TemplateSearchEvidence<'db>>,
+    ) -> Self {
+        let mut evidence_positions_by_name: FxHashMap<_, Vec<_>> = FxHashMap::default();
+        let mut global_uncertainty_positions = Vec::new();
+        for (index, item) in evidence.iter().enumerate() {
+            let name = match item {
+                TemplateSearchEvidence::Origin { origin, .. } => origin.template_name(db),
+                TemplateSearchEvidence::Issue {
+                    issue: TemplateSearchIssue::File { name, .. },
+                    ..
+                } => TemplateName::new(db, name.clone()),
+                TemplateSearchEvidence::UnknownRoots { .. }
+                | TemplateSearchEvidence::Issue {
+                    issue: TemplateSearchIssue::Walk { .. },
+                    ..
+                } => {
+                    global_uncertainty_positions.push(index);
+                    continue;
+                }
+            };
+            evidence_positions_by_name
+                .entry(name)
+                .or_default()
+                .push(index);
+        }
+        Self {
+            settings_case,
+            evidence,
+            evidence_positions_by_name,
+            global_uncertainty_positions,
+        }
+    }
+
+    fn evidence_for_name(
+        &self,
+        name: TemplateName<'db>,
+    ) -> impl Iterator<Item = &TemplateSearchEvidence<'db>> {
+        let mut named = self
+            .evidence_positions_by_name
+            .get(&name)
+            .into_iter()
+            .flatten()
+            .peekable();
+        let mut all = self.global_uncertainty_positions.iter().peekable();
+        // Merge positions so an earlier unknown root still weakens a later positive match.
+        std::iter::from_fn(move || {
+            let index = match (named.peek(), all.peek()) {
+                (Some(left), Some(right)) if left < right => named.next(),
+                (Some(_) | None, Some(_)) => all.next(),
+                (Some(_), None) => named.next(),
+                (None, None) => None,
+            }?;
+            Some(&self.evidence[*index])
+        })
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, salsa::SalsaValue)]
@@ -937,7 +1011,7 @@ fn template_directory_index<'db>(
     let project_searches = project_template_searches(db, project);
     let mut ordered = Vec::new();
     let mut by_template_name = FxHashMap::default();
-    let mut names_by_file = FxHashMap::default();
+    let mut origins_by_file = FxHashMap::default();
     let mut searches = Vec::new();
     let mut origins = FxHashMap::default();
     let mut backend_selection_evidence = TemplateScopeIndexBuilder::default();
@@ -952,12 +1026,10 @@ fn template_directory_index<'db>(
                         .entry((template_name, template.file()))
                         .or_insert_with(|| {
                             let origin = TemplateOrigin::new(db, template_name, template.file());
-                            let file_names = names_by_file
+                            origins_by_file
                                 .entry(template.file())
-                                .or_insert_with(Vec::new);
-                            if !file_names.contains(&template_name) {
-                                file_names.push(template_name);
-                            }
+                                .or_insert_with(Vec::new)
+                                .push(origin);
                             by_template_name
                                 .entry(template_name)
                                 .or_insert_with(Vec::new)
@@ -985,16 +1057,17 @@ fn template_directory_index<'db>(
             backend_selection_evidence.record(db, &evidence);
             search.push(evidence);
         }
-        searches.push(TemplateSettingsCaseSearch {
-            settings_case: settings_case_search.settings_case,
-            evidence: search,
-        });
+        searches.push(TemplateSettingsCaseSearch::new(
+            db,
+            settings_case_search.settings_case,
+            search,
+        ));
     }
 
     let TemplateScopeIndexes {
         by_origin: backend_scopes_by_origin,
         by_file: backend_scopes_by_file,
-    } = backend_selection_evidence.finish(db, &names_by_file);
+    } = backend_selection_evidence.finish(db, &origins_by_file);
 
     debug!("Discovered {} total template origins", ordered.len());
 
@@ -1002,7 +1075,7 @@ fn template_directory_index<'db>(
         db,
         ordered,
         by_template_name,
-        names_by_file,
+        origins_by_file,
         backend_scopes_by_origin,
         backend_scopes_by_file,
         searches,
@@ -1021,6 +1094,7 @@ pub enum TemplateResolutionResult<'db> {
     Inconclusive(InconclusiveTemplateResolution<'db>),
 }
 
+#[derive(Debug, PartialEq, Eq)]
 enum TemplateSearchOutcome<'db> {
     Found { origin: TemplateOrigin<'db> },
     DoesNotExist,
@@ -1048,9 +1122,9 @@ fn possible_origins<'db>(
     possible
 }
 
-fn resolve_alternative<'db>(
+fn resolve_alternative<'a, 'db: 'a>(
     db: &'db dyn ProjectDb,
-    search: &[TemplateSearchEvidence<'db>],
+    search: impl IntoIterator<Item = &'a TemplateSearchEvidence<'db>>,
     name: TemplateName<'db>,
     excluded: &FxHashSet<File>,
 ) -> TemplateSearchOutcome<'db> {
@@ -1228,6 +1302,8 @@ fn project_template_searches(db: &dyn ProjectDb, project: Project) -> ProjectTem
     let mut searches = Vec::new();
     let walk_options = WalkOptions::unrestricted();
     let directories = template_directories(db, project);
+    // Share physical traversal, not loader occurrences or backend-correlated evidence.
+    let mut walks = FxHashMap::default();
 
     for alternative in directories.alternatives() {
         let mut search = Vec::new();
@@ -1241,16 +1317,18 @@ fn project_template_searches(db: &dyn ProjectDb, project: Project) -> ProjectTem
                 }
                 TemplateRootEntry::Known { root, backend } => (root, *backend),
             };
-            let (entries, issues) = match db.walk_root(root, &walk_options) {
-                // Missing and file roots are exhaustively empty: nothing to load templates from.
-                RootWalk::Missing | RootWalk::File(_) => continue,
-                RootWalk::Directory { entries, issues } => (entries, issues),
-                RootWalk::Inaccessible(kind) => (Vec::new(), vec![kind]),
-            };
+            let (entries, issues) = walks.entry(root).or_insert_with(|| {
+                match db.walk_root(root, &walk_options) {
+                    // Missing and file roots are exhaustively empty.
+                    RootWalk::Missing | RootWalk::File(_) => (Vec::new(), Vec::new()),
+                    RootWalk::Directory { entries, issues } => (entries, issues),
+                    RootWalk::Inaccessible(kind) => (Vec::new(), vec![kind]),
+                }
+            });
             let mut root_evidence = Vec::new();
             // A traversal issue can hide a matching file anywhere in this root, so it must precede
             // every positive retained from the same walk.
-            for kind in issues {
+            for &kind in issues.iter() {
                 warn!(
                     "Failed to fully walk template directory {}: {:?}",
                     root, kind
@@ -1263,14 +1341,14 @@ fn project_template_searches(db: &dyn ProjectDb, project: Project) -> ProjectTem
                     backend,
                 });
             }
-            for entry in entries {
+            for entry in entries.iter() {
                 if entry.kind != WalkEntryKind::File {
                     continue;
                 }
                 let name = entry.relative.clean().to_string();
                 match path_to_file(db, &entry.path) {
                     Ok(file) => root_evidence.push(ProjectTemplateSearchEvidence::File {
-                        template: ProjectTemplateFile::new(name, entry.path, file),
+                        template: ProjectTemplateFile::new(name, entry.path.clone(), file),
                         backend,
                     }),
                     Err(error) => {
@@ -1278,7 +1356,7 @@ fn project_template_searches(db: &dyn ProjectDb, project: Project) -> ProjectTem
                         root_evidence.push(ProjectTemplateSearchEvidence::Issue {
                             issue: TemplateSearchIssue::File {
                                 name,
-                                path: entry.path,
+                                path: entry.path.clone(),
                                 error,
                             },
                             backend,
@@ -1325,6 +1403,89 @@ mod tests {
 
     use super::*;
     use crate::templates::settings_cases::TemplateSettingsCases;
+
+    #[test]
+    fn indexed_name_search_matches_scan_across_order_scope_and_exclusions() {
+        let db = TestDatabase::new();
+        db.add_file("/first.html", "first").expect("file");
+        db.add_file("/second.html", "second").expect("file");
+        let first = db.file(Utf8Path::new("/first.html")).expect("file");
+        let second = db.file(Utf8Path::new("/second.html")).expect("file");
+        let page = TemplateName::new(&db, "page.html".to_string());
+        let alias = TemplateName::new(&db, "alias.html".to_string());
+        let missing = TemplateName::new(&db, "missing.html".to_string());
+        let identities = TemplateSettingsCases::for_testing(&[2], false);
+        let case = &identities.settings_cases()[0];
+        let backends = case
+            .backends()
+            .map(TemplateBackendCase::id)
+            .collect::<Vec<_>>();
+        let mut evidence = vec![
+            TemplateSearchEvidence::Origin {
+                origin: test_template_origin(&db, page, first),
+                backend: backends[0],
+            },
+            TemplateSearchEvidence::Origin {
+                origin: test_template_origin(&db, page, second),
+                backend: backends[1],
+            },
+            TemplateSearchEvidence::Origin {
+                origin: test_template_origin(&db, alias, first),
+                backend: backends[1],
+            },
+            TemplateSearchEvidence::UnknownRoots {
+                selection: TemplateBackendSelection::Backend(backends[0]),
+            },
+            TemplateSearchEvidence::UnknownRoots {
+                selection: TemplateBackendSelection::SettingsCaseRemainder(case.id()),
+            },
+            TemplateSearchEvidence::Issue {
+                issue: TemplateSearchIssue::Walk {
+                    root: "/partial".into(),
+                    kind: io::ErrorKind::PermissionDenied,
+                },
+                backend: backends[1],
+            },
+            TemplateSearchEvidence::Issue {
+                issue: TemplateSearchIssue::File {
+                    name: "alias.html".to_string(),
+                    path: "/bad/alias.html".into(),
+                    error: FileError::NotFound,
+                },
+                backend: backends[0],
+            },
+        ];
+        // Moving the first positive across uncertainty barriers must change both paths alike.
+        for _ in 0..evidence.len() {
+            let index = TemplateSettingsCaseSearch::new(&db, case.id(), evidence.clone());
+            assert_eq!(
+                index.evidence_for_name(missing).count(),
+                3,
+                "only global uncertainty can affect an absent name"
+            );
+            for name in [page, alias, missing] {
+                for excluded in [
+                    FxHashSet::default(),
+                    FxHashSet::from_iter([first]),
+                    FxHashSet::from_iter([first, second]),
+                ] {
+                    for backend in [None, Some(backends[0]), Some(backends[1])] {
+                        let indexed = index.evidence_for_name(name).filter(|item| {
+                            backend.is_none_or(|backend| item.matches_backend(backend))
+                        });
+                        let scanned = evidence.iter().filter(|item| {
+                            backend.is_none_or(|backend| item.matches_backend(backend))
+                        });
+                        assert_eq!(
+                            resolve_alternative(&db, indexed, name, &excluded),
+                            resolve_alternative(&db, scanned, name, &excluded)
+                        );
+                    }
+                }
+            }
+            evidence.rotate_left(1);
+        }
+    }
 
     fn scan_selection_indexes<'db>(
         db: &'db TestDatabase,
@@ -1465,6 +1626,10 @@ mod tests {
         ];
         let names_by_file =
             FxHashMap::from_iter([(file_a, vec![page, alias]), (file_b, vec![page])]);
+        let origins_by_file = FxHashMap::from_iter([
+            (file_a, vec![origin_a, origin_a_alias]),
+            (file_b, vec![origin_b]),
+        ]);
 
         let mut evidence_index = TemplateScopeIndexBuilder::default();
         for search in &searches {
@@ -1472,7 +1637,7 @@ mod tests {
                 evidence_index.record(&db, evidence);
             }
         }
-        let indexed = evidence_index.finish(&db, &names_by_file);
+        let indexed = evidence_index.finish(&db, &origins_by_file);
         let scanned = scan_selection_indexes(&db, &searches, &names_by_file);
 
         assert_eq!(indexed.by_origin, scanned.by_origin);

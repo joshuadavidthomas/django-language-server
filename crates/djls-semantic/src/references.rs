@@ -185,10 +185,8 @@ pub fn resolve_reference_origins<'db>(
     kind: TemplateReferenceKind,
 ) -> Vec<ScopedTemplateReferenceResolution<'db>> {
     resolution
-        .template_names_for_file(db, file)
+        .origins_for_file(db, file)
         .iter()
-        .flat_map(|name| resolution.origins_for_name(db, *name))
-        .filter(|origin| origin.file(db) == file)
         .filter_map(|origin| kind.resolve_from_origin(db, resolution, *origin, raw_name))
         .collect()
 }
