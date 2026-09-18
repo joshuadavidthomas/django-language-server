@@ -58,6 +58,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Fixed
 
+- Stopped deriving argument rules and body structure through unrecognized inner decorators, while retaining signature inference for resolved Django `stringfilter` decorators.
 - Fixed tag and filter registrations borrowing argument rules and block structure from unrelated same-named Python functions.
 - Fixed stale diagnostic version/content pairs during rapid edits and close/reopen cycles.
 - Fixed slow client progress and diagnostic-refresh responses blocking project updates.

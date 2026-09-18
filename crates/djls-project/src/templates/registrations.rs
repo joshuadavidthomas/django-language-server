@@ -114,6 +114,7 @@ enum RegistrationCallable {
         // Declaration identity survives even when decorators prevent navigation.
         definition_span: Span,
         navigation: Option<LocalFunctionSource>,
+        relation: CallableRelation,
     },
     ResolvedFunction {
         definition: PythonFunctionDefinition,
@@ -147,6 +148,13 @@ impl RegistrationInfo {
 struct LocalFunctionSource {
     definition_span: djls_source::Span,
     name_span: djls_source::Span,
+}
+
+/// Relationship of the presented callable to the observed declaration, not parse quality.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CallableRelation {
+    Original,
+    Unknown { registration_span: Span },
 }
 
 impl LocalFunctionSource {
@@ -800,14 +808,21 @@ fn collect_from_decorated_function(
         }
         analysis.observe_register_use();
 
-        let navigation = local_source.filter(|_| {
-            func_def.decorator_list[index + 1..]
-                .iter()
-                .all(|decorator| registration_decorator_rooted_at_register(&decorator.expression))
-        });
+        let relation = if func_def.decorator_list[index + 1..]
+            .iter()
+            .all(|decorator| registration_decorator_rooted_at_register(&decorator.expression))
+        {
+            CallableRelation::Original
+        } else {
+            CallableRelation::Unknown {
+                registration_span: expression.span(),
+            }
+        };
+        let navigation = local_source.filter(|_| relation == CallableRelation::Original);
         let applied = LoweredCallable::Decorated {
             function: func_def,
             navigation,
+            relation,
         };
         let Some(lowered) = lower_registration_expression(expression, Some(applied)) else {
             analysis.open_inventory(func_def, UnreadShape::RegistrationShapeUnknown);
@@ -858,6 +873,7 @@ enum LoweredCallable<'a> {
     Decorated {
         function: &'a StmtFunctionDef,
         navigation: Option<LocalFunctionSource>,
+        relation: CallableRelation,
     },
 }
 
@@ -1124,6 +1140,7 @@ fn registration_from_lowered(
         LoweredCallable::Decorated {
             function,
             navigation,
+            relation,
         } => {
             let name = resolved_registration_name(
                 lowered.kind,
@@ -1149,6 +1166,7 @@ fn registration_from_lowered(
                     function_name: function.name.to_string(),
                     definition_span: function.span(),
                     navigation,
+                    relation,
                 },
                 options,
             })
@@ -1195,18 +1213,15 @@ fn registration_from_lowered(
                 callable_name,
                 |expression| expression.string_literal().map(str::to_string),
             )?;
-            let callable =
-                function_name.map_or(RegistrationCallable::Unresolved(None), |function_name| {
-                    if let Some(navigation) = navigation {
-                        RegistrationCallable::DecoratedLocal {
-                            function_name,
-                            definition_span: navigation.definition_span,
-                            navigation: Some(navigation),
-                        }
-                    } else {
-                        RegistrationCallable::Unresolved(Some(function_name))
-                    }
-                });
+            let callable = match (function_name, navigation) {
+                (Some(function_name), Some(navigation)) => RegistrationCallable::DecoratedLocal {
+                    function_name,
+                    definition_span: navigation.definition_span,
+                    navigation: Some(navigation),
+                    relation: CallableRelation::Original,
+                },
+                (function_name, _) => RegistrationCallable::Unresolved(function_name),
+            };
             Some(RegistrationInfo {
                 name,
                 kind: lowered.kind,
@@ -1408,8 +1423,83 @@ struct RegistrationDescriptor {
     key: SymbolKey,
     kind: RegistrationKind,
     options: RegistrationOptions,
-    trusted_callable: bool,
+    source_is_exact: bool,
+    relation: CallableRelation,
     function: Option<PythonFunctionDefinition>,
+}
+
+/// Evidence for Django's inspect.unwrap contract, not equivalence of compile bodies.
+#[derive(Clone, Debug, PartialEq, Eq, salsa::SalsaValue)]
+struct SignatureEvidence {
+    preserved: bool,
+    dependencies: Vec<djls_source::File>,
+}
+
+/// Resolving wrapper provenance belongs to lazy detail queries, not registration inventory.
+// Salsa owns the definition as a query key.
+#[allow(clippy::needless_pass_by_value)]
+#[salsa::tracked(returns(ref))]
+fn decorated_signature_evidence(
+    db: &dyn ProjectDb,
+    definition: PythonFunctionDefinition,
+    registration_span: Span,
+) -> SignatureEvidence {
+    let mut lookup = PythonSourceLookup::for_definition(db, db.project(), &definition);
+    let preserved = definition.statement(db).is_some_and(|function| {
+        let Some(index) = function
+            .decorator_list
+            .iter()
+            .position(|decorator| decorator.expression.span() == registration_span)
+        else {
+            return false;
+        };
+        function.decorator_list[index + 1..]
+            .iter()
+            .all(|decorator| {
+                registration_decorator_rooted_at_register(&decorator.expression)
+                    || is_canonical_stringfilter(&mut lookup, &decorator.expression)
+            })
+    });
+    SignatureEvidence {
+        preserved,
+        dependencies: lookup.consulted_files().to_vec(),
+    }
+}
+
+fn is_canonical_stringfilter(lookup: &mut PythonSourceLookup<'_>, expression: &Expr) -> bool {
+    let recovered_before = lookup.recovered_source_lookups();
+    let Some(target) = lookup.function(expression) else {
+        return false;
+    };
+    let Some(module) = target.module() else {
+        return false;
+    };
+    if module.search_path().is_project_code()
+        || module.name().as_str() != "django.template.defaultfilters"
+        || target.name() != "stringfilter"
+    {
+        return false;
+    }
+    let canonical =
+        lookup.exact_exported_function("django.template.defaultfilters", "stringfilter");
+    canonical.as_ref() == Some(&target)
+        && lookup.is_canonical_export(&target, "stringfilter")
+        && lookup.recovered_source_lookups() == recovered_before
+}
+
+impl RegistrationDescriptor {
+    fn signature_is_preserved(
+        &self,
+        db: &dyn ProjectDb,
+        definition: &PythonFunctionDefinition,
+    ) -> bool {
+        match self.relation {
+            CallableRelation::Original => true,
+            CallableRelation::Unknown { registration_span } => {
+                decorated_signature_evidence(db, definition.clone(), registration_span).preserved
+            }
+        }
+    }
 }
 
 /// Canonical registration inventory for one Template Library source module.
@@ -1538,10 +1628,10 @@ fn template_library_registration_inventory<'db>(
                 symbols_unobserved = true;
             }
 
-            let trusted_callable = parse_quality == TemplateLibraryParseQuality::Exact
+            let source_is_exact = parse_quality == TemplateLibraryParseQuality::Exact
                 && registration.options.source_is_exact
                 && match &registration.callable {
-                    RegistrationCallable::DecoratedLocal { navigation, .. } => navigation.is_some(),
+                    RegistrationCallable::DecoratedLocal { .. } => true,
                     RegistrationCallable::ResolvedFunction {
                         definition,
                         resolution_is_exact,
@@ -1558,11 +1648,17 @@ fn template_library_registration_inventory<'db>(
                 (RegistrationCallable::Unresolved(_), _)
                 | (RegistrationCallable::DecoratedLocal { .. }, None) => None,
             };
+            let relation = match registration.callable {
+                RegistrationCallable::DecoratedLocal { relation, .. } => relation,
+                RegistrationCallable::ResolvedFunction { .. }
+                | RegistrationCallable::Unresolved(_) => CallableRelation::Original,
+            };
             descriptors.push(RegistrationDescriptor {
                 key: symbol_key,
                 kind: registration.kind,
                 options: registration.options.clone(),
-                trusted_callable,
+                source_is_exact,
+                relation,
                 function,
             });
         },
@@ -1683,6 +1779,14 @@ fn template_library_tag_rule_analysis<'db>(
         let Some(definition) = &descriptor.function else {
             continue;
         };
+        let supported = if descriptor.kind == RegistrationKind::Tag {
+            descriptor.relation == CallableRelation::Original
+        } else {
+            descriptor.signature_is_preserved(db, definition)
+        };
+        if !supported {
+            continue;
+        }
         let Some(func) = definition.statement(db) else {
             continue;
         };
@@ -1691,7 +1795,7 @@ fn template_library_tag_rule_analysis<'db>(
             Some(&mut source),
             func,
             &descriptor.options,
-            descriptor.trusted_callable,
+            descriptor.source_is_exact,
         ) {
             tag_rules.insert(descriptor.key.clone(), rule.into());
         }
@@ -1717,6 +1821,12 @@ pub fn template_library_structure_facts<'db>(
     for descriptor in &inventory.descriptors {
         block_specs.0.remove(&descriptor.key);
         if descriptor.kind.symbol_kind() != TemplateSymbolKind::Tag {
+            continue;
+        }
+        // simple_block_tag's closer comes from registration options, not the user body.
+        if descriptor.kind != RegistrationKind::SimpleBlockTag
+            && descriptor.relation != CallableRelation::Original
+        {
             continue;
         }
         let Some(func) = descriptor
@@ -1750,7 +1860,7 @@ pub fn template_library_structure_facts<'db>(
 
 /// Python source dependencies followed while discovering registrations.
 ///
-/// This excludes dependencies consulted only while inferring Tag Rules. Callers that require
+/// This excludes dependencies consulted only while deriving detail evidence. Callers that require
 /// complete detail coverage should use [`template_library_registration_dependencies`].
 #[salsa::tracked(returns(ref))]
 pub fn template_library_inventory_dependencies<'db>(
@@ -1762,7 +1872,7 @@ pub fn template_library_inventory_dependencies<'db>(
         .clone()
 }
 
-/// Python source dependencies followed while resolving registrations and analyzing Tag Rules.
+/// Python source dependencies for registrations, wrapper signatures, and Tag Rule analysis.
 #[salsa::tracked(returns(ref))]
 pub fn template_library_registration_dependencies<'db>(
     db: &'db dyn ProjectDb,
@@ -1772,6 +1882,21 @@ pub fn template_library_registration_dependencies<'db>(
     for dependency in &template_library_tag_rule_analysis(db, key).dependencies {
         if !dependencies.contains(dependency) {
             dependencies.push(*dependency);
+        }
+    }
+    for descriptor in &template_library_registration_inventory(db, key).descriptors {
+        if descriptor.kind != RegistrationKind::Tag
+            && let Some(definition) = &descriptor.function
+            && let CallableRelation::Unknown { registration_span } = descriptor.relation
+        {
+            for dependency in
+                &decorated_signature_evidence(db, definition.clone(), registration_span)
+                    .dependencies
+            {
+                if !dependencies.contains(dependency) {
+                    dependencies.push(*dependency);
+                }
+            }
         }
     }
     dependencies
@@ -1815,11 +1940,13 @@ pub fn template_library_filter_facts<'db>(
         if descriptor.kind.symbol_kind() != TemplateSymbolKind::Filter {
             continue;
         }
-        let Some(func) = descriptor
-            .function
-            .as_ref()
-            .and_then(|definition| definition.statement(db))
-        else {
+        let Some(definition) = &descriptor.function else {
+            continue;
+        };
+        if !descriptor.signature_is_preserved(db, definition) {
+            continue;
+        }
+        let Some(func) = definition.statement(db) else {
             continue;
         };
         if let Some(arity) = descriptor.kind.extract_filter_arity(func) {

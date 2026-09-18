@@ -8,6 +8,5 @@ definitions:
     has_doc: false
 symbols_are_unobserved: false
 tag_rules: {}
-filter_arities:
-  "horizon.templatetags.shellfilter::filter::shellfilter": no_argument
+filter_arities: {}
 block_specs: {}
