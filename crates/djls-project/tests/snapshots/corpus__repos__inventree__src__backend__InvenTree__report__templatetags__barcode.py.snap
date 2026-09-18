@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "tag::barcode":
@@ -17,7 +17,7 @@ definitions:
     has_doc: false
 symbols_are_unobserved: false
 tag_rules:
-  "src.backend.InvenTree.report.templatetags.barcode::tag::barcode":
+  "report.templatetags.barcode::tag::barcode":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -34,7 +34,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: kwargs
     as_var: strip
-  "src.backend.InvenTree.report.templatetags.barcode::tag::clean_barcode":
+  "report.templatetags.barcode::tag::clean_barcode":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -48,7 +48,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: strip
-  "src.backend.InvenTree.report.templatetags.barcode::tag::datamatrix":
+  "report.templatetags.barcode::tag::datamatrix":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -62,7 +62,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: kwargs
     as_var: strip
-  "src.backend.InvenTree.report.templatetags.barcode::tag::qrcode":
+  "report.templatetags.barcode::tag::qrcode":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []

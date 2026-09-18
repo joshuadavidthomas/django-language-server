@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "filter::getattr":
@@ -15,7 +15,7 @@ definitions:
 symbols_are_unobserved: false
 tag_rules: {}
 filter_arities:
-  "src.pretix.control.templatetags.mail_settings_preview::filter::getattr": required_argument
-  "src.pretix.control.templatetags.mail_settings_preview::filter::hasattr": required_argument
-  "src.pretix.control.templatetags.mail_settings_preview::filter::split": optional_argument
+  "pretix.control.templatetags.mail_settings_preview::filter::getattr": required_argument
+  "pretix.control.templatetags.mail_settings_preview::filter::hasattr": required_argument
+  "pretix.control.templatetags.mail_settings_preview::filter::split": optional_argument
 block_specs: {}

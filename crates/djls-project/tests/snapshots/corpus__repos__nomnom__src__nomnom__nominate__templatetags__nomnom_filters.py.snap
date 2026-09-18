@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "filter::get_item":
@@ -18,8 +18,8 @@ definitions:
 symbols_are_unobserved: false
 tag_rules: {}
 filter_arities:
-  "src.nomnom.nominate.templatetags.nomnom_filters::filter::get_item": required_argument
-  "src.nomnom.nominate.templatetags.nomnom_filters::filter::place": no_argument
-  "src.nomnom.nominate.templatetags.nomnom_filters::filter::strip_html_tags": no_argument
-  "src.nomnom.nominate.templatetags.nomnom_filters::filter::user_display_name": no_argument
+  "nomnom.nominate.templatetags.nomnom_filters::filter::get_item": required_argument
+  "nomnom.nominate.templatetags.nomnom_filters::filter::place": no_argument
+  "nomnom.nominate.templatetags.nomnom_filters::filter::strip_html_tags": no_argument
+  "nomnom.nominate.templatetags.nomnom_filters::filter::user_display_name": no_argument
 block_specs: {}

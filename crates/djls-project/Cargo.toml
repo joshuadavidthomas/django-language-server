@@ -27,6 +27,10 @@ tempfile = { workspace = true }
 toml = { workspace = true }
 
 [[test]]
+name = "corpus"
+harness = false
+
+[[test]]
 name = "corpus_settings"
 harness = false
 

@@ -1,13 +1,20 @@
 //! CLI entry point for corpus management.
 
+use anyhow::Context as _;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use clap::Parser;
 use clap::Subcommand;
+use clap::ValueEnum;
+use djls_project::Db as _;
+use djls_project::file_to_module;
+use djls_testing::Corpus;
 use djls_testing::LockFilter;
 use djls_testing::Lockfile;
 use djls_testing::Manifest;
 use djls_testing::VendorSpecFixturesOptions;
+use djls_testing::extract_bundle;
+use djls_testing::sorted_snapshot;
 
 #[derive(Parser)]
 #[command(name = "corpus", about = "Manage the Django template corpus")]
@@ -22,6 +29,13 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Set up repository environments and extract facts in their project context
+    Environment {
+        #[arg(value_enum)]
+        action: EnvironmentAction,
+        /// Repository names (all locked repositories if omitted)
+        names: Vec<String>,
+    },
     /// Resolve latest versions and update the lockfile
     Lock {
         /// Repo names to lock (locks all if omitted)
@@ -54,6 +68,14 @@ enum Command {
     },
 }
 
+#[derive(Clone, Copy, ValueEnum)]
+enum EnvironmentAction {
+    Sync,
+    Check,
+    /// Emit one JSON object per extraction target, without updating snapshots
+    Extract,
+}
+
 fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_target(false)
@@ -72,6 +94,39 @@ fn main() -> anyhow::Result<()> {
     let lockfile_path = manifest_path.with_extension("lock");
 
     match cli.command {
+        Command::Environment { action, names } => {
+            let corpus = Corpus::require_from_manifest(&manifest_path.canonicalize_utf8()?)?;
+            let all = names.is_empty();
+            let names = if names.is_empty() {
+                corpus
+                    .locked_repos()
+                    .map(|(name, _)| name.to_string())
+                    .collect()
+            } else {
+                names
+            };
+            let mut errors = Vec::new();
+            for name in names {
+                if all && let Some(reason) = corpus.environment_deferral(&name)? {
+                    tracing::warn!(%name, %reason, "environment deferred");
+                    continue;
+                }
+                let result = match action {
+                    EnvironmentAction::Sync => corpus.sync_environment(&name),
+                    EnvironmentAction::Check => corpus.environment_database(&name).map(|_| ()),
+                    EnvironmentAction::Extract => extract_environment(&corpus, &name),
+                };
+                match result {
+                    Ok(()) => tracing::info!(%name, "environment operation succeeded"),
+                    Err(error) => errors.push(format!("{name}: {error:#}")),
+                }
+            }
+            anyhow::ensure!(
+                errors.is_empty(),
+                "corpus environments failed:\n{}",
+                errors.join("\n")
+            );
+        }
         Command::Lock { names } => {
             let filter = if names.is_empty() {
                 LockFilter::All
@@ -118,6 +173,35 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
+    Ok(())
+}
+
+fn extract_environment(corpus: &Corpus, name: &str) -> anyhow::Result<()> {
+    let db = corpus.environment_database(name)?;
+    let project = db
+        .project()
+        .context("environment database has no project")?;
+    for target in corpus
+        .extraction_target_members()?
+        .into_iter()
+        .filter(|target| target.member == name)
+    {
+        let module = file_to_module(&db, project, target.path.clone()).with_context(|| {
+            format!(
+                "corpus `{name}` target `{}` does not resolve in its configured source roots",
+                target.relative_path
+            )
+        })?;
+        let bundle = extract_bundle(&db, module.file(), module.name().clone());
+        println!(
+            "{}",
+            serde_json::to_string(&serde_json::json!({
+                "repository": name,
+                "path": target.relative_path,
+                "facts": sorted_snapshot(&bundle)?,
+            }))?
+        );
+    }
     Ok(())
 }
 
