@@ -1487,9 +1487,9 @@ fn is_canonical_stringfilter(lookup: &mut PythonSourceLookup<'_>, expression: &E
     let Some(module) = target.module() else {
         return false;
     };
-    if module.search_path().is_project_code()
-        || module.name().as_str() != "django.template.defaultfilters"
-        || target.name() != "stringfilter"
+    // Assume the canonical stringfilter preserves __wrapped__ in both installed
+    // packages and source checkouts. Its body is not analyzed here.
+    if module.name().as_str() != "django.template.defaultfilters" || target.name() != "stringfilter"
     {
         return false;
     }
