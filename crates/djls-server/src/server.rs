@@ -8,7 +8,6 @@ use djls_project::template_library_catalog;
 use djls_project::template_library_definition_facts;
 use djls_source::FileKind;
 use djls_source::Span;
-use djls_source::path_to_file;
 use percent_encoding::NON_ALPHANUMERIC;
 use percent_encoding::utf8_percent_encode;
 use salsa::Cancelled;
@@ -22,7 +21,7 @@ use tower_lsp_server::ls_types;
 use tracing::debug;
 use tracing::error;
 
-use crate::document::TextDocument;
+use crate::diagnostics::DiagnosticPublisher;
 use crate::ext::PositionEncodingExt;
 use crate::ext::UriExt;
 use crate::logging::LoggingGuard;
@@ -39,6 +38,7 @@ pub(crate) struct DjangoLanguageServer {
     client: Client,
     session: Arc<Mutex<Session>>,
     reload: ProjectReload,
+    diagnostics: DiagnosticPublisher,
     logging: LoggingGuard,
 }
 
@@ -46,22 +46,16 @@ impl DjangoLanguageServer {
     #[must_use]
     pub(crate) fn new(client: Client, logging: LoggingGuard) -> Self {
         let session = Arc::new(Mutex::new(Session::default()));
-        let reload = ProjectReload::new(Arc::clone(&session), client.clone());
+        let diagnostics = DiagnosticPublisher::new(Arc::clone(&session), client.clone());
+        let reload = ProjectReload::new(Arc::clone(&session), client.clone(), diagnostics.clone());
 
         Self {
             client,
             session,
             reload,
+            diagnostics,
             logging,
         }
-    }
-
-    async fn with_session<F, R>(&self, f: F) -> R
-    where
-        F: FnOnce(&Session) -> R,
-    {
-        let session = self.session.lock().await;
-        f(&session)
     }
 
     async fn with_session_mut<F, R>(&self, f: F) -> Option<R>
@@ -100,59 +94,16 @@ impl DjangoLanguageServer {
         with_session_snapshot(&self.session, Arc::new(f)).await
     }
 
-    fn schedule_document_mutation(&self, mutation: DocumentMutation) -> Option<TextDocument> {
+    fn schedule_document_mutation(&self, mutation: DocumentMutation) {
         match mutation {
-            DocumentMutation::Ignored => None,
-            DocumentMutation::Applied {
-                document,
-                project_work,
-            } => {
+            DocumentMutation::Ignored => {}
+            DocumentMutation::Applied { project_work, .. } => {
                 if let Some(project_work) = project_work {
                     self.reload.request_current(project_work);
                 }
-                Some(document)
+                self.diagnostics.wake();
             }
         }
-    }
-
-    async fn maybe_push_diagnostics(&self, document: &TextDocument) {
-        if self
-            .with_session(|session| session.client_info().supports_pull_diagnostics())
-            .await
-        {
-            debug!("Client supports pull diagnostics, skipping push");
-            return;
-        }
-
-        let path = document.path().to_path_buf();
-        let Some(diagnostics) = self
-            .with_ready_snapshot(move |snapshot| {
-                let file = path_to_file(snapshot.db(), &path).ok()?;
-                djls_ide::collect_diagnostics(
-                    snapshot.db(),
-                    file,
-                    snapshot.client_info().position_encoding(),
-                )
-            })
-            .await
-        else {
-            return;
-        };
-
-        let Some(lsp_uri) = ls_types::Uri::from_path(document.path()) else {
-            return;
-        };
-
-        let diagnostic_count = diagnostics.len();
-        let lsp_uri_text = lsp_uri.to_string();
-        self.client
-            .publish_diagnostics(lsp_uri, diagnostics, Some(document.version()))
-            .await;
-
-        debug!(
-            "Published {} diagnostics for {}",
-            diagnostic_count, lsp_uri_text
-        );
     }
 }
 
@@ -506,9 +457,7 @@ impl LanguageServer for DjangoLanguageServer {
             return;
         };
 
-        if let Some(document) = self.schedule_document_mutation(mutation) {
-            self.maybe_push_diagnostics(&document).await;
-        }
+        self.schedule_document_mutation(mutation);
     }
 
     async fn did_save(&self, params: ls_types::DidSaveTextDocumentParams) {
@@ -519,9 +468,7 @@ impl LanguageServer for DjangoLanguageServer {
             return;
         };
 
-        if let Some(document) = self.schedule_document_mutation(mutation) {
-            self.maybe_push_diagnostics(&document).await;
-        }
+        self.schedule_document_mutation(mutation);
     }
 
     async fn did_change(&self, params: ls_types::DidChangeTextDocumentParams) {
@@ -534,9 +481,7 @@ impl LanguageServer for DjangoLanguageServer {
             return;
         };
 
-        if let Some(document) = self.schedule_document_mutation(mutation) {
-            self.maybe_push_diagnostics(&document).await;
-        }
+        self.schedule_document_mutation(mutation);
     }
 
     async fn did_close(&self, params: ls_types::DidCloseTextDocumentParams) {
@@ -546,7 +491,7 @@ impl LanguageServer for DjangoLanguageServer {
         else {
             return;
         };
-        drop(self.schedule_document_mutation(mutation));
+        self.schedule_document_mutation(mutation);
     }
 
     async fn code_action(
@@ -914,6 +859,7 @@ mod tests {
 
     use camino::Utf8PathBuf;
     use djls_ide::prime_template_library_products;
+    use djls_source::path_to_file;
     use percent_encoding::percent_decode_str;
     use tokio::spawn as spawn_task;
     use tokio::time::timeout;

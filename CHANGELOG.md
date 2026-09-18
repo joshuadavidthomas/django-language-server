@@ -27,6 +27,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Changed
 
+- Reduced document-edit allocations and bounded `djls check` validation tasks by worker count.
 - Improved template-name completion and resolution, and reused synchronized template-library discovery.
 - Reduced copying during Python module evaluation and repeated imports, and avoided duplicate `.pth` scans.
 - Reduced semantic validation allocations and improved block override and reference lookup.
@@ -57,6 +58,8 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Fixed
 
+- Fixed stale diagnostic version/content pairs during rapid edits and close/reopen cycles.
+- Fixed slow client progress and diagnostic-refresh responses blocking project updates.
 - Fixed quadratic recovery time for repeated template openers without closing delimiters.
 - Fixed queued template-library re-primes incorrectly satisfying pending full project reloads.
 - Fixed the server hanging when Python document changes overlap background cache warm-up.

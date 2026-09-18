@@ -88,7 +88,7 @@ impl Workspace {
     }
 
     /// Return all currently open documents.
-    pub(crate) fn open_documents(&self) -> Vec<TextDocument> {
+    pub(crate) fn open_documents(&self) -> Vec<Arc<TextDocument>> {
         self.buffers
             .iter()
             .map(|(_path, document)| document)
@@ -101,8 +101,13 @@ impl Workspace {
     }
 
     #[must_use]
-    pub(crate) fn get_document(&self, path: &Utf8Path) -> Option<TextDocument> {
+    #[cfg(test)]
+    pub(crate) fn get_document(&self, path: &Utf8Path) -> Option<Arc<TextDocument>> {
         self.buffers.get(path)
+    }
+
+    pub(crate) fn contains_document(&self, path: &Utf8Path) -> bool {
+        self.buffers.contains(path)
     }
 
     /// Open a document in memory.
@@ -112,15 +117,14 @@ impl Workspace {
         content: &str,
         version: i32,
         kind: FileKind,
-    ) -> TextDocument {
+    ) -> Arc<TextDocument> {
         let document = TextDocument::new(path.to_path_buf(), content.to_string(), version, kind);
         debug_assert_eq!(document.kind(), kind);
-        self.buffers.open(path.to_path_buf(), document.clone());
-        document
+        self.buffers.open(path.to_path_buf(), document)
     }
 
     /// Return the saved open document without changing buffered content.
-    pub(crate) fn save_document(&self, path: &Utf8Path) -> Option<TextDocument> {
+    pub(crate) fn save_document(&self, path: &Utf8Path) -> Option<Arc<TextDocument>> {
         self.buffers.get(path)
     }
 
@@ -131,11 +135,10 @@ impl Workspace {
         changes: Vec<DocumentChange>,
         version: i32,
         encoding: PositionEncoding,
-    ) -> Option<TextDocument> {
-        if let Some(mut document) = self.buffers.get(path) {
-            document.update(changes, version, encoding);
-            self.buffers.update(path.to_path_buf(), document.clone());
-            Some(document)
+    ) -> Option<Arc<TextDocument>> {
+        if let Some(mut document) = self.buffers.inner.get_mut(path) {
+            Arc::make_mut(document.value_mut()).update(changes, version, encoding);
+            Some(Arc::clone(document.value()))
         } else if let Some(first_change) = changes.into_iter().next() {
             if first_change.range().is_none() {
                 let document = TextDocument::new(
@@ -144,8 +147,7 @@ impl Workspace {
                     version,
                     FileKind::Other,
                 );
-                self.buffers.open(path.to_path_buf(), document.clone());
-                Some(document)
+                Some(self.buffers.open(path.to_path_buf(), document))
             } else {
                 None
             }
@@ -155,7 +157,7 @@ impl Workspace {
     }
 
     /// Close a document, removing it from buffers.
-    pub(crate) fn close_document(&mut self, path: &Utf8Path) -> Option<TextDocument> {
+    pub(crate) fn close_document(&mut self, path: &Utf8Path) -> Option<Arc<TextDocument>> {
         self.buffers.close(path)
     }
 }
@@ -197,7 +199,7 @@ impl Default for Workspace {
 pub(crate) struct Buffers {
     // TODO(virtual-paths): Change to a document-path key that can represent
     // both real filesystem paths and virtual editor buffers.
-    inner: Arc<FxDashMap<Utf8PathBuf, TextDocument>>,
+    inner: Arc<FxDashMap<Utf8PathBuf, Arc<TextDocument>>>,
 }
 
 impl Buffers {
@@ -208,22 +210,20 @@ impl Buffers {
         }
     }
 
-    fn open(&self, path: Utf8PathBuf, document: TextDocument) {
-        self.inner.insert(path, document);
-    }
-
-    fn update(&self, path: Utf8PathBuf, document: TextDocument) {
-        self.inner.insert(path, document);
+    fn open(&self, path: Utf8PathBuf, document: TextDocument) -> Arc<TextDocument> {
+        let document = Arc::new(document);
+        self.inner.insert(path, Arc::clone(&document));
+        document
     }
 
     #[must_use]
-    fn close(&self, path: &Utf8Path) -> Option<TextDocument> {
+    fn close(&self, path: &Utf8Path) -> Option<Arc<TextDocument>> {
         self.inner.remove(path).map(|(_, doc)| doc)
     }
 
     #[must_use]
-    fn get(&self, path: &Utf8Path) -> Option<TextDocument> {
-        self.inner.get(path).map(|entry| entry.clone())
+    fn get(&self, path: &Utf8Path) -> Option<Arc<TextDocument>> {
+        self.inner.get(path).map(|entry| Arc::clone(entry.value()))
     }
 
     /// Check whether a document is open in memory.
@@ -232,10 +232,10 @@ impl Buffers {
         self.inner.contains_key(path)
     }
 
-    fn iter(&self) -> impl Iterator<Item = (Utf8PathBuf, TextDocument)> + '_ {
+    fn iter(&self) -> impl Iterator<Item = (Utf8PathBuf, Arc<TextDocument>)> + '_ {
         self.inner
             .iter()
-            .map(|entry| (entry.key().clone(), entry.value().clone()))
+            .map(|entry| (entry.key().clone(), Arc::clone(entry.value())))
     }
 }
 
@@ -408,6 +408,68 @@ mod tests {
 
     fn text_document(path: &Utf8Path, content: &str) -> TextDocument {
         TextDocument::new(path.to_path_buf(), content.to_string(), 1, FileKind::Python)
+    }
+
+    #[test]
+    fn buffer_reads_share_storage_and_edits_preserve_retained_documents() {
+        let path = Utf8Path::new("/project/copy-on-write.html");
+        let mut workspace = Workspace::new();
+        let original = workspace.open_document(path, "first 🌍", 1, FileKind::Template);
+        let saved = workspace.save_document(path).expect("open document");
+        assert!(Arc::ptr_eq(&original, &saved));
+        assert!(Arc::ptr_eq(&original, &workspace.open_documents()[0]));
+        assert!(workspace.contains_document(path));
+        drop(saved);
+
+        let edited = workspace
+            .update_document(
+                path,
+                vec![DocumentChange::new(
+                    Some(djls_source::Range::new(
+                        djls_source::LineCol::new(0, 0),
+                        djls_source::LineCol::new(0, 5),
+                    )),
+                    "later".to_string(),
+                )],
+                2,
+                PositionEncoding::Utf16,
+            )
+            .expect("updated document");
+        assert_eq!(original.content(), "first 🌍");
+        assert_eq!(original.version(), 1);
+        assert_eq!(edited.content(), "later 🌍");
+        assert!(!Arc::ptr_eq(&original, &edited));
+        assert_eq!(
+            workspace
+                .overlay()
+                .read_to_string(path)
+                .expect("overlay source"),
+            "later 🌍"
+        );
+
+        let allocation = edited.content().as_ptr();
+        drop(edited);
+        let edited = workspace
+            .update_document(
+                path,
+                vec![DocumentChange::new(
+                    Some(djls_source::Range::new(
+                        djls_source::LineCol::new(0, 0),
+                        djls_source::LineCol::new(0, 5),
+                    )),
+                    "again".to_string(),
+                )],
+                3,
+                PositionEncoding::Utf16,
+            )
+            .expect("updated document");
+        assert_eq!(
+            edited.content().as_ptr(),
+            allocation,
+            "unshared buffers edit in place"
+        );
+        assert_eq!(edited.content(), "again 🌍");
+        assert_eq!(original.content(), "first 🌍");
     }
 
     struct WalkIssueFileSystem {

@@ -36,6 +36,7 @@ djangofmt = { git = "https://github.com/UnknownPlatypus/djangofmt", rev = "69017
 dotenvy = "0.15"
 dunce = "1.0"
 flate2 = "1.1"
+futures-util = "0.3"
 ignore = "0.4"
 insta = { version = "1.47", features = ["glob", "yaml"] }
 libtest-mimic = "0.8.2"
@@ -55,6 +56,7 @@ tempfile = "3.26"
 thiserror = "2.0"
 tokio = { version = "1.52", features = ["full"] }
 toml = "1.1"
+tower-service = "0.3"
 tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "time"] }

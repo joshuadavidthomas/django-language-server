@@ -49,6 +49,11 @@ class ProgressControlledClient(LanguageClient):
         self.progress_creates_until_hold = 0
         self.progress_held = asyncio.Event()
         self.release_progress = asyncio.Event()
+        self.hold_refresh = False
+        self.refresh_held = asyncio.Event()
+        self.release_refresh = asyncio.Event()
+        self.refresh_count = 0
+        self.publications: list[types.PublishDiagnosticsParams] = []
 
         async def create_progress(params: types.WorkDoneProgressCreateParams):
             create_work_done_progress(self, params)
@@ -58,11 +63,25 @@ class ProgressControlledClient(LanguageClient):
                     self.progress_held.set()
                     await self.release_progress.wait()
 
+        async def refresh_diagnostics(_params):
+            self.refresh_count += 1
+            if self.hold_refresh:
+                self.refresh_held.set()
+                await self.release_refresh.wait()
+
+        def publish_diagnostics(params: types.PublishDiagnosticsParams):
+            self.publications.append(params)
+            DEFAULT_CLIENT_FEATURES[types.TEXT_DOCUMENT_PUBLISH_DIAGNOSTICS](
+                self, params
+            )
+
         register_lsp_features(
             self,
             {
                 **DEFAULT_CLIENT_FEATURES,
                 types.WINDOW_WORK_DONE_PROGRESS_CREATE: create_progress,
+                types.WORKSPACE_DIAGNOSTIC_REFRESH: refresh_diagnostics,
+                types.TEXT_DOCUMENT_PUBLISH_DIAGNOSTICS: publish_diagnostics,
             },
         )
 
@@ -142,8 +161,7 @@ async def test_concurrent_mutation_does_not_deadlock_during_warmup(
     )
     await asyncio.wait_for(helper_client.progress_held.wait(), timeout=5)
     try:
-        # This mutation must not block the event loop: the server's progress
-        # timeout needs to run and release the old snapshot before it can finish.
+        # Neither the session nor the reload worker may wait for optional progress.
         uri = (tmp_path / "unused.py").as_uri()
         helper_client.text_document_did_open(
             types.DidOpenTextDocumentParams(
@@ -158,10 +176,176 @@ async def test_concurrent_mutation_does_not_deadlock_during_warmup(
                     text_document=types.TextDocumentIdentifier(uri=uri)
                 )
             ),
-            timeout=5,
+            timeout=1,
         )
     finally:
         helper_client.release_progress.set()
+
+
+@pytest_lsp.fixture(
+    config=ClientServerConfig(
+        server_command=SERVER_COMMAND, client_factory=ProgressControlledClient
+    )
+)
+async def held_refresh_client(lsp_client: ProgressControlledClient, tmp_path: Path):
+    (tmp_path / "settings.py").write_text("INSTALLED_APPS = []\nTEMPLATES = []\n")
+    capabilities = client_capabilities("visual-studio-code")
+    capabilities.text_document.diagnostic = types.DiagnosticClientCapabilities()
+    capabilities.workspace.diagnostics = types.DiagnosticWorkspaceClientCapabilities(
+        refresh_support=True
+    )
+    lsp_client.hold_refresh = True
+    await lsp_client.initialize_session(
+        types.InitializeParams(
+            capabilities=capabilities,
+            workspace_folders=[
+                types.WorkspaceFolder(uri=tmp_path.as_uri(), name="audit")
+            ],
+            initialization_options={"django_settings_module": "settings"},
+        )
+    )
+    await asyncio.wait_for(lsp_client.refresh_held.wait(), timeout=5)
+    yield lsp_client
+    lsp_client.release_refresh.set()
+    await lsp_client.shutdown_session()
+
+
+@pytest.mark.asyncio
+async def test_refresh_response_does_not_block_mutation_or_next_generation(
+    held_refresh_client: ProgressControlledClient, tmp_path: Path
+):
+    uri = (tmp_path / "new.py").as_uri()
+    held_refresh_client.text_document_did_open(
+        types.DidOpenTextDocumentParams(
+            text_document=types.TextDocumentItem(
+                uri=uri, language_id="python", version=1, text="VALUE = 1\n"
+            )
+        )
+    )
+    # Opening a new Python file also requires a new discovery generation.
+    await asyncio.wait_for(
+        held_refresh_client.text_document_document_symbol_async(
+            types.DocumentSymbolParams(
+                text_document=types.TextDocumentIdentifier(uri=uri)
+            )
+        ),
+        timeout=1,
+    )
+    assert not held_refresh_client.release_refresh.is_set()
+
+
+@pytest.mark.asyncio
+async def test_slow_refresh_keeps_one_rpc_and_one_coalesced_followup(
+    held_refresh_client: ProgressControlledClient, tmp_path: Path
+):
+    for index in range(3):
+        uri = (tmp_path / f"new_{index}.py").as_uri()
+        held_refresh_client.text_document_did_open(
+            types.DidOpenTextDocumentParams(
+                text_document=types.TextDocumentItem(
+                    uri=uri, language_id="python", version=1, text="VALUE = 1\n"
+                )
+            )
+        )
+        # Each new file requires a generation to finish while refresh is held.
+        await asyncio.wait_for(
+            held_refresh_client.text_document_document_symbol_async(
+                types.DocumentSymbolParams(
+                    text_document=types.TextDocumentIdentifier(uri=uri)
+                )
+            ),
+            timeout=5,
+        )
+
+    # Exceed the former timeout: abandoning its future left the RPC outstanding.
+    await asyncio.sleep(2.2)
+    assert held_refresh_client.refresh_count == 1
+    held_refresh_client.release_refresh.set()
+    for _ in range(100):
+        if held_refresh_client.refresh_count >= 2:
+            break
+        await asyncio.sleep(0.01)
+    await asyncio.sleep(0.1)
+    assert held_refresh_client.refresh_count == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reopen", [False, True])
+@pytest.mark.parametrize("language", ["html", "htmldjango"])
+async def test_push_diagnostics_coalesce_versions_waiting_for_readiness(
+    helper_client: ProgressControlledClient, tmp_path: Path, reopen: bool, language: str
+):
+    # Hold discovery before intrinsic readiness. All edits finish before release,
+    # making stale-version publication a deterministic failure, not a timing race.
+    helper_client.progress_creates_until_hold = 1
+    helper_client.workspace_did_change_configuration(
+        types.DidChangeConfigurationParams(settings={})
+    )
+    await asyncio.wait_for(helper_client.progress_held.wait(), timeout=5)
+    uri = (tmp_path / "page.html").as_uri()
+    try:
+        helper_client.text_document_did_open(
+            types.DidOpenTextDocumentParams(
+                text_document=types.TextDocumentItem(
+                    uri=uri, language_id=language, version=0, text="{{ value"
+                )
+            )
+        )
+        for version in range(1, 41):
+            helper_client.text_document_did_change(
+                types.DidChangeTextDocumentParams(
+                    text_document=types.VersionedTextDocumentIdentifier(
+                        uri=uri, version=version
+                    ),
+                    content_changes=[
+                        types.TextDocumentContentChangeWholeDocument(
+                            text="{{ value" if version % 2 else "<p>ok</p>"
+                        )
+                    ],
+                )
+            )
+        if reopen:
+            helper_client.text_document_did_close(
+                types.DidCloseTextDocumentParams(
+                    text_document=types.TextDocumentIdentifier(uri=uri)
+                )
+            )
+            helper_client.text_document_did_open(
+                types.DidOpenTextDocumentParams(
+                    text_document=types.TextDocumentItem(
+                        uri=uri, language_id=language, version=0, text="{{ value"
+                    )
+                )
+            )
+        # Formatting bypasses readiness and is ordered after the source mutations.
+        await helper_client.text_document_formatting_async(
+            types.DocumentFormattingParams(
+                text_document=types.TextDocumentIdentifier(uri=uri),
+                options=types.FormattingOptions(tab_size=4, insert_spaces=True),
+            )
+        )
+    finally:
+        helper_client.release_progress.set()
+    await asyncio.wait_for(
+        helper_client.text_document_document_symbol_async(
+            types.DocumentSymbolParams(
+                text_document=types.TextDocumentIdentifier(uri=uri)
+            )
+        ),
+        timeout=5,
+    )
+    expected_version = 0 if reopen else 40
+    for _ in range(100):
+        publications = [p for p in helper_client.publications if p.uri == uri]
+        if any(p.version == expected_version for p in publications):
+            break
+        await asyncio.sleep(0.01)
+    assert publications
+    assert all(
+        p.version == expected_version and len(p.diagnostics) == int(reopen)
+        for p in publications
+    )
+    assert len(publications) <= 2  # Document scheduling and the completed reload.
 
 
 @pytest.mark.asyncio

@@ -71,23 +71,10 @@ impl TextDocument {
         version: i32,
         encoding: PositionEncoding,
     ) {
-        if changes.len() == 1 && changes[0].range.is_none() {
-            self.content.clone_from(&changes[0].text);
-            self.line_index = LineIndex::from(self.content.as_str());
-            self.version = version;
-            return;
-        }
-
-        let mut content = self.content.clone();
-        let mut line_index = self.line_index.clone();
-
         for change in changes {
-            content = change.apply(&content, &line_index, encoding);
-            line_index = LineIndex::from(content.as_str());
+            change.apply(&mut self.content, &self.line_index, encoding);
+            self.line_index = LineIndex::from(self.content.as_str());
         }
-
-        self.content = content;
-        self.line_index = line_index;
         self.version = version;
     }
 }
@@ -113,20 +100,14 @@ impl DocumentChange {
         &self.text
     }
 
-    /// Apply this change to content, returning the updated text.
-    #[must_use]
-    fn apply(&self, content: &str, line_index: &LineIndex, encoding: PositionEncoding) -> String {
+    fn apply(self, content: &mut String, line_index: &LineIndex, encoding: PositionEncoding) {
         if let Some(range) = &self.range {
             let start_offset = line_index.offset(content, range.start(), encoding).get() as usize;
             let end_offset = line_index.offset(content, range.end(), encoding).get() as usize;
 
-            let mut result = String::with_capacity(content.len() + self.text.len());
-            result.push_str(&content[..start_offset]);
-            result.push_str(&self.text);
-            result.push_str(&content[end_offset..]);
-            result
+            content.replace_range(start_offset..end_offset, &self.text);
         } else {
-            self.text.clone()
+            *content = self.text;
         }
     }
 }
@@ -147,6 +128,55 @@ mod tests {
             version,
             FileKind::Other,
         )
+    }
+
+    #[test]
+    fn same_length_edits_reuse_the_source_allocation() {
+        let mut doc = text_document(&"a\n".repeat(500_000), 1);
+        let allocation = doc.content().as_ptr();
+        for version in 2..102 {
+            doc.update(
+                vec![DocumentChange::new(
+                    Some(Range::new(LineCol::new(0, 0), LineCol::new(0, 1))),
+                    "b".to_string(),
+                )],
+                version,
+                PositionEncoding::Utf16,
+            );
+            assert_eq!(doc.content().as_ptr(), allocation);
+        }
+        assert!(doc.content().starts_with("b\na\n"));
+        assert_eq!(doc.version(), 101);
+    }
+
+    #[test]
+    fn sequential_ranges_follow_changed_lines_in_every_encoding() {
+        for (encoding, emoji_width) in [
+            (PositionEncoding::Utf8, 4),
+            (PositionEncoding::Utf16, 2),
+            (PositionEncoding::Utf32, 1),
+        ] {
+            let mut doc = text_document("a😀b\r\nlast", 1);
+            doc.update(
+                vec![
+                    DocumentChange::new(
+                        Some(Range::new(LineCol::new(0, 0), LineCol::new(0, 1))),
+                        "é\n".to_string(),
+                    ),
+                    DocumentChange::new(
+                        Some(Range::new(LineCol::new(1, 0), LineCol::new(1, emoji_width))),
+                        "Z".to_string(),
+                    ),
+                    DocumentChange::new(
+                        Some(Range::new(LineCol::new(2, 0), LineCol::new(2, 4))),
+                        "done".to_string(),
+                    ),
+                ],
+                2,
+                encoding,
+            );
+            assert_eq!(doc.content(), "é\nZb\r\ndone");
+        }
     }
 
     #[test]

@@ -11,13 +11,11 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicU8;
 use std::sync::atomic::Ordering as AtomicOrdering;
 
-use camino::Utf8PathBuf;
 use djls_conf::Settings;
 use djls_db::DjangoDatabase;
 use djls_ide::PrimedTemplateLibraries;
 use djls_ide::WarmCachePart;
 use djls_ide::WarmCachePhase;
-use djls_ide::collect_diagnostics;
 use djls_ide::prime_template_library_products;
 use djls_ide::warm_cache_phases;
 use djls_project::Db as ProjectDb;
@@ -32,7 +30,6 @@ use djls_project::apply_django_environment;
 use djls_project::apply_project_facts;
 use djls_project::environment_phases;
 use djls_project::project_facts_phases;
-use djls_source::path_to_file;
 use salsa::Cancelled;
 use tokio::spawn as spawn_task;
 use tokio::sync::Mutex;
@@ -43,14 +40,12 @@ use tokio::task::JoinHandle;
 use tokio::task::JoinSet;
 use tokio::task::spawn_blocking;
 use tower_lsp_server::Client;
-use tower_lsp_server::ls_types;
 use tracing::debug;
 use tracing::error;
 use tracing::warn;
 
 use crate::client::ClientInfo;
-use crate::document::TextDocument;
-use crate::ext::UriExt;
+use crate::diagnostics::DiagnosticPublisher;
 use crate::progress::ProgressItem;
 use crate::progress::ProgressReporter;
 use crate::session::CancellationRetryAction;
@@ -79,18 +74,25 @@ pub(crate) struct ProjectReload {
 }
 
 impl ProjectReload {
-    pub(crate) fn new(session: Arc<Mutex<Session>>, client: Client) -> Self {
+    pub(crate) fn new(
+        session: Arc<Mutex<Session>>,
+        client: Client,
+        diagnostics: DiagnosticPublisher,
+    ) -> Self {
         let worker_session = Arc::clone(&session);
         let reload = Self::spawn(move |job| {
             let session = Arc::clone(&worker_session);
             let client = client.clone();
+            let diagnostics = diagnostics.clone();
             async move {
                 let client_info = { session.lock().await.client_info().clone() };
                 match job {
                     ProjectWork::FullReload => {
-                        reload_project(Arc::clone(&session), client, client_info).await
+                        reload_project(Arc::clone(&session), client, client_info, diagnostics).await
                     }
-                    ProjectWork::Reprime => reprime_project(Arc::clone(&session), client).await,
+                    ProjectWork::Reprime => {
+                        reprime_project(Arc::clone(&session), diagnostics).await
+                    }
                 }
             }
         });
@@ -248,6 +250,7 @@ async fn reload_project(
     session: Arc<Mutex<Session>>,
     client: Client,
     client_info: ClientInfo,
+    diagnostics: DiagnosticPublisher,
 ) -> ReloadRunOutcome {
     let generation = { session.lock().await.desired_generation() };
     let start = std::time::Instant::now();
@@ -298,7 +301,7 @@ async fn reload_project(
     }
     finish_progress(&mut facts_progress, ProgressEnd::Complete).await;
 
-    let Some((intrinsic_snapshot, _)) = snapshot_session(&session).await else {
+    let Some(intrinsic_snapshot) = snapshot_session(&session).await else {
         fail_generation(&session, generation).await;
         return ReloadRunOutcome::Complete;
     };
@@ -321,17 +324,21 @@ async fn reload_project(
     // Readiness is observable as soon as the required intrinsic products are
     // current. The remaining IDE cache warm-up is optional and must not hold
     // project-aware requests behind unrelated work.
-    let Some((snapshot, documents)) = snapshot_session(&session).await else {
-        return ReloadRunOutcome::Complete;
-    };
-    refresh_or_republish_diagnostics(client, snapshot.clone(), documents).await;
-    warm_snapshot_queries(&progress, snapshot).await;
+    diagnostics.project_ready(&session, generation).await;
+    spawn_task(warm_snapshot_queries(
+        Arc::clone(&session),
+        progress,
+        generation,
+    ));
 
     tracing::info!("Project reload completed in {:?}", start.elapsed());
     ReloadRunOutcome::Complete
 }
 
-async fn reprime_project(session: Arc<Mutex<Session>>, client: Client) -> ReloadRunOutcome {
+async fn reprime_project(
+    session: Arc<Mutex<Session>>,
+    diagnostics: DiagnosticPublisher,
+) -> ReloadRunOutcome {
     let Some((generation, snapshot)) = session.lock().await.reprime_snapshot() else {
         return ReloadRunOutcome::Complete;
     };
@@ -344,10 +351,7 @@ async fn reprime_project(session: Arc<Mutex<Session>>, client: Client) -> Reload
             {
                 return ReloadRunOutcome::Complete;
             }
-            let Some((snapshot, documents)) = snapshot_session(&session).await else {
-                return ReloadRunOutcome::Complete;
-            };
-            refresh_or_republish_diagnostics(client, snapshot, documents).await;
+            diagnostics.project_ready(&session, generation).await;
             ReloadRunOutcome::Complete
         }
         StageOutcome::Cancelled => ReloadRunOutcome::Cancelled,
@@ -362,11 +366,36 @@ async fn fail_generation(session: &Arc<Mutex<Session>>, generation: u64) {
     session.lock().await.fail_intrinsic_readiness(generation);
 }
 
-async fn warm_snapshot_queries(progress: &ProgressReporter, snapshot: SessionSnapshot) {
+async fn warm_snapshot_queries(
+    session: Arc<Mutex<Session>>,
+    progress: ProgressReporter,
+    generation: u64,
+) {
     let warm_progress = progress.begin(WARM_CACHES_TITLE).await;
-    let warm_outcome = warm_cache_queries(snapshot, &warm_progress).await;
+    for phase in warm_cache_phases() {
+        warm_progress.report(phase.progress().message).await;
+    }
+    // Progress transport is optional and may stall. Only hold storage while computing,
+    // and do not let delayed progress warm an obsolete generation.
+    let snapshot = {
+        let session = session.lock().await;
+        (session.readiness_state() == IntrinsicReadinessState::Ready(generation))
+            .then(|| session.snapshot())
+    };
+    let Some(snapshot) = snapshot else {
+        warm_progress.finish(ProgressEnd::Cancelled.as_str()).await;
+        return;
+    };
+    let batch = warm_cache_queries(snapshot).await;
+    if batch.status == WarmOutcome::Complete {
+        for (index, part) in batch.parts.iter().enumerate() {
+            if let Some(count) = part.count() {
+                report_warm_summary(&warm_progress, index + 1, part.phase(), count).await;
+            }
+        }
+    }
     warm_progress
-        .finish(warm_outcome.progress_end().as_str())
+        .finish(batch.status.progress_end().as_str())
         .await;
 }
 
@@ -430,12 +459,10 @@ async fn apply_facts(session: &Arc<Mutex<Session>>, facts: &ProjectFactsData) ->
     true
 }
 
-async fn snapshot_session(
-    session: &Arc<Mutex<Session>>,
-) -> Option<(SessionSnapshot, Vec<TextDocument>)> {
+async fn snapshot_session(session: &Arc<Mutex<Session>>) -> Option<SessionSnapshot> {
     let session_lock = session.lock().await;
     session_lock.db().project()?;
-    Some((session_lock.snapshot(), session_lock.open_documents()))
+    Some(session_lock.snapshot())
 }
 
 async fn load_project_settings(session: &Arc<Mutex<Session>>) -> StageOutcome<Settings> {
@@ -501,6 +528,11 @@ async fn compute_environment(
 ) -> StageOutcome<DjangoEnvironmentData> {
     let mut retry_state = CancellationRetryState::new();
     loop {
+        // Announce before capturing storage: progress transport may stall while
+        // mutations need every database clone to be released.
+        for phase in environment_phases() {
+            report_environment_phase(phase, reporter, progress).await;
+        }
         let Some((compute_db, project)) = capture_discovery_db(session).await else {
             finish_progress(progress, ProgressEnd::Skipped).await;
             return StageOutcome::Failed;
@@ -512,8 +544,9 @@ async fn compute_environment(
             jobs.spawn_blocking(move || {
                 Cancelled::catch(AssertUnwindSafe(|| phase.run(&db, project)))
             });
-            report_environment_phase(phase, reporter, progress).await;
         }
+        // Only workers retain storage; the coordinator may await progress during collection.
+        drop(compute_db);
 
         let result = collect_environment_jobs(jobs, progress.as_ref()).await;
         match result {
@@ -601,6 +634,10 @@ async fn compute_project_facts_data(
     // registered, rescanned roots and overlay-authoritative file contents.
     let mut retry_state = CancellationRetryState::new();
     loop {
+        // Keep progress waits outside the lifetime of the captured database.
+        for phase in project_facts_phases() {
+            report_project_facts_phase(phase, reporter, progress).await;
+        }
         let Some((compute_db, project)) = capture_discovery_db(session).await else {
             finish_progress(progress, ProgressEnd::Skipped).await;
             return StageOutcome::Failed;
@@ -612,8 +649,9 @@ async fn compute_project_facts_data(
             jobs.spawn_blocking(move || {
                 Cancelled::catch(AssertUnwindSafe(|| phase.run(&db, project)))
             });
-            report_project_facts_phase(phase, reporter, progress).await;
         }
+        // Collection/reporting must not keep the coordinator's storage clone alive.
+        drop(compute_db);
 
         let result = collect_project_facts_jobs(jobs, progress.as_ref()).await;
         match result {
@@ -853,49 +891,34 @@ async fn join_warm_cache_job(
 
 struct WarmBatchOutcome {
     status: WarmOutcome,
-    summaries: Vec<(usize, WarmCachePhase, usize)>,
+    parts: Vec<WarmCachePart>,
 }
 
 async fn collect_warm_cache_jobs(
-    handles: Vec<(usize, WarmCachePhase, WarmJobHandle)>,
+    handles: Vec<(WarmCachePhase, WarmJobHandle)>,
 ) -> WarmBatchOutcome {
-    let mut summaries = Vec::new();
+    let mut parts = Vec::new();
     let mut status = WarmOutcome::Complete;
-    for (done, phase, handle) in handles {
+    for (phase, handle) in handles {
         match join_warm_cache_job(phase, handle).await {
-            StageOutcome::Complete(part) => {
-                if let Some(count) = part.count() {
-                    summaries.push((done, part.phase(), count));
-                }
-            }
+            StageOutcome::Complete(part) => parts.push(part),
             StageOutcome::Cancelled | StageOutcome::Failed => {
                 status = WarmOutcome::Partial;
             }
         }
     }
 
-    WarmBatchOutcome { status, summaries }
+    WarmBatchOutcome { status, parts }
 }
 
-async fn warm_cache_queries(snapshot: SessionSnapshot, progress: &ProgressItem) -> WarmOutcome {
+async fn warm_cache_queries(snapshot: SessionSnapshot) -> WarmBatchOutcome {
     let mut handles = Vec::new();
-    for (index, phase) in warm_cache_phases().iter().copied().enumerate() {
-        handles.push((
-            index + 1,
-            phase,
-            spawn_warm_cache_job(phase, snapshot.clone()),
-        ));
-        progress.report(phase.progress().message).await;
+    for phase in warm_cache_phases().iter().copied() {
+        handles.push((phase, spawn_warm_cache_job(phase, snapshot.clone())));
     }
+    drop(snapshot);
 
-    let batch = collect_warm_cache_jobs(handles).await;
-    if batch.status == WarmOutcome::Complete {
-        for (done, phase, count) in batch.summaries {
-            report_warm_summary(progress, done, phase, count).await;
-        }
-    }
-
-    batch.status
+    collect_warm_cache_jobs(handles).await
 }
 
 async fn report_warm_summary(
@@ -918,117 +941,6 @@ async fn report_warm_summary(
     .await;
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum DiagnosticsDelivery {
-    WorkspaceRefresh,
-    PublishOpenDocuments,
-}
-
-fn diagnostics_delivery(client_info: &ClientInfo) -> DiagnosticsDelivery {
-    if client_info.supports_pull_diagnostics()
-        && client_info.supports_workspace_diagnostic_refresh()
-    {
-        DiagnosticsDelivery::WorkspaceRefresh
-    } else {
-        DiagnosticsDelivery::PublishOpenDocuments
-    }
-}
-
-async fn refresh_or_republish_diagnostics(
-    client: Client,
-    snapshot: SessionSnapshot,
-    documents: Vec<TextDocument>,
-) {
-    if diagnostics_delivery(snapshot.client_info()) == DiagnosticsDelivery::WorkspaceRefresh {
-        match client.workspace_diagnostic_refresh().await {
-            Ok(()) => debug!("Requested workspace diagnostics refresh"),
-            Err(error) => debug!(?error, "Client rejected workspace diagnostics refresh"),
-        }
-        return;
-    }
-
-    for document in documents {
-        let path = document.path().to_path_buf();
-        let Some(diagnostics) = collect_snapshot_diagnostics(snapshot.clone(), path).await else {
-            continue;
-        };
-
-        let Some(lsp_uri) = ls_types::Uri::from_path(document.path()) else {
-            continue;
-        };
-
-        let diagnostic_count = diagnostics.len();
-        let lsp_uri_text = lsp_uri.to_string();
-        client
-            .publish_diagnostics(lsp_uri, diagnostics, Some(document.version()))
-            .await;
-
-        debug!(
-            "Published {} diagnostics for {}",
-            diagnostic_count, lsp_uri_text
-        );
-    }
-}
-
-type DiagnosticsJobResult = Result<Option<Vec<ls_types::Diagnostic>>, Cancelled>;
-
-fn classify_diagnostics_task_join(
-    joined: Result<DiagnosticsJobResult, JoinError>,
-) -> DiagnosticsJobResult {
-    match classify_child_task_join(joined) {
-        ChildTaskJoin::Complete(result) => result,
-        ChildTaskJoin::Failed(error) => {
-            error!(
-                ?error,
-                "Diagnostics snapshot task failed; skipping republish"
-            );
-            Ok(None)
-        }
-    }
-}
-
-async fn collect_snapshot_diagnostics(
-    snapshot: SessionSnapshot,
-    path: Utf8PathBuf,
-) -> Option<Vec<ls_types::Diagnostic>> {
-    let mut retry_state = CancellationRetryState::new();
-    loop {
-        let snapshot = snapshot.clone();
-        let path = path.clone();
-        let joined = spawn_blocking(move || {
-            Cancelled::catch(AssertUnwindSafe(|| {
-                let file = path_to_file(snapshot.db(), &path).ok()?;
-                collect_diagnostics(
-                    snapshot.db(),
-                    file,
-                    snapshot.client_info().position_encoding(),
-                )
-            }))
-        })
-        .await;
-
-        match classify_diagnostics_task_join(joined) {
-            Ok(diagnostics) => return diagnostics,
-            Err(cancelled) => match retry_state.after_cancellation() {
-                CancellationRetryAction::Retry { attempt } => {
-                    debug!(
-                        ?cancelled,
-                        attempt, "Snapshot diagnostics cancelled; retrying with same snapshot"
-                    );
-                }
-                CancellationRetryAction::Exhausted => {
-                    debug!(
-                        ?cancelled,
-                        retries = SNAPSHOT_CANCEL_RETRIES,
-                        "Snapshot diagnostics cancelled; skipping diagnostics republish"
-                    );
-                    return None;
-                }
-            },
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex as StdMutex;
@@ -1046,6 +958,7 @@ mod tests {
     use tokio::task::spawn_blocking;
     use tokio::task::yield_now;
     use tokio::time::timeout;
+    use tower_lsp_server::ls_types;
 
     use super::*;
 
@@ -1192,51 +1105,6 @@ mod tests {
             .expect("cancelled reload worker should terminate after owner drop")
             .expect("reload worker should drop its runner capture");
         assert_eq!(run_count.load(Ordering::SeqCst), 1);
-    }
-
-    #[test]
-    fn ready_diagnostics_use_the_delivery_supported_by_the_client() {
-        let push_session = Session::default();
-        assert_eq!(
-            diagnostics_delivery(push_session.client_info()),
-            DiagnosticsDelivery::PublishOpenDocuments
-        );
-
-        let pull_without_refresh = Session::new(&ls_types::InitializeParams {
-            capabilities: ls_types::ClientCapabilities {
-                text_document: Some(ls_types::TextDocumentClientCapabilities {
-                    diagnostic: Some(ls_types::DiagnosticClientCapabilities::default()),
-                    ..Default::default()
-                }),
-                ..Default::default()
-            },
-            ..Default::default()
-        });
-        assert_eq!(
-            diagnostics_delivery(pull_without_refresh.client_info()),
-            DiagnosticsDelivery::PublishOpenDocuments
-        );
-
-        let pull_with_refresh = Session::new(&ls_types::InitializeParams {
-            capabilities: ls_types::ClientCapabilities {
-                workspace: Some(ls_types::WorkspaceClientCapabilities {
-                    diagnostics: Some(ls_types::DiagnosticWorkspaceClientCapabilities {
-                        refresh_support: Some(true),
-                    }),
-                    ..Default::default()
-                }),
-                text_document: Some(ls_types::TextDocumentClientCapabilities {
-                    diagnostic: Some(ls_types::DiagnosticClientCapabilities::default()),
-                    ..Default::default()
-                }),
-                ..Default::default()
-            },
-            ..Default::default()
-        });
-        assert_eq!(
-            diagnostics_delivery(pull_with_refresh.client_info()),
-            DiagnosticsDelivery::WorkspaceRefresh
-        );
     }
 
     #[tokio::test]
@@ -1403,6 +1271,25 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn warm_cache_batch_retains_phase_order() {
+        let batch = warm_cache_queries(Session::default().snapshot()).await;
+
+        assert_eq!(batch.status, WarmOutcome::Complete);
+        assert_eq!(
+            batch
+                .parts
+                .iter()
+                .map(WarmCachePart::phase)
+                .collect::<Vec<_>>(),
+            [
+                WarmCachePhase::ResolveTemplateDirs,
+                WarmCachePhase::IndexTemplateLibraries,
+                WarmCachePhase::IndexTemplates,
+            ]
+        );
+    }
+
+    #[tokio::test]
     async fn warm_cache_panic_in_mixed_batch_is_partial_and_retains_successful_sibling() {
         let failed: WarmJobHandle = spawn_blocking(|| {
             panic!("synthetic warm-cache panic");
@@ -1411,32 +1298,18 @@ mod tests {
         let successful = spawn_warm_cache_job(successful_phase, Session::default().snapshot());
 
         let batch = collect_warm_cache_jobs(vec![
-            (1, WarmCachePhase::IndexTemplateLibraries, failed),
-            (2, successful_phase, successful),
+            (WarmCachePhase::IndexTemplateLibraries, failed),
+            (successful_phase, successful),
         ])
         .await;
 
         assert_eq!(batch.status, WarmOutcome::Partial);
         assert!(
             batch
-                .summaries
+                .parts
                 .iter()
-                .any(|(_, phase, _)| *phase == successful_phase)
+                .any(|part| part.phase() == successful_phase)
         );
-    }
-
-    #[tokio::test]
-    async fn diagnostics_snapshot_task_panic_produces_no_publish_payload() {
-        let joined = spawn_blocking(|| {
-            panic!("synthetic diagnostics panic");
-            #[allow(unreachable_code)]
-            Ok::<Option<Vec<ls_types::Diagnostic>>, Cancelled>(None)
-        })
-        .await;
-
-        let publish_payload = classify_diagnostics_task_join(joined)
-            .expect("child panic is an infrastructure failure, not Salsa cancellation");
-        assert!(publish_payload.is_none());
     }
 
     #[tokio::test]
