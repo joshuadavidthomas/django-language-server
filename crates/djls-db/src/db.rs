@@ -20,6 +20,8 @@ use djls_semantic::TagSpecs;
 use djls_semantic::builtin_tag_specs;
 use djls_source::Db as SourceDb;
 use djls_source::FileSystem;
+#[cfg(test)]
+use djls_source::InMemoryFileSystem;
 use djls_source::SourceFiles;
 
 /// Concrete Salsa database for the Django Language Server.
@@ -62,8 +64,6 @@ pub struct DjangoDatabase {
 #[cfg(test)]
 impl Default for DjangoDatabase {
     fn default() -> Self {
-        use djls_source::InMemoryFileSystem;
-
         let logs = <Arc<Mutex<Option<Vec<String>>>>>::default();
 
         Self {
@@ -153,7 +153,7 @@ impl SemanticDb for DjangoDatabase {
     }
 
     fn diagnostics_config(&self) -> DiagnosticsConfig {
-        self.settings().diagnostics().clone()
+        self.settings.diagnostics().clone()
     }
 
     fn projectless_filter_arity_specs(&self) -> &FilterAritySpecs {
@@ -2151,8 +2151,6 @@ env_file = ".env.local"
 
     #[test]
     fn file_with_different_content_produces_different_extraction() {
-        use djls_source::InMemoryFileSystem;
-
         // Create FS with a Python file
         let mut fs = InMemoryFileSystem::new();
         fs.add_file(

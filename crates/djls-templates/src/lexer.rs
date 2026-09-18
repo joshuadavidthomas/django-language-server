@@ -1,57 +1,67 @@
 use djls_source::Span;
 use memchr::memchr3;
-use memchr::memmem;
 
 use crate::tokens::TagDelimiter;
 use crate::tokens::Token;
 use crate::tokens::TokenStream;
 
-pub(crate) struct Lexer {
-    source: String,
+// A compact set of closing delimiter kinds proven absent from the remaining source.
+#[derive(Default)]
+struct MissingTagClosers(u8);
+
+impl MissingTagClosers {
+    fn mask(delimiter: TagDelimiter) -> u8 {
+        match delimiter {
+            TagDelimiter::Block => 0b001,
+            TagDelimiter::Variable => 0b010,
+            TagDelimiter::Comment => 0b100,
+        }
+    }
+
+    fn contains(&self, delimiter: TagDelimiter) -> bool {
+        self.0 & Self::mask(delimiter) != 0
+    }
+
+    fn insert(&mut self, delimiter: TagDelimiter) {
+        self.0 |= Self::mask(delimiter);
+    }
+}
+
+pub(crate) struct Lexer<'src> {
+    source: &'src str,
     start: usize,
     current: usize,
 }
 
-impl Lexer {
+impl<'src> Lexer<'src> {
     #[must_use]
-    pub(crate) fn new(source: &str) -> Self {
+    pub(crate) fn new(source: &'src str) -> Self {
         Lexer {
-            source: String::from(source),
+            source,
             start: 0,
             current: 0,
         }
     }
 
-    pub(crate) fn tokenize(&mut self) -> Vec<Token> {
-        let mut tokens = TokenStream::with_estimated_capacity(&self.source);
+    pub(crate) fn tokenize(&mut self) -> Vec<Token<&'src str>> {
+        let mut tokens = TokenStream::with_estimated_capacity(self.source);
+        let mut missing_closers = MissingTagClosers::default();
 
         while !self.is_at_end() {
             self.start = self.current;
 
-            let token =
-                match self.peek() {
-                    TagDelimiter::CHAR_OPEN => {
-                        let remaining = self.remaining_source();
+            let token = match self.peek() {
+                TagDelimiter::CHAR_OPEN => {
+                    let remaining = self.remaining_source();
 
-                        match TagDelimiter::from_input(remaining) {
-                            Some(TagDelimiter::Block) => self
-                                .lex_django_tag(TagDelimiter::Block, |content, span| {
-                                    Token::Block { content, span }
-                                }),
-                            Some(TagDelimiter::Variable) => self
-                                .lex_django_tag(TagDelimiter::Variable, |content, span| {
-                                    Token::Variable { content, span }
-                                }),
-                            Some(TagDelimiter::Comment) => self
-                                .lex_django_tag(TagDelimiter::Comment, |content, span| {
-                                    Token::Comment { content, span }
-                                }),
-                            None => self.lex_text(),
-                        }
+                    match TagDelimiter::from_input(remaining) {
+                        Some(delimiter) => self.lex_django_tag(delimiter, &mut missing_closers),
+                        None => self.lex_text(),
                     }
-                    c if c.is_whitespace() => self.lex_whitespace(c),
-                    _ => self.lex_text(),
-                };
+                }
+                c if c.is_whitespace() => self.lex_whitespace(c),
+                _ => self.lex_text(),
+            };
 
             tokens.push(token);
         }
@@ -64,18 +74,22 @@ impl Lexer {
     fn lex_django_tag(
         &mut self,
         delimiter: TagDelimiter,
-        token_fn: impl FnOnce(String, Span) -> Token,
-    ) -> Token {
+        missing_closers: &mut MissingTagClosers,
+    ) -> Token<&'src str> {
         let content_start = self.start + TagDelimiter::LENGTH;
 
         self.consume_n(TagDelimiter::LENGTH);
 
-        match self.consume_until_delimiter(delimiter.closer()) {
-            Ok(text) => {
-                let len = text.len();
+        match self.consume_until_delimiter(delimiter, missing_closers) {
+            Ok(content) => {
+                let len = content.len();
                 let span = Span::saturating_from_parts_usize(content_start, len);
                 self.consume_n(delimiter.closer().len());
-                token_fn(text, span)
+                match delimiter {
+                    TagDelimiter::Block => Token::Block { content, span },
+                    TagDelimiter::Variable => Token::Variable { content, span },
+                    TagDelimiter::Comment => Token::Comment { content, span },
+                }
             }
             Err(err_text) => {
                 let len = err_text.len();
@@ -93,7 +107,7 @@ impl Lexer {
         }
     }
 
-    fn lex_whitespace(&mut self, c: char) -> Token {
+    fn lex_whitespace(&mut self, c: char) -> Token<&'src str> {
         self.consume();
 
         if c == '\n' || c == '\r' {
@@ -123,13 +137,13 @@ impl Lexer {
         Token::Whitespace { span }
     }
 
-    fn lex_text(&mut self) -> Token {
+    fn lex_text(&mut self) -> Token<&'src str> {
         let text_start = self.current;
         self.current += self.consume_until_stop_char();
         let text = self.consumed_source_from(text_start);
         let span = Span::saturating_from_bounds_usize(self.start, self.current);
         Token::Text {
-            content: text.to_string(),
+            content: text,
             span,
         }
     }
@@ -140,12 +154,12 @@ impl Lexer {
     }
 
     #[inline]
-    fn remaining_source(&self) -> &str {
+    fn remaining_source(&self) -> &'src str {
         &self.source[self.current..]
     }
 
     #[inline]
-    fn consumed_source_from(&self, start: usize) -> &str {
+    fn consumed_source_from(&self, start: usize) -> &'src str {
         &self.source[start..self.current]
     }
 
@@ -167,16 +181,25 @@ impl Lexer {
         }
     }
 
-    fn consume_until_delimiter(&mut self, delimiter: &str) -> Result<String, String> {
+    fn consume_until_delimiter(
+        &mut self,
+        delimiter: TagDelimiter,
+        missing_closers: &mut MissingTagClosers,
+    ) -> Result<&'src str, &'src str> {
         let offset = self.current;
 
-        if let Some(pos) = memmem::find(self.remaining_source().as_bytes(), delimiter.as_bytes()) {
-            self.current += pos;
-            return Ok(self.consumed_source_from(offset).to_string());
+        if !missing_closers.contains(delimiter) {
+            if let Some(pos) = delimiter.find_closer(self.remaining_source()) {
+                self.current += pos;
+                return Ok(self.consumed_source_from(offset));
+            }
+            // The cursor only advances through immutable source, so a closer
+            // absent from this suffix is absent from every later suffix too.
+            missing_closers.insert(delimiter);
         }
 
         self.current += self.consume_until_stop_char();
-        Err(self.consumed_source_from(offset).to_string())
+        Err(self.consumed_source_from(offset))
     }
 
     fn consume_until_stop_char(&self) -> usize {
@@ -213,6 +236,146 @@ impl Lexer {
 mod tests {
     use super::*;
 
+    #[test]
+    fn missing_tag_closers_accumulate_independently() {
+        let mut missing_closers = MissingTagClosers::default();
+        assert!(!missing_closers.contains(TagDelimiter::Variable));
+        assert!(!missing_closers.contains(TagDelimiter::Block));
+        assert!(!missing_closers.contains(TagDelimiter::Comment));
+
+        missing_closers.insert(TagDelimiter::Variable);
+        assert!(missing_closers.contains(TagDelimiter::Variable));
+        assert!(!missing_closers.contains(TagDelimiter::Block));
+        assert!(!missing_closers.contains(TagDelimiter::Comment));
+
+        missing_closers.insert(TagDelimiter::Block);
+        missing_closers.insert(TagDelimiter::Variable);
+        assert!(missing_closers.contains(TagDelimiter::Variable));
+        assert!(missing_closers.contains(TagDelimiter::Block));
+        assert!(!missing_closers.contains(TagDelimiter::Comment));
+
+        missing_closers.insert(TagDelimiter::Comment);
+        assert!(missing_closers.contains(TagDelimiter::Variable));
+        assert!(missing_closers.contains(TagDelimiter::Block));
+        assert!(missing_closers.contains(TagDelimiter::Comment));
+    }
+
+    #[test]
+    fn public_tokens_own_their_contents() {
+        let tokens = {
+            let source = String::from("a\n{{v}}{%t%}{#c#}{{x");
+            crate::lex_template_impl(&source)
+        };
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Text {
+                    content: "a".into(),
+                    span: Span::new(0, 1)
+                },
+                Token::Newline {
+                    span: Span::new(1, 1)
+                },
+                Token::Variable {
+                    content: "v".into(),
+                    span: Span::new(4, 1)
+                },
+                Token::Block {
+                    content: "t".into(),
+                    span: Span::new(9, 1)
+                },
+                Token::Comment {
+                    content: "c".into(),
+                    span: Span::new(14, 1)
+                },
+                Token::Error {
+                    content: "x".into(),
+                    span: Span::new(19, 1),
+                    delimiter: TagDelimiter::Variable
+                },
+                Token::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn missing_closers_are_independent_and_preserve_recovery_spans() {
+        let mut lexer = Lexer::new("{{é\r\n{%x%}{#y#}{{z");
+        assert_eq!(
+            lexer.tokenize(),
+            vec![
+                Token::Error {
+                    content: "é",
+                    span: Span::new(2, 2),
+                    delimiter: TagDelimiter::Variable,
+                },
+                Token::Newline {
+                    span: Span::new(4, 2)
+                },
+                Token::Block {
+                    content: "x",
+                    span: Span::new(8, 1)
+                },
+                Token::Comment {
+                    content: "y",
+                    span: Span::new(13, 1)
+                },
+                Token::Error {
+                    content: "z",
+                    span: Span::new(18, 1),
+                    delimiter: TagDelimiter::Variable,
+                },
+                Token::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn late_closers_still_cross_newlines_and_nested_openers() {
+        for (source, expected) in [
+            (
+                "{{é\r\n{{z}}",
+                Token::Variable {
+                    content: "é\r\n{{z",
+                    span: Span::new(2, 7),
+                },
+            ),
+            (
+                "{%é\r\n{%z%}",
+                Token::Block {
+                    content: "é\r\n{%z",
+                    span: Span::new(2, 7),
+                },
+            ),
+            (
+                "{#é\r\n{#z#}",
+                Token::Comment {
+                    content: "é\r\n{#z",
+                    span: Span::new(2, 7),
+                },
+            ),
+        ] {
+            assert_eq!(Lexer::new(source).tokenize(), vec![expected, Token::Eof]);
+        }
+    }
+
+    #[test]
+    fn repeated_unmatched_delimiters_recover_at_each_opener() {
+        for repetitions in [4096, 8192] {
+            let source = "{{x\r\n{%é\n{#z\n".repeat(repetitions);
+            let mut lexer = Lexer::new(&source);
+            let tokens = lexer.tokenize();
+            assert_eq!(tokens.len(), 6 * repetitions + 1);
+            assert_eq!(
+                tokens
+                    .iter()
+                    .filter(|token| matches!(token, Token::Error { .. }))
+                    .count(),
+                3 * repetitions
+            );
+        }
+    }
+
     #[derive(serde::Serialize)]
     struct ContentToken<'a> {
         content: &'a str,
@@ -225,7 +388,7 @@ mod tests {
         span: (u32, u32),
     }
 
-    impl serde::Serialize for Token {
+    impl<T: AsRef<str>> serde::Serialize for Token<T> {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where
             S: serde::Serializer,
@@ -236,7 +399,7 @@ mod tests {
                     0,
                     "Block",
                     &ContentToken {
-                        content,
+                        content: content.as_ref(),
                         span: span.into(),
                         full_span: self.full_span_or_fallback().into(),
                     },
@@ -246,7 +409,7 @@ mod tests {
                     1,
                     "Comment",
                     &ContentToken {
-                        content,
+                        content: content.as_ref(),
                         span: span.into(),
                         full_span: self.full_span_or_fallback().into(),
                     },
@@ -257,7 +420,7 @@ mod tests {
                     3,
                     "Error",
                     &ContentToken {
-                        content,
+                        content: content.as_ref(),
                         span: span.into(),
                         full_span: self.full_span_or_fallback().into(),
                     },
@@ -273,7 +436,7 @@ mod tests {
                     5,
                     "Text",
                     &ContentToken {
-                        content,
+                        content: content.as_ref(),
                         span: span.into(),
                         full_span: span.into(),
                     },
@@ -283,7 +446,7 @@ mod tests {
                     6,
                     "Variable",
                     &ContentToken {
-                        content,
+                        content: content.as_ref(),
                         span: span.into(),
                         full_span: self.full_span_or_fallback().into(),
                     },

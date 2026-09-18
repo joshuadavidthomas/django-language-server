@@ -1,4 +1,5 @@
 use djls_source::Span;
+use memchr::memmem;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TagDelimiter {
@@ -49,20 +50,24 @@ impl TagDelimiter {
             Self::Comment => "#}",
         }
     }
+
+    pub(crate) fn find_closer(self, source: &str) -> Option<usize> {
+        memmem::find(source.as_bytes(), self.closer().as_bytes())
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Token {
+pub enum Token<T = String> {
     Block {
-        content: String,
+        content: T,
         span: Span,
     },
     Comment {
-        content: String,
+        content: T,
         span: Span,
     },
     Error {
-        content: String,
+        content: T,
         span: Span,
         delimiter: TagDelimiter,
     },
@@ -71,11 +76,11 @@ pub enum Token {
         span: Span,
     },
     Text {
-        content: String,
+        content: T,
         span: Span,
     },
     Variable {
-        content: String,
+        content: T,
         span: Span,
     },
     Whitespace {
@@ -83,7 +88,7 @@ pub enum Token {
     },
 }
 
-impl Token {
+impl<T: AsRef<str>> Token<T> {
     /// Get the content text for content-bearing tokens
     #[must_use]
     pub(crate) fn content(&self) -> String {
@@ -92,7 +97,7 @@ impl Token {
             | Token::Comment { content, .. }
             | Token::Error { content, .. }
             | Token::Text { content, .. }
-            | Token::Variable { content, .. } => content.clone(),
+            | Token::Variable { content, .. } => content.as_ref().to_string(),
             Token::Whitespace { span, .. } => " ".repeat(span.length_usize()),
             Token::Newline { span, .. } => {
                 if span.length() == 2 {
@@ -129,7 +134,7 @@ impl Token {
             | Token::Comment { content, .. }
             | Token::Error { content, .. }
             | Token::Text { content, .. }
-            | Token::Variable { content, .. } => content.len(),
+            | Token::Variable { content, .. } => content.as_ref().len(),
             Token::Whitespace { span, .. } | Token::Newline { span, .. } => span.length_usize(),
             Token::Eof => 0,
         };
@@ -186,10 +191,45 @@ impl Token {
     }
 }
 
-#[derive(Debug, Clone)]
-pub(crate) struct TokenStream(Vec<Token>);
+impl Token<&str> {
+    pub(crate) fn into_owned(self) -> Token {
+        match self {
+            Self::Block { content, span } => Token::Block {
+                content: content.to_string(),
+                span,
+            },
+            Self::Comment { content, span } => Token::Comment {
+                content: content.to_string(),
+                span,
+            },
+            Self::Error {
+                content,
+                span,
+                delimiter,
+            } => Token::Error {
+                content: content.to_string(),
+                span,
+                delimiter,
+            },
+            Self::Text { content, span } => Token::Text {
+                content: content.to_string(),
+                span,
+            },
+            Self::Variable { content, span } => Token::Variable {
+                content: content.to_string(),
+                span,
+            },
+            Self::Eof => Token::Eof,
+            Self::Newline { span } => Token::Newline { span },
+            Self::Whitespace { span } => Token::Whitespace { span },
+        }
+    }
+}
 
-impl TokenStream {
+#[derive(Debug, Clone)]
+pub(crate) struct TokenStream<'src>(Vec<Token<&'src str>>);
+
+impl<'src> TokenStream<'src> {
     const CHARS_PER_TOKEN: usize = 6;
     const MIN_CAPACITY: usize = 32;
     const MAX_CAPACITY: usize = 1024;
@@ -202,20 +242,20 @@ impl TokenStream {
     }
 
     #[inline]
-    pub(crate) fn push(&mut self, token: Token) {
+    pub(crate) fn push(&mut self, token: Token<&'src str>) {
         self.0.push(token);
     }
 }
 
-impl From<TokenStream> for Vec<Token> {
-    fn from(val: TokenStream) -> Self {
+impl<'src> From<TokenStream<'src>> for Vec<Token<&'src str>> {
+    fn from(val: TokenStream<'src>) -> Self {
         val.0
     }
 }
 
-impl IntoIterator for TokenStream {
-    type Item = Token;
-    type IntoIter = std::vec::IntoIter<Token>;
+impl<'src> IntoIterator for TokenStream<'src> {
+    type Item = Token<&'src str>;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()

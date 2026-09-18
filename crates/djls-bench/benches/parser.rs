@@ -23,6 +23,33 @@ fn all(bencher: Bencher) {
     });
 }
 
+// Keep routine CodSpeed coverage to the largest regression case and valid-input control.
+// Run the full sweep locally with:
+// DJLS_BENCH_PARSER_SCALING=1 cargo bench -p djls-bench --bench parser -- repeated_
+fn scaling_repetitions() -> &'static [usize] {
+    if std::env::var("DJLS_BENCH_PARSER_SCALING").as_deref() == Ok("1") {
+        &[4096, 8192, 16384, 32768, 65536, 131_072]
+    } else {
+        &[131_072]
+    }
+}
+
+#[divan::bench(args = scaling_repetitions())]
+fn repeated_unclosed_variables(bencher: Bencher, repetitions: usize) {
+    let source = "{{x\n".repeat(repetitions);
+    bencher.bench_local(|| {
+        divan::black_box(djls_templates::parse_template_impl(&source));
+    });
+}
+
+#[divan::bench(args = scaling_repetitions())]
+fn repeated_closed_variables(bencher: Bencher, repetitions: usize) {
+    let source = "{{x}}\n".repeat(repetitions);
+    bencher.bench_local(|| {
+        divan::black_box(djls_templates::parse_template_impl(&source));
+    });
+}
+
 struct IncrementalTemplate {
     file: djls_source::File,
     original: String,

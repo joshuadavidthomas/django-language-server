@@ -27,6 +27,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Changed
 
+- Reduced allocations during template parsing and source registration.
 - Added an S124 hint on `{% load %}` for unreadable library registrations, with a code action that opens a prefilled issue.
 - Avoided constructing unused scalar-only collections during Django settings analysis while preserving their effects and source dependencies.
 - Reduced time and memory use for Django settings analysis by sharing immutable branch constraints and Python module identities.
@@ -53,6 +54,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Fixed
 
+- Fixed quadratic recovery time for repeated template openers without closing delimiters.
 - Fixed queued template-library re-primes incorrectly satisfying pending full project reloads.
 - Fixed the server hanging when Python document changes overlap background cache warm-up.
 - Fixed recovered helper source used only for tag-rule inference making exact Template Library inventories inconclusive.
