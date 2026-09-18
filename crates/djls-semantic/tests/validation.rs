@@ -107,6 +107,60 @@ fn validation_project_database(
 }
 
 #[test]
+fn filter_argument_diagnostics_require_callable_signature_evidence() {
+    let mut db = TestDatabase::new();
+    let corpus = Corpus::require().expect("synced corpus");
+    let defaultfilters = fs::read_to_string(
+        corpus
+            .root()
+            .join("repos/django-5.2/django/template/defaultfilters.py"),
+    )
+    .expect("Django defaultfilters source");
+    ProjectFixture::new("/proj")
+        .pythonpath("/test/site-packages")
+        .settings(&ProjectSettings {
+            dirs: vec!["/proj/templates".to_string()],
+            libraries: BTreeMap::from([("extras".to_string(), "custom_tags".to_string())]),
+            ..ProjectSettings::default()
+        })
+        .file("/test/site-packages/django/__init__.py", "")
+        .file("/test/site-packages/django/template/__init__.py", "")
+        .file("/test/site-packages/django/template/defaultfilters.py", defaultfilters)
+        .file("/proj/custom_tags.py", r"
+from django import template
+from django.template.defaultfilters import stringfilter
+register = template.Library()
+def passthrough(function):
+    return function
+def uncertain(value):
+    return value
+@register.filter(name='uncertain')
+@passthrough
+def uncertain(value, argument):
+    return value
+@register.filter(name='known')
+@stringfilter
+def known(value, argument):
+    return value
+@passthrough
+@register.filter(name='original')
+def original(value):
+    return value
+")
+        .file("/proj/templates/page.html", "{% load extras %}{{ value|uncertain:'x' }}{{ value|uncertain }}{{ value|known }}{{ value|known:'x' }}{{ value|original:'x' }}")
+        .install(&mut db).expect("project fixture");
+    let errors =
+        collect_file_errors(&db, "/proj/templates/page.html").expect("template validation");
+    assert!(
+        matches!(errors.as_slice(), [
+        ValidationError::FilterMissingArgument { filter: missing, .. },
+        ValidationError::FilterUnexpectedArgument { filter: unexpected, .. },
+    ] if missing == "known" && unexpected == "original"),
+        "{errors:?}"
+    );
+}
+
+#[test]
 fn repeated_project_symbols_keep_occurrence_diagnostics_across_load_prefixes() {
     let mut db = TestDatabase::new();
     let source = concat!(

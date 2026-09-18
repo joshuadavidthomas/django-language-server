@@ -225,7 +225,6 @@ filter_arities:
   "src.sentry.templatetags.sentry_helpers::filter::get_item": required_argument
   "src.sentry.templatetags.sentry_helpers::filter::is_url": no_argument
   "src.sentry.templatetags.sentry_helpers::filter::multiply": required_argument
-  "src.sentry.templatetags.sentry_helpers::filter::sanitize_periods": no_argument
   "src.sentry.templatetags.sentry_helpers::filter::small_count": optional_argument
   "src.sentry.templatetags.sentry_helpers::filter::soft_break": required_argument
   "src.sentry.templatetags.sentry_helpers::filter::split": optional_argument

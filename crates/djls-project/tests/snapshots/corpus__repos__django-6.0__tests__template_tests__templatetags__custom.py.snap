@@ -640,9 +640,7 @@ tag_rules:
         variadic_keyword: ~
     as_var: strip
 filter_arities:
-  "tests.template_tests.templatetags.custom::filter::make_data_div": no_argument
   "tests.template_tests.templatetags.custom::filter::noop": optional_argument
-  "tests.template_tests.templatetags.custom::filter::trim": required_argument
 block_specs:
   "tests.template_tests.templatetags.custom::tag::div":
     body_analysis_evidence: not_detected

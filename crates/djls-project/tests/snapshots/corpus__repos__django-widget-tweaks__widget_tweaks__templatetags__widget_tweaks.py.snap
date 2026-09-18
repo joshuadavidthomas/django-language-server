@@ -42,15 +42,6 @@ definitions:
 symbols_are_unobserved: false
 tag_rules: {}
 filter_arities:
-  "widget_tweaks.templatetags.widget_tweaks::filter::add_class": required_argument
-  "widget_tweaks.templatetags.widget_tweaks::filter::add_error_attr": required_argument
-  "widget_tweaks.templatetags.widget_tweaks::filter::add_error_class": required_argument
-  "widget_tweaks.templatetags.widget_tweaks::filter::add_label_class": required_argument
-  "widget_tweaks.templatetags.widget_tweaks::filter::add_required_class": required_argument
-  "widget_tweaks.templatetags.widget_tweaks::filter::append_attr": required_argument
-  "widget_tweaks.templatetags.widget_tweaks::filter::attr": required_argument
   "widget_tweaks.templatetags.widget_tweaks::filter::field_type": no_argument
-  "widget_tweaks.templatetags.widget_tweaks::filter::remove_attr": required_argument
-  "widget_tweaks.templatetags.widget_tweaks::filter::set_data": required_argument
   "widget_tweaks.templatetags.widget_tweaks::filter::widget_type": no_argument
 block_specs: {}

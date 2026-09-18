@@ -43,7 +43,6 @@ tag_rules:
           kind: Variable
     as_var: keep
 filter_arities:
-  "package.templatetags.package_tags::filter::emojify": no_argument
   "package.templatetags.package_tags::filter::is_in": required_argument
   "package.templatetags.package_tags::filter::package_dev_status_badge": optional_argument
 block_specs: {}

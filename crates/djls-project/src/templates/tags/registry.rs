@@ -43,7 +43,7 @@ impl RegistrationKind {
         source: Option<&mut TagSourceContext<'_>>,
         func: &StmtFunctionDef,
         options: &RegistrationOptions,
-        trusted_callable: bool,
+        source_is_exact: bool,
     ) -> Option<Box<TagRule>> {
         match self {
             Self::Filter => None,
@@ -54,7 +54,7 @@ impl RegistrationKind {
                     options.context,
                     self.var_assignment(),
                 )?;
-                if !trusted_callable
+                if !source_is_exact
                     && let crate::templates::tags::types::TagArgumentSyntax::Signature {
                         parameters,
                         ..
