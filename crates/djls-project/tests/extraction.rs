@@ -69,6 +69,202 @@ fn extract_source(
     Ok(extract_bundle(&db, file, module_name))
 }
 
+#[test]
+fn decorated_registration_details_ignore_unrelated_namesakes() {
+    let namesakes = r"
+def repeated_filter(value):
+    return value
+def repeated_tag(parser, token):
+    bits = token.split_contents()
+    if len(bits) != 1:
+        raise template.TemplateSyntaxError('no arguments accepted')
+    parser.parse(('endwrong',))
+    parser.delete_first_token()
+    return template.Node()
+";
+    let registrations = r"
+@register.filter(name='visible_filter')
+@passthrough
+def repeated_filter(value, argument):
+    return value
+@register.tag(name='visible_tag')
+@passthrough
+def repeated_tag(parser, token):
+    bits = token.split_contents()
+    if len(bits) != 2:
+        raise template.TemplateSyntaxError('one argument required')
+    parser.parse(('endvisible',))
+    parser.delete_first_token()
+    return template.Node()
+";
+    for (before, after) in [
+        ("", ""),
+        (namesakes, ""),
+        ("", namesakes),
+        (namesakes, namesakes),
+    ] {
+        let source = format!(
+            "from django import template\nregister = template.Library()\ndef passthrough(function):\n    return function\n{before}{registrations}{after}"
+        );
+        let result = extract_source(&source, "identity").expect("valid registration fixture");
+        assert_eq!(
+            result
+                .filter_arities
+                .get(&SymbolKey::filter("identity", "visible_filter")),
+            Some(&FilterArity::RequiredArgument),
+            "before={before:?}, after={after:?}"
+        );
+        let tag = SymbolKey::tag("identity", "visible_tag");
+        assert_eq!(
+            result.tag_rules[&tag].arg_constraints,
+            vec![ArgumentCountConstraint::Exact(2)]
+        );
+        assert_eq!(
+            result.block_specs.as_map()[&tag].end_tag.as_deref(),
+            Some("endvisible")
+        );
+    }
+}
+
+#[test]
+fn class_registration_details_do_not_borrow_module_namesakes() {
+    let namesakes = r"
+def repeated_filter(value):
+    return value
+def repeated_tag(parser, token):
+    bits = token.split_contents()
+    if len(bits) != 1:
+        raise template.TemplateSyntaxError('no arguments accepted')
+    parser.parse(('endwrong',))
+    parser.delete_first_token()
+    return template.Node()
+";
+    let registrations = r"
+class Container:
+    @register.filter(name='visible_filter')
+    def repeated_filter(value, argument):
+        return value
+    @register.tag(name='visible_tag')
+    def repeated_tag(parser, token):
+        bits = token.split_contents()
+        if len(bits) != 2:
+            raise template.TemplateSyntaxError('one argument required')
+        parser.parse(('endvisible',))
+        parser.delete_first_token()
+        return template.Node()
+";
+    let registered_namesakes = namesakes
+        .replace(
+            "def repeated_filter",
+            "@register.filter(name='visible_filter')\ndef repeated_filter",
+        )
+        .replace(
+            "def repeated_tag",
+            "@register.tag(name='visible_tag')\ndef repeated_tag",
+        );
+    for (before, after) in [
+        ("", ""),
+        (namesakes, ""),
+        ("", namesakes),
+        (namesakes, namesakes),
+        (registered_namesakes.as_str(), ""),
+    ] {
+        let source = format!(
+            "from django import template\nregister = template.Library()\n{before}{registrations}{after}"
+        );
+        let db = TestDatabase::new();
+        let path = Utf8Path::new("/test/identity.py");
+        db.add_file(path.as_str(), &source)
+            .expect("valid class fixture");
+        let file = db.file(path).expect("class fixture exists");
+        let key = TemplateLibraryId::new(
+            &db,
+            Some(file),
+            PythonModuleName::parse("identity").expect("valid module"),
+        );
+        let definitions = template_library_definition_facts(&db, key);
+        for (kind, name) in [
+            (TemplateSymbolKind::Filter, "visible_filter"),
+            (TemplateSymbolKind::Tag, "visible_tag"),
+        ] {
+            let symbol = definitions
+                .symbol(kind, name)
+                .expect("registration remains known");
+            assert_eq!(template_symbol_source(&db, symbol), None);
+        }
+        assert!(
+            template_library_filter_facts(&db, key)
+                .filter_arities()
+                .is_empty()
+        );
+        let tags = template_library_tag_facts(&db, key);
+        assert!(tags.tag_rules().is_empty());
+        assert!(tags.block_specs().is_empty());
+    }
+}
+
+#[test]
+fn decorated_registration_details_follow_same_span_edits() {
+    let source = r"from django import template
+register = template.Library()
+def passthrough(function):
+    return function
+def repeated(value):
+    return value
+@register.filter(name='visible')
+@passthrough
+def repeated(value, arg):
+    return value
+@register.tag(name='block')
+@passthrough
+def compile_block(parser, token):
+    bits = token.split_contents()
+    if len(bits) != 2:
+        raise template.TemplateSyntaxError('wrong arguments')
+    parser.parse(('endfirst',))
+    parser.delete_first_token()
+    return template.Node()
+";
+    let changed = source
+        .replace("value, arg", "value, *xs")
+        .replace("!= 2", "!= 3")
+        .replace("endfirst", "endother");
+    assert_eq!(source.len(), changed.len());
+    let mut db = TestDatabase::new();
+    let path = Utf8Path::new("/test/identity.py");
+    let module = PythonModuleName::parse("identity").expect("valid module");
+    for (text, arity, count, end) in [
+        (source, FilterArity::RequiredArgument, 2, "endfirst"),
+        (changed.as_str(), FilterArity::NoArgument, 3, "endother"),
+        (source, FilterArity::RequiredArgument, 2, "endfirst"),
+    ] {
+        db.add_file(path.as_str(), text)
+            .expect("valid edited fixture");
+        SourceChanges::new([ChangeEvent::ContentChanged(path.to_path_buf())]).apply(&mut db);
+        let file = db.file(path).expect("fixture exists");
+        let key = TemplateLibraryId::new(&db, Some(file), module.clone());
+        assert_eq!(
+            template_library_filter_facts(&db, key).filter_arities()
+                [&SymbolKey::filter("identity", "visible")],
+            arity
+        );
+        let tags = template_library_tag_facts(&db, key);
+        let tag = SymbolKey::tag("identity", "block");
+        assert_eq!(
+            tags.tag_rules()[&tag].arg_constraints,
+            vec![ArgumentCountConstraint::Exact(count)]
+        );
+        assert_eq!(
+            tags.block_specs().as_map()[&tag].end_tag.as_deref(),
+            Some(end)
+        );
+        let definitions = template_library_definition_facts(&db, key);
+        for symbol in definitions.symbols() {
+            assert_eq!(template_symbol_source(&db, symbol), None);
+        }
+    }
+}
+
 // Corpus: `no_params` in tests/template_tests/templatetags/custom.py —
 // `@register.simple_tag` with no user args, exercises simple_tag pipeline
 #[test]

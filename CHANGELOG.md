@@ -58,6 +58,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Fixed
 
+- Fixed tag and filter registrations borrowing argument rules and block structure from unrelated same-named Python functions.
 - Fixed stale diagnostic version/content pairs during rapid edits and close/reopen cycles.
 - Fixed slow client progress and diagnostic-refresh responses blocking project updates.
 - Fixed quadratic recovery time for repeated template openers without closing delimiters.

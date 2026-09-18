@@ -111,6 +111,8 @@ impl RegistrationOptions {
 enum RegistrationCallable {
     DecoratedLocal {
         function_name: String,
+        // Declaration identity survives even when decorators prevent navigation.
+        definition_span: Span,
         navigation: Option<LocalFunctionSource>,
     },
     ResolvedFunction {
@@ -744,13 +746,9 @@ fn for_each_registration<'db>(
     for reg in &analysis.registrations {
         let func = match &reg.callable {
             RegistrationCallable::DecoratedLocal {
-                function_name,
-                navigation,
+                definition_span, ..
             } => func_defs
-                .get(&(
-                    function_name.as_str(),
-                    navigation.map(|source| source.definition_span),
-                ))
+                .get(definition_span)
                 .copied()
                 .map(|function| (function, registration_file, false)),
             RegistrationCallable::ResolvedFunction { definition, .. } => {
@@ -774,14 +772,11 @@ fn for_each_registration<'db>(
 }
 
 /// Collect module-level function definitions that can own definite registrations.
-fn collect_func_defs(body: &[Stmt]) -> FxHashMap<(&str, Option<Span>), &StmtFunctionDef> {
+fn collect_func_defs(body: &[Stmt]) -> FxHashMap<Span, &StmtFunctionDef> {
     let mut definitions = FxHashMap::default();
     for stmt in body {
         if let Stmt::FunctionDef(function) = stmt {
-            let name = function.name.as_str();
-            definitions.insert((name, Some(function.span())), function);
-            // Unlocated registrations retain the first matching declaration.
-            definitions.entry((name, None)).or_insert(function);
+            definitions.insert(function.span(), function);
         }
     }
     definitions
@@ -1152,6 +1147,7 @@ fn registration_from_lowered(
                 kind: lowered.kind,
                 callable: RegistrationCallable::DecoratedLocal {
                     function_name: function.name.to_string(),
+                    definition_span: function.span(),
                     navigation,
                 },
                 options,
@@ -1204,6 +1200,7 @@ fn registration_from_lowered(
                     if let Some(navigation) = navigation {
                         RegistrationCallable::DecoratedLocal {
                             function_name,
+                            definition_span: navigation.definition_span,
                             navigation: Some(navigation),
                         }
                     } else {
@@ -1838,29 +1835,17 @@ mod tests {
     use crate::templates::tags::testing::fixture_source;
 
     #[test]
-    fn function_index_matches_ordered_scan_with_repeated_names() {
+    fn function_index_distinguishes_repeated_names_by_declaration_span() {
         let module = ruff_python_parser::parse_module(
             "def repeated(a): pass\ndef other(): pass\ndef repeated(a, b): pass\n",
         )
         .expect("valid Python")
         .into_syntax();
         let definitions = collect_func_defs(&module.body);
-        for name in ["repeated", "other", "absent"] {
-            for span in
-                std::iter::once(None).chain(module.body.iter().map(|stmt| Some(stmt.span())))
-            {
-                let scanned = module.body.iter().find_map(|stmt| {
-                    let Stmt::FunctionDef(function) = stmt else {
-                        return None;
-                    };
-                    (function.name.as_str() == name
-                        && span.is_none_or(|span| function.span() == span))
-                    .then_some(function)
-                });
-                assert_eq!(definitions.get(&(name, span)).copied(), scanned);
-            }
-        }
-        assert_eq!(definitions[&("repeated", None)].parameters.args.len(), 1);
+        assert_eq!(definitions.len(), 3);
+        assert_eq!(definitions[&module.body[0].span()].parameters.args.len(), 1);
+        assert_eq!(definitions[&module.body[2].span()].parameters.args.len(), 2);
+        assert!(!definitions.contains_key(&Span::new(0, 0)));
     }
 
     fn fixture(path: &str) -> &'static str {
