@@ -412,9 +412,13 @@ fn canonical_stringfilter_supplies_lazy_signature_evidence_not_body_or_navigatio
 from django import template
 from django.template.defaultfilters import stringfilter
 register = template.Library()
+def filtered(value):
+    return value
 @register.filter(name='visible')
 @stringfilter
 def filtered(value, argument):
+    return value
+def filtered(value, argument=None):
     return value
 @register.simple_tag(name='helper')
 @stringfilter
@@ -5249,16 +5253,69 @@ fn installed_django_filters_preserve_registration_forms_and_stringfilter_arities
             PythonModuleName::parse("django.template.defaultfilters").expect("valid module"),
         );
         let arities = template_library_filter_facts(&db, key).filter_arities();
-        assert_eq!(arities.len(), 57, "Django {version}");
-        for (name, expected) in [
-            ("title", FilterArity::NoArgument),
-            ("lower", FilterArity::NoArgument),
-            ("escapejs", FilterArity::NoArgument),
+        // Independently checked against Django's FilterExpression.args_check with
+        // zero and one explicit arguments on 5.2.11, 6.0.2, and 6.1rc1.
+        let expected = [
+            ("add", FilterArity::RequiredArgument),
             ("addslashes", FilterArity::NoArgument),
+            ("capfirst", FilterArity::NoArgument),
+            ("center", FilterArity::RequiredArgument),
             ("cut", FilterArity::RequiredArgument),
+            ("date", FilterArity::OptionalArgument),
+            ("default", FilterArity::RequiredArgument),
+            ("default_if_none", FilterArity::RequiredArgument),
+            ("dictsort", FilterArity::RequiredArgument),
+            ("dictsortreversed", FilterArity::RequiredArgument),
+            ("divisibleby", FilterArity::RequiredArgument),
+            ("escape", FilterArity::NoArgument),
+            ("escapejs", FilterArity::NoArgument),
+            ("escapeseq", FilterArity::NoArgument),
+            ("filesizeformat", FilterArity::NoArgument),
+            ("first", FilterArity::NoArgument),
+            ("floatformat", FilterArity::OptionalArgument),
+            ("force_escape", FilterArity::NoArgument),
+            ("get_digit", FilterArity::RequiredArgument),
+            ("iriencode", FilterArity::NoArgument),
+            ("join", FilterArity::RequiredArgument),
+            ("json_script", FilterArity::OptionalArgument),
+            ("last", FilterArity::NoArgument),
+            ("length", FilterArity::NoArgument),
+            ("linebreaks", FilterArity::OptionalArgument),
+            ("linebreaksbr", FilterArity::OptionalArgument),
+            ("linenumbers", FilterArity::OptionalArgument),
+            ("ljust", FilterArity::RequiredArgument),
+            ("lower", FilterArity::NoArgument),
+            ("make_list", FilterArity::NoArgument),
+            ("phone2numeric", FilterArity::NoArgument),
+            ("pluralize", FilterArity::OptionalArgument),
+            ("pprint", FilterArity::NoArgument),
+            ("random", FilterArity::NoArgument),
+            ("rjust", FilterArity::RequiredArgument),
+            ("safe", FilterArity::NoArgument),
+            ("safeseq", FilterArity::NoArgument),
+            ("slice", FilterArity::RequiredArgument),
             ("slugify", FilterArity::NoArgument),
+            ("stringformat", FilterArity::RequiredArgument),
+            ("striptags", FilterArity::NoArgument),
+            ("time", FilterArity::OptionalArgument),
+            ("timesince", FilterArity::OptionalArgument),
+            ("timeuntil", FilterArity::OptionalArgument),
+            ("title", FilterArity::NoArgument),
+            ("truncatechars", FilterArity::RequiredArgument),
+            ("truncatechars_html", FilterArity::RequiredArgument),
+            ("truncatewords", FilterArity::RequiredArgument),
+            ("truncatewords_html", FilterArity::RequiredArgument),
+            ("unordered_list", FilterArity::OptionalArgument),
+            ("upper", FilterArity::NoArgument),
             ("urlencode", FilterArity::OptionalArgument),
-        ] {
+            ("urlize", FilterArity::OptionalArgument),
+            ("urlizetrunc", FilterArity::RequiredArgument),
+            ("wordcount", FilterArity::NoArgument),
+            ("wordwrap", FilterArity::RequiredArgument),
+            ("yesno", FilterArity::OptionalArgument),
+        ];
+        assert_eq!(arities.len(), expected.len(), "Django {version}");
+        for (name, expected) in expected {
             assert_eq!(
                 arities.get(&SymbolKey::filter("django.template.defaultfilters", name)),
                 Some(&expected),
