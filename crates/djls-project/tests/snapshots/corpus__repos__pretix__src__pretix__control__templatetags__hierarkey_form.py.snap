@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "tag::propagated":
@@ -8,7 +8,7 @@ definitions:
     has_doc: false
 symbols_are_unobserved: false
 tag_rules:
-  "src.pretix.control.templatetags.hierarkey_form::tag::propagated":
+  "pretix.control.templatetags.hierarkey_form::tag::propagated":
     arg_constraints:
       - Min: 3
     required_keywords: []
@@ -35,7 +35,7 @@ tag_rules:
     as_var: keep
 filter_arities: {}
 block_specs:
-  "src.pretix.control.templatetags.hierarkey_form::tag::propagated":
+  "pretix.control.templatetags.hierarkey_form::tag::propagated":
     body_analysis_evidence: not_detected
     end_tag: endpropagated
     intermediates: []

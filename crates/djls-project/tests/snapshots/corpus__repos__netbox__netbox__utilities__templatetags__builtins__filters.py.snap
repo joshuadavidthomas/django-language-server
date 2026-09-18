@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "filter::bettertitle":
@@ -57,21 +57,21 @@ definitions:
 symbols_are_unobserved: false
 tag_rules: {}
 filter_arities:
-  "netbox.utilities.templatetags.builtins.filters::filter::bettertitle": no_argument
-  "netbox.utilities.templatetags.builtins.filters::filter::content_type": no_argument
-  "netbox.utilities.templatetags.builtins.filters::filter::content_type_id": no_argument
-  "netbox.utilities.templatetags.builtins.filters::filter::fgcolor": optional_argument
-  "netbox.utilities.templatetags.builtins.filters::filter::getattr": required_argument
-  "netbox.utilities.templatetags.builtins.filters::filter::isodate": no_argument
-  "netbox.utilities.templatetags.builtins.filters::filter::isodatetime": optional_argument
-  "netbox.utilities.templatetags.builtins.filters::filter::isotime": optional_argument
-  "netbox.utilities.templatetags.builtins.filters::filter::json": no_argument
-  "netbox.utilities.templatetags.builtins.filters::filter::linkify": optional_argument
-  "netbox.utilities.templatetags.builtins.filters::filter::markdown": no_argument
-  "netbox.utilities.templatetags.builtins.filters::filter::meta": required_argument
-  "netbox.utilities.templatetags.builtins.filters::filter::placeholder": no_argument
-  "netbox.utilities.templatetags.builtins.filters::filter::split": optional_argument
-  "netbox.utilities.templatetags.builtins.filters::filter::truncate_middle": required_argument
-  "netbox.utilities.templatetags.builtins.filters::filter::tzoffset": no_argument
-  "netbox.utilities.templatetags.builtins.filters::filter::yaml": no_argument
+  "utilities.templatetags.builtins.filters::filter::bettertitle": no_argument
+  "utilities.templatetags.builtins.filters::filter::content_type": no_argument
+  "utilities.templatetags.builtins.filters::filter::content_type_id": no_argument
+  "utilities.templatetags.builtins.filters::filter::fgcolor": optional_argument
+  "utilities.templatetags.builtins.filters::filter::getattr": required_argument
+  "utilities.templatetags.builtins.filters::filter::isodate": no_argument
+  "utilities.templatetags.builtins.filters::filter::isodatetime": optional_argument
+  "utilities.templatetags.builtins.filters::filter::isotime": optional_argument
+  "utilities.templatetags.builtins.filters::filter::json": no_argument
+  "utilities.templatetags.builtins.filters::filter::linkify": optional_argument
+  "utilities.templatetags.builtins.filters::filter::markdown": no_argument
+  "utilities.templatetags.builtins.filters::filter::meta": required_argument
+  "utilities.templatetags.builtins.filters::filter::placeholder": no_argument
+  "utilities.templatetags.builtins.filters::filter::split": optional_argument
+  "utilities.templatetags.builtins.filters::filter::truncate_middle": required_argument
+  "utilities.templatetags.builtins.filters::filter::tzoffset": no_argument
+  "utilities.templatetags.builtins.filters::filter::yaml": no_argument
 block_specs: {}

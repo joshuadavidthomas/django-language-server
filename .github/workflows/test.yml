@@ -8,6 +8,7 @@ on:
       - .github/workflows/test.yml
       - crates/**
       - tests/**
+      - tools/corpus-python.sh
       - Cargo.lock
       - Cargo.toml
       - pyproject.toml
@@ -22,6 +23,7 @@ on:
       - .github/workflows/test.yml
       - crates/**
       - tests/**
+      - tools/corpus-python.sh
       - Cargo.lock
       - Cargo.toml
       - pyproject.toml
@@ -116,10 +118,10 @@ jobs:
       - name: Cache corpus
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: crates/djls-testing/.corpus
-          key: ${{ runner.os }}-corpus-${{ hashFiles('crates/djls-testing/manifest.lock') }}
+          path: crates/djls-testing/.corpus/repos
+          key: ${{ runner.os }}-corpus-source-${{ hashFiles('crates/djls-testing/manifest.lock') }}
           restore-keys: |
-            ${{ runner.os }}-corpus-
+            ${{ runner.os }}-corpus-source-
 
       - name: Install uv
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
@@ -138,8 +140,62 @@ jobs:
         env:
           DJANGO_VERSION: ${{ matrix.django-version }}
           PYTHON_VERSION: ${{ matrix.python-version }}
+          DJLS_SKIP_CORPUS_ENVIRONMENTS: "1"
         run: |
           uv run --no-project --with "nox[uv]" nox --session "tests(python='${PYTHON_VERSION}', django='${DJANGO_VERSION}')"
+
+  corpus:
+    name: Project-backed corpus
+    runs-on: ubuntu-22.04
+    needs: should-run
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+        with:
+          install_args: uv rust
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: Install native build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev libffi-dev liblzma-dev libpq-dev libcurl4-openssl-dev
+
+      # Cache source and downloads, never the resolved virtual environments.
+      - name: Cache corpus source
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: crates/djls-testing/.corpus/repos
+          key: ${{ runner.os }}-corpus-source-${{ hashFiles('crates/djls-testing/manifest.lock') }}
+
+      - name: Cache historical interpreters
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: crates/djls-testing/.corpus/interpreters
+          key: ${{ runner.os }}-${{ runner.arch }}-ubuntu22-corpus-python-${{ hashFiles('tools/corpus-python.sh') }}
+
+      - name: Cache Python downloads
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.UV_CACHE_DIR }}
+          key: ${{ runner.os }}-${{ runner.arch }}-uv-corpus-${{ hashFiles('crates/djls-testing/manifest.lock', 'crates/djls-testing/manifest.toml', 'mise.toml') }}
+
+      - name: Rebuild environments and test snapshots
+        run: uv run --no-project --with "nox[uv]" nox --session corpus
+
+      - name: Record resolved environment provenance
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: corpus-environments
+          path: crates/djls-testing/.corpus/environments/*/provenance.json
+          include-hidden-files: true
+          if-no-files-found: warn
 
   vendored-spec-fixtures:
     runs-on: ubuntu-latest
@@ -160,10 +216,10 @@ jobs:
       - name: Cache corpus
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: crates/djls-testing/.corpus
-          key: ${{ runner.os }}-corpus-${{ hashFiles('crates/djls-testing/manifest.lock') }}
+          path: crates/djls-testing/.corpus/repos
+          key: ${{ runner.os }}-corpus-source-${{ hashFiles('crates/djls-testing/manifest.lock') }}
           restore-keys: |
-            ${{ runner.os }}-corpus-
+            ${{ runner.os }}-corpus-source-
 
       - name: Sync corpus
         run: cargo run -q -p djls-testing --bin corpus -- sync
@@ -199,7 +255,7 @@ jobs:
 
   tests:
     runs-on: ubuntu-latest
-    needs: [test, vendored-spec-fixtures, e2e]
+    needs: [test, corpus, vendored-spec-fixtures, e2e]
     if: always()
     steps:
       - name: OK

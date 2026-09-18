@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "tag::inlinei18n":
@@ -11,7 +11,7 @@ definitions:
     has_doc: false
 symbols_are_unobserved: false
 tag_rules:
-  "src.statici18n.templatetags.statici18n::tag::inlinei18n":
+  "statici18n.templatetags.statici18n::tag::inlinei18n":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -25,7 +25,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: strip
-  "src.statici18n.templatetags.statici18n::tag::statici18n":
+  "statici18n.templatetags.statici18n::tag::statici18n":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []

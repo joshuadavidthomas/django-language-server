@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "tag::django_htmx_script":
@@ -11,7 +11,7 @@ definitions:
     has_doc: false
 symbols_are_unobserved: false
 tag_rules:
-  "src.django_htmx.templatetags.django_htmx::tag::django_htmx_script":
+  "django_htmx.templatetags.django_htmx::tag::django_htmx_script":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -22,7 +22,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: strip
-  "src.django_htmx.templatetags.django_htmx::tag::htmx_script":
+  "django_htmx.templatetags.django_htmx::tag::htmx_script":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []

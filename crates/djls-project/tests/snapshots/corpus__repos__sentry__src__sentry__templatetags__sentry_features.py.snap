@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "tag::feature":
@@ -8,7 +8,7 @@ definitions:
     has_doc: false
 symbols_are_unobserved: false
 tag_rules:
-  "src.sentry.templatetags.sentry_features::tag::feature":
+  "sentry.templatetags.sentry_features::tag::feature":
     arg_constraints:
       - Min: 2
     required_keywords: []
@@ -32,7 +32,7 @@ tag_rules:
     as_var: keep
 filter_arities: {}
 block_specs:
-  "src.sentry.templatetags.sentry_features::tag::feature":
+  "sentry.templatetags.sentry_features::tag::feature":
     body_analysis_evidence: not_detected
     end_tag: endfeature
     intermediates:

@@ -107,6 +107,12 @@ def tests(session, django):
             if arg:
                 args.extend(arg.split(" "))
         command.extend(args)
+    # CI exercises these once with each corpus project's own Python environment,
+    # independently of this matrix's ambient Python/Django combination.
+    if os.environ.get("DJLS_SKIP_CORPUS_ENVIRONMENTS") == "1":
+        if "--" not in command:
+            command.append("--")
+        command.extend(["--skip", "corpus_environment::"])
     session.run(
         "cargo",
         "run",
@@ -119,6 +125,38 @@ def tests(session, django):
         external=True,
     )
     session.run(*command, external=True)
+
+
+@nox.session(python=False)
+def corpus(session):
+    """Rebuild upstream-declared environments and run project-backed snapshots."""
+    session.run(
+        "cargo", "run", "-q", "-p", "djls-testing", "--bin", "corpus", "--", "sync"
+    )
+    session.run("bash", "tools/corpus-python.sh")
+    session.run(
+        "cargo",
+        "run",
+        "-q",
+        "-p",
+        "djls-testing",
+        "--bin",
+        "corpus",
+        "--",
+        "environment",
+        "sync",
+    )
+    session.run(
+        "cargo",
+        "test",
+        "-p",
+        "djls-project",
+        "--test",
+        "corpus",
+        "--test",
+        "corpus_settings",
+        *session.posargs,
+    )
 
 
 @nox.session(python=PY_DEFAULT)

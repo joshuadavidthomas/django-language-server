@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "tag::image":
@@ -11,7 +11,7 @@ definitions:
     has_doc: false
 symbols_are_unobserved: false
 tag_rules:
-  "src.oscar.templatetags.image_tags::tag::image":
+  "oscar.templatetags.image_tags::tag::image":
     arg_constraints:
       - Min: 2
     required_keywords: []

@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "tag::cache_large":
@@ -8,7 +8,7 @@ definitions:
     has_doc: false
 symbols_are_unobserved: false
 tag_rules:
-  "src.pretix.base.templatetags.cache_large::tag::cache_large":
+  "pretix.base.templatetags.cache_large::tag::cache_large":
     arg_constraints:
       - Min: 3
     required_keywords: []
@@ -35,7 +35,7 @@ tag_rules:
     as_var: keep
 filter_arities: {}
 block_specs:
-  "src.pretix.base.templatetags.cache_large::tag::cache_large":
+  "pretix.base.templatetags.cache_large::tag::cache_large":
     body_analysis_evidence: not_detected
     end_tag: endcache_large
     intermediates: []
