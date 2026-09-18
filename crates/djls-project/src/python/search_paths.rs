@@ -152,6 +152,7 @@ impl SearchPaths {
             }
         }
 
+        let mut processed_site_packages = Vec::new();
         for configured_path in pythonpath {
             let resolved_path = if configured_path.is_relative() {
                 root.join(configured_path)
@@ -181,6 +182,7 @@ impl SearchPaths {
             search_paths.paths.push(search_path);
             if let Some(site_packages) = site_packages {
                 search_paths.add_pth_editable_roots(fs, &site_packages);
+                processed_site_packages.push(site_packages);
             }
         }
 
@@ -190,7 +192,10 @@ impl SearchPaths {
                     .paths
                     .push(SearchPath::SitePackages(site_packages.clone()));
             }
-            search_paths.add_pth_editable_roots(fs, &site_packages);
+            if !processed_site_packages.contains(&site_packages) {
+                search_paths.add_pth_editable_roots(fs, &site_packages);
+                processed_site_packages.push(site_packages);
+            }
         }
 
         search_paths

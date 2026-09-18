@@ -13,11 +13,14 @@ use djls_project::testing::PythonSyntaxErrorClass;
 use djls_project::testing::compute_django_environment;
 use djls_project::testing::compute_project_facts;
 use djls_project::testing::django_settings;
+use djls_project::testing::python_module_evaluation;
+use djls_project::testing::python_settings_evaluation;
 use djls_project::testing::python_syntax_errors;
 use djls_project::*;
 use djls_source::CaseSensitivity;
 use djls_source::ChangeEvent;
 use djls_source::Db as SourceDb;
+use djls_source::File;
 use djls_source::FileSystem;
 use djls_source::InMemoryFileSystem;
 use djls_source::RootWalk;
@@ -370,9 +373,125 @@ fn settings_consumers_share_one_core_evaluation_without_mutation() {
 }
 
 #[test]
-fn settings_slice_caches_facts_and_import_trace() {
-    use djls_project::testing::python_settings_evaluation;
+fn repeated_module_members_keep_values_and_invalidate_after_helper_edit() {
+    let event_log = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(event_log.clone());
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("settings")
+        .file(
+            "/proj/settings.py",
+            "import base\nINSTALLED_APPS = [base.FIRST, base.SECOND, base.FIRST]\nTEMPLATES = []\n",
+        )
+        .file("/proj/base.py", "FIRST = 'alpha'\nSECOND = 'beta'\n")
+        .install(&mut db)
+        .expect("member fixture should install");
 
+    for (first, expected_executions) in [("alpha", 2), ("gamma", 2)] {
+        if first == "gamma" {
+            update_project_file(
+                &mut db,
+                "/proj/base.py",
+                "FIRST = 'gamma'\nSECOND = 'beta'\n",
+            )
+            .expect("helper should update");
+        }
+        let settings = to_value(django_settings(&db, project)).expect("settings should serialize");
+        let apps = settings["installed_apps"]["cases"][0]["known"]["apps"]
+            .as_array()
+            .expect("apps should be known");
+        assert_eq!(
+            apps.iter()
+                .map(|app| app["value"].as_str().expect("app name"))
+                .collect::<Vec<_>>(),
+            [first, "beta", first],
+        );
+        assert_eq!(
+            will_execute_count(
+                &db,
+                &event_log.take().expect("events"),
+                "evaluate_python_module"
+            ),
+            expected_executions,
+        );
+        assert_eq!(
+            to_value(django_settings(&db, project)).expect("settings should serialize"),
+            settings
+        );
+        assert_eq!(
+            will_execute_count(
+                &db,
+                &event_log.take().expect("events"),
+                "evaluate_python_module"
+            ),
+            0,
+        );
+    }
+}
+
+#[test]
+fn import_chain_cache_tracks_membership_but_not_source_content() {
+    let events = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(events.clone());
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("settings")
+        .file("/proj/pkg/__init__.py", "")
+        .file(
+            "/proj/settings.py",
+            "import pkg.child as first\nimport pkg.child as second\nINSTALLED_APPS = [first.APP, second.APP]\n",
+        )
+        .install(&mut db)
+        .expect("import cache fixture should install");
+    let missing = to_value(django_settings(&db, project)).expect("settings should serialize");
+    assert!(has_case(&missing["installed_apps"], "dynamic"));
+    assert_eq!(
+        will_execute_count(
+            &db,
+            &events.take().expect("events"),
+            "resolve_chain_from_name"
+        ),
+        2
+    );
+
+    for (app, lookups) in [("alpha", 1), ("beta", 0)] {
+        db.add_file("/proj/pkg/child.py", &format!("APP = '{app}'\n"))
+            .expect("child should be writable");
+        File::sync_path(&mut db, Utf8Path::new("/proj/pkg/child.py"));
+        let settings = to_value(django_settings(&db, project)).expect("settings should serialize");
+        let apps = settings["installed_apps"]["cases"][0]["known"]["apps"]
+            .as_array()
+            .expect("known apps");
+        assert_eq!(
+            apps.iter()
+                .map(|value| value["value"].as_str().expect("app name"))
+                .collect::<Vec<_>>(),
+            [app, app]
+        );
+        assert_eq!(
+            will_execute_count(
+                &db,
+                &events.take().expect("events"),
+                "resolve_chain_from_name"
+            ),
+            lookups
+        );
+    }
+    db.remove_file("/proj/pkg/child.py")
+        .expect("child should be removable");
+    File::sync_path(&mut db, Utf8Path::new("/proj/pkg/child.py"));
+    let missing = to_value(django_settings(&db, project)).expect("settings should serialize");
+    assert!(has_case(&missing["installed_apps"], "dynamic"));
+    assert_eq!(
+        will_execute_count(
+            &db,
+            &events.take().expect("events"),
+            "resolve_chain_from_name"
+        ),
+        1
+    );
+}
+
+#[test]
+fn settings_slice_caches_facts_and_import_trace() {
     for demanded in [false, true] {
         let event_log = SalsaEventLog::default();
         let mut db = TestDatabase::with_event_log(event_log.clone());
@@ -429,9 +548,6 @@ TEMPLATES = {}
     reason = "keep multiline Python fixtures inline"
 )]
 fn settings_slice_preserves_dependencies_and_effect_barriers() {
-    use djls_project::testing::python_module_evaluation;
-    use djls_project::testing::python_settings_evaluation;
-
     for source in [
         r"APPS = ['early']
 if FLAG:
@@ -617,8 +733,6 @@ TEMPLATES = []
 
 #[test]
 fn settings_slice_recomputes_discarded_aggregate_and_imported_leaves() {
-    use djls_project::testing::python_settings_evaluation;
-
     let mut db = TestDatabase::new();
     let source = r"from . import constants
 UNUSED = [constants.APP]
@@ -670,8 +784,6 @@ TEMPLATES = []
 
 #[test]
 fn settings_slice_recomputes_when_unused_code_becomes_a_dependency() {
-    use djls_project::testing::python_settings_evaluation;
-
     let events = SalsaEventLog::default();
     let mut db = TestDatabase::with_event_log(events.clone());
     let source = r"if FLAG:
@@ -754,9 +866,6 @@ TEMPLATES = []
 
 #[test]
 fn settings_slice_keeps_full_cycle_and_recovered_syntax_results() {
-    use djls_project::testing::python_module_evaluation;
-    use djls_project::testing::python_settings_evaluation;
-
     for source in [
         r"from .settings import *
 INSTALLED_APPS = ['local']

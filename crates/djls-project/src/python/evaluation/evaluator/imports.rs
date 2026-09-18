@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 use djls_source::File;
 use djls_source::FileReadError;
@@ -124,16 +125,13 @@ impl PythonModuleEvaluator<'_> {
                     PythonModuleEvaluation::CycleSeed => {
                         PythonBinding::unknown(&PythonUnknownCause::Cycle, origin)
                     }
-                    PythonModuleEvaluation::Evaluated(evaluated) => {
-                        let (facts, _dependencies, _effects) = evaluated.into_parts();
-                        match facts {
-                            Err(error) => PythonBinding::unknown(
-                                &PythonUnknownCause::Unreadable(error),
-                                origin,
-                            ),
-                            Ok(facts) => Self::project_source_member(&facts, member, origin),
-                        }
-                    }
+                    PythonModuleEvaluation::Evaluated(evaluated) => match evaluated.facts() {
+                        Err(error) => PythonBinding::unknown(
+                            &PythonUnknownCause::Unreadable(error.clone()),
+                            origin,
+                        ),
+                        Ok(facts) => Self::project_source_member(facts, member, origin),
+                    },
                 }
             }
             PythonModule::Namespace(_) => PythonBinding::unbound(),
@@ -997,7 +995,7 @@ impl PythonModuleEvaluator<'_> {
                 SourceComponentEvaluation::Cycle
             }
             PythonModuleEvaluation::Evaluated(evaluated) => {
-                let (facts, import_trace, effects) = evaluated.into_parts();
+                let (facts, import_trace, effects) = Arc::unwrap_or_clone(evaluated).into_parts();
                 match facts {
                     Ok(facts) => {
                         let status = PythonImportEvaluationStatus::from_syntax_errors(

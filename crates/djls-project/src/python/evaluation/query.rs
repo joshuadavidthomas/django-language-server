@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use djls_source::FileReadError;
 use salsa::Cycle;
 use salsa::Id;
@@ -161,7 +163,7 @@ fn evaluate_python_module_cycle_recover(
     match computed {
         PythonModuleEvaluation::CycleSeed => PythonModuleEvaluation::CycleSeed,
         PythonModuleEvaluation::Evaluated(computed) => {
-            let computed = *computed;
+            let computed = Arc::unwrap_or_clone(computed);
             let evaluated = match previous {
                 PythonModuleEvaluation::CycleSeed => computed,
                 PythonModuleEvaluation::Evaluated(_) if unchanged => computed,

@@ -5,6 +5,7 @@
 //! recognized builtin and standard-library intrinsic namespaces without embedding
 //! `PythonModuleFacts`.
 
+use std::cell::OnceCell;
 use std::cmp::Ordering;
 
 use djls_source::Origin;
@@ -396,7 +397,7 @@ impl PythonModuleEffects {
     /// Branch join: contribute `Unbound` for a branch that did not attach a
     /// coordinate, then normalize with `PythonBinding::join`. Each open cause is
     /// retained under its branch constraints.
-    pub(super) fn join_indexed_branches(branches: &[(usize, Self)], join: &BranchJoin) -> Self {
+    pub(super) fn join_indexed_branches(branches: &[(usize, &Self)], join: &BranchJoin) -> Self {
         let origin = join.origin();
         let mut keys: Vec<(PythonModule, String)> = Vec::new();
         for (_, branch) in branches {
@@ -409,18 +410,18 @@ impl PythonModuleEffects {
         }
 
         let mut joined = Self::default();
+        let unbound = OnceCell::new();
         for (object, attribute) in keys {
             let candidates = branches
                 .iter()
                 .map(|(_, branch)| {
                     branch
                         .read_child(&object, &attribute)
-                        .cloned()
-                        .unwrap_or_else(PythonBinding::unbound)
+                        .unwrap_or_else(|| unbound.get_or_init(PythonBinding::unbound))
                 })
                 .collect::<Vec<_>>();
-            if let Some(first) = candidates.first()
-                && candidates.iter().all(|candidate| candidate == first)
+            if let Some(&first) = candidates.first()
+                && candidates.iter().all(|candidate| *candidate == first)
             {
                 joined.children.push(ModuleChildCoordinate {
                     object,
@@ -430,7 +431,8 @@ impl PythonModuleEffects {
                 continue;
             }
             let mut binding: Option<PythonBinding> = None;
-            for ((arm, _), mut candidate) in branches.iter().zip(candidates) {
+            for ((arm, _), candidate) in branches.iter().zip(candidates) {
+                let mut candidate = candidate.clone();
                 candidate.select_branch(join.to_owned(), *arm);
                 binding = Some(match binding {
                     Some(current) => current.join(candidate, origin),
@@ -463,7 +465,7 @@ impl PythonModuleEffects {
     }
 
     pub(super) fn join_guarded_branches(
-        branches: &[(usize, BranchConstraints, Self)],
+        branches: &[(usize, &BranchConstraints, &Self)],
         join: &BranchJoin,
     ) -> Self {
         let origin = join.origin();
@@ -478,18 +480,18 @@ impl PythonModuleEffects {
         }
 
         let mut joined = Self::default();
+        let unbound = OnceCell::new();
         for (object, attribute) in keys {
             let candidates = branches
                 .iter()
                 .map(|(_, _, branch)| {
                     branch
                         .read_child(&object, &attribute)
-                        .cloned()
-                        .unwrap_or_else(PythonBinding::unbound)
+                        .unwrap_or_else(|| unbound.get_or_init(PythonBinding::unbound))
                 })
                 .collect::<Vec<_>>();
-            if let Some(first) = candidates.first()
-                && candidates.iter().all(|candidate| candidate == first)
+            if let Some(&first) = candidates.first()
+                && candidates.iter().all(|candidate| *candidate == first)
             {
                 // Intersect before joining so predicate-budget widening cannot make an
                 // individually impossible branch appear feasible in combined coverage.
@@ -509,7 +511,8 @@ impl PythonModuleEffects {
                 continue;
             }
             let mut binding: Option<PythonBinding> = None;
-            for ((arm, constraints, _), mut candidate) in branches.iter().zip(candidates) {
+            for ((arm, constraints, _), candidate) in branches.iter().zip(candidates) {
+                let mut candidate = candidate.clone();
                 candidate.select_branch(join.to_owned(), *arm);
                 let candidate = candidate.intersect_constraints(constraints);
                 let Some(candidate) = candidate else {
@@ -550,7 +553,7 @@ impl PythonModuleEffects {
 
     #[cfg(test)]
     fn join_branches(branches: &[Self], origin: Origin) -> Self {
-        let indexed = branches.iter().cloned().enumerate().collect::<Vec<_>>();
+        let indexed = branches.iter().enumerate().collect::<Vec<_>>();
         let join = origin.into();
         Self::join_indexed_branches(&indexed, &join)
     }
@@ -860,6 +863,53 @@ mod tests {
     }
 
     #[test]
+    fn sorted_coordinates_preserve_replacement_and_explicit_unbound_joins() {
+        let earlier = source("a", 1);
+        let later = source("z", 2);
+        let first = source("first", 3);
+        let replacement = source("replacement", 4);
+        let mut left = PythonModuleEffects::default();
+        left.attach_child(later.clone(), "z".into(), first.clone(), origin(1));
+        left.attach_child(earlier.clone(), "z".into(), first.clone(), origin(2));
+        left.attach_child(earlier.clone(), "a".into(), first, origin(3));
+        left.attach_child(earlier.clone(), "z".into(), replacement.clone(), origin(4));
+        assert_eq!(
+            attached_child(left.read_child(&earlier, "z").expect("replacement")),
+            Some(replacement)
+        );
+        for name in ["0", "m", "zz"] {
+            assert!(left.read_child(&earlier, name).is_none());
+        }
+        let mut right = left.clone();
+        right.set_child(earlier.clone(), "m".into(), PythonBinding::unbound());
+        let guard = BranchConstraints::unconstrained();
+        let join = origin(10).into();
+        for joined in [
+            PythonModuleEffects::join_indexed_branches(&[(0, &left), (1, &right)], &join),
+            PythonModuleEffects::join_guarded_branches(
+                &[(0, &guard, &left), (1, &guard, &right)],
+                &join,
+            ),
+        ] {
+            assert_eq!(joined.children.len(), 4);
+            assert_eq!(
+                joined.child_names(&earlier).collect::<Vec<_>>(),
+                ["a", "m", "z"]
+            );
+            for child in &left.children {
+                assert_eq!(
+                    joined.read_child(&child.object, &child.attribute),
+                    Some(&child.binding)
+                );
+            }
+            assert_eq!(
+                joined.read_child(&earlier, "m"),
+                Some(&PythonBinding::unbound())
+            );
+        }
+    }
+
+    #[test]
     fn branch_without_attachment_contributes_unbound_and_join_normalizes() {
         let parent = source("pkg", 1);
         let child = source("pkg.a", 2);
@@ -914,7 +964,7 @@ mod tests {
         let mut right = BranchConstraints::unconstrained();
         right.select(guard, 1);
         let joined = PythonModuleEffects::join_guarded_branches(
-            &[(0, left, effects.clone()), (1, right, effects)],
+            &[(0, &left, &effects), (1, &right, &effects)],
             &origin(10).into(),
         );
 
@@ -955,7 +1005,7 @@ mod tests {
         });
 
         let joined = PythonModuleEffects::join_guarded_branches(
-            &[(0, covered, effects)],
+            &[(0, &covered, &effects)],
             &origin(10).into(),
         );
 
@@ -993,7 +1043,7 @@ mod tests {
         });
 
         let joined = PythonModuleEffects::join_guarded_branches(
-            &[(0, branch_constraints, effects)],
+            &[(0, &branch_constraints, &effects)],
             &origin(10).into(),
         );
 
@@ -1039,12 +1089,8 @@ mod tests {
 
         let joined = PythonModuleEffects::join_guarded_branches(
             &[
-                (
-                    0,
-                    required(&[(0, 1), (1, 1), (2, 1), (4, 1)]),
-                    effects.clone(),
-                ),
-                (1, required(&[(3, 1), (4, 1)]), effects),
+                (0, &required(&[(0, 1), (1, 1), (2, 1), (4, 1)]), &effects),
+                (1, &required(&[(3, 1), (4, 1)]), &effects),
             ],
             &origin(10).into(),
         );
