@@ -6,7 +6,7 @@ name = "archivebox"
 url = "https://github.com/ArchiveBox/ArchiveBox.git"
 ref = "dev"
 django_settings_module = "archivebox.core.settings"
-environment = { python = "3.13", dependencies = { kind = "uv_lock" } }
+environment = { dependencies = { kind = "uv_lock" } }
 
 [[repo]]
 name = "babybuddy"
@@ -18,7 +18,7 @@ environment = { dependencies = { kind = "requirements", inputs = ["requirements.
 name = "django-activity-stream"
 url = "https://github.com/justquick/django-activity-stream.git"
 ref = "2.0.0"
-environment = { python = "3.9", dependencies = { kind = "requirements", inputs = ["setup.py"] } }
+environment = { dependencies = { kind = "requirements", inputs = ["setup.py"] } }
 
 [[repo]]
 name = "django-allauth"
@@ -95,7 +95,7 @@ environment = { python = "3.6", dependencies = { kind = "requirements", inputs =
 name = "django-formset-js-improved"
 url = "https://github.com/pretix/django-formset-js.git"
 ref = "0.5.0.5"
-environment = { python = "3.9", dependencies = { kind = "requirements", inputs = ["setup.py"] } }
+environment = { dependencies = { kind = "requirements", inputs = ["setup.py"] } }
 
 [[repo]]
 name = "django-grappelli"
@@ -172,7 +172,7 @@ environment = { dependencies = { kind = "requirements", inputs = ["requirements.
 name = "django-sekizai"
 url = "https://github.com/django-cms/django-sekizai.git"
 ref = "4.1.0"
-# The upstream compiled environment was generated with Python 3.9.
+# Upstream compiled with 3.9; its PyYAML 6.0 pin fails to build on the 3.12 fallback.
 environment = { python = "3.9", dependencies = { kind = "requirements", inputs = ["requirements.txt"] } }
 
 [[repo]]
@@ -236,7 +236,8 @@ environment = { dependencies = { kind = "requirements", inputs = ["pyproject.tom
 name = "djangopackages.org"
 url = "https://github.com/djangopackages/djangopackages.git"
 ref = "main"
-environment = { dependencies = { kind = "uv_lock" } }
+# The locked django-test-plus requires Python <3.14 despite the project's >=3.12.
+environment = { python = ">=3.12,<3.14", dependencies = { kind = "uv_lock" } }
 
 [[repo]]
 name = "djangoproject.com"
@@ -276,13 +277,13 @@ url = "https://github.com/inventree/InvenTree.git"
 ref = "master"
 project_root = "src/backend/InvenTree"
 django_settings_module = "InvenTree.settings"
-environment = { python = "3.11", source_roots = ["src/backend/InvenTree", "src/backend", "."], dependencies = { kind = "requirements", inputs = ["src/backend/requirements.txt"] } }
+environment = { source_roots = ["src/backend/InvenTree", "src/backend", "."], dependencies = { kind = "requirements", inputs = ["src/backend/requirements.txt"] } }
 
 [[repo]]
 name = "linkding"
 url = "https://github.com/sissbruecker/linkding.git"
 ref = "master"
-environment = { python = "3.13", dependencies = { kind = "uv_lock" } }
+environment = { dependencies = { kind = "uv_lock" } }
 
 [[repo]]
 name = "misago"
@@ -302,14 +303,14 @@ environment = { source_roots = ["netbox", "."], dependencies = { kind = "require
 name = "nomnom"
 url = "https://github.com/WorldconVotingSystems/nomnom.git"
 ref = "main"
-environment = { python = "3.13", source_roots = ["src", "."], dependencies = { kind = "uv_lock" } }
+environment = { source_roots = ["src", "."], dependencies = { kind = "uv_lock" } }
 
 [[repo]]
 name = "pretix"
 url = "https://github.com/pretix/pretix.git"
 ref = "master"
 django_settings_module = "pretix.settings"
-environment = { python = "3.11", source_roots = ["src", "."], dependencies = { kind = "requirements", inputs = ["pyproject.toml"] } }
+environment = { source_roots = ["src", "."], dependencies = { kind = "requirements", inputs = ["pyproject.toml"] } }
 
 [[repo]]
 name = "pythonic-news"
@@ -329,13 +330,13 @@ name = "sentry"
 url = "https://github.com/getsentry/sentry.git"
 ref = "26.1.0"
 django_settings_module = "sentry.conf.server"
-environment = { python = "3.13.1", source_roots = ["src", "."], dependencies = { kind = "uv_lock" } }
+environment = { source_roots = ["src", "."], dependencies = { kind = "uv_lock" } }
 
 [[repo]]
 name = "simonwillison.net"
 url = "https://github.com/simonw/simonwillisonblog.git"
 ref = "main"
-environment = { python = "3.13", dependencies = { kind = "requirements", inputs = ["requirements.txt"] } }
+environment = { dependencies = { kind = "requirements", inputs = ["requirements.txt"] } }
 
 [[repo]]
 name = "sorl-thumbnail"

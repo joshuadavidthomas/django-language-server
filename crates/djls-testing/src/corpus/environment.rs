@@ -25,8 +25,9 @@ use crate::fixtures::ProjectFixture;
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Environment {
-    #[serde(default = "default_python")]
-    python: String,
+    /// Compatibility exception when upstream declarations cannot select a usable interpreter.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    python: Option<String>,
     /// Checkout-relative roots added to the project's normal search paths.
     #[serde(default = "default_source_roots")]
     source_roots: Vec<Utf8PathBuf>,
@@ -56,18 +57,59 @@ enum Dependencies {
     },
 }
 
-fn default_python() -> String {
-    "3.12".to_string()
-}
-
 fn default_source_roots() -> Vec<Utf8PathBuf> {
     vec![Utf8PathBuf::from(".")]
 }
 
 impl Environment {
+    fn python_request(&self, checkout: &Utf8Path) -> anyhow::Result<String> {
+        if let Some(python) = &self.python {
+            return Ok(python.clone());
+        }
+        let version_file = checkout.join(".python-version");
+        if version_file.exists() {
+            let source = std::fs::read_to_string(&version_file)?;
+            // pyenv permits multiple versions; the first is the preferred interpreter.
+            return source
+                .lines()
+                .map(|line| line.split('#').next().unwrap_or_default().trim())
+                .find(|line| !line.is_empty())
+                .map(str::to_owned)
+                .with_context(|| format!("no Python version in `{version_file}`"));
+        }
+        let pyproject = checkout.join("pyproject.toml");
+        if pyproject.exists() {
+            let source = std::fs::read_to_string(&pyproject)?;
+            let metadata: toml::Value = toml::from_str(&source)?;
+            // uv pip honors this target even with --python, so its environment
+            // must match rather than receiving wheels for a different interpreter.
+            let pip_target = metadata
+                .get("tool")
+                .and_then(|tool| tool.get("uv"))
+                .and_then(|uv| uv.get("pip"))
+                .and_then(|pip| pip.get("python-version"))
+                .filter(|_| matches!(self.dependencies, Dependencies::Requirements { .. }));
+            if let Some(requirement) = pip_target.or_else(|| {
+                metadata
+                    .get("project")
+                    .and_then(|project| project.get("requires-python"))
+            }) {
+                return requirement
+                    .as_str()
+                    .filter(|value| !value.trim().is_empty())
+                    .map(str::to_owned)
+                    .with_context(|| format!("invalid Python request in `{pyproject}`"));
+            }
+        }
+        Ok("3.12".to_string())
+    }
+
     pub(crate) fn validate(&self, name: &str) -> anyhow::Result<()> {
         ensure!(
-            !self.python.trim().is_empty() && !self.source_roots.is_empty(),
+            self.python
+                .as_ref()
+                .is_none_or(|python| !python.trim().is_empty())
+                && !self.source_roots.is_empty(),
             "corpus environment `{name}` needs Python and source roots"
         );
         let inputs = match &self.dependencies {
@@ -104,7 +146,7 @@ impl Environment {
     }
 }
 
-const ENVIRONMENT_POLICY_REVISION: &str = "2";
+const ENVIRONMENT_POLICY_REVISION: &str = "3";
 
 fn run(command: &mut Command) -> anyhow::Result<()> {
     let status = command
@@ -141,6 +183,7 @@ fn write_provenance(
     python: &Utf8Path,
     revision: &str,
     environment: &Environment,
+    python_request: &str,
 ) -> anyhow::Result<()> {
     let runtime: serde_json::Value = serde_json::from_str(&command_output(
         Command::new(python).args(["-c", "import json,platform,sys; print(json.dumps({'python': sys.version, 'platform': platform.platform()}))"]),
@@ -165,6 +208,7 @@ fn write_provenance(
     let provenance = serde_json::json!({
         "source_revision": revision,
         "recipe": environment,
+        "python_request": python_request,
         "python": runtime["python"],
         "platform": runtime["platform"],
         "installer": installer.trim(),
@@ -227,6 +271,7 @@ impl Corpus {
         let mut stamp = DefaultHasher::new();
         revision.hash(&mut stamp);
         toml::to_string(&environment)?.hash(&mut stamp);
+        environment.python_request(&checkout)?.hash(&mut stamp);
         ENVIRONMENT_POLICY_REVISION.hash(&mut stamp);
         if let Some(path) = lock {
             std::fs::read(&path)
@@ -248,17 +293,19 @@ impl Corpus {
         if ready.exists() {
             std::fs::remove_file(&ready)?;
         }
+        let checkout = self.root.join("repos").join(name);
+        let python_request = environment.python_request(&checkout)?;
         // tools/corpus-python.sh supplies EOL interpreters absent from uv downloads.
         let local_python = self
             .root
             .join("interpreters")
-            .join(&environment.python)
+            .join(&python_request)
             .join("bin")
-            .join(format!("python{}", environment.python));
+            .join(format!("python{python_request}"));
         let interpreter = if local_python.is_file() {
             local_python.as_str()
         } else {
-            &environment.python
+            &python_request
         };
         // This directory contains only disposable, corpus-managed environments.
         run(Command::new("uv")
@@ -269,7 +316,6 @@ impl Corpus {
         } else {
             "bin/python"
         });
-        let checkout = self.root.join("repos").join(name);
         let metadata_version = environment.metadata_version.as_deref();
         match &environment.dependencies {
             Dependencies::UvLock => run(with_metadata(Command::new("uv"), metadata_version)
@@ -326,7 +372,7 @@ impl Corpus {
         run(Command::new("uv")
             .args(["pip", "check", "--python"])
             .arg(&python))?;
-        write_provenance(&root, &python, &revision, &environment)?;
+        write_provenance(&root, &python, &revision, &environment, &python_request)?;
         std::fs::write(ready, stamp)?;
         Ok(())
     }
@@ -606,8 +652,105 @@ mod tests {
             "dependencies = { kind = 'requirements', inputs = ['requirements.txt'] }",
         )
         .expect("valid recipe");
-        assert_eq!(environment.python, "3.12");
+        assert_eq!(environment.python, None);
         assert_eq!(environment.source_roots, [Utf8PathBuf::from(".")]);
+    }
+
+    #[test]
+    fn python_selection_follows_upstream_unless_explicitly_overridden() {
+        let (_directory, corpus) = environment_fixture();
+        let (mut environment, _) = corpus.environment_recipe("example").expect("recipe");
+        environment.python = None;
+        let checkout = corpus.root.join("repos/example");
+        assert_eq!(
+            environment.python_request(&checkout).expect("fallback"),
+            "3.12"
+        );
+        std::fs::write(
+            checkout.join("pyproject.toml"),
+            "[project]\nrequires-python = '>=3.13,<3.14'\n",
+        )
+        .expect("metadata");
+        assert_eq!(
+            environment
+                .python_request(&checkout)
+                .expect("metadata request"),
+            ">=3.13,<3.14"
+        );
+        environment.dependencies = Dependencies::Requirements {
+            inputs: vec!["pyproject.toml".into()],
+            supplemental: Vec::new(),
+            no_binary: Vec::new(),
+        };
+        std::fs::write(
+            checkout.join("pyproject.toml"),
+            "[project]\nrequires-python = '>=3.11'\n[tool.uv.pip]\npython-version = '3.11'\n",
+        )
+        .expect("pip target");
+        assert_eq!(
+            environment.python_request(&checkout).expect("pip target"),
+            "3.11"
+        );
+        std::fs::write(
+            checkout.join(".python-version"),
+            "# preferred runtime\n\n3.13.1 # primary\n3.12.7\n",
+        )
+        .expect("version file");
+        assert_eq!(
+            environment
+                .python_request(&checkout)
+                .expect("preferred version"),
+            "3.13.1"
+        );
+        environment.python = Some("3.11".into());
+        assert_eq!(
+            environment.python_request(&checkout).expect("override"),
+            "3.11"
+        );
+        environment.python = None;
+        std::fs::write(checkout.join(".python-version"), "# no version\n")
+            .expect("empty version file");
+        assert!(environment.python_request(&checkout).is_err());
+        std::fs::remove_file(checkout.join(".python-version")).expect("remove version file");
+        std::fs::write(
+            checkout.join("pyproject.toml"),
+            "[project]\nrequires-python = 313\n",
+        )
+        .expect("invalid metadata");
+        assert!(environment.python_request(&checkout).is_err());
+    }
+
+    #[test]
+    fn upstream_python_selection_changes_invalidate_readiness() {
+        let (_directory, corpus) = environment_fixture();
+        let source = std::fs::read_to_string(&corpus.manifest_path).expect("manifest");
+        std::fs::write(
+            &corpus.manifest_path,
+            source.replace("python = '3.12.14', ", ""),
+        )
+        .expect("remove override");
+        let ready = corpus.root.join("environments/example/.ready");
+        std::fs::write(
+            &ready,
+            corpus.environment_stamp("example").expect("fallback stamp"),
+        )
+        .expect("ready state");
+        assert!(corpus.require_environment("example").is_ok());
+        let checkout = corpus.root.join("repos/example");
+        std::fs::write(
+            checkout.join("pyproject.toml"),
+            "[project]\nrequires-python = '>=3.13'\n",
+        )
+        .expect("metadata");
+        assert!(corpus.require_environment("example").is_err());
+        std::fs::write(
+            &ready,
+            corpus.environment_stamp("example").expect("metadata stamp"),
+        )
+        .expect("ready state");
+        assert!(corpus.require_environment("example").is_ok());
+        std::fs::write(checkout.join(".python-version"), "3.13.1\n").expect("preferred version");
+        assert!(corpus.require_environment("example").is_err());
     }
 
     #[test]
