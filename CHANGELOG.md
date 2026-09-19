@@ -37,6 +37,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Reduced time and memory use for Django settings analysis by sharing immutable branch constraints and Python module identities.
 - Reused equal branch constraints during Django settings analysis with bounded, operation-local storage and compact immutable child lists.
 - Deferred template-library validation details until needed while keeping registration inventory and block structure ready before requests.
+- **Internal**: Made `just corpus sync` prepare project environments and moved corpus-wide suites out of the Python/Django test matrix.
 - **Internal**: Tag validation is tested against Django's own template libraries from the pinned corpus, with a fixture project comparing DJLS diagnostics against Django's compilation verdicts.
 - **Internal**: Test scenarios declare their own tag libraries and settings, either in markdown Python fences or from a typed `ProjectSettings` value.
 - **Internal**: Extraction snapshots record library symbol inventories and whether they are open, and a corpus census counts registration sites that no extracted definition matches.

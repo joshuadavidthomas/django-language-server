@@ -40,13 +40,13 @@ jobs:
       - name: Cache corpus
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: crates/djls-testing/.corpus
-          key: ${{ runner.os }}-corpus-${{ hashFiles('crates/djls-testing/manifest.lock') }}
+          path: crates/djls-testing/.corpus/repos
+          key: ${{ runner.os }}-corpus-source-${{ hashFiles('crates/djls-testing/manifest.lock') }}
           restore-keys: |
-            ${{ runner.os }}-corpus-
+            ${{ runner.os }}-corpus-source-
 
       - name: Sync corpus
-        run: cargo run -q -p djls-testing --bin corpus -- sync
+        run: cargo run -q -p djls-testing --bin corpus -- sync --source-only
 
       - name: Verify benchmark workload snapshots
         run: DJLS_REQUIRE_BENCH_CORPUS=1 cargo test -p djls-bench -- --include-ignored

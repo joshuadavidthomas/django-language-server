@@ -3,7 +3,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-interpreters="$repo_root/crates/djls-testing/.corpus/interpreters"
+interpreters="${1:-$repo_root/crates/djls-testing/.corpus/interpreters}"
 if "$interpreters/3.6/bin/python3.6" -c 'import ssl, ctypes' 2>/dev/null &&
    "$interpreters/3.7/bin/python3.7" -c 'import ssl, ctypes' 2>/dev/null; then
     exit 0

@@ -10,7 +10,8 @@ Django project fact tests use minimal `django_settings_module` / `django_setting
 
 ```bash
 cargo run -p djls-testing --bin corpus -- lock          # Resolve versions and update the lockfile
-cargo run -p djls-testing --bin corpus -- sync          # Download repos from the lockfile
+just corpus sync                                     # Prepare source, interpreters, and dependencies
+cargo run -p djls-testing --bin corpus -- sync --source-only # Download source fixtures only
 cargo run -p djls-testing --bin corpus -- sync -U       # Re-resolve versions then sync
 cargo run -p djls-testing --bin corpus -- clean         # Remove all synced corpus data
 cargo run -p djls-testing --bin corpus -- vendor-spec-fixtures         # Regenerate vendored djls-project spec fixtures
@@ -19,7 +20,10 @@ cargo run -p djls-testing --bin corpus -- vendor-spec-fixtures --check # Check v
 
 ## Per-repository environments
 
-Source sync does not install dependencies. Each `[[repo]]` in `manifest.toml`
+`just corpus sync` prepares and checks the corpus in one command, including
+historical interpreters on Linux and each repository's dependencies. Native build
+prerequisites still need to be installed; CI and orb setup provide them.
+Each `[[repo]]` in `manifest.toml`
 may contain its source roots and dependency recipe.
 Repositories are isolated from one another and from the developer's active
 environment. Python selection follows the pinned checkout's `.python-version`
@@ -32,8 +36,14 @@ compatibility exceptions or upstream test profiles that are not expressed in
 those files, including the historical Python 3.6/3.7 environments.
 
 ```bash
-bash tools/corpus-python.sh                 # Bootstrap historical interpreters on Linux
-just corpus environment sync healthchecks   # Resolve and install the declared inputs
+just corpus sync                           # Full corpus setup
+```
+
+The `environment` subcommands are optional refresh and diagnostic tools, not
+additional setup steps:
+
+```bash
+just corpus environment sync healthchecks   # Refresh one repository's dependencies
 just corpus environment check healthchecks  # Check readiness and build the project database
 just corpus environment check               # Report every unconfigured/unready repository
 just corpus environment extract healthchecks # Emit project-backed extraction as JSON lines
@@ -65,7 +75,7 @@ the environment that produced them.
 A separate disposable readiness stamp detects source, recipe, upstream Python
 selection, setup-policy, and native-lock changes. It does not claim that unlocked
 dependencies are current.
-`environment sync` clears and rebuilds the environment, refreshing dependency
+`sync` clears and rebuilds the environments, refreshing dependency
 resolution. Tests never install or update dependencies, and missing setup never
 falls back to isolated extraction.
 
@@ -85,18 +95,21 @@ cargo test -p djls-project --test corpus_settings healthchecks
 uv run --no-project --with 'nox[uv]' nox --session corpus
 ```
 
-The Nox `corpus` session rebuilds all environments before testing. CI runs it in
-one Linux job, separate from the ambient Python/Django matrix. It caches source,
+The Nox `corpus` session runs full sync followed by extraction, settings, models,
+registration census, validation, and inheritance suites. CI runs it in one Linux
+job, separate from the ambient Python/Django matrix. The matrix excludes these
+corpus-wide sweeps but retains focused regression tests using corpus source as
+fixtures, downloaded with `sync --source-only`. Plain `cargo test` still includes
+the corpus suites locally. CI caches source,
 downloaded packages, and historical interpreters, but not resolved environments.
 GeoNode is explicitly deferred for its native GDAL prerequisites and appears as
 an ignored extraction test with a reason; explicitly requesting its environment
 is an error, not a successful empty setup.
 
-The Linux bootstrap uses python-build for Python 3.6.15 and 3.7.17 under
-`.corpus/interpreters/`, which environment sync discovers automatically. It needs
+Sync invokes the Linux bootstrap when a historical environment is requested.
+It uses python-build for Python 3.6.15 and 3.7.17 under `.corpus/interpreters/`. It needs
 a C compiler and OpenSSL, zlib, bzip2, readline, SQLite, libffi, and lzma development
-headers. CI and `.agents/setup` install those prerequisites. Existing system or
-pyenv interpreters can also satisfy a recipe without this bootstrap. Historical
+headers. CI and `.agents/setup` install those prerequisites. Historical
 environments are for testing corpus source, not production deployment.
 
 When snapshots change unexpectedly, compare provenance and run the previous

@@ -89,7 +89,7 @@ fn main() -> anyhow::Result<()> {
         .filter_map(|(repo_name, entry_dir)| {
             let templates = corpus.templates_in(&entry_dir);
             (!templates.is_empty()).then(|| {
-                Trial::test(repo_name, move || {
+                Trial::test(format!("corpus_inheritance::{repo_name}"), move || {
                     inheritance_terminates(entry_dir, templates);
                     Ok(())
                 })
