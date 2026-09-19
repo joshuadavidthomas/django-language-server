@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "tag::avatar":
@@ -23,7 +23,7 @@ definitions:
     has_doc: false
 symbols_are_unobserved: false
 tag_rules:
-  "src.sentry.templatetags.sentry_avatars::tag::avatar":
+  "sentry.templatetags.sentry_avatars::tag::avatar":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -40,7 +40,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: keep
-  "src.sentry.templatetags.sentry_avatars::tag::avatar_for_email":
+  "sentry.templatetags.sentry_avatars::tag::avatar_for_email":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -57,7 +57,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: keep
-  "src.sentry.templatetags.sentry_avatars::tag::email_avatar":
+  "sentry.templatetags.sentry_avatars::tag::email_avatar":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -80,7 +80,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: strip
-  "src.sentry.templatetags.sentry_avatars::tag::gravatar_url":
+  "sentry.templatetags.sentry_avatars::tag::gravatar_url":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -100,7 +100,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: strip
-  "src.sentry.templatetags.sentry_avatars::tag::letter_avatar_svg":
+  "sentry.templatetags.sentry_avatars::tag::letter_avatar_svg":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -120,7 +120,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: strip
-  "src.sentry.templatetags.sentry_avatars::tag::profile_photo_url":
+  "sentry.templatetags.sentry_avatars::tag::profile_photo_url":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []

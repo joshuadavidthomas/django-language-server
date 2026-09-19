@@ -1,13 +1,20 @@
 //! CLI entry point for corpus management.
 
+use anyhow::Context as _;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use clap::Parser;
 use clap::Subcommand;
+use clap::ValueEnum;
+use djls_project::Db as _;
+use djls_project::file_to_module;
+use djls_testing::Corpus;
 use djls_testing::LockFilter;
 use djls_testing::Lockfile;
 use djls_testing::Manifest;
 use djls_testing::VendorSpecFixturesOptions;
+use djls_testing::extract_bundle;
+use djls_testing::sorted_snapshot;
 
 #[derive(Parser)]
 #[command(name = "corpus", about = "Manage the Django template corpus")]
@@ -22,12 +29,19 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Set up repository environments and extract facts in their project context
+    Environment {
+        #[arg(value_enum)]
+        action: EnvironmentAction,
+        /// Repository names (all locked repositories if omitted)
+        names: Vec<String>,
+    },
     /// Resolve latest versions and update the lockfile
     Lock {
         /// Repo names to lock (locks all if omitted)
         names: Vec<String>,
     },
-    /// Download and extract corpus repos from the lockfile
+    /// Prepare corpus source and Python environments from the lockfile
     Sync {
         /// Re-resolve versions before syncing, ignoring pinned versions in the lockfile
         #[arg(short = 'U', long)]
@@ -36,6 +50,10 @@ enum Command {
         /// Don't remove old versions after syncing
         #[arg(long)]
         no_prune: bool,
+
+        /// Only download source fixtures; do not prepare runnable corpus environments
+        #[arg(long)]
+        source_only: bool,
     },
     /// Remove synced corpus data (all by default, or specific repos)
     Clean {
@@ -52,6 +70,14 @@ enum Command {
         #[arg(long)]
         output_dir: Option<Utf8PathBuf>,
     },
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum EnvironmentAction {
+    Sync,
+    Check,
+    /// Emit one JSON object per extraction target, without updating snapshots
+    Extract,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -72,6 +98,10 @@ fn main() -> anyhow::Result<()> {
     let lockfile_path = manifest_path.with_extension("lock");
 
     match cli.command {
+        Command::Environment { action, names } => {
+            let corpus = Corpus::require_from_manifest(&manifest_path.canonicalize_utf8()?)?;
+            run_environments(&corpus, action, names)?;
+        }
         Command::Lock { names } => {
             let filter = if names.is_empty() {
                 LockFilter::All
@@ -80,7 +110,11 @@ fn main() -> anyhow::Result<()> {
             };
             update_lockfile(&manifest_path, &lockfile_path, &filter)?;
         }
-        Command::Sync { upgrade, no_prune } => {
+        Command::Sync {
+            upgrade,
+            no_prune,
+            source_only,
+        } => {
             if upgrade {
                 update_lockfile(&manifest_path, &lockfile_path, &LockFilter::All)?;
             }
@@ -95,6 +129,11 @@ fn main() -> anyhow::Result<()> {
 
             tracing::info!(%corpus_root, "syncing corpus");
             djls_testing::sync_corpus(&lockfile, &corpus_root, !no_prune)?;
+            if !source_only {
+                let corpus = Corpus::require_from_manifest(&manifest_path.canonicalize_utf8()?)?;
+                run_environments(&corpus, EnvironmentAction::Sync, Vec::new())?;
+                run_environments(&corpus, EnvironmentAction::Check, Vec::new())?;
+            }
             tracing::info!(%corpus_root, "corpus synced");
         }
         Command::Clean { names } => {
@@ -118,6 +157,73 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
+    Ok(())
+}
+
+fn run_environments(
+    corpus: &Corpus,
+    action: EnvironmentAction,
+    names: Vec<String>,
+) -> anyhow::Result<()> {
+    let all = names.is_empty();
+    let names = if all {
+        corpus
+            .locked_repos()
+            .map(|(name, _)| name.to_string())
+            .collect()
+    } else {
+        names
+    };
+    let mut errors = Vec::new();
+    for name in names {
+        if all && let Some(reason) = corpus.environment_deferral(&name)? {
+            tracing::warn!(%name, %reason, "environment deferred");
+            continue;
+        }
+        let result = match action {
+            EnvironmentAction::Sync => corpus.sync_environment(&name),
+            EnvironmentAction::Check => corpus.environment_database(&name).map(|_| ()),
+            EnvironmentAction::Extract => extract_environment(corpus, &name),
+        };
+        match result {
+            Ok(()) => tracing::info!(%name, "environment operation succeeded"),
+            Err(error) => errors.push(format!("{name}: {error:#}")),
+        }
+    }
+    anyhow::ensure!(
+        errors.is_empty(),
+        "corpus environments failed:\n{}",
+        errors.join("\n")
+    );
+    Ok(())
+}
+
+fn extract_environment(corpus: &Corpus, name: &str) -> anyhow::Result<()> {
+    let db = corpus.environment_database(name)?;
+    let project = db
+        .project()
+        .context("environment database has no project")?;
+    for target in corpus
+        .extraction_target_members()?
+        .into_iter()
+        .filter(|target| target.member == name)
+    {
+        let module = file_to_module(&db, project, target.path.clone()).with_context(|| {
+            format!(
+                "corpus `{name}` target `{}` does not resolve in its configured source roots",
+                target.relative_path
+            )
+        })?;
+        let bundle = extract_bundle(&db, module.file(), module.name().clone());
+        println!(
+            "{}",
+            serde_json::to_string(&serde_json::json!({
+                "repository": name,
+                "path": target.relative_path,
+                "facts": sorted_snapshot(&bundle)?,
+            }))?
+        );
+    }
     Ok(())
 }
 
@@ -153,4 +259,32 @@ fn update_lockfile(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn source_only_sync_requires_an_explicit_opt_out() {
+        let cli = Cli::try_parse_from(["corpus", "sync"]).expect("default sync");
+        assert!(matches!(
+            cli.command,
+            Command::Sync {
+                source_only: false,
+                upgrade: false,
+                no_prune: false
+            }
+        ));
+        let cli = Cli::try_parse_from(["corpus", "sync", "--source-only", "-U", "--no-prune"])
+            .expect("source-only sync with existing flags");
+        assert!(matches!(
+            cli.command,
+            Command::Sync {
+                source_only: true,
+                upgrade: true,
+                no_prune: true
+            }
+        ));
+    }
 }

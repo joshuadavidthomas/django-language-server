@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "filter::bootstrap_message_classes":
@@ -68,7 +68,7 @@ definitions:
     has_doc: false
 symbols_are_unobserved: false
 tag_rules:
-  "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_alert":
+  "bootstrap3.templatetags.bootstrap3::tag::bootstrap_alert":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -88,7 +88,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: strip
-  "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_button":
+  "bootstrap3.templatetags.bootstrap3::tag::bootstrap_button":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -102,7 +102,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: kwargs
     as_var: strip
-  "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_css":
+  "bootstrap3.templatetags.bootstrap3::tag::bootstrap_css":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -113,7 +113,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: strip
-  "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_css_url":
+  "bootstrap3.templatetags.bootstrap3::tag::bootstrap_css_url":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -124,7 +124,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: strip
-  "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_field":
+  "bootstrap3.templatetags.bootstrap3::tag::bootstrap_field":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -138,7 +138,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: kwargs
     as_var: strip
-  "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_form":
+  "bootstrap3.templatetags.bootstrap3::tag::bootstrap_form":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -152,7 +152,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: kwargs
     as_var: strip
-  "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_form_errors":
+  "bootstrap3.templatetags.bootstrap3::tag::bootstrap_form_errors":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -166,7 +166,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: kwargs
     as_var: strip
-  "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_formset":
+  "bootstrap3.templatetags.bootstrap3::tag::bootstrap_formset":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -180,7 +180,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: kwargs
     as_var: strip
-  "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_formset_errors":
+  "bootstrap3.templatetags.bootstrap3::tag::bootstrap_formset_errors":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -194,7 +194,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: kwargs
     as_var: strip
-  "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_icon":
+  "bootstrap3.templatetags.bootstrap3::tag::bootstrap_icon":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -208,7 +208,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: kwargs
     as_var: strip
-  "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_javascript":
+  "bootstrap3.templatetags.bootstrap3::tag::bootstrap_javascript":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -222,7 +222,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: strip
-  "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_javascript_url":
+  "bootstrap3.templatetags.bootstrap3::tag::bootstrap_javascript_url":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -233,7 +233,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: strip
-  "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_jquery_url":
+  "bootstrap3.templatetags.bootstrap3::tag::bootstrap_jquery_url":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -244,7 +244,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: strip
-  "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_label":
+  "bootstrap3.templatetags.bootstrap3::tag::bootstrap_label":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -258,7 +258,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: kwargs
     as_var: strip
-  "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_messages":
+  "bootstrap3.templatetags.bootstrap3::tag::bootstrap_messages":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -272,7 +272,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: kwargs
     as_var: strip
-  "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_pagination":
+  "bootstrap3.templatetags.bootstrap3::tag::bootstrap_pagination":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -286,7 +286,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: kwargs
     as_var: keep
-  "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_theme_url":
+  "bootstrap3.templatetags.bootstrap3::tag::bootstrap_theme_url":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -297,7 +297,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: strip
-  "src.bootstrap3.templatetags.bootstrap3::tag::bootstrap_url_replace_param":
+  "bootstrap3.templatetags.bootstrap3::tag::bootstrap_url_replace_param":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -318,10 +318,10 @@ tag_rules:
         variadic_keyword: ~
     as_var: strip
 filter_arities:
-  "src.bootstrap3.templatetags.bootstrap3::filter::bootstrap_message_classes": no_argument
-  "src.bootstrap3.templatetags.bootstrap3::filter::bootstrap_setting": no_argument
+  "bootstrap3.templatetags.bootstrap3::filter::bootstrap_message_classes": no_argument
+  "bootstrap3.templatetags.bootstrap3::filter::bootstrap_setting": no_argument
 block_specs:
-  "src.bootstrap3.templatetags.bootstrap3::tag::buttons":
+  "bootstrap3.templatetags.bootstrap3::tag::buttons":
     body_analysis_evidence: not_detected
     end_tag: endbuttons
     intermediates: []

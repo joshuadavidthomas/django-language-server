@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "filter::abs":
@@ -980,6 +980,7 @@ tag_rules:
 filter_arities:
   "wagtail.admin.templatetags.wagtailadmin_tags::filter::abs": no_argument
   "wagtail.admin.templatetags.wagtailadmin_tags::filter::admin_urlquote": no_argument
+  "wagtail.admin.templatetags.wagtailadmin_tags::filter::cautious_slugify": no_argument
   "wagtail.admin.templatetags.wagtailadmin_tags::filter::ellipsistrim": required_argument
   "wagtail.admin.templatetags.wagtailadmin_tags::filter::fieldtype": no_argument
   "wagtail.admin.templatetags.wagtailadmin_tags::filter::format_content_type": no_argument

@@ -1,9 +1,21 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
-definitions: {}
-symbols_are_unobserved: true
+definitions:
+  "filter::date_relative":
+    kind: filter
+    has_doc: false
+  "filter::date_relative_in_sentence":
+    kind: filter
+    has_doc: false
+  "filter::date_relative_short":
+    kind: filter
+    has_doc: false
+symbols_are_unobserved: false
 tag_rules: {}
-filter_arities: {}
+filter_arities:
+  "misago.formats.templatetags.misago_formats::filter::date_relative": no_argument
+  "misago.formats.templatetags.misago_formats::filter::date_relative_in_sentence": no_argument
+  "misago.formats.templatetags.misago_formats::filter::date_relative_short": no_argument
 block_specs: {}

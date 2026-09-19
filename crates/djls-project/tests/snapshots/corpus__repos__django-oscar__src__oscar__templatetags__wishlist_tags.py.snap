@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "tag::wishlists_containing_product":
@@ -8,7 +8,7 @@ definitions:
     has_doc: false
 symbols_are_unobserved: false
 tag_rules:
-  "src.oscar.templatetags.wishlist_tags::tag::wishlists_containing_product":
+  "oscar.templatetags.wishlist_tags::tag::wishlists_containing_product":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []

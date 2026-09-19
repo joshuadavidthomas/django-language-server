@@ -4,6 +4,8 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use serde::Deserialize;
 
+use crate::corpus::environment::Environment;
+
 #[derive(Debug, Deserialize)]
 pub struct Manifest {
     corpus: CorpusConfig,
@@ -32,6 +34,8 @@ pub(crate) struct Repo {
     django_settings_modules: Vec<String>,
     #[serde(default)]
     project_root: Option<Utf8PathBuf>,
+    #[serde(default)]
+    pub(crate) environment: Option<Environment>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -133,6 +137,9 @@ impl Repo {
                 self.name
             );
         }
+        if let Some(environment) = &self.environment {
+            environment.validate(&self.name)?;
+        }
         Ok(())
     }
 }
@@ -183,6 +190,23 @@ mod tests {
     fn load_default_manifest() -> Manifest {
         let path = Utf8Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/manifest.toml"));
         Manifest::load(path).expect("default corpus manifest should load")
+    }
+
+    #[test]
+    fn repository_environment_recipe_is_optional() {
+        let manifest: Manifest = toml::from_str(
+            r#"
+            [corpus]
+            root_dir = ".corpus"
+
+            [[repo]]
+            name = "legacy-fixture"
+            url = "https://example.com/legacy-fixture.git"
+            "#,
+        )
+        .expect("manifests written before environment recipes should still deserialize");
+
+        assert!(manifest.repos[0].environment.is_none());
     }
 
     #[test]
@@ -282,6 +306,7 @@ mod tests {
                 django_settings_module: Some("project.settings".to_string()),
                 django_settings_modules: Vec::new(),
                 project_root: Some(Utf8PathBuf::from(root)),
+                environment: None,
             };
 
             assert!(repo.validate().is_err(), "`{root}` should be rejected");
@@ -298,6 +323,7 @@ mod tests {
                 django_settings_module: Some("project.settings".to_string()),
                 django_settings_modules: Vec::new(),
                 project_root: None,
+                environment: None,
             };
 
             assert!(repo.validate().is_err(), "`{name}` should be rejected");

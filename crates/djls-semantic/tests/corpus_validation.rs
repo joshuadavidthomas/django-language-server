@@ -87,10 +87,13 @@ fn main() -> anyhow::Result<()> {
             }
 
             let corpus = Arc::clone(&corpus);
-            Some(Trial::test(repo_name, move || {
-                validate_repo(&corpus, &entry_dir, templates);
-                Ok(())
-            }))
+            Some(Trial::test(
+                format!("corpus_validation::{repo_name}"),
+                move || {
+                    validate_repo(&corpus, &entry_dir, templates);
+                    Ok(())
+                },
+            ))
         })
         .collect();
 

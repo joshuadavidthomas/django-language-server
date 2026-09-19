@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "tag::plugin_alerts":
@@ -29,7 +29,7 @@ definitions:
     has_doc: false
 symbols_are_unobserved: true
 tag_rules:
-  "netbox.utilities.templatetags.plugins::tag::plugin_alerts":
+  "utilities.templatetags.plugins::tag::plugin_alerts":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -43,7 +43,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: strip
-  "netbox.utilities.templatetags.plugins::tag::plugin_buttons":
+  "utilities.templatetags.plugins::tag::plugin_buttons":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -57,7 +57,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: strip
-  "netbox.utilities.templatetags.plugins::tag::plugin_full_width_page":
+  "utilities.templatetags.plugins::tag::plugin_full_width_page":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -71,7 +71,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: strip
-  "netbox.utilities.templatetags.plugins::tag::plugin_head":
+  "utilities.templatetags.plugins::tag::plugin_head":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -82,7 +82,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: strip
-  "netbox.utilities.templatetags.plugins::tag::plugin_left_page":
+  "utilities.templatetags.plugins::tag::plugin_left_page":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -96,7 +96,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: strip
-  "netbox.utilities.templatetags.plugins::tag::plugin_list_buttons":
+  "utilities.templatetags.plugins::tag::plugin_list_buttons":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -110,7 +110,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: strip
-  "netbox.utilities.templatetags.plugins::tag::plugin_navbar":
+  "utilities.templatetags.plugins::tag::plugin_navbar":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -121,7 +121,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: strip
-  "netbox.utilities.templatetags.plugins::tag::plugin_right_page":
+  "utilities.templatetags.plugins::tag::plugin_right_page":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []

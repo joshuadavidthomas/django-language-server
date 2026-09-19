@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "filter::absolute_value":
@@ -86,7 +86,7 @@ definitions:
     has_doc: false
 symbols_are_unobserved: true
 tag_rules:
-  "src.sentry.templatetags.sentry_helpers::tag::get_sentry_version":
+  "sentry.templatetags.sentry_helpers::tag::get_sentry_version":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -97,7 +97,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: strip
-  "src.sentry.templatetags.sentry_helpers::tag::loading_message":
+  "sentry.templatetags.sentry_helpers::tag::loading_message":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -108,7 +108,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: strip
-  "src.sentry.templatetags.sentry_helpers::tag::org_url":
+  "sentry.templatetags.sentry_helpers::tag::org_url":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -131,7 +131,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: strip
-  "src.sentry.templatetags.sentry_helpers::tag::percent":
+  "sentry.templatetags.sentry_helpers::tag::percent":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -151,7 +151,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: strip
-  "src.sentry.templatetags.sentry_helpers::tag::querystring":
+  "sentry.templatetags.sentry_helpers::tag::querystring":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -162,7 +162,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: kwargs
     as_var: strip
-  "src.sentry.templatetags.sentry_helpers::tag::random_int":
+  "sentry.templatetags.sentry_helpers::tag::random_int":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -179,7 +179,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: strip
-  "src.sentry.templatetags.sentry_helpers::tag::security_contact":
+  "sentry.templatetags.sentry_helpers::tag::security_contact":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -190,7 +190,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: strip
-  "src.sentry.templatetags.sentry_helpers::tag::serialize":
+  "sentry.templatetags.sentry_helpers::tag::serialize":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -204,7 +204,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: strip
-  "src.sentry.templatetags.sentry_helpers::tag::system_origin":
+  "sentry.templatetags.sentry_helpers::tag::system_origin":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -216,20 +216,20 @@ tag_rules:
         variadic_keyword: ~
     as_var: strip
 filter_arities:
-  "src.sentry.templatetags.sentry_helpers::filter::absolute_value": no_argument
-  "src.sentry.templatetags.sentry_helpers::filter::as_sorted": no_argument
-  "src.sentry.templatetags.sentry_helpers::filter::as_tag_alias": no_argument
-  "src.sentry.templatetags.sentry_helpers::filter::basename": no_argument
-  "src.sentry.templatetags.sentry_helpers::filter::date": optional_argument
-  "src.sentry.templatetags.sentry_helpers::filter::duration": no_argument
-  "src.sentry.templatetags.sentry_helpers::filter::get_item": required_argument
-  "src.sentry.templatetags.sentry_helpers::filter::is_url": no_argument
-  "src.sentry.templatetags.sentry_helpers::filter::multiply": required_argument
-  "src.sentry.templatetags.sentry_helpers::filter::small_count": optional_argument
-  "src.sentry.templatetags.sentry_helpers::filter::soft_break": required_argument
-  "src.sentry.templatetags.sentry_helpers::filter::split": optional_argument
-  "src.sentry.templatetags.sentry_helpers::filter::timesince": optional_argument
-  "src.sentry.templatetags.sentry_helpers::filter::titleize": no_argument
-  "src.sentry.templatetags.sentry_helpers::filter::to_json": optional_argument
-  "src.sentry.templatetags.sentry_helpers::filter::urlquote": optional_argument
+  "sentry.templatetags.sentry_helpers::filter::absolute_value": no_argument
+  "sentry.templatetags.sentry_helpers::filter::as_sorted": no_argument
+  "sentry.templatetags.sentry_helpers::filter::as_tag_alias": no_argument
+  "sentry.templatetags.sentry_helpers::filter::basename": no_argument
+  "sentry.templatetags.sentry_helpers::filter::date": optional_argument
+  "sentry.templatetags.sentry_helpers::filter::duration": no_argument
+  "sentry.templatetags.sentry_helpers::filter::get_item": required_argument
+  "sentry.templatetags.sentry_helpers::filter::is_url": no_argument
+  "sentry.templatetags.sentry_helpers::filter::multiply": required_argument
+  "sentry.templatetags.sentry_helpers::filter::small_count": optional_argument
+  "sentry.templatetags.sentry_helpers::filter::soft_break": required_argument
+  "sentry.templatetags.sentry_helpers::filter::split": optional_argument
+  "sentry.templatetags.sentry_helpers::filter::timesince": optional_argument
+  "sentry.templatetags.sentry_helpers::filter::titleize": no_argument
+  "sentry.templatetags.sentry_helpers::filter::to_json": optional_argument
+  "sentry.templatetags.sentry_helpers::filter::urlquote": optional_argument
 block_specs: {}
