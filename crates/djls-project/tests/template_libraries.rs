@@ -32,7 +32,7 @@ use djls_source::Span;
 use djls_testing::ProjectFixture;
 use djls_testing::ProjectSettings;
 use djls_testing::TestDatabase;
-use djls_testing::corpus_project_database;
+use djls_testing::django_project_database;
 
 type TestResult<T> = Result<T, Box<dyn std::error::Error>>;
 
@@ -313,7 +313,7 @@ fn symbol_lookup_keeps_known_providers_beside_open_loadable_libraries() {
     let project_root = Utf8PathBuf::from_path_buf(project_root)
         .expect("open-library project fixture path should be UTF-8");
     let (db, project, _) =
-        corpus_project_database(project_root.clone(), [project_root], "settings")
+        django_project_database(project_root.clone(), [project_root], "settings")
             .expect("open-library project fixture should install");
     let catalog = template_library_catalog(&db, project);
     assert_eq!(

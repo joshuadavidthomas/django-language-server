@@ -300,18 +300,24 @@ error[S114]: Not expecting 'and' in this position in if tag.
   = note: in tag: if
 ```
 
-**Architecture Invariant:** tests never require a Django installation or run a Python interpreter. Source-only tests may supply tag specs and filter arities directly. Project-scoped tests supply settings and Python modules through `ProjectFixture`, then exercise the same Template Library catalog and scope derivation used by production. JSON fixtures remain appropriate for isolated extraction projections.
+Focused semantic tests do not require a Django installation or run a Python interpreter. Source-only tests may supply tag specs and filter arities directly. Project-scoped tests supply settings and Python modules through `ProjectFixture`, or use the bounded vendored Django source fixture, then exercise the same Template Library catalog and scope derivation used by production. JSON fixtures remain appropriate for isolated extraction projections.
 
 ### Corpus Tests
 
-This is the most interesting testing infrastructure. The corpus (`just corpus sync`) downloads real source from 40+ PyPI packages (Django itself, django-allauth, django-crispy-forms, etc.) and 17 real-world projects (Sentry, NetBox, Read the Docs).
+The corpus (`just corpus sync`) prepares pinned repository source and project-specific Python environments for Django, third-party libraries, and applications such as Sentry and NetBox. Dependencies follow each pinned project's upstream metadata or lockfile.
 
-Corpus tests serve two purposes:
+Six suites run once in the dedicated Nox `corpus` session, outside the Python/Django matrix:
 
-1. **Extraction snapshot tests** — parse every `templatetags/*.py` file with the Ruff parser and snapshot the extracted rules. This catches regressions in Python AST analysis and documents what we can extract from real-world code.
-2. **Validation integration tests** — validate real templates against extracted rules. This is our "zero false positives" check: if we report a diagnostic on a template from a real project, it's probably a bug in our analysis, not in the project.
+| Suite | Boundary |
+|---|---|
+| `djls-project/tests/corpus.rs` | Extraction snapshots using each repository's source and installed dependencies |
+| `djls-project/tests/corpus_settings.rs` | Project-backed settings extraction snapshots |
+| `djls-semantic/tests/corpus_validation.rs` | Argument-validation false positives on real templates, with rules extracted from that project's environment |
+| `djls-project/tests/corpus_models.rs` | File-local model extraction snapshots; no import resolution |
+| `djls-testing/tests/registration_coverage.rs` | Source-level registration census, not a runtime registration inventory |
+| `djls-semantic/tests/corpus_inheritance.rs` | Termination of template inheritance traversal using synthetic template roots |
 
-The corpus is deliberately not checked into the repository (it's ~hundreds of MB of third-party source). `just corpus sync` downloads it from the lockfile (`crates/djls-testing/manifest.lock`), which pins exact versions and SHA-256 checksums.
+These targets require the `corpus-tests` Cargo feature. Normal `cargo test`, `just test`, and the matrix do not download the corpus. Focused tests instead use checked-in snippets or full source modules from a bounded selection, maintained by `just corpus vendor-spec-fixtures` and checked against the corpus in CI. They are static-analysis fixtures, not substitutes for real-project environments. Benchmark corpus workloads remain in the separate benchmark workflow.
 
 ### Incremental Computation Tests
 

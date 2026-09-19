@@ -1,6 +1,5 @@
 use std::borrow::Cow;
 use std::collections::BTreeMap;
-use std::fs;
 use std::io;
 
 use camino::Utf8Path;
@@ -22,7 +21,6 @@ use djls_semantic::TagSpec;
 use djls_semantic::builtin_tag_specs;
 use djls_source::Offset;
 use djls_source::PositionEncoding;
-use djls_testing::Corpus;
 use djls_testing::ProjectFixture;
 use djls_testing::ProjectSettings;
 use djls_testing::SalsaEventLog;
@@ -645,12 +643,8 @@ fn conflicting_backend_signatures_do_not_offer_argument_snippets() {
 
 #[test]
 fn project_backed_widthratio_completes_correlated_django_forms() {
-    let corpus = Corpus::require().expect("synced corpus should be available");
-    let django_root = corpus
-        .latest_package("django")
-        .expect("a synced Django package should be available");
-    let defaulttags_source = fs::read_to_string(django_root.join("django/template/defaulttags.py"))
-        .expect("Django defaulttags source should be readable");
+    let defaulttags_source =
+        include_str!("../../djls-project/src/templates/tags/testdata/django_defaulttags.py");
 
     let cases = [
         ("full.html", "{% widthratio § %}"),
@@ -680,7 +674,7 @@ fn project_backed_widthratio_completes_correlated_django_forms() {
         .file("/test/project/django/template/__init__.py", "")
         .file(
             "/test/project/django/template/defaulttags.py",
-            &defaulttags_source,
+            defaulttags_source,
         );
     for (name, source, _) in &parsed_cases {
         fixture = fixture.file(format!("/test/project/templates/{name}"), source);

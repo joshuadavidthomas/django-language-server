@@ -14,8 +14,8 @@ just corpus sync                                     # Prepare source, interpret
 cargo run -p djls-testing --bin corpus -- sync --source-only # Download source fixtures only
 cargo run -p djls-testing --bin corpus -- sync -U       # Re-resolve versions then sync
 cargo run -p djls-testing --bin corpus -- clean         # Remove all synced corpus data
-cargo run -p djls-testing --bin corpus -- vendor-spec-fixtures         # Regenerate vendored djls-project spec fixtures
-cargo run -p djls-testing --bin corpus -- vendor-spec-fixtures --check # Check vendored spec fixtures are current
+cargo run -p djls-testing --bin corpus -- vendor-spec-fixtures         # Regenerate snippets and focused source fixtures
+cargo run -p djls-testing --bin corpus -- vendor-spec-fixtures --check # Check both against the pinned corpus
 ```
 
 ## Per-repository environments
@@ -86,24 +86,26 @@ if dependency installation succeeded. It does not execute Django settings or
 start backing services. Source code remains project code: a Django checkout is
 not relabelled as an installed dependency to obtain different extraction results.
 
-Extraction and settings snapshots use these project-backed databases. Extraction
+Extraction, settings, and validation suites use these project-backed databases. Extraction
 has one test per repository, so a library can be run individually:
 
 ```bash
-cargo test -p djls-project --test corpus django-bootstrap3
-cargo test -p djls-project --test corpus_settings healthchecks
+cargo test -p djls-project --features corpus-tests --test corpus django-bootstrap3
+cargo test -p djls-project --features corpus-tests --test corpus_settings healthchecks
 uv run --no-project --with 'nox[uv]' nox --session corpus
 ```
 
 The Nox `corpus` session runs full sync followed by extraction, settings, models,
 registration census, validation, and inheritance suites. CI runs it in one Linux
-job, separate from the ambient Python/Django matrix. The matrix excludes these
-corpus-wide sweeps but retains focused regression tests using corpus source as
-fixtures, downloaded with `sync --source-only`. Plain `cargo test` still includes
-the corpus suites locally. CI caches source,
+job, separate from the ambient Python/Django matrix. The six targets require the
+`corpus-tests` Cargo feature, which the Nox session enables. Normal `cargo test`
+and the matrix use checked-in focused fixtures and do not sync the corpus.
+Models, census, and inheritance remain source-only: their subjects are file-local
+model facts, registration syntax, and template traversal, not Python import resolution.
+CI caches source,
 downloaded packages, and historical interpreters, but not resolved environments.
 GeoNode is explicitly deferred for its native GDAL prerequisites and appears as
-an ignored extraction test with a reason; explicitly requesting its environment
+ignored extraction and validation tests with a reason; explicitly requesting its environment
 is an error, not a successful empty setup.
 
 Sync invokes the Linux bootstrap when a historical environment is requested.
@@ -117,6 +119,19 @@ analyzer against the same environment before blaming the code change. Review
 ecosystem-driven changes rather than automatically accepting them. Django's own
 checkout remains first-party source: these environments do not change the
 separate `stringfilter` callable-evidence policy.
+
+## Focused source fixtures
+
+Focused regression tests use the snippets in `djls-project/src/templates/tags/testdata`
+and the bounded full-module selection in [`fixtures/source`](fixtures/source/README.md).
+The latter preserves declaration spans, decorator provenance, imports, and package
+layout without downloading whole repositories for the normal suite. Tests still
+choose their own settings and dependency visibility; these files are not executable
+installations or substitutes for the real environments used by the sweeps.
+
+Both fixture sets are refreshed by `just corpus vendor-spec-fixtures` from the
+existing source lock, with a separate CI check for drift. Full source files and
+licenses are copied byte-for-byte and excluded from formatting hooks.
 
 ## Licensing
 

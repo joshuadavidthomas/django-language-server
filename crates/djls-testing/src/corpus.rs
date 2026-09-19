@@ -212,31 +212,6 @@ impl Corpus {
             .collect()
     }
 
-    /// Whether an entry directory represents a Django package.
-    ///
-    /// True for:
-    /// - `repos/django`
-    /// - `repos/django-<version>`
-    #[must_use]
-    pub(crate) fn is_django_entry(entry_dir: &Utf8Path) -> bool {
-        let Some(entry_name) = entry_dir.file_name() else {
-            return false;
-        };
-
-        let is_repos = entry_dir
-            .parent()
-            .and_then(|p| p.file_name())
-            .is_some_and(|cat| cat == "repos");
-
-        if !is_repos {
-            return false;
-        }
-
-        entry_name == "django"
-            || (entry_name.starts_with("django-")
-                && entry_name["django-".len()..].starts_with(|c: char| c.is_ascii_digit()))
-    }
-
     /// Latest locked and synced version directory for a package under `repos/`.
     ///
     /// Handles both single-entry names (e.g. `repos/django-allauth/`)
@@ -700,25 +675,25 @@ mod tests {
 
     #[test]
     fn corpus_exposes_real_repo_settings_projects() {
-        let corpus = Corpus::require().expect("synced corpus should be available");
-        let projects = corpus
+        // This checks checked-in metadata, not downloaded repository contents.
+        let manifest_path = Utf8PathBuf::from(super::MANIFEST_PATH);
+        let manifest =
+            super::Manifest::load(&manifest_path).expect("default corpus manifest should load");
+        let projects = manifest
             .repo_settings_projects()
-            .expect("default corpus manifest should load")
             .into_iter()
             .map(|project| {
-                let relative_root = if project.project_root == project.checkout_root {
-                    ".".to_string()
-                } else {
-                    project
-                        .project_root
-                        .strip_prefix(&project.checkout_root)
-                        .expect("project root should stay within its checkout")
-                        .to_string()
-                };
                 (
-                    project.repo_name,
-                    relative_root,
-                    project.django_settings_modules,
+                    project.repo_name.to_string(),
+                    project
+                        .relative_root
+                        .unwrap_or(camino::Utf8Path::new("."))
+                        .to_string(),
+                    project
+                        .django_settings_modules
+                        .into_iter()
+                        .map(str::to_string)
+                        .collect::<Vec<_>>(),
                 )
             })
             .collect::<Vec<_>>();

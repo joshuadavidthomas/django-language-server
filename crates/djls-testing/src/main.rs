@@ -60,13 +60,13 @@ enum Command {
         /// Repo names to remove (removes all if omitted)
         names: Vec<String>,
     },
-    /// Regenerate vendored djls-project spec extraction fixtures from the synced corpus
+    /// Regenerate vendored spec snippets and bounded full-source fixtures from the synced corpus
     VendorSpecFixtures {
         /// Check whether generated fixtures match the working tree without writing changes
         #[arg(long)]
         check: bool,
 
-        /// Fixture output directory (defaults to crates/djls-project/src/templates/tags/testdata)
+        /// Snippet output directory; full sources go in its source/ child
         #[arg(long)]
         output_dir: Option<Utf8PathBuf>,
     },

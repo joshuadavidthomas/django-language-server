@@ -44,8 +44,9 @@ use djls_testing::ProjectSettings;
 use djls_testing::SalsaEventLog;
 use djls_testing::TestDatabase;
 use djls_testing::collect_errors as collect_validation_errors;
-use djls_testing::corpus_project_database;
+use djls_testing::django_project_database;
 use djls_testing::execution_count;
+use djls_testing::source_fixture_root;
 
 fn configured_tag_specs(definitions: &[(&str, &str, TagTypeDef)]) -> TagSpecDef {
     TagSpecDef {
@@ -102,18 +103,15 @@ fn validation_project_database(
     let project_root = Utf8PathBuf::from_path_buf(project_root)
         .map_err(|path| anyhow::anyhow!("fixture path should be UTF-8: {}", path.display()))?;
     let (db, project, _) =
-        corpus_project_database(project_root.clone(), [project_root.clone()], "settings")?;
+        django_project_database(project_root.clone(), [project_root.clone()], "settings")?;
     Ok((db, project, project_root))
 }
 
 #[test]
 fn filter_argument_diagnostics_require_callable_signature_evidence() {
     let mut db = TestDatabase::new();
-    let corpus = Corpus::require().expect("synced corpus");
     let defaultfilters = fs::read_to_string(
-        corpus
-            .root()
-            .join("repos/django-5.2/django/template/defaultfilters.py"),
+        source_fixture_root().join("django-5.2/django/template/defaultfilters.py"),
     )
     .expect("Django defaultfilters source");
     ProjectFixture::new("/proj")
@@ -1283,16 +1281,11 @@ fn extracted_self_named_block_requires_concretized_end_tag() {
 
 // Extends validation (S122, S123)
 
-// Corpus / template validation tests
+// Vendored source / template validation tests
 //
-// These tests extract rules from real Django source files and validate
-// real templates against those rules, proving zero false positives for
-// argument validation (S114, S115, S116, S117) at scale.
-//
-// All tests skip gracefully when the corpus is unavailable.
-// Run `cargo run -p djls-testing --bin corpus -- sync` to populate it.
+// These focused cases exercise rules extracted from upstream source fixtures.
+// The real-template false-positive sweep lives in corpus_validation.rs.
 
-use djls_testing::Corpus;
 use djls_testing::build_specs_from_extraction;
 use djls_testing::collect_argument_validation_errors_with_revision;
 
@@ -1428,15 +1421,9 @@ fn loaded_unreadable_library_reports_each_load_argument_without_changing_validat
 
 #[test]
 fn corpus_known_invalid_templates_produce_errors() {
-    let corpus = Corpus::require().expect("synced corpus should be available for corpus tests");
-
-    let Some(django_dir) = corpus.latest_package("django") else {
-        eprintln!("No Django in corpus.");
-        return;
-    };
-
-    let (specs, arities) = build_specs_from_extraction(&corpus, &django_dir)
-        .expect("Django tag and filter specs should build from corpus extraction");
+    let django_dir = source_fixture_root().join("django-5.2");
+    let (specs, arities) = build_specs_from_extraction(&django_dir)
+        .expect("Django tag and filter specs should build from vendored source extraction");
 
     let db = TestDatabase::new()
         .with_projectless_tag_specs(specs)
@@ -1475,10 +1462,8 @@ fn corpus_known_invalid_templates_produce_errors() {
 
 #[test]
 fn corpus_stylesheet_requires_one_argument() {
-    let corpus = Corpus::require().expect("synced corpus should be available");
-    let (specs, _) =
-        build_specs_from_extraction(&corpus, &corpus.root().join("repos/django-pipeline"))
-            .expect("corpus specs should build");
+    let (specs, _) = build_specs_from_extraction(&source_fixture_root().join("django-pipeline"))
+        .expect("vendored source specs should build");
     let db = TestDatabase::new().with_projectless_tag_specs(specs);
     assert_eq!(
         collect_errors(&db, "/control.html", "{% stylesheet 'main' %}")
@@ -1499,10 +1484,8 @@ fn corpus_stylesheet_requires_one_argument() {
 
 #[test]
 fn corpus_javascript_requires_one_argument() {
-    let corpus = Corpus::require().expect("synced corpus should be available");
-    let (specs, _) =
-        build_specs_from_extraction(&corpus, &corpus.root().join("repos/django-pipeline"))
-            .expect("corpus specs should build");
+    let (specs, _) = build_specs_from_extraction(&source_fixture_root().join("django-pipeline"))
+        .expect("vendored source specs should build");
     let db = TestDatabase::new().with_projectless_tag_specs(specs);
     let errors = collect_errors(&db, "/valid.html", "{% javascript 'main' %}")
         .expect("template validation should run");
@@ -1523,10 +1506,8 @@ fn corpus_javascript_requires_one_argument() {
 
 #[test]
 fn corpus_compress_requires_a_known_output_mode() {
-    let corpus = Corpus::require().expect("synced corpus should be available");
-    let (specs, _) =
-        build_specs_from_extraction(&corpus, &corpus.root().join("repos/django-compressor"))
-            .expect("corpus specs should build");
+    let (specs, _) = build_specs_from_extraction(&source_fixture_root().join("django-compressor"))
+        .expect("vendored source specs should build");
     let db = TestDatabase::new().with_projectless_tag_specs(specs);
     assert_eq!(
         collect_errors(
@@ -1555,9 +1536,8 @@ fn corpus_compress_requires_a_known_output_mode() {
 
 #[test]
 fn corpus_show_placeholder_gets_context_from_django() {
-    let corpus = Corpus::require().expect("synced corpus should be available");
-    let (specs, _) = build_specs_from_extraction(&corpus, &corpus.root().join("repos/django-cms"))
-        .expect("corpus specs should build");
+    let (specs, _) = build_specs_from_extraction(&source_fixture_root().join("django-cms"))
+        .expect("vendored source specs should build");
     let db = TestDatabase::new().with_projectless_tag_specs(specs);
     assert_eq!(
         collect_errors(
@@ -1582,9 +1562,8 @@ fn corpus_show_placeholder_gets_context_from_django() {
 
 #[test]
 fn corpus_eventsignal_rejects_extra_positional_arguments() {
-    let corpus = Corpus::require().expect("synced corpus should be available");
-    let (specs, _) = build_specs_from_extraction(&corpus, &corpus.root().join("repos/pretix"))
-        .expect("corpus specs should build");
+    let (specs, _) = build_specs_from_extraction(&source_fixture_root().join("pretix"))
+        .expect("vendored source specs should build");
     let db = TestDatabase::new().with_projectless_tag_specs(specs);
     assert_eq!(
         collect_errors(
@@ -1614,8 +1593,7 @@ fn corpus_eventsignal_rejects_extra_positional_arguments() {
 
 #[test]
 fn corpus_activity_stream_curried_registration() {
-    let corpus = Corpus::require().expect("synced corpus should be available");
-    let root = corpus.root().join("repos/django-activity-stream");
+    let root = source_fixture_root().join("django-activity-stream");
     let extraction_db = djls_testing::OsTestDatabase::with_disk_roots([root.clone()]);
     let file = djls_source::path_to_file(
         &extraction_db,
@@ -1633,7 +1611,7 @@ fn corpus_activity_stream_curried_registration() {
             .is_some()
     );
     let (specs, _) =
-        build_specs_from_extraction(&corpus, &root).expect("corpus specs should build");
+        build_specs_from_extraction(&root).expect("vendored source specs should build");
     let db = TestDatabase::new().with_projectless_tag_specs(specs);
     let errors = collect_errors(&db, "/valid.html", "{% activity_stream 'actor' %}")
         .expect("template validation should run");
@@ -1652,10 +1630,8 @@ fn corpus_activity_stream_curried_registration() {
 
 #[test]
 fn corpus_element_requires_an_argument() {
-    let corpus = Corpus::require().expect("synced corpus should be available");
-    let (specs, _) =
-        build_specs_from_extraction(&corpus, &corpus.root().join("repos/django-allauth"))
-            .expect("corpus specs should build");
+    let (specs, _) = build_specs_from_extraction(&source_fixture_root().join("django-allauth"))
+        .expect("vendored source specs should build");
     let db = TestDatabase::new().with_projectless_tag_specs(specs);
     assert_eq!(
         collect_errors(
@@ -1678,10 +1654,8 @@ fn corpus_element_requires_an_argument() {
 
 #[test]
 fn corpus_with_data_requires_as_keyword() {
-    let corpus = Corpus::require().expect("synced corpus should be available");
-    let (specs, _) =
-        build_specs_from_extraction(&corpus, &corpus.root().join("repos/django-sekizai"))
-            .expect("corpus specs should build");
+    let (specs, _) = build_specs_from_extraction(&source_fixture_root().join("django-sekizai"))
+        .expect("vendored source specs should build");
     let db = TestDatabase::new().with_projectless_tag_specs(specs);
     // False positives: the class parser has no tag or closing-tag spec.
     // WithData.options requires the literal 'as'; classytags supplies the
