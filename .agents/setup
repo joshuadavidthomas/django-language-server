@@ -83,12 +83,4 @@ fi
 echo "==> Syncing the locked test corpus"
 just corpus sync
 
-echo "==> Preparing historical corpus interpreters"
-bash tools/corpus-python.sh
-
-echo "==> Checking project-backed corpus environments"
-if ! just corpus environment check; then
-    just corpus environment sync
-fi
-
 echo "==> Setup complete"
