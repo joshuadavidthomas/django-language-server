@@ -107,6 +107,29 @@ def tests(session, django):
             if arg:
                 args.extend(arg.split(" "))
         command.extend(args)
+    # Corpus-wide sweeps run once in the corpus job, not in every matrix entry.
+    if "--" not in command:
+        command.append("--")
+    for test_filter in (
+        "corpus_environment::",
+        "corpus_validation::",
+        "corpus_inheritance::",
+        "model_extraction_snapshots",
+        "corpus_registration_census",
+    ):
+        command.extend(["--skip", test_filter])
+    session.run(
+        "cargo",
+        "run",
+        "-p",
+        "djls-testing",
+        "--bin",
+        "corpus",
+        "--",
+        "sync",
+        "--source-only",
+        external=True,
+    )
     session.run(*command, external=True)
 
 
@@ -125,8 +148,6 @@ def corpus(session):
         "djls-semantic",
         "-p",
         "djls-testing",
-        "--features",
-        "corpus-tests",
         "--test",
         "corpus",
         "--test",

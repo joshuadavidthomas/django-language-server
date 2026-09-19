@@ -103,19 +103,20 @@ This installs Rust, Just, uv, prek, cargo-insta, Hawk, and zizmor. For nonintera
 
 Tool versions are defined in [`mise.toml`](mise.toml) and the checked-in `rust-toolchain.toml` files.
 
-Install the locked Python development dependencies without building the local Rust package, fetch the Rust dependencies, and install the Git hooks:
+Install the locked Python development dependencies without building the local Rust package, fetch the Rust dependencies, install the Git hooks, and prefetch the test corpus:
 
 ```bash
 uv sync --frozen --no-install-project
 cargo fetch --locked
 prek install
+just corpus sync
 ```
 
 The first test or lint run may still download a supported Python version, create Nox environments, compile the Rust workspace, and prepare hook environments. Subsequent runs reuse those artifacts.
 
 ### Make your first change
 
-Create a branch and run `just test` before editing to establish a working baseline. This prepares the default Python/Django environment and runs the normal Rust suite, using checked-in fixtures without downloading the corpus. Subsequent runs reuse the environment.
+Create a branch and run `just test` before editing to establish a working baseline. This is the normal test command: it prepares the default Python/Django environment and corpus, then runs the Rust suite. Subsequent runs reuse the environment, so you do not need to manage it yourself.
 
 Use the crate map above to find the code that owns the behavior. The [test-layer overview](ARCHITECTURE.md#testing) explains where parser, semantic, corpus, and LSP tests live; start with a nearby test and add a case that reproduces the bug or exercises the new behavior.
 
@@ -200,20 +201,20 @@ Use `just test` by default, including for focused runs. It forwards crate and te
 
 | Command | What it runs | When to choose it |
 |---|---|---|
-| `just test` | The normal Rust suite in a Nox-managed Python 3.10/Django 5.2 environment; no corpus download | Everyday development and the pre-PR check |
+| `just test` | The Rust suite excluding corpus-wide sweeps, in a Nox-managed Python 3.10/Django 5.2 environment, after synchronizing corpus source | Everyday development and the pre-PR check |
 | `just testall` | The Rust suite in each configured compatible Python/Django combination, including Django `main` | Changing version support or investigating a matrix-specific failure; this does not include LSP end-to-end tests |
-| `uv run --no-project --with 'nox[uv]' nox -s corpus` | Prepare the complete corpus and run the six corpus-wide suites | Checking behavior against real projects and their dependencies |
+| `uv run --no-project --with 'nox[uv]' nox -s corpus` | Prepare source and dependencies, then run all six corpus-wide suites | Checking real projects in their own dependency environments, once outside the version matrix |
 | `just e2e` | Python/pytest LSP end-to-end tests against the checkout, in the default Python/Django environment | Changing editor-visible behavior such as initialization, diagnostics, navigation, or completions |
 
-`just test` and `just testall` create or reuse isolated Nox environments and install the selected Django version before running Cargo. This does not mean every Rust test analyzes that installed Django version: focused source-backed tests use checked-in upstream source fixtures or explicit test data. The version matrix and incompatible combinations are defined in [`noxfile.py`](noxfile.py).
+`just test` and `just testall` create or reuse isolated Nox environments and install the selected Django version before running Cargo. This does not mean every Rust test analyzes that installed Django version: source-backed fixtures use pinned corpus files or explicit test data. The version matrix and incompatible combinations are defined in [`noxfile.py`](noxfile.py).
 
-You may see `cargo test` in Rust documentation. It runs the normal Rust suite directly, without the Python environment setup provided by `just test`. It does not require the downloaded corpus.
+You may see `cargo test` in Rust documentation. It runs the Rust suite directly, without the environment setup or corpus synchronization provided by `just test`. You do not need to use it separately in the normal contribution workflow.
 
 #### Corpus
 
-The corpus contains pinned source from real Django packages and projects under `crates/djls-testing/.corpus`. The Nox `corpus` session runs `just corpus sync`'s underlying command to prepare source and dependencies, then enables the `corpus-tests` Cargo feature for the six suites. CI runs this once, outside the Python/Django matrix. To run an individual prepared repository, use `cargo test -p djls-project --features corpus-tests --test corpus django-bootstrap3`.
+The complete suite requires the corpus: pinned project source and dependencies under `crates/djls-testing/.corpus`. Run `just corpus sync` for setup. Subsequent syncs reuse unchanged checkouts and ready environments, rebuilding only missing or stale entries. Use `just corpus sync --refresh` to deliberately refresh dependencies, including unlocked upstream requirements. No additional dependency lockfiles are maintained by the corpus.
 
-Focused tests instead use vendored source, refreshed from the same pinned corpus with `just corpus vendor-spec-fixtures`. CI checks these copies with `--check`; normal test runs neither download nor regenerate them. See [the corpus README](crates/djls-testing/README.md) for environment setup and fixture maintenance.
+`just test` and `just testall` sync source for their focused tests but leave the six corpus-wide sweeps to the separate Nox `corpus` session. Those sweeps use each project's own environment where import resolution matters, so repeating them under every ambient Python/Django version adds no coverage. Plain `cargo test` includes them and therefore needs complete setup. Isolated tests such as `cargo test -p djls-templates` can run without the corpus; that subset is not a substitute for real-project extraction coverage.
 
 #### Snapshots
 

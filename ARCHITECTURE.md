@@ -300,24 +300,20 @@ error[S114]: Not expecting 'and' in this position in if tag.
   = note: in tag: if
 ```
 
-Focused semantic tests do not require a Django installation or run a Python interpreter. Source-only tests may supply tag specs and filter arities directly. Project-scoped tests supply settings and Python modules through `ProjectFixture`, or use the bounded vendored Django source fixture, then exercise the same Template Library catalog and scope derivation used by production. JSON fixtures remain appropriate for isolated extraction projections.
+Static analysis does not execute project code to derive facts. This does not mean dependency-free analysis: corpus setup uses Python to install dependencies, then the analyzer resolves their source statically. Focused tests can supply controlled source through `ProjectFixture` for edge cases. JSON fixtures remain appropriate for isolated extraction projections.
 
 ### Corpus Tests
 
-The corpus (`just corpus sync`) prepares pinned repository source and project-specific Python environments for Django, third-party libraries, and applications such as Sentry and NetBox. Dependencies follow each pinned project's upstream metadata or lockfile.
+This is the most interesting testing infrastructure. The corpus (`just corpus sync`) downloads real source from 40+ PyPI packages (Django itself, django-allauth, django-crispy-forms, etc.) and 17 real-world projects (Sentry, NetBox, Read the Docs).
 
-Six suites run once in the dedicated Nox `corpus` session, outside the Python/Django matrix:
+Corpus tests serve two purposes:
 
-| Suite | Boundary |
-|---|---|
-| `djls-project/tests/corpus.rs` | Extraction snapshots using each repository's source and installed dependencies |
-| `djls-project/tests/corpus_settings.rs` | Project-backed settings extraction snapshots |
-| `djls-semantic/tests/corpus_validation.rs` | Argument-validation false positives on real templates, with rules extracted from that project's environment |
-| `djls-project/tests/corpus_models.rs` | File-local model extraction snapshots; no import resolution |
-| `djls-testing/tests/registration_coverage.rs` | Source-level registration census, not a runtime registration inventory |
-| `djls-semantic/tests/corpus_inheritance.rs` | Termination of template inheritance traversal using synthetic template roots |
+1. **Extraction snapshot tests** — parse every `templatetags/*.py` file with the Ruff parser and snapshot the extracted rules. This catches regressions in Python AST analysis and documents what we can extract from real-world code.
+2. **Validation integration tests** — validate real templates against extracted rules. This is our "zero false positives" check: if we report a diagnostic on a template from a real project, it's probably a bug in our analysis, not in the project.
 
-These targets require the `corpus-tests` Cargo feature. Normal `cargo test`, `just test`, and the matrix do not download the corpus. Focused tests instead use checked-in snippets or full source modules from a bounded selection, maintained by `just corpus vendor-spec-fixtures` and checked against the corpus in CI. They are static-analysis fixtures, not substitutes for real-project environments. Benchmark corpus workloads remain in the separate benchmark workflow.
+The corpus is deliberately not checked into the repository. `just corpus sync` prepares pinned source and each project's dependency environment, reusing ready entries on subsequent runs. `--refresh` explicitly rebuilds environments and re-resolves unlocked dependencies. Corpus setup is a prerequisite for full coverage, not a reason to duplicate whole upstream modules as fixtures.
+
+The dedicated Nox `corpus` session runs extraction, settings, model, registration-census, validation, and inheritance sweeps once outside the Python/Django matrix. Extraction, settings, and validation use project environments; file-local model extraction, the syntax census, and template inheritance termination do not need Python import resolution. The matrix retains focused regressions using synced source and controlled fixtures.
 
 ### Incremental Computation Tests
 

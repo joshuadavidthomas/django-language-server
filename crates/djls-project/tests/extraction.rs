@@ -32,13 +32,13 @@ use djls_source::ChangeEvent;
 use djls_source::File;
 use djls_source::SourceChanges;
 use djls_source::Span;
+use djls_testing::Corpus;
 use djls_testing::ExtractionBundle;
 use djls_testing::ProjectFixture;
 use djls_testing::SalsaEventLog;
 use djls_testing::TestDatabase;
 use djls_testing::extract_bundle;
 use djls_testing::sorted_snapshot;
-use djls_testing::source_fixture_root;
 use djls_testing::will_execute_count;
 
 const ALLAUTH_TAGS_SOURCE: &str = include_str!("../src/templates/tags/testdata/allauth_tags.py");
@@ -281,8 +281,11 @@ fn install_stringfilter_project(
     caller: &str,
     alter_library: impl FnOnce(String) -> String,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let corpus = Corpus::require()?;
     let source = fs::read_to_string(
-        source_fixture_root().join("django-5.2/django/template/defaultfilters.py"),
+        corpus
+            .root()
+            .join("repos/django-5.2/django/template/defaultfilters.py"),
     )?;
     ProjectFixture::new("/test/project")
         .django_settings_module("settings")
@@ -654,8 +657,11 @@ fn first_party_stringfilter_evidence_tracks_the_selected_export() {
 
 #[test]
 fn canonical_stringfilter_in_source_checkout_preserves_filter_arities() {
+    let corpus = Corpus::require().expect("corpus source");
     let source = fs::read_to_string(
-        source_fixture_root().join("django-5.2/django/template/defaultfilters.py"),
+        corpus
+            .root()
+            .join("repos/django-5.2/django/template/defaultfilters.py"),
     )
     .expect("Django defaultfilters source");
     for root in ["/test/project", "/test/django-source"] {
@@ -2990,7 +2996,8 @@ def panel(content): pass
 
 #[test]
 fn locked_sentry_asset_helpers_resolve_through_project_backed_imports() {
-    let sentry_root = source_fixture_root().join("sentry/src/sentry");
+    let corpus = Corpus::require().expect("synced corpus should be available for corpus tests");
+    let sentry_root = corpus.root().join("repos/sentry/src/sentry");
     let registration_source = fs::read_to_string(
         sentry_root
             .join("templatetags/sentry_assets.py")
@@ -5333,9 +5340,10 @@ fn corpus_simple_block() {
 
 #[test]
 fn installed_django_filters_preserve_registration_forms_and_stringfilter_arities() {
+    let corpus = Corpus::require().expect("synced corpus");
     for version in ["5.2", "6.0", "6.1"] {
-        let source = fs::read_to_string(source_fixture_root().join(format!(
-            "django-{version}/django/template/defaultfilters.py"
+        let source = fs::read_to_string(corpus.root().join(format!(
+            "repos/django-{version}/django/template/defaultfilters.py"
         )))
         .expect("Django defaultfilters source");
         let mut db = TestDatabase::new();
@@ -5549,7 +5557,10 @@ fn project_assignment_rule(
     caller_source: &str,
     alter_base: impl FnOnce(String) -> String,
 ) -> Result<Option<std::sync::Arc<djls_project::TagRule>>, Box<dyn std::error::Error>> {
-    let base_path = source_fixture_root().join("django-5.2/django/template/base.py");
+    let corpus = Corpus::require()?;
+    let base_path = corpus
+        .root()
+        .join("repos/django-5.2/django/template/base.py");
     let base = fs::read_to_string(base_path.as_std_path())?;
     let base = alter_base(base);
     let mut db = TestDatabase::new();
@@ -5752,8 +5763,13 @@ fn replaced_or_recovered_canonical_exports_do_not_gain_native_semantics() {
 
 #[test]
 fn first_party_django_shadow_does_not_gain_native_assignment_semantics() {
-    let base = fs::read_to_string(source_fixture_root().join("django-5.2/django/template/base.py"))
-        .expect("locked Django source should be readable");
+    let corpus = Corpus::require().expect("synced corpus should be available");
+    let base = fs::read_to_string(
+        corpus
+            .root()
+            .join("repos/django-5.2/django/template/base.py"),
+    )
+    .expect("locked Django source should be readable");
     let mut db = TestDatabase::new();
     ProjectFixture::new("/test/project")
         .django_settings_module("settings")

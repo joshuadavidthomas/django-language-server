@@ -281,11 +281,15 @@ impl Corpus {
         Ok(format!("{:016x}\n", stamp.finish()))
     }
 
-    /// Rebuild from upstream declarations, recording the resulting environment.
-    pub fn sync_environment(&self, name: &str) -> anyhow::Result<()> {
+    /// Prepare missing/stale environments; refresh explicitly re-resolves dependencies.
+    pub fn sync_environment(&self, name: &str, refresh: bool) -> anyhow::Result<()> {
         let (environment, revision) = self.environment_recipe(name)?;
         if let Dependencies::Deferred { reason } = &environment.dependencies {
             anyhow::bail!("corpus environment `{name}` is deferred: {reason}");
+        }
+        if !refresh && self.environment_database(name).is_ok() {
+            tracing::info!(%name, "environment already ready");
+            return Ok(());
         }
         let stamp = self.environment_stamp(name)?;
         let root = self.root.join("environments").join(name);
@@ -649,6 +653,22 @@ mod tests {
         )
         .expect("move Django into checkout");
         assert!(corpus.environment_database("example").is_ok());
+        // The placeholder interpreter cannot run. Reusing this complete fixture
+        // must not invoke uv, rewrite metadata, or remove installed source.
+        let ready = std::fs::read(root.join(".ready")).expect("readiness stamp");
+        let metadata = std::fs::read(root.join("pyvenv.cfg")).expect("venv metadata");
+        corpus
+            .sync_environment("example", false)
+            .expect("reuse ready environment");
+        assert_eq!(
+            std::fs::read(root.join(".ready")).expect("stamp remains"),
+            ready
+        );
+        assert_eq!(
+            std::fs::read(root.join("pyvenv.cfg")).expect("metadata remains"),
+            metadata
+        );
+        assert!(site_packages.join("dependency.py").is_file());
     }
 
     #[test]

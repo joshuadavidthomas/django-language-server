@@ -675,25 +675,25 @@ mod tests {
 
     #[test]
     fn corpus_exposes_real_repo_settings_projects() {
-        // This checks checked-in metadata, not downloaded repository contents.
-        let manifest_path = Utf8PathBuf::from(super::MANIFEST_PATH);
-        let manifest =
-            super::Manifest::load(&manifest_path).expect("default corpus manifest should load");
-        let projects = manifest
+        let corpus = Corpus::require().expect("synced corpus should be available");
+        let projects = corpus
             .repo_settings_projects()
+            .expect("default corpus manifest should load")
             .into_iter()
             .map(|project| {
+                let relative_root = if project.project_root == project.checkout_root {
+                    ".".to_string()
+                } else {
+                    project
+                        .project_root
+                        .strip_prefix(&project.checkout_root)
+                        .expect("project root should stay within its checkout")
+                        .to_string()
+                };
                 (
-                    project.repo_name.to_string(),
-                    project
-                        .relative_root
-                        .unwrap_or(camino::Utf8Path::new("."))
-                        .to_string(),
-                    project
-                        .django_settings_modules
-                        .into_iter()
-                        .map(str::to_string)
-                        .collect::<Vec<_>>(),
+                    project.repo_name,
+                    relative_root,
+                    project.django_settings_modules,
                 )
             })
             .collect::<Vec<_>>();

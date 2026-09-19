@@ -1,4 +1,3 @@
-use std::collections::BTreeSet;
 use std::fs;
 
 use anyhow::Context as _;
@@ -7,7 +6,6 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 
 use crate::Corpus;
-use crate::fixtures::source_fixture_root;
 
 pub struct VendorSpecFixturesOptions {
     pub check: bool,
@@ -16,10 +14,6 @@ pub struct VendorSpecFixturesOptions {
 
 pub fn vendor_spec_fixtures(options: VendorSpecFixturesOptions) -> anyhow::Result<()> {
     let corpus = Corpus::require()?;
-    let source_output_dir = options
-        .output_dir
-        .as_ref()
-        .map_or_else(source_fixture_root, |path| path.join("source"));
     let output_dir = options.output_dir.unwrap_or_else(default_spec_fixture_dir);
 
     if !options.check {
@@ -38,47 +32,9 @@ pub fn vendor_spec_fixtures(options: VendorSpecFixturesOptions) -> anyhow::Resul
         }
     }
 
-    for fixture in SOURCE_FIXTURES {
-        let package_dir = corpus.latest_package(fixture.repo).ok_or_else(|| {
-            anyhow::anyhow!(
-                "synced corpus repository `{}` not found; run `just corpus sync`",
-                fixture.repo
-            )
-        })?;
-        let source_path = package_dir.join(fixture.relative_path);
-        let content = fs::read(source_path.as_std_path())
-            .with_context(|| format!("failed to read {source_path}"))?;
-        let output_path = source_output_dir
-            .join(fixture.repo)
-            .join(fixture.relative_path);
-        if options.check {
-            check_fixture(&output_path, &content, &mut stale)?;
-        } else {
-            write_fixture(&output_path, &content)?;
-        }
-    }
-
-    for repo in SOURCE_FIXTURES
-        .iter()
-        .map(|fixture| fixture.repo)
-        .collect::<BTreeSet<_>>()
-    {
-        let license_path = Utf8Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("licenses")
-            .join(repo);
-        let content = fs::read(license_path.as_std_path())
-            .with_context(|| format!("failed to read {license_path}"))?;
-        let output_path = source_output_dir.join(repo).join("LICENSE");
-        if options.check {
-            check_fixture(&output_path, &content, &mut stale)?;
-        } else {
-            write_fixture(&output_path, &content)?;
-        }
-    }
-
     if !stale.is_empty() {
         bail!(
-            "vendored fixtures are out of date:\n  {}\nrun `just corpus vendor-spec-fixtures` to update them",
+            "vendored spec fixtures are out of date:\n  {}\nrun `just corpus vendor-spec-fixtures` to update them",
             stale.join("\n  ")
         );
     }
@@ -90,7 +46,7 @@ fn default_spec_fixture_dir() -> Utf8PathBuf {
     Utf8Path::new(env!("CARGO_MANIFEST_DIR")).join("../djls-project/src/templates/tags/testdata")
 }
 
-fn write_fixture(path: &Utf8Path, content: impl AsRef<[u8]>) -> anyhow::Result<()> {
+fn write_fixture(path: &Utf8Path, content: &str) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent.as_std_path())
             .with_context(|| format!("failed to create {parent}"))?;
@@ -98,13 +54,9 @@ fn write_fixture(path: &Utf8Path, content: impl AsRef<[u8]>) -> anyhow::Result<(
     fs::write(path.as_std_path(), content).with_context(|| format!("failed to write {path}"))
 }
 
-fn check_fixture(
-    path: &Utf8Path,
-    expected: impl AsRef<[u8]>,
-    stale: &mut Vec<String>,
-) -> anyhow::Result<()> {
-    match fs::read(path.as_std_path()) {
-        Ok(actual) if actual == expected.as_ref() => Ok(()),
+fn check_fixture(path: &Utf8Path, expected: &str, stale: &mut Vec<String>) -> anyhow::Result<()> {
+    match fs::read_to_string(path.as_std_path()) {
+        Ok(actual) if actual == expected => Ok(()),
         Ok(_) => {
             stale.push(path.to_string());
             Ok(())
@@ -221,11 +173,6 @@ struct SpecFixture {
     chunks: &'static [FixtureChunk],
 }
 
-struct SourceFixture {
-    repo: &'static str,
-    relative_path: &'static str,
-}
-
 enum FixtureChunk {
     TopLevelItem(&'static str),
     SourceLine(&'static str),
@@ -239,99 +186,6 @@ impl FixtureChunk {
         }
     }
 }
-
-macro_rules! source_fixtures {
-    ($($repo:literal => [$($path:literal),+ $(,)?]),+ $(,)?) => {
-        &[$($(SourceFixture { repo: $repo, relative_path: $path }),+),+]
-    };
-}
-
-const SOURCE_FIXTURES: &[SourceFixture] = source_fixtures![
-    "django-5.2" => [
-        "django/__init__.py",
-        "django/contrib/__init__.py",
-        "django/contrib/admin/__init__.py",
-        "django/contrib/admin/templatetags/__init__.py",
-        "django/contrib/admin/templatetags/admin_list.py",
-        "django/contrib/admin/templatetags/admin_modify.py",
-        "django/contrib/admin/templatetags/admin_urls.py",
-        "django/contrib/admin/templatetags/base.py",
-        "django/contrib/admin/templatetags/log.py",
-        "django/contrib/admin/templates/admin/base.html",
-        "django/contrib/auth/__init__.py",
-        "django/contrib/auth/templates/registration/password_reset_subject.txt",
-        "django/contrib/contenttypes/__init__.py",
-        "django/contrib/flatpages/__init__.py",
-        "django/contrib/flatpages/templatetags/__init__.py",
-        "django/contrib/flatpages/templatetags/flatpages.py",
-        "django/contrib/humanize/__init__.py",
-        "django/contrib/humanize/templatetags/__init__.py",
-        "django/contrib/humanize/templatetags/humanize.py",
-        "django/contrib/messages/__init__.py",
-        "django/contrib/sessions/__init__.py",
-        "django/contrib/staticfiles/__init__.py",
-        "django/template/__init__.py",
-        "django/template/base.py",
-        "django/template/context.py",
-        "django/template/defaultfilters.py",
-        "django/template/defaulttags.py",
-        "django/template/library.py",
-        "django/template/loader_tags.py",
-        "django/templatetags/__init__.py",
-        "django/templatetags/cache.py",
-        "django/templatetags/i18n.py",
-        "django/templatetags/l10n.py",
-        "django/templatetags/static.py",
-        "django/templatetags/tz.py",
-        "tests/check_framework/__init__.py",
-        "tests/check_framework/template_test_apps/__init__.py",
-        "tests/check_framework/template_test_apps/different_tags_app/__init__.py",
-        "tests/check_framework/template_test_apps/different_tags_app/templatetags/__init__.py",
-        "tests/check_framework/template_test_apps/different_tags_app/templatetags/different_tags.py",
-        "tests/check_framework/template_test_apps/same_tags_app_1/__init__.py",
-        "tests/check_framework/template_test_apps/same_tags_app_1/templatetags/__init__.py",
-        "tests/check_framework/template_test_apps/same_tags_app_1/templatetags/same_tags.py",
-        "tests/check_framework/template_test_apps/same_tags_app_2/__init__.py",
-        "tests/check_framework/template_test_apps/same_tags_app_2/templatetags/__init__.py",
-        "tests/check_framework/template_test_apps/same_tags_app_2/templatetags/same_tags.py",
-        "tests/forms_tests/__init__.py",
-        "tests/forms_tests/templatetags/__init__.py",
-        "tests/forms_tests/templatetags/tags.py",
-        "tests/template_backends/__init__.py",
-        "tests/template_backends/apps/__init__.py",
-        "tests/template_backends/apps/good/__init__.py",
-        "tests/template_backends/apps/good/templatetags/__init__.py",
-        "tests/template_backends/apps/good/templatetags/empty.py",
-        "tests/template_backends/apps/good/templatetags/good_tags.py",
-        "tests/template_backends/apps/good/templatetags/override.py",
-        "tests/template_backends/apps/importerror/__init__.py",
-        "tests/template_backends/apps/importerror/templatetags/__init__.py",
-        "tests/template_backends/apps/importerror/templatetags/broken_tags.py",
-        "tests/template_tests/__init__.py",
-        "tests/template_tests/templatetags/__init__.py",
-        "tests/template_tests/templatetags/bad_tag.py",
-        "tests/template_tests/templatetags/custom.py",
-        "tests/template_tests/templatetags/inclusion.py",
-        "tests/template_tests/templatetags/tag_27584.py",
-        "tests/template_tests/templatetags/testtags.py",
-        "tests/view_tests/__init__.py",
-        "tests/view_tests/templatetags/__init__.py",
-        "tests/view_tests/templatetags/debugtags.py",
-    ],
-    "django-6.0" => ["django/template/defaultfilters.py"],
-    "django-6.1" => ["django/template/defaultfilters.py"],
-    "sentry" => [
-        "src/sentry/templatetags/sentry_assets.py",
-        "src/sentry/utils/assets.py",
-    ],
-    "django-pipeline" => ["pipeline/templatetags/pipeline.py"],
-    "django-compressor" => ["compressor/templatetags/compress.py"],
-    "django-cms" => ["cms/templatetags/cms_tags.py"],
-    "pretix" => ["src/pretix/base/templatetags/eventsignal.py"],
-    "django-activity-stream" => ["actstream/templatetags/activity_tags.py"],
-    "django-allauth" => ["allauth/templatetags/allauth.py"],
-    "django-sekizai" => ["sekizai/templatetags/sekizai_tags.py"],
-];
 
 const SPEC_FIXTURES: &[SpecFixture] = &[
     SpecFixture {

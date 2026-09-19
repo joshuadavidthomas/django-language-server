@@ -1,8 +1,6 @@
 ci:
   skip: [cargo-fmt, cargo-clippy]
 
-exclude: ^crates/djls-testing/fixtures/source/
-
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0

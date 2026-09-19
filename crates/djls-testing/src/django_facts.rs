@@ -8,7 +8,7 @@ use djls_project::TemplateSymbolKind;
 use serde::Deserialize;
 
 use crate::db::OsTestDatabase;
-use crate::fixtures::django_project_database;
+use crate::fixtures::corpus_project_database;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -64,7 +64,7 @@ pub fn django_facts_project(
         )
     })?;
     let project_root = workspace.join(project_dir);
-    let (db, project, django_source_root) = django_project_database(
+    let (db, project, django_source_root) = corpus_project_database(
         project_root.clone(),
         [project_root.clone()],
         settings_module,

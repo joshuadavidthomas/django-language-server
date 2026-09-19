@@ -3,9 +3,6 @@ name = "djls-project"
 version = "0.0.0"
 edition.workspace = true
 
-[features]
-corpus-tests = []
-
 [dependencies]
 djls-conf = { workspace = true }
 djls-source = { workspace = true }
@@ -32,16 +29,10 @@ toml = { workspace = true }
 [[test]]
 name = "corpus"
 harness = false
-required-features = ["corpus-tests"]
-
-[[test]]
-name = "corpus_models"
-required-features = ["corpus-tests"]
 
 [[test]]
 name = "corpus_settings"
 harness = false
-required-features = ["corpus-tests"]
 
 [lints]
 workspace = true

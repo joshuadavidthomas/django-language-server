@@ -3,9 +3,6 @@ name = "djls-semantic"
 version = "0.0.0"
 edition.workspace = true
 
-[features]
-corpus-tests = []
-
 [dependencies]
 djls-conf = { workspace = true }
 djls-project = { workspace = true }
@@ -36,12 +33,10 @@ tempfile = { workspace = true }
 [[test]]
 name = "corpus_inheritance"
 harness = false
-required-features = ["corpus-tests"]
 
 [[test]]
 name = "corpus_validation"
 harness = false
-required-features = ["corpus-tests"]
 
 [[test]]
 name = "mdtest"

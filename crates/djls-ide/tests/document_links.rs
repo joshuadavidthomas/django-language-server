@@ -12,7 +12,7 @@ use djls_source::PositionEncoding;
 use djls_testing::ProjectFixture;
 use djls_testing::ProjectSettings;
 use djls_testing::TestDatabase;
-use djls_testing::django_project_database;
+use djls_testing::corpus_project_database;
 use tower_lsp_server::ls_types;
 
 fn document_links(db: &dyn djls_semantic::Db, file: File) -> Vec<ls_types::DocumentLink> {
@@ -300,7 +300,7 @@ fn document_links_resolve_load_libraries_with_argument_ranges() {
     let project_root = Utf8PathBuf::from_path_buf(project_root)
         .expect("document-links project fixture path should be UTF-8");
     let (db, _, _) =
-        django_project_database(project_root.clone(), [project_root.clone()], "settings")
+        corpus_project_database(project_root.clone(), [project_root.clone()], "settings")
             .expect("template-library project fixture should install");
     let template_path = project_root.join("templates/load.html");
     let file = db

@@ -443,6 +443,7 @@ pub fn collect_argument_validation_errors_with_revision(
 }
 
 fn extract_and_merge(
+    _corpus: &Corpus,
     dir: &Utf8Path,
     specs: &mut TagSpecs,
     arities: &mut FilterAritySpecs,
@@ -453,7 +454,7 @@ fn extract_and_merge(
         let source = std::fs::read_to_string(file_path.as_std_path())
             .with_context(|| format!("failed to read extraction fixture `{file_path}`"))?;
 
-        let module_name = module_name_from_file(file_path.strip_prefix(dir)?);
+        let module_name = module_name_from_file(file_path);
         let module_name = PythonModuleName::parse(&module_name)
             .with_context(|| format!("invalid module name derived from `{file_path}`"))?;
         db.add_file(file_path.as_str(), &source)?;
@@ -469,11 +470,12 @@ fn extract_and_merge(
 }
 
 pub fn build_specs_from_extraction(
+    corpus: &Corpus,
     entry_dir: &Utf8Path,
 ) -> anyhow::Result<(TagSpecs, FilterAritySpecs)> {
     let mut specs = builtin_tag_specs();
     let mut arities = FilterAritySpecs::new();
-    extract_and_merge(entry_dir, &mut specs, &mut arities)?;
+    extract_and_merge(corpus, entry_dir, &mut specs, &mut arities)?;
     Ok((specs, arities))
 }
 
@@ -571,32 +573,27 @@ pub fn snapshot_validate_files<'a>(
     render_diagnostic_snapshot(primary_display_path, primary_source, &errors)
 }
 
-#[must_use]
-pub fn source_fixture_root() -> Utf8PathBuf {
-    Utf8Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/source")
-}
-
-/// Validation fixture backed by vendored Django source, independent of the host environment.
+/// Validation fixture for mdtest snapshots backed by the pinned Django corpus.
 pub fn standard_validation_db() -> anyhow::Result<OsTestDatabase> {
     validation_db(&ProjectSettings::default().settings_py())
 }
 
-pub fn django_project_database(
+pub fn corpus_project_database(
     project_root: Utf8PathBuf,
     disk_roots: impl IntoIterator<Item = Utf8PathBuf>,
     settings_module: &str,
 ) -> anyhow::Result<(OsTestDatabase, Project, Utf8PathBuf)> {
-    let django_source_root = source_fixture_root().join("django-5.2");
+    let corpus = Corpus::require()?;
+    let django_source_root = corpus.root().join("repos/django-5.2");
     anyhow::ensure!(
         django_source_root.join("django/__init__.py").is_file(),
-        "vendored Django 5.2 fixture is missing"
+        "pinned Django 5.2 corpus source is missing"
     );
 
     let mut disk_roots = disk_roots.into_iter().collect::<Vec<_>>();
     disk_roots.push(django_source_root.clone());
     let mut db = OsTestDatabase::with_disk_roots(disk_roots);
-    let python_environment =
-        PythonEnvironment::Path(source_fixture_root().join("hermetic-no-venv"));
+    let python_environment = PythonEnvironment::Path(corpus.root().join("hermetic-no-venv"));
     let pythonpath = vec![django_source_root.clone()];
     let search_paths = SearchPaths::from_paths(vec![
         SearchPath::FirstParty(project_root.clone()),
@@ -620,7 +617,7 @@ pub fn django_project_database(
 
 pub fn validation_db(settings_py: &str) -> anyhow::Result<OsTestDatabase> {
     let project_root = Utf8PathBuf::from("/fixture");
-    let (mut db, _, _) = django_project_database(project_root, [], "settings")?;
+    let (mut db, _, _) = corpus_project_database(project_root, [], "settings")?;
     db.add_file("/fixture/settings.py", settings_py)?;
     Ok(db)
 }

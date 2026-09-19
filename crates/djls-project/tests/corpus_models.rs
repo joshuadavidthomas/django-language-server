@@ -12,10 +12,10 @@
 //! cargo run -p djls-testing --bin corpus -- sync -U
 //!
 //! # Run model corpus tests:
-//! cargo test -p djls-project --features corpus-tests --test corpus_models -- --nocapture
+//! cargo test -p djls-project --test corpus_models -- --nocapture
 //!
 //! # Update snapshots after intentional changes:
-//! INSTA_UPDATE=1 cargo test -p djls-project --features corpus-tests --test corpus_models
+//! INSTA_UPDATE=1 cargo test -p djls-project --test corpus_models
 //! ```
 
 use djls_project::PythonModuleName;

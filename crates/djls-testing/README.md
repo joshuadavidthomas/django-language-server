@@ -14,8 +14,8 @@ just corpus sync                                     # Prepare source, interpret
 cargo run -p djls-testing --bin corpus -- sync --source-only # Download source fixtures only
 cargo run -p djls-testing --bin corpus -- sync -U       # Re-resolve versions then sync
 cargo run -p djls-testing --bin corpus -- clean         # Remove all synced corpus data
-cargo run -p djls-testing --bin corpus -- vendor-spec-fixtures         # Regenerate snippets and focused source fixtures
-cargo run -p djls-testing --bin corpus -- vendor-spec-fixtures --check # Check both against the pinned corpus
+cargo run -p djls-testing --bin corpus -- vendor-spec-fixtures         # Regenerate vendored djls-project spec fixtures
+cargo run -p djls-testing --bin corpus -- vendor-spec-fixtures --check # Check vendored spec fixtures are current
 ```
 
 ## Per-repository environments
@@ -43,7 +43,9 @@ The `environment` subcommands are optional refresh and diagnostic tools, not
 additional setup steps:
 
 ```bash
-just corpus environment sync healthchecks   # Refresh one repository's dependencies
+just corpus environment sync healthchecks   # Prepare one repository, reusing it when ready
+just corpus environment refresh healthchecks # Rebuild and refresh one repository's dependencies
+just corpus sync --refresh                 # Rebuild and refresh all non-deferred environments
 just corpus environment check healthchecks  # Check readiness and build the project database
 just corpus environment check               # Report every unconfigured/unready repository
 just corpus environment extract healthchecks # Emit project-backed extraction as JSON lines
@@ -53,7 +55,7 @@ The source lock pins each checkout SHA. Dependency setup then follows the
 upstream-owned source of truth: an upstream `uv.lock` or `poetry.lock`, or direct
 metadata and requirements inputs from the pinned checkout. The corpus does not
 generate or keep dependency lockfiles. If upstream leaves dependencies unlocked,
-the corpus leaves them unlocked too, and each sync resolves them anew. Checkout
+the corpus leaves them unlocked too; initial setup and explicit refresh resolve them anew. Checkout
 source is supplied separately to the analyzer through the configured source
 roots.
 
@@ -75,8 +77,11 @@ the environment that produced them.
 A separate disposable readiness stamp detects source, recipe, upstream Python
 selection, setup-policy, and native-lock changes. It does not claim that unlocked
 dependencies are current.
-`sync` clears and rebuilds the environments, refreshing dependency
-resolution. Tests never install or update dependencies, and missing setup never
+`sync` reuses an environment when its readiness stamp matches, its interpreter and
+venv metadata exist, and its project database can resolve Django. Missing, stale,
+or incomplete environments are rebuilt. `sync --refresh` deliberately rebuilds
+ready environments too, refreshing dependency resolution. Tests never install or
+update dependencies, and missing setup never
 falls back to isolated extraction.
 
 `Corpus::environment_database` exposes checkout source and the repository's own
@@ -86,23 +91,21 @@ if dependency installation succeeded. It does not execute Django settings or
 start backing services. Source code remains project code: a Django checkout is
 not relabelled as an installed dependency to obtain different extraction results.
 
-Extraction, settings, and validation suites use these project-backed databases. Extraction
+Extraction, settings, and validation use these project-backed databases. Extraction
 has one test per repository, so a library can be run individually:
 
 ```bash
-cargo test -p djls-project --features corpus-tests --test corpus django-bootstrap3
-cargo test -p djls-project --features corpus-tests --test corpus_settings healthchecks
+cargo test -p djls-project --test corpus django-bootstrap3
+cargo test -p djls-project --test corpus_settings healthchecks
 uv run --no-project --with 'nox[uv]' nox --session corpus
 ```
 
 The Nox `corpus` session runs full sync followed by extraction, settings, models,
 registration census, validation, and inheritance suites. CI runs it in one Linux
-job, separate from the ambient Python/Django matrix. The six targets require the
-`corpus-tests` Cargo feature, which the Nox session enables. Normal `cargo test`
-and the matrix use checked-in focused fixtures and do not sync the corpus.
-Models, census, and inheritance remain source-only: their subjects are file-local
-model facts, registration syntax, and template traversal, not Python import resolution.
-CI caches source,
+job, separate from the ambient Python/Django matrix. The matrix excludes these
+corpus-wide sweeps but retains focused regression tests using corpus source as
+fixtures, downloaded with `sync --source-only`. Plain `cargo test` still includes
+the corpus suites locally. CI caches source,
 downloaded packages, and historical interpreters, but not resolved environments.
 GeoNode is explicitly deferred for its native GDAL prerequisites and appears as
 ignored extraction and validation tests with a reason; explicitly requesting its environment
@@ -120,18 +123,12 @@ ecosystem-driven changes rather than automatically accepting them. Django's own
 checkout remains first-party source: these environments do not change the
 separate `stringfilter` callable-evidence policy.
 
-## Focused source fixtures
-
-Focused regression tests use the snippets in `djls-project/src/templates/tags/testdata`
-and the bounded full-module selection in [`fixtures/source`](fixtures/source/README.md).
-The latter preserves declaration spans, decorator provenance, imports, and package
-layout without downloading whole repositories for the normal suite. Tests still
-choose their own settings and dependency visibility; these files are not executable
-installations or substitutes for the real environments used by the sweeps.
-
-Both fixture sets are refreshed by `just corpus vendor-spec-fixtures` from the
-existing source lock, with a separate CI check for drift. Full source files and
-licenses are copied byte-for-byte and excluded from formatting hooks.
+Corpus setup is a prerequisite for the complete test suite, not a reason to copy
+whole upstream modules into this repository. Focused tests may borrow synced
+source or use small controlled fixtures for edge cases. Pure parser and isolated
+algorithm tests can still run without the corpus. Model extraction, registration
+census, and inheritance termination sweeps remain source-only because their
+queries do not resolve Python imports.
 
 ## Licensing
 

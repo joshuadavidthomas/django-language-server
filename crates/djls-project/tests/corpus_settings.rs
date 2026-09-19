@@ -4,7 +4,7 @@
 //!
 //! ```bash
 //! just corpus sync
-//! cargo test -p djls-project --features corpus-tests --test corpus_settings
+//! cargo test -p djls-project --test corpus_settings
 //! ```
 
 #[cfg(not(windows))]
