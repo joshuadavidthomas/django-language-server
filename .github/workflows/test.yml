@@ -140,7 +140,6 @@ jobs:
         env:
           DJANGO_VERSION: ${{ matrix.django-version }}
           PYTHON_VERSION: ${{ matrix.python-version }}
-          DJLS_SKIP_CORPUS_ENVIRONMENTS: "1"
         run: |
           uv run --no-project --with "nox[uv]" nox --session "tests(python='${PYTHON_VERSION}', django='${DJANGO_VERSION}')"
 
@@ -222,7 +221,7 @@ jobs:
             ${{ runner.os }}-corpus-source-
 
       - name: Sync corpus
-        run: cargo run -q -p djls-testing --bin corpus -- sync
+        run: cargo run -q -p djls-testing --bin corpus -- sync --source-only
 
       - name: Check vendored spec fixtures
         run: cargo run -q -p djls-testing --bin corpus -- vendor-spec-fixtures --check

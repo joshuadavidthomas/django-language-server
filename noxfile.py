@@ -107,12 +107,17 @@ def tests(session, django):
             if arg:
                 args.extend(arg.split(" "))
         command.extend(args)
-    # CI exercises these once with each corpus project's own Python environment,
-    # independently of this matrix's ambient Python/Django combination.
-    if os.environ.get("DJLS_SKIP_CORPUS_ENVIRONMENTS") == "1":
-        if "--" not in command:
-            command.append("--")
-        command.extend(["--skip", "corpus_environment::"])
+    # Corpus-wide sweeps run once in the corpus job, not in every matrix entry.
+    if "--" not in command:
+        command.append("--")
+    for test_filter in (
+        "corpus_environment::",
+        "corpus_validation::",
+        "corpus_inheritance::",
+        "model_extraction_snapshots",
+        "corpus_registration_census",
+    ):
+        command.extend(["--skip", test_filter])
     session.run(
         "cargo",
         "run",
@@ -122,6 +127,7 @@ def tests(session, django):
         "corpus",
         "--",
         "sync",
+        "--source-only",
         external=True,
     )
     session.run(*command, external=True)
@@ -129,32 +135,31 @@ def tests(session, django):
 
 @nox.session(python=False)
 def corpus(session):
-    """Rebuild upstream-declared environments and run project-backed snapshots."""
+    """Prepare real project environments and run all corpus-wide suites."""
     session.run(
         "cargo", "run", "-q", "-p", "djls-testing", "--bin", "corpus", "--", "sync"
-    )
-    session.run("bash", "tools/corpus-python.sh")
-    session.run(
-        "cargo",
-        "run",
-        "-q",
-        "-p",
-        "djls-testing",
-        "--bin",
-        "corpus",
-        "--",
-        "environment",
-        "sync",
     )
     session.run(
         "cargo",
         "test",
         "-p",
         "djls-project",
+        "-p",
+        "djls-semantic",
+        "-p",
+        "djls-testing",
         "--test",
         "corpus",
         "--test",
         "corpus_settings",
+        "--test",
+        "corpus_models",
+        "--test",
+        "corpus_validation",
+        "--test",
+        "corpus_inheritance",
+        "--test",
+        "registration_coverage",
         *session.posargs,
     )
 

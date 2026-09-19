@@ -10,8 +10,7 @@
 //!
 //! ```bash
 //! # Sync the corpus:
-//! cargo run -p djls-testing --bin corpus -- sync -U
-//! just corpus environment sync
+//! just corpus sync
 //!
 //! # Run all corpus tests:
 //! cargo test -p djls-project --test corpus -- --nocapture

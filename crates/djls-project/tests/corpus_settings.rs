@@ -4,7 +4,6 @@
 //!
 //! ```bash
 //! just corpus sync
-//! just corpus environment sync
 //! cargo test -p djls-project --test corpus_settings
 //! ```
 

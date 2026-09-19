@@ -151,7 +151,7 @@ const ENVIRONMENT_POLICY_REVISION: &str = "3";
 fn run(command: &mut Command) -> anyhow::Result<()> {
     let status = command
         .status()
-        .context("failed to start uv; install the project tools first")?;
+        .context("failed to start environment setup command; install the project tools first")?;
     ensure!(
         status.success(),
         "environment setup command failed: {status}"
@@ -296,6 +296,11 @@ impl Corpus {
         let checkout = self.root.join("repos").join(name);
         let python_request = environment.python_request(&checkout)?;
         // tools/corpus-python.sh supplies EOL interpreters absent from uv downloads.
+        if cfg!(target_os = "linux") && matches!(python_request.as_str(), "3.6" | "3.7") {
+            run(Command::new("bash")
+                .arg(Utf8Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tools/corpus-python.sh"))
+                .arg(self.root.join("interpreters")))?;
+        }
         let local_python = self
             .root
             .join("interpreters")
