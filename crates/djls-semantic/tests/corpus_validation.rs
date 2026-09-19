@@ -78,24 +78,26 @@ fn validate_repo(corpus: &Corpus, entry_dir: &Utf8Path, templates: Vec<Utf8PathB
 fn main() -> anyhow::Result<()> {
     let args = Arguments::from_args();
     let corpus = Arc::new(Corpus::require()?);
-    let trials = corpus
-        .locked_repos()
-        .filter_map(|(repo_name, entry_dir)| {
-            let templates = corpus.templates_in(&entry_dir);
-            if templates.is_empty() {
-                return None;
-            }
-
-            let corpus = Arc::clone(&corpus);
-            Some(Trial::test(
-                format!("corpus_validation::{repo_name}"),
-                move || {
-                    validate_repo(&corpus, &entry_dir, templates);
-                    Ok(())
-                },
-            ))
-        })
-        .collect();
+    let mut trials = Vec::new();
+    for (repo_name, entry_dir) in corpus.locked_repos() {
+        let templates = corpus.templates_in(&entry_dir);
+        if templates.is_empty() {
+            continue;
+        }
+        let deferred = corpus.environment_deferral(repo_name)?;
+        let label = deferred.as_ref().map_or_else(
+            || format!("corpus_validation::{repo_name}"),
+            |reason| format!("corpus_validation::{repo_name} [deferred: {reason}]"),
+        );
+        let corpus = Arc::clone(&corpus);
+        trials.push(
+            Trial::test(label, move || {
+                validate_repo(&corpus, &entry_dir, templates);
+                Ok(())
+            })
+            .with_ignored_flag(deferred.is_some()),
+        );
+    }
 
     libtest_mimic::run(&args, trials).exit()
 }

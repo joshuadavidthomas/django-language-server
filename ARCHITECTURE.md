@@ -300,7 +300,7 @@ error[S114]: Not expecting 'and' in this position in if tag.
   = note: in tag: if
 ```
 
-**Architecture Invariant:** tests never require a Django installation or run a Python interpreter. Source-only tests may supply tag specs and filter arities directly. Project-scoped tests supply settings and Python modules through `ProjectFixture`, then exercise the same Template Library catalog and scope derivation used by production. JSON fixtures remain appropriate for isolated extraction projections.
+Static analysis does not execute project code to derive facts. This does not mean dependency-free analysis: corpus setup uses Python to install dependencies, then the analyzer resolves their source statically. Focused tests can supply controlled source through `ProjectFixture` for edge cases. JSON fixtures remain appropriate for isolated extraction projections.
 
 ### Corpus Tests
 
@@ -311,7 +311,9 @@ Corpus tests serve two purposes:
 1. **Extraction snapshot tests** — parse every `templatetags/*.py` file with the Ruff parser and snapshot the extracted rules. This catches regressions in Python AST analysis and documents what we can extract from real-world code.
 2. **Validation integration tests** — validate real templates against extracted rules. This is our "zero false positives" check: if we report a diagnostic on a template from a real project, it's probably a bug in our analysis, not in the project.
 
-The corpus is deliberately not checked into the repository (it's ~hundreds of MB of third-party source). `just corpus sync` downloads it from the lockfile (`crates/djls-testing/manifest.lock`), which pins exact versions and SHA-256 checksums.
+The corpus is deliberately not checked into the repository. `just corpus sync` prepares pinned source and each project's dependency environment, reusing ready entries on subsequent runs. `--refresh` explicitly rebuilds environments and re-resolves unlocked dependencies. Corpus setup is a prerequisite for full coverage, not a reason to duplicate whole upstream modules as fixtures.
+
+The dedicated Nox `corpus` session runs extraction, settings, model, registration-census, validation, and inheritance sweeps once outside the Python/Django matrix. Extraction, settings, and validation use project environments; file-local model extraction, the syntax census, and template inheritance termination do not need Python import resolution. The matrix retains focused regressions using synced source and controlled fixtures.
 
 ### Incremental Computation Tests
 

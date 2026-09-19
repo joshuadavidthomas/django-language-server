@@ -43,7 +43,9 @@ The `environment` subcommands are optional refresh and diagnostic tools, not
 additional setup steps:
 
 ```bash
-just corpus environment sync healthchecks   # Refresh one repository's dependencies
+just corpus environment sync healthchecks   # Prepare one repository, reusing it when ready
+just corpus environment refresh healthchecks # Rebuild and refresh one repository's dependencies
+just corpus sync --refresh                 # Rebuild and refresh all non-deferred environments
 just corpus environment check healthchecks  # Check readiness and build the project database
 just corpus environment check               # Report every unconfigured/unready repository
 just corpus environment extract healthchecks # Emit project-backed extraction as JSON lines
@@ -53,7 +55,7 @@ The source lock pins each checkout SHA. Dependency setup then follows the
 upstream-owned source of truth: an upstream `uv.lock` or `poetry.lock`, or direct
 metadata and requirements inputs from the pinned checkout. The corpus does not
 generate or keep dependency lockfiles. If upstream leaves dependencies unlocked,
-the corpus leaves them unlocked too, and each sync resolves them anew. Checkout
+the corpus leaves them unlocked too; initial setup and explicit refresh resolve them anew. Checkout
 source is supplied separately to the analyzer through the configured source
 roots.
 
@@ -75,8 +77,11 @@ the environment that produced them.
 A separate disposable readiness stamp detects source, recipe, upstream Python
 selection, setup-policy, and native-lock changes. It does not claim that unlocked
 dependencies are current.
-`sync` clears and rebuilds the environments, refreshing dependency
-resolution. Tests never install or update dependencies, and missing setup never
+`sync` reuses an environment when its readiness stamp matches, its interpreter and
+venv metadata exist, and its project database can resolve Django. Missing, stale,
+or incomplete environments are rebuilt. `sync --refresh` deliberately rebuilds
+ready environments too, refreshing dependency resolution. Tests never install or
+update dependencies, and missing setup never
 falls back to isolated extraction.
 
 `Corpus::environment_database` exposes checkout source and the repository's own
@@ -86,7 +91,7 @@ if dependency installation succeeded. It does not execute Django settings or
 start backing services. Source code remains project code: a Django checkout is
 not relabelled as an installed dependency to obtain different extraction results.
 
-Extraction and settings snapshots use these project-backed databases. Extraction
+Extraction, settings, and validation use these project-backed databases. Extraction
 has one test per repository, so a library can be run individually:
 
 ```bash
@@ -103,7 +108,7 @@ fixtures, downloaded with `sync --source-only`. Plain `cargo test` still include
 the corpus suites locally. CI caches source,
 downloaded packages, and historical interpreters, but not resolved environments.
 GeoNode is explicitly deferred for its native GDAL prerequisites and appears as
-an ignored extraction test with a reason; explicitly requesting its environment
+ignored extraction and validation tests with a reason; explicitly requesting its environment
 is an error, not a successful empty setup.
 
 Sync invokes the Linux bootstrap when a historical environment is requested.
@@ -117,6 +122,13 @@ analyzer against the same environment before blaming the code change. Review
 ecosystem-driven changes rather than automatically accepting them. Django's own
 checkout remains first-party source: these environments do not change the
 separate `stringfilter` callable-evidence policy.
+
+Corpus setup is a prerequisite for the complete test suite, not a reason to copy
+whole upstream modules into this repository. Focused tests may borrow synced
+source or use small controlled fixtures for edge cases. Pure parser and isolated
+algorithm tests can still run without the corpus. Model extraction, registration
+census, and inheritance termination sweeps remain source-only because their
+queries do not resolve Python imports.
 
 ## Licensing
 
