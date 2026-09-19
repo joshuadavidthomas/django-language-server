@@ -1474,9 +1474,10 @@ fn is_canonical_stringfilter(lookup: &mut PythonSourceLookup<'_>, expression: &E
     let Some(module) = target.module() else {
         return false;
     };
-    if module.search_path().is_project_code()
-        || module.name().as_str() != "django.template.defaultfilters"
-        || target.name() != "stringfilter"
+    // Model Django's canonical API contract regardless of installation location:
+    // source checkouts and installed packages provide the same signature evidence.
+    // This does not verify the wrapper body or establish compile-body equivalence.
+    if module.name().as_str() != "django.template.defaultfilters" || target.name() != "stringfilter"
     {
         return false;
     }
