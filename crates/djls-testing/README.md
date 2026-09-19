@@ -20,10 +20,16 @@ cargo run -p djls-testing --bin corpus -- vendor-spec-fixtures --check # Check v
 ## Per-repository environments
 
 Source sync does not install dependencies. Each `[[repo]]` in `manifest.toml`
-may contain its reviewed Python version, source roots, and dependency recipe.
+may contain its source roots and dependency recipe.
 Repositories are isolated from one another and from the developer's active
-environment. Python 3.12 and `["."]` are the defaults. Python 3.6/3.7 recipes
-retain the historical Django versions used by those corpus projects.
+environment. Python selection follows the pinned checkout's `.python-version`
+(the first version when multiple are listed), then an explicit `tool.uv.pip.python-version`
+target for requirements installs, then `project.requires-python` in `pyproject.toml`.
+uv selects an interpreter satisfying the requested version or range.
+Python 3.12 is the shared fallback only when none is declared; `["."]`
+is the default source root. Manifest `python` overrides are reserved for documented
+compatibility exceptions or upstream test profiles that are not expressed in
+those files, including the historical Python 3.6/3.7 environments.
 
 ```bash
 bash tools/corpus-python.sh                 # Bootstrap historical interpreters on Linux
@@ -51,13 +57,14 @@ archives.
 
 Environments live under `.corpus/environments/`. After a successful sync and
 `uv pip check`, `provenance.json` records the source revision, effective recipe,
-actual Python/platform, installer version, installed packages, direct-source
-URLs, and provisioning time. This ignored diagnostic file is not used to install
-anything. CI uploads it so unexpected snapshot changes can be compared against
+selected Python request, actual Python/platform, installer version, installed
+packages, direct-source URLs, and provisioning time. This ignored diagnostic file
+is not used to install anything. CI uploads it so unexpected snapshot changes can be compared against
 the environment that produced them.
 
-A separate disposable readiness stamp detects source, recipe, setup-policy, and
-native-lock changes. It does not claim that unlocked dependencies are current.
+A separate disposable readiness stamp detects source, recipe, upstream Python
+selection, setup-policy, and native-lock changes. It does not claim that unlocked
+dependencies are current.
 `environment sync` clears and rebuilds the environment, refreshing dependency
 resolution. Tests never install or update dependencies, and missing setup never
 falls back to isolated extraction.
