@@ -39,6 +39,84 @@ The server uses this to statically introspect your Django project for template t
 - Your editor doesn't pass environment variables to LSP servers (e.g., Sublime Text)
 - You need to override the environment variable for a specific workspace
 
+### `django_version`
+
+**Default:** Inferred from project dependencies, ultimately the oldest supported LTS (`"5.2"`).
+
+An explicit override for the Django feature-release line to use when Django source
+cannot be found in your project or Python environment. Supported values are
+`"5.2"`, `"6.0"`, and `"6.1"`. Usually this setting can be omitted.
+
+```toml
+[tool.djls]
+django_version = "5.2"
+```
+
+DJLS embeds compressed Python source and templates from one pinned point release
+per supported line. No Python interpreter, Django installation, or network access
+is needed for this fallback. Pins are updated manually with DJLS releases; the
+fallback represents the project's feature line, not its exact patch version.
+For example, `Django==6.0.3` selects the bundled 6.0 snapshot.
+
+When Django is not installed, selection follows this order:
+
+1. An explicit `django_version` setting.
+2. A Django version in the project root's `uv.lock`, `poetry.lock`, `pdm.lock`,
+   `Pipfile.lock`, or `pylock.toml` (checked in that order), provided it satisfies
+   the dependency declarations read below.
+3. The lowest supported feature line allowed by `[project].dependencies` in
+   `pyproject.toml`, legacy `[tool.poetry.dependencies]`, `[options] install_requires`
+   in `setup.cfg`, `requirements.txt`, and `requirements.in`. Requirements files can
+   include other files with `-r`/`--requirement` and `-c`/`--constraint`.
+4. The oldest supported LTS when no usable version information is available.
+
+Constraints restrict versions but do not establish that Django is required.
+Lock entries must be runtime dependencies whose markers and declarations admit
+the same environment. uv locks are traversed from the project at `.` through
+runtime dependency edges, including explicitly requested dependency extras;
+dev groups and unselected extras are not roots. Locks without an identifiable
+project root and ambiguous dependency edges are not used as version evidence.
+
+Legacy Poetry declarations support exact versions, PEP 440 comparisons, wildcards,
+caret/tilde ranges, comma or whitespace conjunctions, `||` alternatives, and conditional tables/arrays using
+`markers`, `python`, or `platform`. Optional Poetry dependencies and dependency
+groups are not activated. `Pipfile.lock` contributes only its `default` section;
+Poetry lock entries must belong to `main` and not be optional; PDM entries must
+explicitly belong to `default`. Older entries lacking runtime-group evidence
+are ignored. `setup.cfg` supports inline and multiline requirement
+values, but does not evaluate interpolation or `file:` directives.
+
+Lock entries using unsupported marker syntax, including pylock's set-valued
+`extras` and `dependency_groups`, are ignored rather than activating unknown groups.
+
+Multiple conditional dependencies or locked versions are treated as possible
+alternatives, selecting the lowest compatible line rather than using the host's
+Python version. Optional dependency groups are not assumed to be active. Direct
+URL requirements do not supply a version. `Pipfile` declarations and executable
+`setup.py` metadata are not read; use an explicit override if needed.
+Named locks such as `pylock.production.toml` and standalone requirements files
+such as `requirements/dev.txt` are not automatically selected; requirements files
+are read when included from the root `requirements.txt` or `requirements.in`.
+Dependency files are reread during project discovery; restart the language server
+after changing them if no project reload has occurred.
+
+If known requirements or a locked version have no supported bundle, DJLS warns
+and does not substitute an incompatible LTS. An explicit override can opt in to
+a different feature line.
+
+Installed or project-local Django always takes precedence, including local
+modifications. DJLS never fills gaps in that package with bundled modules.
+Without project settings, core tags, filters, and Django's standard loadable
+libraries remain available. Unobserved contrib/custom library names are inconclusive,
+not reported as definitely absent. Contrib libraries and templates still follow
+`INSTALLED_APPS` and template loader configuration.
+
+Only the selected bundle is unpacked, into the platform's DJLS cache directory
+(`~/.cache/djls/django` on Linux). These files provide navigation targets; treat
+them as read-only. The log reports the selected source path, including its point
+release. If the cache cannot be prepared, DJLS logs a warning and continues
+without the fallback. Removing the cache causes it to be recreated on discovery.
+
 ### `venv_path`
 
 **Default:** Auto-detects `.venv`, `venv`, `env`, `.env` in the project root, then checks `VIRTUAL_ENV`, `CONDA_PREFIX`, and Python on `PATH`

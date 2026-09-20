@@ -1,5 +1,6 @@
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+use djls_conf::DjangoVersion;
 use djls_conf::Settings;
 use djls_conf::TagSpecDef;
 use djls_source::FileSystem;
@@ -39,6 +40,9 @@ pub struct Project {
     /// Django settings module name (e.g., "myproject.settings")
     #[returns(ref)]
     pub django_settings_module: Option<PythonModuleName>,
+    /// Explicit feature-line override for bundled source discovery.
+    #[returns(copy)]
+    pub django_version: Option<DjangoVersion>,
     /// Additional Python import paths (PYTHONPATH entries)
     #[returns(ref)]
     pub pythonpath: Vec<Utf8PathBuf>,
@@ -99,6 +103,7 @@ impl Project {
             search_paths,
             python_environment,
             django_settings_module,
+            settings.django_version(),
             pythonpath,
             env_vars,
             tagspecs,
@@ -133,6 +138,7 @@ impl Project {
             search_paths,
             python_environment,
             django_settings_module,
+            settings.django_version(),
             pythonpath,
             env_vars,
             tagspecs,
@@ -164,6 +170,10 @@ impl Project {
         if self.django_settings_module(db) != &django_settings_module {
             self.set_django_settings_module(db)
                 .to(django_settings_module);
+        }
+
+        if self.django_version(db) != settings.django_version() {
+            self.set_django_version(db).to(settings.django_version());
         }
 
         if self.pythonpath(db) != &pythonpath {

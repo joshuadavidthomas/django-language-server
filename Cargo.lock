@@ -483,7 +483,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "56ca01ce4fd22b8dcc6c770dcd6b74343642e842482b94e8920d14e10c57638d"
 dependencies = [
  "divan-macros",
- "itertools",
+ "itertools 0.14.0",
  "proc-macro-crate",
  "proc-macro2",
  "quote",
@@ -589,6 +589,12 @@ dependencies = [
  "winnow 1.0.0",
  "yaml-rust2",
 ]
+
+[[package]]
+name = "configparser"
+version = "3.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "031ad3d167622974ed636505ae4556267ed4aa2aea0464122fa6bc9698a32825"
 
 [[package]]
 name = "console"
@@ -1041,12 +1047,16 @@ name = "djls-project"
 version = "0.0.0"
 dependencies = [
  "camino",
+ "configparser",
+ "directories",
  "djls-conf",
  "djls-source",
  "djls-testing",
  "dotenvy",
  "insta",
  "libtest-mimic",
+ "pep440_rs",
+ "pep508_rs",
  "ruff_python_ast",
  "ruff_python_parser",
  "ruff_text_size",
@@ -1054,10 +1064,12 @@ dependencies = [
  "salsa",
  "serde",
  "serde_json",
+ "sha2 0.11.0",
  "tempfile",
  "thiserror 2.0.20",
  "toml",
  "tracing",
+ "zip",
 ]
 
 [[package]]
@@ -1978,6 +1990,15 @@ checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
 
 [[package]]
 name = "itertools"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "413ee7dfc52ee1a4949ceeb7dbc8a33f2d6c088194d9f922fb8318faf1f01186"
+dependencies = [
+ "either",
+]
+
+[[package]]
+name = "itertools"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b192c782037fadd9cfa75548310488aabdbf3d2da73885b31bd0abd03351285"
@@ -2140,7 +2161,7 @@ version = "0.16.0"
 source = "git+https://github.com/UnknownPlatypus/malva?rev=9a7ee71bfad747490ebe0428d07d1f82467f0c3f#9a7ee71bfad747490ebe0428d07d1f82467f0c3f"
 dependencies = [
  "aho-corasick",
- "itertools",
+ "itertools 0.14.0",
  "memchr",
  "raffia",
  "serde",
@@ -2178,7 +2199,7 @@ dependencies = [
  "aho-corasick",
  "anyhow",
  "css_dataset",
- "itertools",
+ "itertools 0.14.0",
  "memchr",
  "regex",
  "tiny_pretty",
@@ -2399,6 +2420,41 @@ name = "pathdiff"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df94ce210e5bc13cb6651479fa48d14f601d9858cfe0467f43ae157023b938d3"
+
+[[package]]
+name = "pep440_rs"
+version = "0.7.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "31095ca1f396e3de32745f42b20deef7bc09077f918b085307e8eab6ddd8fb9c"
+dependencies = [
+ "once_cell",
+ "serde",
+ "unicode-width 0.2.2",
+ "unscanny",
+ "version-ranges",
+]
+
+[[package]]
+name = "pep508_rs"
+version = "0.9.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "faee7227064121fcadcd2ff788ea26f0d8f2bd23a0574da11eca23bc935bcc05"
+dependencies = [
+ "boxcar",
+ "indexmap",
+ "itertools 0.13.0",
+ "once_cell",
+ "pep440_rs",
+ "regex",
+ "rustc-hash",
+ "serde",
+ "smallvec",
+ "thiserror 1.0.69",
+ "unicode-width 0.2.2",
+ "url",
+ "urlencoding",
+ "version-ranges",
+]
 
 [[package]]
 name = "percent-encoding"
@@ -2971,7 +3027,7 @@ name = "ruff_python_trivia"
 version = "0.0.0"
 source = "git+https://github.com/astral-sh/ruff.git?rev=ce5f7b6127a5d684e96fd0f8e387f73c41c7a1b0#ce5f7b6127a5d684e96fd0f8e387f73c41c7a1b0"
 dependencies = [
- "itertools",
+ "itertools 0.14.0",
  "ruff_source_file",
  "ruff_text_size",
  "unicode-ident",
@@ -3981,6 +4037,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
+name = "typed-path"
+version = "0.12.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8e28f89b80c87b8fb0cf04ab448d5dd0dd0ade2f8891bae878de66a75a28600e"
+
+[[package]]
 name = "typeid"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4060,6 +4122,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "unscanny"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e9df2af067a7953e9c3831320f35c1cc0600c30d44d9f7a12b01db1cd88d6b47"
+
+[[package]]
 name = "untrusted"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4075,7 +4143,14 @@ dependencies = [
  "idna",
  "percent-encoding",
  "serde",
+ "serde_derive",
 ]
+
+[[package]]
+name = "urlencoding"
+version = "2.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "daf8dba3b7eb870caf1ddeed7bc9d2a049f3cfdfae7cb521b087cc33ae4c49da"
 
 [[package]]
 name = "utf8_iter"
@@ -4094,6 +4169,15 @@ name = "valuable"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
+
+[[package]]
+name = "version-ranges"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "31e9bd4e9c9ff6a2a9b5969462ba26216af3e010df0377dad8320ab515262ef8"
+dependencies = [
+ "smallvec",
+]
 
 [[package]]
 name = "version_check"
@@ -4663,6 +4747,19 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "zip"
+version = "8.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d04a6b5381502aa6087c94c669499eb1602eb9c5e8198e534de571f7154809b"
+dependencies = [
+ "crc32fast",
+ "flate2",
+ "indexmap",
+ "memchr",
+ "typed-path",
 ]
 
 [[package]]

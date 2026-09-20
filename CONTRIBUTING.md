@@ -478,6 +478,31 @@ The project uses [`noxfile.py`](noxfile.py) as the single source of truth for su
 
 7. **For major Django releases**: If adding support for a new major Django version (e.g., Django 6.0), the language server version should be bumped to match per [DjangoVer](docs/versioning.md) versioning. For example, when adding Django 6.0 support, bump the server from v5.x.x to v6.0.0.
 
+### Updating bundled Django sources
+
+Before a DJLS release, update `crates/djls-project/vendor/django.json` to the latest
+point release of each supported Django feature-release line. Record each release's
+wheel URL and SHA-256 from PyPI, then run:
+
+```bash
+uv run tools/bundle_django.py
+uv run tools/bundle_django.py --check
+cargo test -p djls-project
+cargo test -p djls-db --test settings
+```
+
+uv installs the script's Typer and Pydantic dependencies from its inline metadata.
+Commit the manifest and generated ZIP archives together. The script verifies the
+download hashes and checks its release lines against `DJ_VERSIONS` in
+`noxfile.py`, excluding `main`. It retains Django's Python sources, template
+directories, and license files, with stable entry ordering and timestamps. Normal
+builds and server startup never download Django.
+
+When adding or removing a supported line, also update `DjangoVersion` in
+`djls-conf`, the embedded archive match in `djls-project/src/bundled.rs`, and the
+configuration documentation. Keep the ultimate fallback at the oldest supported
+LTS, matching `DJ_DEFAULT` in `noxfile.py`.
+
 ### Updating development tools
 
 - Update the primary compiler in `rust-toolchain.toml`.

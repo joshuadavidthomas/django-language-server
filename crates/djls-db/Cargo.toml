@@ -14,12 +14,12 @@ camino = { workspace = true }
 rustc-hash = { workspace = true }
 salsa = { workspace = true }
 serde = { workspace = true }
-serde_json = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
 djls-ide = { workspace = true }
 djls-testing = { workspace = true }
+serde_json = { workspace = true }
 tempfile = { workspace = true }
 
 [lints]
