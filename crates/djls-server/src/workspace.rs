@@ -411,6 +411,113 @@ mod tests {
     }
 
     #[test]
+    fn bundled_navigation_round_trips_and_ignores_editor_changes() {
+        use djls_project::Db as _;
+        use djls_project::PythonModuleName;
+        use djls_project::PythonSourceModule;
+
+        use crate::ext::UriExt;
+
+        let temp = tempdir().expect("project");
+        let root = Utf8Path::from_path(temp.path()).expect("UTF-8 root");
+        let settings: Settings = serde_json::from_value(serde_json::json!({
+            "venv_path": root.join("missing"), "django_version": "6.0",
+            "django_settings_module": "settings"
+        }))
+        .expect("settings");
+        let mut workspace = Workspace::new();
+        workspace.open_document(
+            &root.join("settings.py"),
+            "INSTALLED_APPS = ['django.contrib.admin']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'APP_DIRS': True}]\n",
+            1,
+            FileKind::Python,
+        );
+        let mut db = DjangoDatabase::new(workspace.overlay(), &settings, Some(root));
+        db.apply_project_settings(settings);
+        djls_project::run_django_discovery(&mut db).expect("discovery");
+        let module = PythonSourceModule::resolve(
+            &db,
+            db.project().expect("project"),
+            PythonModuleName::parse("django.template.defaulttags").expect("name"),
+        )
+        .expect("module");
+        let original_file = module.file();
+        let path = original_file.path(&db).clone();
+        let original_text = original_file
+            .try_source(&db)
+            .expect("archive text")
+            .as_str()
+            .to_string();
+        let template_path = root.join("page.html");
+        workspace.open_document(
+            &template_path,
+            "{% for x in xs %}{% endfor %}{% include 'admin/base.html' %}",
+            1,
+            FileKind::Template,
+        );
+        let template = path_to_file(&db, &template_path).expect("template");
+        let response = djls_ide::goto_definition(
+            &db,
+            template,
+            djls_source::Offset::new(4),
+            true,
+            PositionEncoding::Utf8,
+        )
+        .expect("definition");
+        let tower_lsp_server::ls_types::GotoDefinitionResponse::Link(links) = response else {
+            panic!("location links");
+        };
+        assert_eq!(links.len(), 1);
+        let reopened = links[0].target_uri.to_utf8_path_buf().expect("file URI");
+        assert_eq!(reopened, path);
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("navigation copy"),
+            original_text
+        );
+        assert_eq!(
+            path_to_file(&db, &reopened).expect("same source"),
+            original_file
+        );
+
+        workspace.open_document(&reopened, "# edited cached source", 1, FileKind::Python);
+        SourceChanges::new([ChangeEvent::Opened(reopened.clone())]).apply(&mut db);
+        workspace
+            .update_document(
+                &reopened,
+                vec![DocumentChange::new(None, "# another edit".into())],
+                2,
+                PositionEncoding::Utf8,
+            )
+            .expect("edit");
+        SourceChanges::new([ChangeEvent::ContentChanged(reopened)]).apply(&mut db);
+        assert_eq!(
+            original_file
+                .try_source(&db)
+                .expect("immutable source after edit")
+                .as_str(),
+            original_text
+        );
+
+        let links = djls_ide::document_links(&db, template, PositionEncoding::Utf8);
+        assert_eq!(links.len(), 1);
+        let target = links[0]
+            .target
+            .as_ref()
+            .expect("template link")
+            .to_utf8_path_buf()
+            .expect("file path");
+        assert!(target.ends_with("django/contrib/admin/templates/admin/base.html"));
+        let linked_file = path_to_file(&db, &target).expect("bundled template");
+        assert_eq!(
+            std::fs::read_to_string(&target).expect("materialized template"),
+            linked_file
+                .try_source(&db)
+                .expect("archive template")
+                .as_str()
+        );
+    }
+
+    #[test]
     fn buffer_reads_share_storage_and_edits_preserve_retained_documents() {
         let path = Utf8Path::new("/project/copy-on-write.html");
         let mut workspace = Workspace::new();

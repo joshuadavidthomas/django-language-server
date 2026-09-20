@@ -111,11 +111,14 @@ libraries remain available. Unobserved contrib/custom library names are inconclu
 not reported as definitely absent. Contrib libraries and templates still follow
 `INSTALLED_APPS` and template loader configuration.
 
-Only the selected bundle is unpacked, into the platform's DJLS cache directory
-(`~/.cache/djls/django` on Linux). These files provide navigation targets; treat
-them as read-only. The log reports the selected source path, including its point
-release. If the cache cannot be prepared, DJLS logs a warning and continues
-without the fallback. Removing the cache causes it to be recreated on discovery.
+Bundled sources and templates are read directly from the compressed archive as
+needed. Analysis does not require a writable cache. Navigation materializes only
+the requested target in the platform's DJLS cache directory
+(`~/.cache/djls/django` on Linux), under a content-addressed path. These files are
+read-only views: edits to cached files or their editor buffers do not change
+analysis. The log reports the selected release line and source path. If the cache
+cannot be written, navigation to bundled files is unavailable, but analysis still
+works. Removing the cache causes individual targets to be recreated on navigation.
 
 ### `venv_path`
 

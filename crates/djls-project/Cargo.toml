@@ -11,6 +11,7 @@ camino = { workspace = true }
 configparser = { workspace = true }
 directories = { workspace = true }
 dotenvy = { workspace = true }
+ignore = { workspace = true }
 pep440_rs = { workspace = true }
 pep508_rs = { workspace = true }
 ruff_python_ast = { workspace = true }

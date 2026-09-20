@@ -9,6 +9,8 @@ mod python;
 mod settings;
 mod templates;
 
+pub use bundled::BundledFileSystem;
+pub use bundled::materialize_bundled_path;
 pub use db::Db;
 pub use discovery::CountLabel;
 pub use discovery::DjangoDiscoveryProgress;

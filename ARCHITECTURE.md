@@ -201,10 +201,14 @@ A full startup reload reads configuration, runs Django Discovery, primes intrins
 When no Django package or shadowing module exists on the discovered search paths,
 Django Discovery prepares bundled sources directly in `djls-project`.
 That crate embeds compressed, pinned Python sources and templates for each
-supported Django feature-release line. It atomically materializes the selected
-`django_version` in a content-addressed local cache, and discovery registers that
-directory as an external search root. Normal source extraction, template loader
-rules, and file-based navigation then apply; no Python is executed. Installed
+supported Django feature-release line. A filesystem mount indexes archive paths
+without decompressing file bodies; each source read decompresses only its ZIP entry.
+Discovery registers the selected `django_version` as an external search root.
+Content-addressed paths are stable source identities, whether or not a disk copy
+exists. IDE URI conversion atomically materializes only the requested navigation
+target at that same path. The mount sits above editor overlays and disk caches,
+so cached edits cannot change analysis. Analysis needs no writable cache; navigation
+does. Normal source extraction and template loader rules apply; no Python is executed. Installed
 Django always takes precedence as a whole package. `djls-project` selects the
 fallback from an explicit override, compatible lockfile entries, or declared
 dependency constraints, ultimately defaulting to the oldest supported LTS when

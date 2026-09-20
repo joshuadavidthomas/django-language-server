@@ -226,7 +226,7 @@ impl SearchPaths {
                 );
                 self.paths.push(SearchPath::SitePackages(path));
             }
-            // In-memory source fixtures do not expose the disk cache.
+            // Source-only fixtures may deliberately omit the archive mount.
             Ok(_) => {}
             Err(error) => {
                 tracing::warn!("Could not prepare bundled Django sources: {error}");

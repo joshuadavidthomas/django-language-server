@@ -287,13 +287,18 @@ pub(crate) trait Utf8PathExt {
 
 impl Utf8PathExt for Utf8Path {
     fn to_lsp_uri(&self) -> Option<ls_types::Uri> {
+        djls_project::materialize_bundled_path(self)
+            .inspect_err(|error| {
+                tracing::warn!("Could not prepare bundled navigation target {self}: {error}");
+            })
+            .ok()?;
         ls_types::Uri::from_file_path(self.as_std_path())
     }
 }
 
 impl Utf8PathExt for Utf8PathBuf {
     fn to_lsp_uri(&self) -> Option<ls_types::Uri> {
-        ls_types::Uri::from_file_path(self.as_std_path())
+        self.as_path().to_lsp_uri()
     }
 }
 

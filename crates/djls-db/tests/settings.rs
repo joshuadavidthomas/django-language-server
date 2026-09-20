@@ -141,7 +141,9 @@ fn bundled_versions_supply_standalone_tags_filters_and_loadable_libraries() {
             .last()
             .expect("bundle root")
             .path();
-        let init = std::fs::read_to_string(bundle.join("django/__init__.py")).expect("source");
+        let init = djls_source::Db::file_system(&db)
+            .read_to_string(&bundle.join("django/__init__.py"))
+            .expect("archive source");
         assert!(init.contains(&format!("VERSION = ({},", version.replace('.', ", "))));
     }
 }
@@ -222,8 +224,8 @@ fn bundled_admin_templates_follow_installed_apps_and_loaders() {
                 assert!(available, "apps={apps}, app_dirs={app_dirs}");
                 let file = origin.file(&db);
                 assert!(
-                    file.path(&db).is_file(),
-                    "navigation target must exist on disk"
+                    djls_source::Db::file_system(&db).is_file(file.path(&db)),
+                    "template must exist in archive filesystem"
                 );
                 assert!(
                     file.try_source(&db)
