@@ -398,7 +398,7 @@ impl Session {
 
         let workspace = Workspace::new();
         let db = DjangoDatabase::new(
-            workspace.overlay(),
+            workspace.file_system(),
             &client_options.settings,
             project_path.as_deref(),
         );

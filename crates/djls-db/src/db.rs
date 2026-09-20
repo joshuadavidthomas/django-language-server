@@ -105,7 +105,7 @@ impl DjangoDatabase {
         project_path: Option<&Utf8Path>,
     ) -> Self {
         let mut db = Self {
-            fs: Arc::new(djls_project::BundledFileSystem::new(file_system)),
+            fs: file_system,
             files: SourceFiles::default(),
             project: None,
             settings: Arc::new(settings.clone()),

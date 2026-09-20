@@ -139,7 +139,7 @@ fn template_reference_response(
             let path = origin.path_buf(db);
             tracing::debug!("Resolved template to: {}", path);
 
-            let target_uri = path.to_lsp_uri()?;
+            let target_uri = path.to_navigation_uri()?;
             let target_range = ls_types::Range::default();
             if supports_location_links {
                 Some(ls_types::GotoDefinitionResponse::Link(vec![
@@ -167,7 +167,7 @@ fn template_reference_response(
                     .possible_origins
                     .iter()
                     .filter_map(|origin| {
-                        let target_uri = origin.path_buf(db).to_lsp_uri()?;
+                        let target_uri = origin.path_buf(db).to_navigation_uri()?;
                         let target_range = ls_types::Range::default();
                         Some(ls_types::LocationLink {
                             origin_selection_range: Some(origin_selection_range),
@@ -184,7 +184,7 @@ fn template_reference_response(
                     .iter()
                     .filter_map(|origin| {
                         Some(ls_types::Location {
-                            uri: origin.path_buf(db).to_lsp_uri()?,
+                            uri: origin.path_buf(db).to_navigation_uri()?,
                             range: ls_types::Range::default(),
                         })
                     })
@@ -395,7 +395,7 @@ pub fn find_references(
                     if !visited_sites.insert((ref_file, reference.span(db))) {
                         continue;
                     }
-                    let Some(uri) = ref_file.path(db).to_lsp_uri() else {
+                    let Some(uri) = ref_file.path(db).to_navigation_uri() else {
                         continue;
                     };
                     let location = ls_types::Location {

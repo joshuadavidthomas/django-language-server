@@ -205,9 +205,13 @@ supported Django feature-release line. A filesystem mount indexes archive paths
 without decompressing file bodies; each source read decompresses only its ZIP entry.
 Discovery registers the selected `django_version` as an external search root.
 Content-addressed paths are stable source identities, whether or not a disk copy
-exists. IDE URI conversion atomically materializes only the requested navigation
-target at that same path. The mount sits above editor overlays and disk caches,
-so cached edits cannot change analysis. Analysis needs no writable cache; navigation
+exists. IDE navigation URI preparation atomically materializes only the requested
+target at that same path. Plain URI conversion does not materialize sources.
+The server Workspace and CLI input setup assemble the mount above editor overlays
+and disk caches before passing the complete filesystem unchanged to the database.
+Tests opt into the bundle layer explicitly. The server retains a separate disk-only
+view for document event classification. The archive remains authoritative over
+cached edits. Analysis needs no writable cache; navigation
 does. Normal source extraction and template loader rules apply; no Python is executed. Installed
 Django always takes precedence as a whole package. `djls-project` selects the
 fallback from an explicit override, compatible lockfile entries, or declared

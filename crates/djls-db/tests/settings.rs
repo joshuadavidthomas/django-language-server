@@ -7,6 +7,13 @@ use djls_semantic::Db as _;
 use djls_source::InMemoryFileSystem;
 
 #[test]
+fn database_uses_the_supplied_filesystem_unchanged() {
+    let fs: Arc<dyn djls_source::FileSystem> = Arc::new(InMemoryFileSystem::new());
+    let db = DjangoDatabase::new(Arc::clone(&fs), &Settings::default(), None);
+    assert!(std::ptr::eq(djls_source::Db::file_system(&db), fs.as_ref()));
+}
+
+#[test]
 fn diagnostics_configuration_is_owned_by_each_database_snapshot() {
     let settings: Settings = serde_json::from_value(serde_json::json!({
         "django_settings_module": "project.settings",
@@ -61,7 +68,9 @@ fn bundled_database(
         "django_version": version,
     }))?;
     let mut db = DjangoDatabase::new(
-        Arc::new(djls_source::OsFileSystem::default()),
+        Arc::new(djls_project::BundledFileSystem::new(Arc::new(
+            djls_source::OsFileSystem::default(),
+        ))),
         &settings,
         Some(root),
     );
@@ -256,7 +265,9 @@ fn inferred_bundled_version_changes_on_project_reload() {
     }))
     .expect("auto settings");
     let mut db = DjangoDatabase::new(
-        Arc::new(djls_source::OsFileSystem::default()),
+        Arc::new(djls_project::BundledFileSystem::new(Arc::new(
+            djls_source::OsFileSystem::default(),
+        ))),
         &settings,
         Some(root),
     );

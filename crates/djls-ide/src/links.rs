@@ -43,7 +43,7 @@ pub fn document_links(
                                 line_index,
                                 encoding,
                             ),
-                            target: Some(origin.path_buf(db).to_lsp_uri()?),
+                            target: Some(origin.path_buf(db).to_navigation_uri()?),
                             tooltip: None,
                             data: None,
                         }),
@@ -82,7 +82,7 @@ pub fn document_links(
                         line_index,
                         encoding,
                     ),
-                    target: Some(target.path(db).to_lsp_uri()?),
+                    target: Some(target.path(db).to_navigation_uri()?),
                     tooltip: None,
                     data: None,
                 })

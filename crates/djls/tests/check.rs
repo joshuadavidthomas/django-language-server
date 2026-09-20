@@ -424,6 +424,44 @@ fn check_stdin_detects_errors() {
 }
 
 #[test]
+fn check_files_and_stdin_use_bundles_without_writing_cache() {
+    let dir = tempdir().expect("project");
+    fs::write(
+        dir.path().join("djls.toml"),
+        "venv_path = 'missing-venv'\ndjango_version = '5.2'\ndjango_settings_module = 'missing_settings'\n",
+    )
+    .expect("configuration");
+    fs::write(dir.path().join("page.html"), "{{ value|default }}").expect("template");
+    let cache = dir.path().join("blocked-cache");
+    fs::write(&cache, "not a directory").expect("block cache");
+
+    for input in ["page.html", "-"] {
+        let mut child = Command::new(djls_binary())
+            .args(["check", input])
+            .current_dir(dir.path())
+            .env("XDG_CACHE_HOME", &cache)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("check process");
+        let mut stdin = child.stdin.take().expect("stdin");
+        if input == "-" {
+            stdin.write_all(b"{{ value|default }}").expect("source");
+        }
+        drop(stdin);
+        let output = child.wait_with_output().expect("check result");
+        assert_eq!(output.status.code(), Some(1), "{input}: {output:?}");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("S115"), "{input}: {stdout}");
+        assert_eq!(
+            fs::read_to_string(&cache).expect("cache untouched"),
+            "not a directory"
+        );
+    }
+}
+
+#[test]
 fn check_plural_stdin_summary_reports_errors_exactly() {
     let dir = tempdir().expect("temporary test directory should be created");
     setup_project(dir.path()).expect("test project fixture should be configured");

@@ -61,8 +61,10 @@ use crate::document::TextDocument;
 pub(crate) struct Workspace {
     /// Thread-safe shared buffer storage for open documents.
     buffers: Buffers,
-    /// Filesystem abstraction that checks buffers first, then disk.
-    overlay: Arc<OverlayFileSystem>,
+    /// Immutable bundles, then open buffers, then disk.
+    file_system: Arc<dyn FileSystem>,
+    /// Disk-only view for document event classification.
+    disk: Arc<dyn FileSystem>,
 }
 
 impl Workspace {
@@ -70,21 +72,20 @@ impl Workspace {
     #[must_use]
     pub(crate) fn new() -> Self {
         let buffers = Buffers::new();
-        let overlay = Arc::new(OverlayFileSystem::new(
-            buffers.clone(),
-            Arc::new(OsFileSystem::default()),
-        ));
+        let disk: Arc<dyn FileSystem> = Arc::new(OsFileSystem::default());
+        let overlay = Arc::new(OverlayFileSystem::new(buffers.clone(), Arc::clone(&disk)));
 
-        Self { buffers, overlay }
+        Self {
+            buffers,
+            file_system: Arc::new(djls_project::BundledFileSystem::new(overlay)),
+            disk,
+        }
     }
 
-    /// Return the overlay filesystem for database reads.
-    ///
-    /// The overlay returns buffer contents when present and falls back to disk
-    /// otherwise.
+    /// Return the complete filesystem for database reads.
     #[must_use]
-    pub(crate) fn overlay(&self) -> Arc<dyn FileSystem> {
-        Arc::clone(&self.overlay) as Arc<dyn FileSystem>
+    pub(crate) fn file_system(&self) -> Arc<dyn FileSystem> {
+        Arc::clone(&self.file_system)
     }
 
     /// Return all currently open documents.
@@ -97,7 +98,7 @@ impl Workspace {
 
     #[must_use]
     pub(crate) fn disk_is_file(&self, path: &Utf8Path) -> bool {
-        self.overlay.disk.is_file(path)
+        self.disk.is_file(path)
     }
 
     #[must_use]
@@ -432,7 +433,7 @@ mod tests {
             1,
             FileKind::Python,
         );
-        let mut db = DjangoDatabase::new(workspace.overlay(), &settings, Some(root));
+        let mut db = DjangoDatabase::new(workspace.file_system(), &settings, Some(root));
         db.apply_project_settings(settings);
         djls_project::run_django_discovery(&mut db).expect("discovery");
         let module = PythonSourceModule::resolve(
@@ -548,7 +549,7 @@ mod tests {
         assert!(!Arc::ptr_eq(&original, &edited));
         assert_eq!(
             workspace
-                .overlay()
+                .file_system()
                 .read_to_string(path)
                 .expect("overlay source"),
             "later 🌍"
@@ -741,7 +742,7 @@ mod tests {
             .expect("disk template fixture should be written");
 
         let mut workspace = Workspace::new();
-        let mut db = DjangoDatabase::new(workspace.overlay(), &Settings::default(), None);
+        let mut db = DjangoDatabase::new(workspace.file_system(), &Settings::default(), None);
         let root = db
             .files()
             .try_add_root(&db, root.to_path_buf(), FileRootKind::Project);
@@ -768,7 +769,7 @@ mod tests {
             .expect("disk template fixture should be written");
 
         let mut workspace = Workspace::new();
-        let mut db = DjangoDatabase::new(workspace.overlay(), &Settings::default(), None);
+        let mut db = DjangoDatabase::new(workspace.file_system(), &Settings::default(), None);
         let root = db
             .files()
             .try_add_root(&db, root.to_path_buf(), FileRootKind::Project);
@@ -792,7 +793,7 @@ mod tests {
         let file_path = root_path.join("template.html");
 
         let mut workspace = Workspace::new();
-        let mut db = DjangoDatabase::new(workspace.overlay(), &Settings::default(), None);
+        let mut db = DjangoDatabase::new(workspace.file_system(), &Settings::default(), None);
         let root = db
             .files()
             .try_add_root(&db, root_path.to_path_buf(), FileRootKind::Project);
@@ -817,7 +818,7 @@ mod tests {
             .expect("disk template fixture should be written");
 
         let mut workspace = Workspace::new();
-        let mut db = DjangoDatabase::new(workspace.overlay(), &Settings::default(), None);
+        let mut db = DjangoDatabase::new(workspace.file_system(), &Settings::default(), None);
         workspace.open_document(&file_path, "buffer template", 1, FileKind::Template);
         SourceChanges::new([ChangeEvent::BecameVisible(file_path.clone())]).apply(&mut db);
         let file = path_to_file(&db, &file_path).expect("opened document should be interned");

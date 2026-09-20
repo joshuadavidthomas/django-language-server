@@ -409,7 +409,7 @@ impl OsTestDatabase {
         ));
         Self {
             storage,
-            fs: Arc::new(djls_project::BundledFileSystem::new(fs)),
+            fs,
             memory,
             files: SourceFiles::default(),
             project: None,
