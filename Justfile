@@ -26,8 +26,16 @@ check *ARGS:
 clean:
     cargo clean
 
+# Run corpus setup and tests, or forward subcommands to the management CLI
+[positional-arguments]
 corpus *ARGS:
-    cargo run -q -p djls-testing --bin corpus -- {{ ARGS }}
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "$#" -eq 0 ]; then
+        just nox corpus
+    else
+        cargo run -q -p djls-testing --bin corpus -- "$@"
+    fi
 
 clippy *ARGS:
     cargo clippy --all-targets --all-features --benches --fix --allow-dirty {{ ARGS }} -- -D warnings

@@ -212,31 +212,6 @@ impl Corpus {
             .collect()
     }
 
-    /// Whether an entry directory represents a Django package.
-    ///
-    /// True for:
-    /// - `repos/django`
-    /// - `repos/django-<version>`
-    #[must_use]
-    pub(crate) fn is_django_entry(entry_dir: &Utf8Path) -> bool {
-        let Some(entry_name) = entry_dir.file_name() else {
-            return false;
-        };
-
-        let is_repos = entry_dir
-            .parent()
-            .and_then(|p| p.file_name())
-            .is_some_and(|cat| cat == "repos");
-
-        if !is_repos {
-            return false;
-        }
-
-        entry_name == "django"
-            || (entry_name.starts_with("django-")
-                && entry_name["django-".len()..].starts_with(|c: char| c.is_ascii_digit()))
-    }
-
     /// Latest locked and synced version directory for a package under `repos/`.
     ///
     /// Handles both single-entry names (e.g. `repos/django-allauth/`)
