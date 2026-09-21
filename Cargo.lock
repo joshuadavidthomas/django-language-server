@@ -2430,7 +2430,7 @@ checksum = "31095ca1f396e3de32745f42b20deef7bc09077f918b085307e8eab6ddd8fb9c"
 dependencies = [
  "once_cell",
  "serde",
- "unicode-width 0.2.2",
+ "unicode-width",
  "unscanny",
  "version-ranges",
 ]
@@ -2451,7 +2451,7 @@ dependencies = [
  "serde",
  "smallvec",
  "thiserror 1.0.69",
- "unicode-width 0.2.2",
+ "unicode-width",
  "url",
  "urlencoding",
  "version-ranges",
