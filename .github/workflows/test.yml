@@ -9,6 +9,7 @@ on:
       - crates/**
       - tests/**
       - tools/corpus-python.sh
+      - tools/release.py
       - Cargo.lock
       - Cargo.toml
       - pyproject.toml
@@ -24,6 +25,7 @@ on:
       - crates/**
       - tests/**
       - tools/corpus-python.sh
+      - tools/release.py
       - Cargo.lock
       - Cargo.toml
       - pyproject.toml
@@ -37,6 +39,10 @@ on:
         description: Comma-delineated list of OS targets to run tests on
         required: false
         type: string
+      ref:
+        description: Git ref to test
+        required: false
+        type: string
   workflow_dispatch:
     inputs:
       os:
@@ -45,7 +51,7 @@ on:
         type: string
 
 concurrency:
-  group: test-${{ github.ref }}
+  group: test-${{ inputs.ref || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -73,6 +79,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.ref }}
           persist-credentials: false
 
       - name: Install uv
@@ -113,6 +120,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.ref }}
           persist-credentials: false
 
       - name: Cache corpus
@@ -152,6 +160,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.ref }}
           persist-credentials: false
 
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
@@ -204,6 +213,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.ref }}
           persist-credentials: false
 
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
@@ -233,6 +243,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.ref }}
           persist-credentials: false
 
       - name: Install uv

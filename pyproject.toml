@@ -7,12 +7,17 @@ dev = [
   "bumpver>=2024.1130",
   "cogapp>=3.4.1",
   "django-stubs>=5.1.1",
+  "httpx2>=2.0",
   "maturin>=1.7.8",
   "nox>=2025.5.1",
+  "pydantic>=2.0,<3",
   "pytest>=9.0.3",
   "pytest-asyncio>=1.4.0",
   "pytest-lsp>=1.0.0",
   "ruff>=0.8.2",
+  "stamina>=26.1.0",
+  "tomli>=2.0; python_version < '3.11'",
+  "typer>=0.27.0",
 ]
 docs = [
   "zensical>=0.0.3",
@@ -103,11 +108,12 @@ version_pattern = "MAJOR.MINOR.PATCH[-TAG[.NUM]]"
   '^current_version = "{version}"',
 ]
 "docs/pre-commit.md" = [
-  '    rev: v{version}',
+  '    rev: v{pep440_version}',
 ]
 "docs/installation.md" = [
-  '    VERSION="{version}"',
-  '    \$Version = "{version}"',
+  '    VERSION="{pep440_version}"',
+  'django-language-server-v{pep440_version}-windows-x64.zip',
+  'releases/download/v{pep440_version}/',
 ]
 
 [tool.djlint]
@@ -136,7 +142,8 @@ include = [
 [tool.pytest.ini_options]
 norecursedirs = ".* bin build dist *.egg htmlcov logs node_modules static templates venv"
 python_files = "tests.py test_*.py *_tests.py"
-testpaths = ["tests/e2e"]
+pythonpath = ["."]
+testpaths = ["tests"]
 
 [tool.ruff]
 # Exclude a variety of commonly ignored directories.

@@ -91,6 +91,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Fixed `djls check` scanning the project root when template settings branches differ only in context processors.
 - **Internal**: Stopped reconstructing bindings redundantly during tag extraction, and stopped marking synthesized tag arguments required past their known minimum.
 - **Internal**: Normalized glibc string-comparison dispatch across Intel and AMD CodSpeed simulation runners.
+- **Internal**: Made releases draft-first, recoverable without replacing published assets, and verified through PyPI and standalone installations before publication.
 
 ## [6.1.0]
 
