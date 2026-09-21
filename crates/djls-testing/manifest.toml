@@ -88,7 +88,7 @@ environment = { dependencies = { kind = "requirements", inputs = ["setup.py", "t
 name = "django-forms-bootstrap"
 url = "https://github.com/pinax/django-forms-bootstrap.git"
 ref = "v3.1.0"
-# Historical upstream tox profile; interpreter availability is intentionally not modernized.
+# Uses upstream's Python 3.6 / Django 1.11 tox profile.
 environment = { python = "3.6", dependencies = { kind = "requirements", inputs = ["setup.py"], supplemental = ["Django>=1.11,<1.12"] } }
 
 [[repo]]
@@ -101,7 +101,7 @@ environment = { dependencies = { kind = "requirements", inputs = ["setup.py"] } 
 name = "django-grappelli"
 url = "https://github.com/sehmaschine/django-grappelli.git"
 ref = "4.0.3"
-# The default py311-django50 tox environment, not a corpus-selected Django.
+# Uses upstream's default py311-django50 tox environment.
 environment = { python = "3.11", dependencies = { kind = "requirements", inputs = ["setup.py", "requirements/requirements-testing.txt"], supplemental = ["Django>=5.0,<5.1", "coverage"] } }
 
 [[repo]]
@@ -150,7 +150,7 @@ environment = { source_roots = ["src", "."], dependencies = { kind = "requiremen
 name = "django-permission"
 url = "https://github.com/lambdalisue/django-permission.git"
 ref = "v1.0.3"
-# Historical upstream tox profile; interpreter availability is intentionally not modernized.
+# Uses upstream's Python 3.6 / Django 1.11 tox profile.
 # app-version's published wheel contains stale 0.2.1 egg metadata beside 1.0.1;
 # building the same release from source produces consistent metadata.
 environment = { python = "3.6", source_roots = ["src", "."], dependencies = { kind = "requirements", inputs = ["setup.py", "requirements.txt"], supplemental = ["Django>=1.11,<2.0"], no_binary = ["app-version"] } }
@@ -217,7 +217,7 @@ environment = { metadata_version = "1.5.1", dependencies = { kind = "requirement
 name = "django-5.2"
 url = "https://github.com/django/django.git"
 ref = "5.2.11"
-# Django is project code; install its declared dependencies, not another Django.
+# Django resolves from this checkout; only its dependencies need installing.
 environment = { dependencies = { kind = "requirements", inputs = ["pyproject.toml"] } }
 
 [[repo]]
@@ -316,7 +316,6 @@ environment = { source_roots = ["src", "."], dependencies = { kind = "requiremen
 name = "pythonic-news"
 url = "https://github.com/sebst/pythonic-news.git"
 ref = "master"
-# Historical intended profile; interpreter availability is not a runtime-support claim.
 environment = { python = "3.7", dependencies = { kind = "requirements", inputs = ["requirements.txt"] } }
 
 [[repo]]

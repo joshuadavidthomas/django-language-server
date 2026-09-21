@@ -51,7 +51,7 @@ enum Command {
         #[arg(long)]
         no_prune: bool,
 
-        /// Only download source fixtures; do not prepare runnable corpus environments
+        /// Download source without preparing Python environments
         #[arg(long)]
         source_only: bool,
     },

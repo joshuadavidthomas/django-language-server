@@ -1,4 +1,4 @@
-//! Explicit, per-repository Python environments. Source sync alone is not setup.
+//! Dependency installation and readiness checks for per-repository Python environments.
 
 use std::hash::DefaultHasher;
 use std::hash::Hash;
@@ -42,7 +42,7 @@ enum Dependencies {
     /// Use the upstream lock directly, including its default dependency groups.
     UvLock,
     PoetryLock,
-    /// Install upstream declarations without maintaining another dependency lock.
+    /// Install from upstream package metadata or requirements files.
     Requirements {
         inputs: Vec<Utf8PathBuf>,
         /// Requirements declared outside pip inputs, such as a selected tox factor.
@@ -266,8 +266,7 @@ impl Corpus {
             Dependencies::PoetryLock => Some(checkout.join("poetry.lock")),
             Dependencies::Requirements { .. } | Dependencies::Deferred { .. } => None,
         };
-        // This is only a disposable local cache key, not dependency integrity data.
-        // uv owns lock parsing, compatibility checks, and artifact verification.
+        // Detect setup changes; uv verifies dependency artifacts during installation.
         let mut stamp = DefaultHasher::new();
         revision.hash(&mut stamp);
         toml::to_string(&environment)?.hash(&mut stamp);
@@ -382,7 +381,7 @@ impl Corpus {
         Ok(())
     }
 
-    /// A missing, partial, or stale setup is an error, never an empty environment.
+    /// Return the environment directory if its stamp matches and interpreter files exist.
     fn require_environment(&self, name: &str) -> anyhow::Result<Utf8PathBuf> {
         let stamp = self.environment_stamp(name)?;
         let root = self.root.join("environments").join(name);
@@ -605,7 +604,7 @@ mod tests {
         let local = corpus.root.join("repos/example/src/local.py");
         std::fs::write(&dependency, "").expect("dependency source");
         std::fs::write(&local, "").expect("project source");
-        // A neighboring environment must never leak into this one.
+        // Django in a neighboring environment does not satisfy this project's dependency.
         let neighbor = corpus
             .root
             .join("environments/other/lib/python3.12/site-packages");
@@ -642,7 +641,7 @@ mod tests {
             )
             .is_none()
         );
-        // Django's own checkout must work without a second installed copy.
+        // Django can resolve from the checkout instead of site-packages.
         std::fs::rename(
             site_packages.join("django.py"),
             corpus.root.join("repos/example/src/django.py"),
