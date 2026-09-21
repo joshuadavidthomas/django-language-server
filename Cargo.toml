@@ -32,7 +32,7 @@ dashmap = "6.2"
 datatest-stable = "0.3.3"
 directories = "6.0"
 divan = { package = "codspeed-divan-compat", version = "4.3" }
-djangofmt = { git = "https://github.com/UnknownPlatypus/djangofmt", rev = "690170faf4927b0ebe3349d2e9c56f7ad8b8a2ce", default-features = false }
+djangofmt = { git = "https://github.com/UnknownPlatypus/djangofmt", tag = "v1.0.0", default-features = false }
 dotenvy = "0.15"
 dunce = "1.0"
 flate2 = "1.1"

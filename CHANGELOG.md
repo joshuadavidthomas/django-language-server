@@ -49,6 +49,8 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Removed eager Django Model scanning and Model Graph construction from project discovery and cache warm-up.
 - Expanded Python Environment discovery to support active Conda environments, Python installations on `PATH`, executable symlinks, and additional system package layouts without executing Python.
 - Swapped the automatic Python Environment order to prefer project venv directories over `VIRTUAL_ENV`, accounting for pre-commit isolated environments.
+- Updated `djangofmt` from 0.2.7 to 1.0.0, bringing roughly 2x faster template formatting and some bug fixes.
+- An unreadable or invalid `[tool.djangofmt]` section in `pyproject.toml` now surfaces as a formatting error instead of being silently ignored.
 - **Internal**: Reorganized `CONTRIBUTING.md` around a first-contribution path with editor/server orientation and an architecture overview, and grouped maintainer version and tool-pin updates into a Maintaining section.
 - **Internal**: Moved validation cases into per-file markdown snapshot tests, built every test project from disk through `ProjectFixture`, split the corpus sweeps into per-repository tests, and moved the full-corpus benchmark checks out of `cargo test`, which now runs about fifteen seconds faster.
 

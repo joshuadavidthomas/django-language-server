@@ -14,7 +14,8 @@ pub(super) fn format(
     path: &Utf8Path,
     format_options: FormatOptions,
 ) -> Result<Option<String>, FormatError> {
-    let options = pyproject::load_options(path.as_std_path());
+    let (options, _root) = pyproject::load_options(path.as_std_path())
+        .map_err(|error| FormatError::Djangofmt(format!("{error}")))?;
     let profile = options
         .profile
         .or_else(|| Profile::from_path(path.as_std_path()))
@@ -39,6 +40,6 @@ pub(super) fn format(
         config.json.use_tabs = use_tabs;
     }
 
-    format_text(source, &config, profile)
+    format_text(source, &config, profile, Some(path.as_std_path()))
         .map_err(|error| FormatError::Djangofmt(format!("{error:?}")))
 }
