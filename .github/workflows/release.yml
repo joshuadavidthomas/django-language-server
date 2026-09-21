@@ -87,9 +87,28 @@ jobs:
           command: upload
           args: --non-interactive --skip-existing wheels-*/*
 
-      - name: Create GitHub release
+      - name: Create or update GitHub release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG_NAME: ${{ github.ref_name }}
         run: |
-          gh release create "${TAG_NAME}" binary-*/* --generate-notes
+          if gh release view "${TAG_NAME}" >/dev/null 2>&1; then
+            gh release upload "${TAG_NAME}" binary-*/* --clobber
+          else
+            gh release create "${TAG_NAME}" binary-*/* --generate-notes
+          fi
+
+      - name: Verify release assets
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          attached="$(gh release view "${TAG_NAME}" --json assets --jq '.assets[].name')"
+
+          for file in binary-*/*; do
+            name="$(basename "${file}")"
+            if ! grep -qxF "${name}" <<<"${attached}"; then
+              printf 'Asset %s was not attached to release %s.\n' "${name}" "${TAG_NAME}" >&2
+              exit 1
+            fi
+          done

@@ -83,6 +83,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Fixed `djls check` scanning the project root when template settings branches differ only in context processors.
 - **Internal**: Stopped reconstructing bindings redundantly during tag extraction, and stopped marking synthesized tag arguments required past their known minimum.
 - **Internal**: Normalized glibc string-comparison dispatch across Intel and AMD CodSpeed simulation runners.
+- **Internal**: Made the release workflow attach built binaries to an existing GitHub release and verify the assets afterwards.
 
 ## [6.1.0]
 
