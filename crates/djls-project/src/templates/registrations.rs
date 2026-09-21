@@ -1487,9 +1487,9 @@ fn is_canonical_stringfilter(lookup: &mut PythonSourceLookup<'_>, expression: &E
     let Some(module) = target.module() else {
         return false;
     };
-    if module.search_path().is_project_code()
-        || module.name().as_str() != "django.template.defaultfilters"
-        || target.name() != "stringfilter"
+    // Model Django's canonical stringfilter API as preserving the inspect.unwrap
+    // signature. These checks establish identity, not implementation equivalence.
+    if module.name().as_str() != "django.template.defaultfilters" || target.name() != "stringfilter"
     {
         return false;
     }

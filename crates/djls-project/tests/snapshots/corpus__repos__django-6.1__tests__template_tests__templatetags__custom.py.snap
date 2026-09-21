@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "filter::make_data_div":
@@ -617,6 +617,7 @@ tag_rules:
     as_var: strip
 filter_arities:
   "tests.template_tests.templatetags.custom::filter::noop": optional_argument
+  "tests.template_tests.templatetags.custom::filter::trim": required_argument
 block_specs:
   "tests.template_tests.templatetags.custom::tag::div":
     body_analysis_evidence: not_detected
