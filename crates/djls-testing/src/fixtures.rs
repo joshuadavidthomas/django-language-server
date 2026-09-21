@@ -14,6 +14,7 @@ use djls_project::LibraryName;
 use djls_project::Project;
 use djls_project::PythonEnvironment;
 use djls_project::PythonModuleName;
+use djls_project::PythonSourceModule;
 use djls_project::SearchPath;
 use djls_project::SearchPaths;
 use djls_project::SymbolDefinition;
@@ -21,6 +22,7 @@ use djls_project::TemplateLibraryCatalog;
 use djls_project::TemplateSymbol;
 use djls_project::TemplateSymbolKind;
 use djls_project::TemplateSymbolName;
+use djls_project::file_to_module;
 use djls_project::testing;
 use djls_project::testing::TemplateLibraryInput;
 use djls_semantic::FilterAritySpecs;
@@ -483,14 +485,33 @@ pub fn build_entry_specs(
 ) -> anyhow::Result<(TagSpecs, FilterAritySpecs)> {
     let mut specs = builtin_tag_specs();
     let mut arities = FilterAritySpecs::new();
+    let name = entry_dir.file_name().context("missing corpus entry name")?;
+    let db = corpus.environment_database(name)?;
+    let project = db.project().context("missing corpus project")?;
+    let django = PythonSourceModule::resolve(&db, project, PythonModuleName::parse("django")?)
+        .context("corpus environment cannot resolve Django")?;
+    let django_dir = django
+        .path()
+        .parent()
+        .context("missing Django package directory")?;
+    let mut seen = BTreeSet::new();
 
-    if !Corpus::is_django_entry(entry_dir)
-        && let Some(django_dir) = corpus.latest_package("django")
+    // Use this project's Django version, with local libraries merged afterward.
+    for path in Corpus::extraction_targets_in(django_dir)
+        .into_iter()
+        .chain(Corpus::extraction_targets_in(entry_dir))
     {
-        extract_and_merge(corpus, &django_dir, &mut specs, &mut arities)?;
+        if !seen.insert(path.clone()) {
+            continue;
+        }
+        let module = file_to_module(&db, project, path.clone())
+            .with_context(|| format!("extraction target `{path}` does not resolve in `{name}`"))?;
+        let bundle = extract_bundle(&db, module.file(), module.name().clone());
+        arities.merge_filter_arities(&bundle.filter_arities);
+        specs
+            .merge_block_specs(&bundle.block_specs)
+            .merge_tag_rules(&bundle.tag_rules);
     }
-
-    extract_and_merge(corpus, entry_dir, &mut specs, &mut arities)?;
 
     Ok((specs, arities))
 }

@@ -50,6 +50,10 @@ enum Command {
         /// Download source without preparing Python environments
         #[arg(long)]
         source_only: bool,
+
+        /// Rebuild environments even when ready, refreshing unlocked dependencies
+        #[arg(long, conflicts_with = "source_only")]
+        refresh: bool,
     },
     /// Remove synced corpus data (all by default, or specific repos)
     Clean {
@@ -71,6 +75,8 @@ enum Command {
 #[derive(Clone, Copy, ValueEnum)]
 enum EnvironmentAction {
     Sync,
+    /// Rebuild even ready environments, refreshing unlocked dependencies
+    Refresh,
     Check,
     /// Emit one JSON object per extraction target, without updating snapshots
     Extract,
@@ -110,6 +116,7 @@ fn main() -> anyhow::Result<()> {
             upgrade,
             no_prune,
             source_only,
+            refresh,
         } => {
             if upgrade {
                 update_lockfile(&manifest_path, &lockfile_path, &LockFilter::All)?;
@@ -127,7 +134,12 @@ fn main() -> anyhow::Result<()> {
             djls_testing::sync_corpus(&lockfile, &corpus_root, !no_prune)?;
             if !source_only {
                 let corpus = Corpus::require_from_manifest(&manifest_path.canonicalize_utf8()?)?;
-                run_environments(&corpus, EnvironmentAction::Sync, Vec::new())?;
+                let action = if refresh {
+                    EnvironmentAction::Refresh
+                } else {
+                    EnvironmentAction::Sync
+                };
+                run_environments(&corpus, action, Vec::new())?;
                 run_environments(&corpus, EnvironmentAction::Check, Vec::new())?;
             }
             tracing::info!(%corpus_root, "corpus synced");
@@ -177,7 +189,9 @@ fn run_environments(
             continue;
         }
         let result = match action {
-            EnvironmentAction::Sync => corpus.sync_environment(&name),
+            EnvironmentAction::Sync | EnvironmentAction::Refresh => {
+                corpus.sync_environment(&name, matches!(action, EnvironmentAction::Refresh))
+            }
             EnvironmentAction::Check => corpus.environment_database(&name).map(|_| ()),
             EnvironmentAction::Extract => print_environment(corpus, &name),
         };
@@ -254,7 +268,8 @@ mod tests {
             Command::Sync {
                 source_only: false,
                 upgrade: false,
-                no_prune: false
+                no_prune: false,
+                refresh: false,
             }
         ));
         let cli = Cli::try_parse_from(["corpus", "sync", "--source-only", "-U", "--no-prune"])
@@ -264,8 +279,24 @@ mod tests {
             Command::Sync {
                 source_only: true,
                 upgrade: true,
-                no_prune: true
+                no_prune: true,
+                refresh: false,
             }
         ));
+        let cli = Cli::try_parse_from(["corpus", "sync", "--refresh"]).expect("refresh sync");
+        assert!(matches!(
+            cli.command,
+            Command::Sync {
+                refresh: true,
+                source_only: false,
+                ..
+            }
+        ));
+        assert!(Cli::try_parse_from(["corpus", "sync", "--source-only", "--refresh"]).is_err());
+        let cli = Cli::try_parse_from(["corpus", "environment", "refresh", "example"])
+            .expect("refresh one environment");
+        assert!(
+            matches!(cli.command, Command::Environment { action: EnvironmentAction::Refresh, names } if names == ["example"])
+        );
     }
 }

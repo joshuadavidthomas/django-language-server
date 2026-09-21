@@ -43,7 +43,9 @@ The `environment` subcommands are optional refresh and diagnostic tools, not
 additional setup steps:
 
 ```bash
-just corpus environment sync healthchecks   # Refresh one repository's dependencies
+just corpus environment sync healthchecks   # Prepare one repository, reusing it when ready
+just corpus environment refresh healthchecks # Rebuild and refresh one repository's dependencies
+just corpus sync --refresh                 # Rebuild and refresh all non-deferred environments
 just corpus environment check healthchecks  # Check readiness and build the project database
 just corpus environment check               # Report every unconfigured/unready repository
 just corpus environment extract healthchecks # Emit project-backed extraction as JSON lines
@@ -51,7 +53,7 @@ just corpus environment extract healthchecks # Emit project-backed extraction as
 
 The source lock pins each checkout SHA. Setup installs dependencies from that
 checkout's `uv.lock`, `poetry.lock`, package metadata, or requirements files.
-Unlocked dependencies are resolved during each sync.
+Unlocked dependencies are resolved during initial setup and explicit refresh.
 The corpus does not generate dependency lockfiles. The analyzer reads checkout
 source through the configured source roots.
 
@@ -71,8 +73,11 @@ the environment that produced them.
 
 A readiness stamp detects source, recipe, upstream Python selection, setup-policy,
 and native-lock changes. It does not check for newer dependency releases.
-`sync` clears and rebuilds the environments, refreshing dependency
-resolution. Tests require prepared environments and report missing setup as an error.
+`sync` reuses an environment when its readiness stamp matches, its interpreter and
+venv metadata exist, and its project database can resolve Django. Missing, stale,
+or incomplete environments are rebuilt. `sync --refresh` deliberately rebuilds
+ready environments too, refreshing dependency resolution. Tests require prepared
+environments and report missing setup as an error.
 
 `Corpus::environment_database` exposes checkout source and the repository's own
 site-packages to the existing project resolver, including declared settings and
@@ -80,16 +85,16 @@ nested project roots. It rejects environments that cannot resolve Django, even
 if dependency installation succeeded. It does not execute Django settings or start
 backing services. Django source checkouts retain first-party search paths.
 
-Extraction and settings snapshots use these project-backed databases. Extraction
+Extraction, settings, and validation use these project-backed databases. Extraction
 has one test per repository, so a library can be run individually:
 
 ```bash
 cargo test -p djls-project --test corpus django-bootstrap3
 cargo test -p djls-project --test corpus_settings healthchecks
-uv run --no-project --with 'nox[uv]' nox --session corpus
+just corpus
 ```
 
-The Nox `corpus` session runs full sync followed by extraction, settings, models,
+`just corpus` invokes the Nox `corpus` session: full sync followed by extraction, settings, models,
 registration census, validation, and inheritance suites. CI runs it in one Linux
 job, separate from the ambient Python/Django matrix. The matrix excludes these
 corpus-wide sweeps but retains focused regression tests using corpus source as
@@ -97,7 +102,7 @@ fixtures, downloaded with `sync --source-only`. Plain `cargo test` still include
 the corpus suites locally. CI caches source,
 downloaded packages, and historical interpreters, but not resolved environments.
 GeoNode is explicitly deferred for its native GDAL prerequisites and appears as
-an ignored extraction test with a reason. Explicitly requesting its
+ignored extraction and validation tests with a reason. Explicitly requesting its
 environment returns that reason as an error.
 
 Sync invokes the Linux bootstrap when a historical environment is requested.
@@ -108,6 +113,12 @@ headers. CI and `.agents/setup` install those prerequisites.
 When snapshots change unexpectedly, compare provenance and run the previous
 analyzer against the same environment to distinguish dependency updates from
 analyzer changes.
+
+Corpus setup is a prerequisite for the complete test suite. Focused tests use synced
+source or small controlled fixtures for edge cases. Pure parser and isolated
+algorithm tests can still run without the corpus. Model extraction, registration
+census, and inheritance termination sweeps remain source-only because their
+queries do not resolve Python imports.
 
 ## Licensing
 

@@ -201,8 +201,9 @@ Use `just test` by default, including for focused runs. It forwards crate and te
 
 | Command | What it runs | When to choose it |
 |---|---|---|
-| `just test` | The Rust suite in a Nox-managed Python 3.10/Django 5.2 environment, after synchronizing the corpus | Everyday development and the pre-PR check |
+| `just test` | The Rust suite excluding corpus-wide sweeps, in a Nox-managed Python 3.10/Django 5.2 environment, after synchronizing corpus source | Everyday development and the pre-PR check |
 | `just testall` | The Rust suite in each configured compatible Python/Django combination, including Django `main` | Changing version support or investigating a matrix-specific failure; this does not include LSP end-to-end tests |
+| `just corpus` | Prepare source and dependencies, then run all six corpus-wide suites | Checking real projects in their own dependency environments, once outside the version matrix |
 | `just e2e` | Python/pytest LSP end-to-end tests against the checkout, in the default Python/Django environment | Changing editor-visible behavior such as initialization, diagnostics, navigation, or completions |
 
 `just test` and `just testall` create or reuse isolated Nox environments and install the selected Django version before running Cargo. This does not mean every Rust test analyzes that installed Django version: source-backed fixtures use pinned corpus files or explicit test data. The version matrix and incompatible combinations are defined in [`noxfile.py`](noxfile.py).
@@ -211,7 +212,9 @@ You may see `cargo test` in Rust documentation. It runs the Rust suite directly,
 
 #### Corpus
 
-The corpus contains pinned source from real Django packages and projects under `crates/djls-testing/.corpus`. `just test` and `just testall` synchronize it automatically; direct `cargo test` runs require it to be present already. If a test reports missing or invalid corpus data, run `just corpus sync` and retry. The first sync downloads dozens of checksum-validated archives and can consume hundreds of megabytes; later syncs skip entries that already match `crates/djls-testing/manifest.lock`.
+The complete suite requires the corpus: pinned project source and dependencies under `crates/djls-testing/.corpus`. Run `just corpus sync` for setup. Subsequent syncs reuse unchanged checkouts and ready environments, rebuilding only missing or stale entries. Use `just corpus sync --refresh` to deliberately refresh dependencies, including unlocked upstream requirements. No additional dependency lockfiles are maintained by the corpus.
+
+`just test` and `just testall` sync source for their focused tests. `just corpus` runs the six corpus-wide sweeps separately, using each project's own environment where import resolution matters. Plain `cargo test` includes those sweeps and therefore needs complete setup. Isolated tests such as `cargo test -p djls-templates` can run without the corpus.
 
 #### Snapshots
 
