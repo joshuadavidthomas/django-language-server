@@ -19,6 +19,7 @@
 //! INSTA_UPDATE=1 cargo test -p djls-project --test corpus
 //! ```
 
+use std::collections::BTreeMap;
 use std::io;
 use std::sync::Arc;
 
@@ -37,10 +38,15 @@ fn snapshot_dir() -> insta::internals::SettingsBindDropGuard {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args = Arguments::from_args();
     let corpus = Arc::new(Corpus::require()?);
-    let targets = Arc::new(corpus.extraction_target_members()?);
-    if targets.is_empty() {
+    let mut targets_by_member: BTreeMap<String, Vec<_>> = BTreeMap::new();
+    for target in corpus.extraction_target_members()? {
+        targets_by_member
+            .entry(target.member.clone())
+            .or_default()
+            .push(target);
+    }
+    if targets_by_member.is_empty() {
         return Err(io::Error::other("No extraction targets in corpus.").into());
     }
     let mut trials = Vec::new();
@@ -52,15 +58,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             |reason| format!("corpus_environment::{name} [deferred: {reason}]"),
         );
         let corpus = Arc::clone(&corpus);
-        let targets = Arc::clone(&targets);
+        let targets = targets_by_member.remove(&name).unwrap_or_default();
         trials.push(
             Trial::test(label, move || {
-                let _guard = snapshot_dir();
                 let db = corpus.environment_database(&name)?;
                 let project = db
                     .project()
                     .ok_or_else(|| io::Error::other("missing corpus project"))?;
-                for target in targets.iter().filter(|target| target.member == name) {
+                let _guard = snapshot_dir();
+                for target in targets {
                     let module =
                         file_to_module(&db, project, target.path.clone()).ok_or_else(|| {
                             io::Error::other(format!(
@@ -78,5 +84,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .with_ignored_flag(deferred.is_some()),
         );
     }
-    libtest_mimic::run(&args, trials).exit()
+    libtest_mimic::run(&Arguments::from_args(), trials).exit()
 }

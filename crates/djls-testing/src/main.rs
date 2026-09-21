@@ -1,19 +1,15 @@
 //! CLI entry point for corpus management.
 
-use anyhow::Context as _;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use clap::Parser;
 use clap::Subcommand;
 use clap::ValueEnum;
-use djls_project::Db as _;
-use djls_project::file_to_module;
 use djls_testing::Corpus;
 use djls_testing::LockFilter;
 use djls_testing::Lockfile;
 use djls_testing::Manifest;
 use djls_testing::VendorSpecFixturesOptions;
-use djls_testing::extract_bundle;
 use djls_testing::sorted_snapshot;
 
 #[derive(Parser)]
@@ -183,7 +179,7 @@ fn run_environments(
         let result = match action {
             EnvironmentAction::Sync => corpus.sync_environment(&name),
             EnvironmentAction::Check => corpus.environment_database(&name).map(|_| ()),
-            EnvironmentAction::Extract => extract_environment(corpus, &name),
+            EnvironmentAction::Extract => print_environment(corpus, &name),
         };
         match result {
             Ok(()) => tracing::info!(%name, "environment operation succeeded"),
@@ -198,28 +194,13 @@ fn run_environments(
     Ok(())
 }
 
-fn extract_environment(corpus: &Corpus, name: &str) -> anyhow::Result<()> {
-    let db = corpus.environment_database(name)?;
-    let project = db
-        .project()
-        .context("environment database has no project")?;
-    for target in corpus
-        .extraction_target_members()?
-        .into_iter()
-        .filter(|target| target.member == name)
-    {
-        let module = file_to_module(&db, project, target.path.clone()).with_context(|| {
-            format!(
-                "corpus `{name}` target `{}` does not resolve in its configured source roots",
-                target.relative_path
-            )
-        })?;
-        let bundle = extract_bundle(&db, module.file(), module.name().clone());
+fn print_environment(corpus: &Corpus, name: &str) -> anyhow::Result<()> {
+    for (path, bundle) in corpus.extract_environment(name)? {
         println!(
             "{}",
             serde_json::to_string(&serde_json::json!({
                 "repository": name,
-                "path": target.relative_path,
+                "path": path,
                 "facts": sorted_snapshot(&bundle)?,
             }))?
         );

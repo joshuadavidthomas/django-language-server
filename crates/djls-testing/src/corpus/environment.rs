@@ -10,16 +10,20 @@ use anyhow::Context as _;
 use anyhow::ensure;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+use djls_project::Db as _;
 use djls_project::PythonEnvironment;
 use djls_project::PythonModuleName;
 use djls_project::PythonSourceModule;
 use djls_project::SearchPath;
+use djls_project::file_to_module;
 use serde::Deserialize;
 use serde::Serialize;
 
 use crate::corpus::Corpus;
 use crate::corpus::manifest::Manifest;
 use crate::db::OsTestDatabase;
+use crate::extraction::ExtractionBundle;
+use crate::extraction::extract_bundle;
 use crate::fixtures::ProjectFixture;
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -447,12 +451,35 @@ impl Corpus {
         );
         Ok(db)
     }
+
+    /// Extract facts keyed by checkout-relative path using the repository's dependencies.
+    pub fn extract_environment(
+        &self,
+        name: &str,
+    ) -> anyhow::Result<Vec<(Utf8PathBuf, ExtractionBundle)>> {
+        let db = self.environment_database(name)?;
+        let project = db
+            .project()
+            .context("environment database has no project")?;
+        self.extraction_target_members()?
+            .into_iter()
+            .filter(|target| target.member == name)
+            .map(|target| {
+                let module = file_to_module(&db, project, target.path).with_context(|| {
+                    format!(
+                        "corpus `{name}` target `{}` does not resolve in its configured source roots",
+                        target.relative_path
+                    )
+                })?;
+                let bundle = extract_bundle(&db, module.file(), module.name().clone());
+                Ok((target.relative_path, bundle))
+            })
+            .collect()
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use djls_project::Db as _;
-
     use super::*;
     use crate::corpus::lock::LockedRepo;
     use crate::corpus::lock::Lockfile;
