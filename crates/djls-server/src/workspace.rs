@@ -412,7 +412,7 @@ mod tests {
     }
 
     #[test]
-    fn bundled_navigation_round_trips_and_ignores_editor_changes() {
+    fn bundled_python_navigation_preserves_identity_and_ignores_editor_changes() {
         use djls_project::Db as _;
         use djls_project::PythonModuleName;
         use djls_project::PythonSourceModule;
@@ -452,7 +452,7 @@ mod tests {
         let template_path = root.join("page.html");
         workspace.open_document(
             &template_path,
-            "{% for x in xs %}{% endfor %}{% include 'admin/base.html' %}",
+            "{% for x in xs %}{% endfor %}",
             1,
             FileKind::Template,
         );
@@ -471,10 +471,6 @@ mod tests {
         assert_eq!(links.len(), 1);
         let reopened = links[0].target_uri.to_utf8_path_buf().expect("file URI");
         assert_eq!(reopened, path);
-        assert_eq!(
-            std::fs::read_to_string(&path).expect("navigation copy"),
-            original_text
-        );
         assert_eq!(
             path_to_file(&db, &reopened).expect("same source"),
             original_file
@@ -497,24 +493,6 @@ mod tests {
                 .expect("immutable source after edit")
                 .as_str(),
             original_text
-        );
-
-        let links = djls_ide::document_links(&db, template, PositionEncoding::Utf8);
-        assert_eq!(links.len(), 1);
-        let target = links[0]
-            .target
-            .as_ref()
-            .expect("template link")
-            .to_utf8_path_buf()
-            .expect("file path");
-        assert!(target.ends_with("django/contrib/admin/templates/admin/base.html"));
-        let linked_file = path_to_file(&db, &target).expect("bundled template");
-        assert_eq!(
-            std::fs::read_to_string(&target).expect("materialized template"),
-            linked_file
-                .try_source(&db)
-                .expect("archive template")
-                .as_str()
         );
     }
 

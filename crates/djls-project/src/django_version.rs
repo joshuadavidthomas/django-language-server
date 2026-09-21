@@ -8,6 +8,7 @@ use pep440_rs::Version;
 use pep440_rs::VersionSpecifiers;
 use pep508_rs::MarkerExpression;
 use pep508_rs::MarkerTree;
+use pep508_rs::MarkerValueVersion;
 use pep508_rs::Requirement;
 use pep508_rs::VersionOrUrl;
 use rustc_hash::FxHashSet;
@@ -35,9 +36,8 @@ pub fn bundled_django_version(
             .and_then(|project| project.get("requires-python"))
             .and_then(toml::Value::as_str)
             && let Ok(range) = source.parse::<VersionSpecifiers>()
-            && let Some(marker) = python_marker(&[range])
         {
-            requirements.environment.and(marker);
+            requirements.environment.and(python_marker(&[range]));
         }
         if let Some(dependencies) = project
             .get("project")
@@ -60,21 +60,20 @@ pub fn bundled_django_version(
                 } else if name == "python"
                     && let Some(source) = value.as_str()
                     && let Some(ranges) = poetry_specifiers(source)
-                    && let Some(marker) = python_marker(&ranges)
                 {
-                    requirements.environment.and(marker);
+                    requirements.environment.and(python_marker(&ranges));
                 }
             }
         }
     }
     requirements.read_setup_cfg(fs, root);
     requirements.read_files(fs, root);
-    for (_, marker, _) in &mut requirements.entries {
-        marker.and(requirements.environment.clone());
+    for entry in &mut requirements.entries {
+        entry.marker.and(requirements.environment.clone());
     }
     requirements
         .entries
-        .retain(|(_, marker, _)| !marker.is_false());
+        .retain(|entry| !entry.marker.is_false());
 
     // Prefer a resolved version, but do not trust a lock that contradicts the
     // current declarations. Universal locks may contain several feasible versions.
@@ -115,9 +114,11 @@ pub fn bundled_django_version(
         }
         // A stale runtime lock still establishes a dependency: constraints must
         // limit the inferred replacement even without a direct declaration.
-        requirements
-            .entries
-            .push((vec![VersionSpecifiers::default()], locked_requirement, true));
+        requirements.entries.push(DjangoRequirement {
+            alternatives: vec![VersionSpecifiers::default()],
+            marker: locked_requirement,
+            required: true,
+        });
     }
     let selected = requirements.feature_line();
     if selected.is_none() {
@@ -238,7 +239,7 @@ fn lock_scope(value: &toml::Value) -> MarkerTree {
             let marker = value
                 .as_str()
                 .and_then(poetry_specifiers)
-                .and_then(|ranges| python_marker(&ranges));
+                .map(|ranges| python_marker(&ranges));
             scope.and(marker.unwrap_or(MarkerTree::FALSE));
         }
     }
@@ -345,7 +346,7 @@ fn uv_locked_django_versions(lock: &toml::Value) -> Vec<LockedDjango> {
             .get("version")
             .and_then(toml::Value::as_str)
             .unwrap_or("");
-        let key = (index, extras.clone(), marker.try_to_string());
+        let key = (index, extras.clone(), marker.clone());
         if !seen.insert(key) {
             continue;
         }
@@ -425,8 +426,14 @@ fn feature_line(version: &Version) -> Option<DjangoVersion> {
 
 #[derive(Default)]
 struct DjangoRequirements {
-    entries: Vec<(Vec<VersionSpecifiers>, MarkerTree, bool)>,
+    entries: Vec<DjangoRequirement>,
     environment: MarkerTree,
+}
+
+struct DjangoRequirement {
+    alternatives: Vec<VersionSpecifiers>,
+    marker: MarkerTree,
+    required: bool,
 }
 
 impl DjangoRequirements {
@@ -447,7 +454,11 @@ impl DjangoRequirements {
         };
         let marker = without_extras(requirement.marker);
         if !marker.is_false() {
-            self.entries.push((vec![specifiers], marker, required));
+            self.entries.push(DjangoRequirement {
+                alternatives: vec![specifiers],
+                marker,
+                required,
+            });
         }
     }
 
@@ -485,10 +496,7 @@ impl DjangoRequirements {
             let Some(ranges) = poetry_specifiers(source) else {
                 return;
             };
-            let Some(python) = python_marker(&ranges) else {
-                return;
-            };
-            marker.and(python);
+            marker.and(python_marker(&ranges));
         }
         if let Some(platform) = value.get("platform").and_then(toml::Value::as_str) {
             let Ok(parsed) = format!("sys_platform == '{platform}'").parse::<MarkerTree>() else {
@@ -497,7 +505,11 @@ impl DjangoRequirements {
             marker.and(parsed);
         }
         if !marker.is_false() {
-            self.entries.push((specifiers, marker, true));
+            self.entries.push(DjangoRequirement {
+                alternatives: specifiers,
+                marker,
+                required: true,
+            });
         }
     }
 
@@ -516,9 +528,8 @@ impl DjangoRequirements {
         }
         if let Some(source) = config.get("options", "python_requires")
             && let Ok(range) = source.parse::<VersionSpecifiers>()
-            && let Some(marker) = python_marker(&[range])
         {
-            self.environment.and(marker);
+            self.environment.and(python_marker(&[range]));
         }
         if let Some(requirements) = config.get("options", "install_requires") {
             for requirement in requirements.lines() {
@@ -576,20 +587,11 @@ impl DjangoRequirements {
         }
     }
 
-    fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-
     fn has_requirement(&self) -> bool {
-        self.entries.iter().any(|(_, _, required)| *required)
+        self.entries.iter().any(|entry| entry.required)
     }
 
     fn admits(&self, version: &Version, lock_marker: &MarkerTree) -> bool {
-        if self.is_empty() {
-            let mut environment = self.environment.clone();
-            environment.and(lock_marker.clone());
-            return !environment.is_false();
-        }
         // Look for a feasible environment in which Django is required and all
         // active constraints admit this version. Never use the host interpreter
         // to choose between a project's conditional dependency branches.
@@ -601,22 +603,21 @@ impl DjangoRequirements {
         } else {
             MarkerTree::TRUE
         };
-        for (specifiers, marker, is_required) in &self.entries {
-            let contains = specifiers.iter().any(|range| range.contains(version));
-            if contains && *is_required {
-                required.or(marker.clone());
+        for entry in &self.entries {
+            let contains = entry
+                .alternatives
+                .iter()
+                .any(|range| range.contains(version));
+            if contains && entry.required {
+                required.or(entry.marker.clone());
             }
             if !contains {
-                allowed.and(marker.negate());
+                allowed.and(entry.marker.negate());
             }
         }
         allowed.and(required);
         allowed.and(lock_marker.clone());
         !allowed.is_false()
-    }
-
-    fn contains(&self, version: &Version) -> bool {
-        self.admits(version, &MarkerTree::TRUE)
     }
 
     fn feature_line(&self) -> Option<DjangoVersion> {
@@ -629,7 +630,7 @@ impl DjangoRequirements {
             for specifier in self
                 .entries
                 .iter()
-                .flat_map(|(specifiers, _, _)| specifiers.iter())
+                .flat_map(|entry| entry.alternatives.iter())
                 .flat_map(|range| range.iter())
             {
                 let boundary = specifier.version();
@@ -650,7 +651,10 @@ impl DjangoRequirements {
                     candidates.push(Version::new([major, minor, patch]));
                 }
             }
-            if candidates.iter().any(|version| self.contains(version)) {
+            if candidates
+                .iter()
+                .any(|version| self.admits(version, &MarkerTree::TRUE))
+            {
                 return Some(line);
             }
         }
@@ -658,23 +662,19 @@ impl DjangoRequirements {
     }
 }
 
-fn python_marker(ranges: &[VersionSpecifiers]) -> Option<MarkerTree> {
+fn python_marker(ranges: &[VersionSpecifiers]) -> MarkerTree {
     let mut python = MarkerTree::FALSE;
     for range in ranges {
         let mut branch = MarkerTree::TRUE;
         for specifier in range.iter() {
-            let text = specifier.to_string();
-            let start = text.find(|c: char| c.is_ascii_digit())?;
-            let (operator, version) = text.split_at(start);
-            branch.and(
-                format!("python_full_version {operator} '{version}'")
-                    .parse::<MarkerTree>()
-                    .ok()?,
-            );
+            branch.and(MarkerTree::expression(MarkerExpression::Version {
+                key: MarkerValueVersion::PythonFullVersion,
+                specifier: specifier.clone(),
+            }));
         }
         python.or(branch);
     }
-    Some(python)
+    python
 }
 
 // Poetry's legacy operators are not PEP 440 syntax. Translate each union branch

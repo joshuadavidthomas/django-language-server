@@ -491,7 +491,7 @@ cargo test -p djls-project
 cargo test -p djls-db --test settings
 ```
 
-uv installs the script's Typer and Pydantic dependencies from its inline metadata.
+uv installs the script's Typer, Pydantic, and Nox dependencies from its inline metadata.
 Commit the manifest and generated ZIP archives together. The script verifies the
 download hashes and checks its release lines against `DJ_VERSIONS` in
 `noxfile.py`, excluding `main`. It retains Django's Python sources, template

@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["typer>=0.27.0", "pydantic>=2.0,<3"]
+# dependencies = ["typer>=0.27.0", "pydantic>=2.0,<3", "nox"]
 # ///
 """Refresh pinned, embedded Django sources.
 
@@ -10,9 +10,9 @@ uv run tools/bundle_django.py --check
 
 from __future__ import annotations
 
-import ast
 import hashlib
 import io
+import sys
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -43,26 +43,17 @@ Manifest = dict[Annotated[str, Field(pattern=r"^\d+\.\d+$")], DjangoRelease]
 
 
 def load_manifest() -> Manifest:
+    sys.path.insert(0, str(ROOT))
+    from noxfile import DJ_VERSIONS
+    from noxfile import DJMAIN
+
     try:
         manifest = TypeAdapter(Manifest).validate_json(
             (DEST / "django.json").read_text()
         )
     except ValidationError as error:
         raise ValueError(f"Invalid Django manifest: {error}") from error
-    # Use the same support matrix as README and package metadata, without importing nox.
-    tree = ast.parse((ROOT / "noxfile.py").read_text())
-    values = {}
-    lines = set()
-    for node in tree.body:
-        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant):
-            for target in node.targets:
-                if isinstance(target, ast.Name):
-                    values[target.id] = node.value.value
-        if isinstance(node, ast.Assign) and any(
-            isinstance(t, ast.Name) and t.id == "DJ_VERSIONS" for t in node.targets
-        ):
-            lines = {values[item.id] for item in node.value.elts} - {"main"}
-            break
+    lines = set(DJ_VERSIONS) - {DJMAIN}
     if set(manifest) != lines:
         raise ValueError("Bundle pins must match DJ_VERSIONS (excluding main)")
     for line, release in manifest.items():

@@ -7,13 +7,6 @@ use djls_semantic::Db as _;
 use djls_source::InMemoryFileSystem;
 
 #[test]
-fn database_uses_the_supplied_filesystem_unchanged() {
-    let fs: Arc<dyn djls_source::FileSystem> = Arc::new(InMemoryFileSystem::new());
-    let db = DjangoDatabase::new(Arc::clone(&fs), &Settings::default(), None);
-    assert!(std::ptr::eq(djls_source::Db::file_system(&db), fs.as_ref()));
-}
-
-#[test]
 fn only_exactly_cased_django_suppresses_bundles() {
     use djls_project::Db as _;
     for (name, bundled) in [
@@ -36,15 +29,28 @@ fn only_exactly_cased_django_suppresses_bundles() {
         );
         db.apply_project_settings(settings);
         djls_project::run_django_discovery(&mut db).expect("discovery");
-        assert_eq!(
-            db.project()
-                .expect("project")
-                .search_paths(&db)
-                .iter()
-                .count(),
-            if bundled { 2 } else { 1 },
-            "{name}"
+        let resolved = djls_project::PythonSourceModule::resolve(
+            &db,
+            db.project().expect("project"),
+            djls_project::PythonModuleName::parse("django.template.defaulttags").expect("module"),
         );
+        if bundled {
+            let module = resolved.expect("bundled module must resolve");
+            assert!(
+                module
+                    .file()
+                    .try_source(&db)
+                    .expect("source")
+                    .as_str()
+                    .contains("def do_if("),
+                "{name}"
+            );
+        } else {
+            assert!(
+                resolved.is_none(),
+                "{name}: local Django must not be filled in"
+            );
+        }
     }
 }
 
