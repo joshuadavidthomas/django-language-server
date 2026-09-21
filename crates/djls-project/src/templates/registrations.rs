@@ -150,7 +150,7 @@ struct LocalFunctionSource {
     name_span: djls_source::Span,
 }
 
-/// Relationship of the presented callable to the observed declaration, not parse quality.
+/// Whether inner decorators preserve the declared callable. Parse quality is tracked separately.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CallableRelation {
     Original,
@@ -1428,14 +1428,14 @@ struct RegistrationDescriptor {
     function: Option<PythonFunctionDefinition>,
 }
 
-/// Evidence for Django's inspect.unwrap contract, not equivalence of compile bodies.
+/// Whether Django's `inspect.unwrap` recovers the declaration's signature.
 #[derive(Clone, Debug, PartialEq, Eq, salsa::SalsaValue)]
 struct SignatureEvidence {
     preserved: bool,
     dependencies: Vec<djls_source::File>,
 }
 
-/// Resolving wrapper provenance belongs to lazy detail queries, not registration inventory.
+/// Resolve inner decorators when signature details are requested.
 // Salsa owns the definition as a query key.
 #[allow(clippy::needless_pass_by_value)]
 #[salsa::tracked(returns(ref))]
