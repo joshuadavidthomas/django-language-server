@@ -4210,9 +4210,10 @@ def malformed(value): pass
     );
 }
 
-// The fixture deliberately keeps all released django-bird registration shapes together so the
-// cross-module name, callable, rule, block, arity, source, and dependency contracts stay visible.
-#[allow(clippy::too_many_lines)]
+#[allow(
+    clippy::too_many_lines,
+    reason = "keep django-bird registration shapes and cross-module assertions in one fixture"
+)]
 #[test]
 fn imported_registration_resolution_extracts_django_bird_shapes_and_coverage() {
     let registration_source = r#"from django import template

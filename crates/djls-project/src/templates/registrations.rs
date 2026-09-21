@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
+use djls_source::File;
 use djls_source::Span;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprAttribute;
@@ -1430,14 +1431,24 @@ struct RegistrationDescriptor {
 
 /// Whether Django's `inspect.unwrap` recovers the declaration's signature.
 #[derive(Clone, Debug, PartialEq, Eq, salsa::SalsaValue)]
-struct SignatureEvidence {
-    preserved: bool,
-    dependencies: Vec<djls_source::File>,
+enum SignatureEvidence {
+    Preserved(Vec<File>),
+    Unknown(Vec<File>),
+}
+
+impl SignatureEvidence {
+    fn dependencies(&self) -> &[File] {
+        match self {
+            Self::Preserved(dependencies) | Self::Unknown(dependencies) => dependencies,
+        }
+    }
 }
 
 /// Resolve inner decorators when signature details are requested.
-// Salsa owns the definition as a query key.
-#[allow(clippy::needless_pass_by_value)]
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "Salsa owns the definition as a query key"
+)]
 #[salsa::tracked(returns(ref))]
 fn decorated_signature_evidence(
     db: &dyn ProjectDb,
@@ -1460,9 +1471,11 @@ fn decorated_signature_evidence(
                     || is_canonical_stringfilter(&mut lookup, &decorator.expression)
             })
     });
-    SignatureEvidence {
-        preserved,
-        dependencies: lookup.consulted_files().to_vec(),
+    let dependencies = lookup.consulted_files().to_vec();
+    if preserved {
+        SignatureEvidence::Preserved(dependencies)
+    } else {
+        SignatureEvidence::Unknown(dependencies)
     }
 }
 
@@ -1495,9 +1508,10 @@ impl RegistrationDescriptor {
     ) -> bool {
         match self.relation {
             CallableRelation::Original => true,
-            CallableRelation::Unknown { registration_span } => {
-                decorated_signature_evidence(db, definition.clone(), registration_span).preserved
-            }
+            CallableRelation::Unknown { registration_span } => matches!(
+                decorated_signature_evidence(db, definition.clone(), registration_span),
+                SignatureEvidence::Preserved(_)
+            ),
         }
     }
 }
@@ -1890,8 +1904,8 @@ pub fn template_library_registration_dependencies<'db>(
             && let CallableRelation::Unknown { registration_span } = descriptor.relation
         {
             for dependency in
-                &decorated_signature_evidence(db, definition.clone(), registration_span)
-                    .dependencies
+                decorated_signature_evidence(db, definition.clone(), registration_span)
+                    .dependencies()
             {
                 if !dependencies.contains(dependency) {
                     dependencies.push(*dependency);
