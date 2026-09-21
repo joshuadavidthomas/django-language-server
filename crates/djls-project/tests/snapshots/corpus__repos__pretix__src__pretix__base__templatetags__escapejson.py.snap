@@ -16,6 +16,5 @@ symbols_are_unobserved: false
 tag_rules: {}
 filter_arities:
   "src.pretix.base.templatetags.escapejson::filter::attr_escapejson_dumps": no_argument
-  "src.pretix.base.templatetags.escapejson::filter::escapejson": no_argument
   "src.pretix.base.templatetags.escapejson::filter::escapejson_dumps": no_argument
 block_specs: {}

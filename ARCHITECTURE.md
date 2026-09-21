@@ -77,6 +77,10 @@ The Project Facts layer. This crate owns mechanical facts about a Django project
 
 Registration inventory owns names, kinds, source navigation, discovery dependencies, and ordered callable descriptors. Independent queries reuse those descriptors to derive Block Specs, Tag Rules, and Filter Arity without storing Ruff AST nodes. Inventory openness describes uncertainty in registration discovery; recovered helpers reached only during Tag Rule inference weaken the rules without opening an otherwise exact inventory.
 
+Descriptors retain declaration identity separately from the callable presented to registration. Unknown inner decorators prevent signature and compile-body inference; outer decorators run after registration. The signature query recognizes Django's installed, unshadowed `stringfilter` export and aliases. It assumes the wrapper preserves `__wrapped__`; it does not analyze the wrapper body or enable compile-body inference or navigation. A modified canonical definition that breaks this contract is not detected.
+
+`simple_block_tag` closers come from registration options, independently of the user callable. Parse recovery is tracked separately from callable transformations. Wrapper resolution runs in lazy detail queries, whose dependencies participate in invalidation without changing inventory openness. Implicit registration names still use a separate heuristic.
+
 Candidate discovery has two contracts: `discover_templatetag_candidate_paths` performs a fresh filesystem scan, including before search-root revision bumps; tracked `template_library_candidate_files` supplies synchronized source coverage for intrinsic priming, including empty candidate files. Package membership follows search-root revisions, while content-only edits reuse membership. Template resolution indexes evidence by name and retains global failures in encounter order so narrowing candidates preserves uncertainty and backend precedence.
 
 #### Static Python import evaluation

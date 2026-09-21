@@ -70,7 +70,7 @@ fn extract_source(
 }
 
 #[test]
-fn decorated_registration_details_ignore_unrelated_namesakes() {
+fn transformed_registration_details_ignore_unrelated_namesakes() {
     let namesakes = r"
 def repeated_filter(value):
     return value
@@ -106,23 +106,34 @@ def repeated_tag(parser, token):
         let source = format!(
             "from django import template\nregister = template.Library()\ndef passthrough(function):\n    return function\n{before}{registrations}{after}"
         );
-        let result = extract_source(&source, "identity").expect("valid registration fixture");
-        assert_eq!(
-            result
-                .filter_arities
-                .get(&SymbolKey::filter("identity", "visible_filter")),
-            Some(&FilterArity::RequiredArgument),
-            "before={before:?}, after={after:?}"
+        let db = TestDatabase::new();
+        let path = Utf8Path::new("/test/identity.py");
+        db.add_file(path.as_str(), &source)
+            .expect("valid registration fixture");
+        let file = db.file(path).expect("fixture exists");
+        let key = TemplateLibraryId::new(
+            &db,
+            Some(file),
+            PythonModuleName::parse("identity").expect("valid module"),
         );
-        let tag = SymbolKey::tag("identity", "visible_tag");
-        assert_eq!(
-            result.tag_rules[&tag].arg_constraints,
-            vec![ArgumentCountConstraint::Exact(2)]
+        let definitions = template_library_definition_facts(&db, key);
+        for (kind, name) in [
+            (TemplateSymbolKind::Filter, "visible_filter"),
+            (TemplateSymbolKind::Tag, "visible_tag"),
+        ] {
+            let symbol = definitions
+                .symbol(kind, name)
+                .expect("explicit registration remains known");
+            assert_eq!(template_symbol_source(&db, symbol), None);
+        }
+        assert!(
+            template_library_filter_facts(&db, key)
+                .filter_arities()
+                .is_empty()
         );
-        assert_eq!(
-            result.block_specs.as_map()[&tag].end_tag.as_deref(),
-            Some("endvisible")
-        );
+        let tags = template_library_tag_facts(&db, key);
+        assert!(tags.tag_rules().is_empty());
+        assert!(tags.block_specs().is_empty());
     }
 }
 
@@ -211,12 +222,12 @@ def passthrough(function):
     return function
 def repeated(value):
     return value
-@register.filter(name='visible')
 @passthrough
+@register.filter(name='visible')
 def repeated(value, arg):
     return value
-@register.tag(name='block')
 @passthrough
+@register.tag(name='block')
 def compile_block(parser, token):
     bits = token.split_contents()
     if len(bits) != 2:
@@ -260,8 +271,411 @@ def compile_block(parser, token):
         );
         let definitions = template_library_definition_facts(&db, key);
         for symbol in definitions.symbols() {
-            assert_eq!(template_symbol_source(&db, symbol), None);
+            assert!(template_symbol_source(&db, symbol).is_some());
         }
+    }
+}
+
+fn install_stringfilter_project(
+    db: &mut TestDatabase,
+    caller: &str,
+    alter_library: impl FnOnce(String) -> String,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let corpus = Corpus::require()?;
+    let source = fs::read_to_string(
+        corpus
+            .root()
+            .join("repos/django-5.2/django/template/defaultfilters.py"),
+    )?;
+    ProjectFixture::new("/test/project")
+        .django_settings_module("settings")
+        .pythonpath("/test/site-packages")
+        .file("/test/project/settings.py", "INSTALLED_APPS = []\n")
+        .file("/test/project/tags.py", caller)
+        .file("/test/site-packages/django/__init__.py", "")
+        .file("/test/site-packages/django/template/__init__.py", "")
+        .file(
+            "/test/site-packages/django/template/defaultfilters.py",
+            alter_library(source),
+        )
+        .install(db)?;
+    Ok(())
+}
+
+#[test]
+fn callable_evidence_is_specific_to_each_stacked_registration_and_replacement() {
+    let source = r"
+from django import template
+from functools import wraps
+register = template.Library()
+def wrapping(function):
+    @wraps(function)
+    def replacement(*args):
+        return template.Node()
+    return replacement
+@register.filter(name='outer')
+@wrapping
+@register.filter(name='inner')
+def filtered(value, argument):
+    return value
+@register.tag(name='outer')
+@wrapping
+@register.tag(name='inner')
+def compile_tag(parser, token):
+    bits = token.split_contents()
+    if len(bits) != 2:
+        raise template.TemplateSyntaxError('one argument required')
+    parser.parse(('endinner',))
+    parser.delete_first_token()
+    return template.Node()
+";
+    for (suffix, retains_inner, definitions_count) in [
+        ("", true, 4),
+        (
+            "register.filter('inner', filtered)\nregister.tag('inner', compile_tag)\n",
+            false,
+            4,
+        ),
+        ("register = template.Library()\n", false, 0),
+    ] {
+        let db = TestDatabase::new();
+        let path = Utf8Path::new("/test/stacked.py");
+        db.add_file(path.as_str(), &format!("{source}{suffix}"))
+            .expect("stacked registrations");
+        let file = db.file(path).expect("fixture exists");
+        let key = TemplateLibraryId::new(
+            &db,
+            Some(file),
+            PythonModuleName::parse("stacked").expect("valid module"),
+        );
+        assert_eq!(
+            template_library_definition_facts(&db, key)
+                .symbols()
+                .count(),
+            definitions_count
+        );
+        let filters = template_library_filter_facts(&db, key).filter_arities();
+        let tags = template_library_tag_facts(&db, key);
+        assert_eq!(filters.len(), usize::from(retains_inner));
+        assert_eq!(tags.tag_rules().len(), usize::from(retains_inner));
+        assert_eq!(
+            tags.block_specs().as_map().len(),
+            usize::from(retains_inner)
+        );
+        if retains_inner {
+            assert_eq!(
+                filters[&SymbolKey::filter("stacked", "inner")],
+                FilterArity::RequiredArgument
+            );
+            let tag = SymbolKey::tag("stacked", "inner");
+            assert_eq!(
+                tags.tag_rules()[&tag].arg_constraints,
+                vec![ArgumentCountConstraint::Exact(2)]
+            );
+            assert_eq!(
+                tags.block_specs().as_map()[&tag].end_tag.as_deref(),
+                Some("endinner")
+            );
+        }
+        // A later decorator affects the eventual binding, not the callable already registered.
+        let definitions = template_library_definition_facts(&db, key);
+        if retains_inner {
+            assert!(
+                template_symbol_source(
+                    &db,
+                    definitions
+                        .symbol(TemplateSymbolKind::Filter, "inner")
+                        .expect("inner filter")
+                )
+                .is_some()
+            );
+            assert_eq!(
+                template_symbol_source(
+                    &db,
+                    definitions
+                        .symbol(TemplateSymbolKind::Filter, "outer")
+                        .expect("outer filter")
+                ),
+                None
+            );
+        }
+    }
+}
+
+#[test]
+fn canonical_stringfilter_supplies_lazy_signature_evidence_not_body_or_navigation() {
+    let events = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(events.clone());
+    install_stringfilter_project(
+        &mut db,
+        r"
+from django import template
+from django.template.defaultfilters import stringfilter
+register = template.Library()
+def filtered(value):
+    return value
+@register.filter(name='visible')
+@stringfilter
+def filtered(value, argument):
+    return value
+def filtered(value, argument=None):
+    return value
+@register.simple_tag(name='helper')
+@stringfilter
+def helper(value, argument):
+    return value
+@register.tag(name='raw')
+@stringfilter
+def raw(parser, token):
+    bits = token.split_contents()
+    if len(bits) != 2:
+        raise template.TemplateSyntaxError('one argument required')
+    parser.parse(('endraw',))
+    parser.delete_first_token()
+    return template.Node()
+@register.simple_block_tag(name='generated', end_name='endgenerated')
+@unknown
+def generated(content, value):
+    return content
+",
+        |source| source,
+    )
+    .expect("installed Django fixture");
+    let file = db
+        .file(Utf8Path::new("/test/project/tags.py"))
+        .expect("caller exists");
+    let key = TemplateLibraryId::new(
+        &db,
+        Some(file),
+        PythonModuleName::parse("tags").expect("valid module"),
+    );
+    let definitions = template_library_definition_facts(&db, key);
+    assert!(!definitions.symbols_are_unobserved());
+    for symbol in definitions.symbols() {
+        assert_eq!(template_symbol_source(&db, symbol), None);
+    }
+    let blocks = template_library_structure_facts(&db, key).block_specs();
+    assert_eq!(blocks.as_map().len(), 1);
+    assert_eq!(
+        blocks.as_map()[&SymbolKey::tag("tags", "generated")]
+            .end_tag
+            .as_deref(),
+        Some("endgenerated")
+    );
+    assert_eq!(
+        will_execute_count(
+            &db,
+            &events.take().expect("events"),
+            "decorated_signature_evidence"
+        ),
+        0
+    );
+    assert_eq!(
+        template_library_filter_facts(&db, key).filter_arities()
+            [&SymbolKey::filter("tags", "visible")],
+        FilterArity::RequiredArgument
+    );
+    assert_eq!(
+        will_execute_count(
+            &db,
+            &events.take().expect("events"),
+            "decorated_signature_evidence"
+        ),
+        1
+    );
+    let tags = template_library_tag_facts(&db, key);
+    assert_eq!(tags.tag_rules().len(), 1);
+    assert!(matches!(
+        tags.tag_rules()[&SymbolKey::tag("tags", "helper")].argument_syntax,
+        TagArgumentSyntax::Signature { .. }
+    ));
+    let dependency = db
+        .file(Utf8Path::new(
+            "/test/site-packages/django/template/defaultfilters.py",
+        ))
+        .expect("Django source exists");
+    assert!(template_library_registration_dependencies(&db, key).contains(&dependency));
+}
+
+#[test]
+fn stringfilter_signature_evidence_requires_the_resolved_canonical_export() {
+    for (setup, decorators, expected) in [
+        (
+            "from django.template.defaultfilters import stringfilter as sf",
+            "@sf",
+            true,
+        ),
+        (
+            "from django.template import defaultfilters as df",
+            "@df.stringfilter",
+            true,
+        ),
+        (
+            "from django.template.defaultfilters import stringfilter as sf\nsaved = sf\nsf = unknown",
+            "@saved",
+            true,
+        ),
+        (
+            "from django.template.defaultfilters import stringfilter as sf\nsf = unknown",
+            "@sf",
+            false,
+        ),
+        (
+            "def stringfilter(function): return function",
+            "@stringfilter",
+            false,
+        ),
+        (
+            "from django.template.defaultfilters import stringfilter as sf",
+            "@sf\n@sf",
+            true,
+        ),
+        (
+            "from django.template.defaultfilters import stringfilter as sf",
+            "@sf\n@unknown",
+            false,
+        ),
+        (
+            "from django.template.defaultfilters import stringfilter as sf",
+            "@unknown\n@sf",
+            false,
+        ),
+        (
+            "from django.template import defaultfilters as df\ndf.stringfilter = unknown",
+            "@df.stringfilter",
+            false,
+        ),
+    ] {
+        let source = format!(
+            "from django import template\nregister = template.Library()\n{setup}\n@register.filter(name='visible')\n{decorators}\ndef filtered(value, argument):\n    return value\n"
+        );
+        let mut db = TestDatabase::new();
+        install_stringfilter_project(&mut db, &source, |source| source)
+            .expect("installed Django fixture");
+        let file = db
+            .file(Utf8Path::new("/test/project/tags.py"))
+            .expect("caller exists");
+        let key = TemplateLibraryId::new(
+            &db,
+            Some(file),
+            PythonModuleName::parse("tags").expect("valid module"),
+        );
+        assert_eq!(
+            template_library_filter_facts(&db, key)
+                .filter_arities()
+                .get(&SymbolKey::filter("tags", "visible")),
+            expected.then_some(&FilterArity::RequiredArgument),
+            "{setup}\n{decorators}"
+        );
+    }
+}
+
+#[test]
+fn project_shadow_of_django_does_not_supply_native_stringfilter_evidence() {
+    let source = "from django import template\nfrom django.template.defaultfilters import stringfilter\nregister = template.Library()\n@register.filter(name='visible')\n@stringfilter\ndef filtered(value, arg): return value\n";
+    let mut db = TestDatabase::new();
+    let mut library = String::new();
+    install_stringfilter_project(&mut db, source, |source| {
+        library.clone_from(&source);
+        source
+    })
+    .expect("installed Django fixture");
+    for (path, source) in [
+        ("/test/project/django/__init__.py", ""),
+        ("/test/project/django/template/__init__.py", ""),
+        (
+            "/test/project/django/template/defaultfilters.py",
+            library.as_str(),
+        ),
+    ] {
+        db.add_file(path, source).expect("project shadow");
+        SourceChanges::new([ChangeEvent::BecameVisible(path.into())]).apply(&mut db);
+    }
+    let file = db
+        .file(Utf8Path::new("/test/project/tags.py"))
+        .expect("caller exists");
+    let key = TemplateLibraryId::new(
+        &db,
+        Some(file),
+        PythonModuleName::parse("tags").expect("valid module"),
+    );
+    assert!(
+        template_library_filter_facts(&db, key)
+            .filter_arities()
+            .is_empty()
+    );
+}
+
+#[test]
+fn stringfilter_signature_evidence_tracks_decorator_signature_and_imported_source_edits() {
+    let source = "from django import template\nfrom django.template.defaultfilters import stringfilter\nregister = template.Library()\n@register.filter(name='visible')\n@stringfilter\ndef filtered(value, arg):\n    return value\n";
+    let mut db = TestDatabase::new();
+    let mut original_library = String::new();
+    install_stringfilter_project(&mut db, source, |library| {
+        original_library.clone_from(&library);
+        library
+    })
+    .expect("installed Django fixture");
+    let path = Utf8Path::new("/test/project/tags.py");
+    let file = db.file(path).expect("caller exists");
+    let module = PythonModuleName::parse("tags").expect("valid module");
+    let definition_facts = template_library_definition_facts_snapshot(
+        &db,
+        TemplateLibraryId::new(&db, Some(file), module.clone()),
+    );
+    for (text, expected) in [
+        (source.to_string(), Some(FilterArity::RequiredArgument)),
+        (source.replace("@stringfilter", "@other_filter"), None),
+        (
+            source.replace("value, arg", "value, *xs"),
+            Some(FilterArity::NoArgument),
+        ),
+        (source.to_string(), Some(FilterArity::RequiredArgument)),
+    ] {
+        assert_eq!(source.len(), text.len());
+        db.add_file(path.as_str(), &text).expect("edited caller");
+        SourceChanges::new([ChangeEvent::ContentChanged(path.to_path_buf())]).apply(&mut db);
+        let key = TemplateLibraryId::new(&db, Some(file), module.clone());
+        assert_eq!(
+            template_library_filter_facts(&db, key)
+                .filter_arities()
+                .get(&SymbolKey::filter("tags", "visible"))
+                .copied(),
+            expected
+        );
+        assert_eq!(
+            template_library_definition_facts_snapshot(&db, key),
+            definition_facts
+        );
+    }
+    let library_path = Utf8Path::new("/test/site-packages/django/template/defaultfilters.py");
+    for (suffix, expected) in [
+        ("\nstringfilter = replacement\n", None),
+        ("", Some(FilterArity::RequiredArgument)),
+        ("\ndef broken(", None),
+        ("", Some(FilterArity::RequiredArgument)),
+        ("\ndef stringfilter(function): return function\n", None),
+    ] {
+        db.add_file(
+            library_path.as_str(),
+            &format!("{original_library}{suffix}"),
+        )
+        .expect("edited Django source");
+        SourceChanges::new([ChangeEvent::ContentChanged(library_path.to_path_buf())])
+            .apply(&mut db);
+        let key = TemplateLibraryId::new(&db, Some(file), module.clone());
+        assert_eq!(
+            template_library_filter_facts(&db, key)
+                .filter_arities()
+                .get(&SymbolKey::filter("tags", "visible"))
+                .copied(),
+            expected,
+            "{suffix}"
+        );
+        assert_eq!(
+            template_library_definition_facts_snapshot(&db, key),
+            definition_facts
+        );
     }
 }
 
@@ -275,19 +689,6 @@ fn extract_bundle_simple_tag() {
     assert!(
         result.tag_rules.contains_key(&key),
         "should extract simple_tag no_params"
-    );
-}
-
-// Corpus: `cut` in django/template/defaultfilters.py — `@register.filter`
-// with required arg (value, arg), exercises filter pipeline
-#[test]
-fn extract_bundle_filter() {
-    let result = extract_source(DEFAULTFILTERS_SOURCE, "django.template.defaultfilters")
-        .expect("filter extraction fixture should build");
-    let key = SymbolKey::filter("django.template.defaultfilters", "lower");
-    assert_eq!(
-        result.filter_arities.get(&key),
-        Some(&FilterArity::NoArgument)
     );
 }
 
@@ -2355,7 +2756,7 @@ fn template_library_extraction_products_execute_once_and_share_parsing() {
         filters
             .filter_arities()
             .keys()
-            .any(|key| key.name == "lower"
+            .any(|key| key.name == "default"
                 && key.registration_module == "django.template.defaultfilters")
     );
 
@@ -3809,9 +4210,10 @@ def malformed(value): pass
     );
 }
 
-// The fixture deliberately keeps all released django-bird registration shapes together so the
-// cross-module name, callable, rule, block, arity, source, and dependency contracts stay visible.
-#[allow(clippy::too_many_lines)]
+#[allow(
+    clippy::too_many_lines,
+    reason = "keep django-bird registration shapes and cross-module assertions in one fixture"
+)]
 #[test]
 fn imported_registration_resolution_extracts_django_bird_shapes_and_coverage() {
     let registration_source = r#"from django import template
@@ -4831,16 +5233,97 @@ fn corpus_simple_block() {
     );
 }
 
-// Corpus: `title` in defaultfilters.py — filter with no arg (value only).
 #[test]
-fn corpus_filter_no_arg() {
-    let result = extract_source(DEFAULTFILTERS_SOURCE, "django.template.defaultfilters")
-        .expect("no-argument filter extraction fixture should build");
-    let key = SymbolKey::filter("django.template.defaultfilters", "title");
-    assert_eq!(
-        result.filter_arities.get(&key),
-        Some(&FilterArity::NoArgument)
-    );
+fn installed_django_filters_preserve_registration_forms_and_stringfilter_arities() {
+    let corpus = Corpus::require().expect("synced corpus");
+    for version in ["5.2", "6.0", "6.1"] {
+        let source = fs::read_to_string(corpus.root().join(format!(
+            "repos/django-{version}/django/template/defaultfilters.py"
+        )))
+        .expect("Django defaultfilters source");
+        let mut db = TestDatabase::new();
+        install_stringfilter_project(&mut db, "", |_| source).expect("installed Django fixture");
+        let file = db
+            .file(Utf8Path::new(
+                "/test/site-packages/django/template/defaultfilters.py",
+            ))
+            .expect("installed defaultfilters");
+        let key = TemplateLibraryId::new(
+            &db,
+            Some(file),
+            PythonModuleName::parse("django.template.defaultfilters").expect("valid module"),
+        );
+        let arities = template_library_filter_facts(&db, key).filter_arities();
+        // Independently checked against Django's FilterExpression.args_check with
+        // zero and one explicit arguments on 5.2.11, 6.0.2, and 6.1rc1.
+        let expected = [
+            ("add", FilterArity::RequiredArgument),
+            ("addslashes", FilterArity::NoArgument),
+            ("capfirst", FilterArity::NoArgument),
+            ("center", FilterArity::RequiredArgument),
+            ("cut", FilterArity::RequiredArgument),
+            ("date", FilterArity::OptionalArgument),
+            ("default", FilterArity::RequiredArgument),
+            ("default_if_none", FilterArity::RequiredArgument),
+            ("dictsort", FilterArity::RequiredArgument),
+            ("dictsortreversed", FilterArity::RequiredArgument),
+            ("divisibleby", FilterArity::RequiredArgument),
+            ("escape", FilterArity::NoArgument),
+            ("escapejs", FilterArity::NoArgument),
+            ("escapeseq", FilterArity::NoArgument),
+            ("filesizeformat", FilterArity::NoArgument),
+            ("first", FilterArity::NoArgument),
+            ("floatformat", FilterArity::OptionalArgument),
+            ("force_escape", FilterArity::NoArgument),
+            ("get_digit", FilterArity::RequiredArgument),
+            ("iriencode", FilterArity::NoArgument),
+            ("join", FilterArity::RequiredArgument),
+            ("json_script", FilterArity::OptionalArgument),
+            ("last", FilterArity::NoArgument),
+            ("length", FilterArity::NoArgument),
+            ("linebreaks", FilterArity::OptionalArgument),
+            ("linebreaksbr", FilterArity::OptionalArgument),
+            ("linenumbers", FilterArity::OptionalArgument),
+            ("ljust", FilterArity::RequiredArgument),
+            ("lower", FilterArity::NoArgument),
+            ("make_list", FilterArity::NoArgument),
+            ("phone2numeric", FilterArity::NoArgument),
+            ("pluralize", FilterArity::OptionalArgument),
+            ("pprint", FilterArity::NoArgument),
+            ("random", FilterArity::NoArgument),
+            ("rjust", FilterArity::RequiredArgument),
+            ("safe", FilterArity::NoArgument),
+            ("safeseq", FilterArity::NoArgument),
+            ("slice", FilterArity::RequiredArgument),
+            ("slugify", FilterArity::NoArgument),
+            ("stringformat", FilterArity::RequiredArgument),
+            ("striptags", FilterArity::NoArgument),
+            ("time", FilterArity::OptionalArgument),
+            ("timesince", FilterArity::OptionalArgument),
+            ("timeuntil", FilterArity::OptionalArgument),
+            ("title", FilterArity::NoArgument),
+            ("truncatechars", FilterArity::RequiredArgument),
+            ("truncatechars_html", FilterArity::RequiredArgument),
+            ("truncatewords", FilterArity::RequiredArgument),
+            ("truncatewords_html", FilterArity::RequiredArgument),
+            ("unordered_list", FilterArity::OptionalArgument),
+            ("upper", FilterArity::NoArgument),
+            ("urlencode", FilterArity::OptionalArgument),
+            ("urlize", FilterArity::OptionalArgument),
+            ("urlizetrunc", FilterArity::RequiredArgument),
+            ("wordcount", FilterArity::NoArgument),
+            ("wordwrap", FilterArity::RequiredArgument),
+            ("yesno", FilterArity::OptionalArgument),
+        ];
+        assert_eq!(arities.len(), expected.len(), "Django {version}");
+        for (name, expected) in expected {
+            assert_eq!(
+                arities.get(&SymbolKey::filter("django.template.defaultfilters", name)),
+                Some(&expected),
+                "Django {version}: {name}"
+            );
+        }
+    }
 }
 
 // Corpus: `default` in defaultfilters.py — filter with required arg.
@@ -4864,42 +5347,6 @@ fn corpus_filter_optional_arg() {
     assert_eq!(
         result.filter_arities.get(&key),
         Some(&FilterArity::OptionalArgument)
-    );
-}
-
-// Corpus: `escapejs` in defaultfilters.py — @register.filter("escapejs")
-// with positional string name, bare filter decorator with no user arg.
-#[test]
-fn corpus_filter_bare_decorator() {
-    let result = extract_source(DEFAULTFILTERS_SOURCE, "django.template.defaultfilters")
-        .expect("bare filter-decorator extraction fixture should build");
-    let key = SymbolKey::filter("django.template.defaultfilters", "lower");
-    assert!(result.filter_arities.contains_key(&key));
-}
-
-// Corpus: `escapejs` in defaultfilters.py — @register.filter("escapejs")
-// demonstrates named filter via positional string arg.
-#[test]
-fn corpus_filter_with_name() {
-    let result = extract_source(DEFAULTFILTERS_SOURCE, "django.template.defaultfilters")
-        .expect("named-filter extraction fixture should build");
-    let key = SymbolKey::filter("django.template.defaultfilters", "escapejs");
-    assert!(
-        result.filter_arities.contains_key(&key),
-        "escapejs should be extracted (name from positional string)"
-    );
-}
-
-// Corpus: `addslashes` in defaultfilters.py — @register.filter(is_safe=True)
-// with kwarg but no name override.
-#[test]
-fn corpus_filter_is_safe() {
-    let result = extract_source(DEFAULTFILTERS_SOURCE, "django.template.defaultfilters")
-        .expect("safe-filter extraction fixture should build");
-    let key = SymbolKey::filter("django.template.defaultfilters", "addslashes");
-    assert!(
-        result.filter_arities.contains_key(&key),
-        "addslashes should be extracted with is_safe kwarg"
     );
 }
 
