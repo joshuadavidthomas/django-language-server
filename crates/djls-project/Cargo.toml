@@ -8,23 +8,30 @@ djls-conf = { workspace = true }
 djls-source = { workspace = true }
 
 camino = { workspace = true }
+configparser = { workspace = true }
+directories = { workspace = true }
 dotenvy = { workspace = true }
+ignore = { workspace = true }
+pep440_rs = { workspace = true }
+pep508_rs = { workspace = true }
 ruff_python_ast = { workspace = true }
 ruff_python_parser = { workspace = true }
 ruff_text_size = { workspace = true }
 rustc-hash = { workspace = true }
 salsa = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+tempfile = { workspace = true }
 thiserror = { workspace = true }
+toml = { workspace = true }
 tracing = { workspace = true }
+zip = { workspace = true }
 
 [dev-dependencies]
 djls-testing = { workspace = true }
 insta = { workspace = true }
 libtest-mimic = { workspace = true }
-serde_json = { workspace = true }
-tempfile = { workspace = true }
-toml = { workspace = true }
 
 [[test]]
 name = "corpus"

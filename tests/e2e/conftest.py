@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import sys
 from pathlib import Path
 
+import pytest
 import pytest_asyncio
 import pytest_lsp
 from lsprotocol import types
@@ -145,3 +148,47 @@ async def unreadable_client(lsp_client: LanguageClient):
 @pytest_asyncio.fixture
 async def client(vscode_client):
     yield vscode_client
+
+
+@pytest_asyncio.fixture
+async def isolated_bundled_navigation_client(tmp_path: Path):
+    if sys.platform != "linux":
+        pytest.skip(
+            "isolated bundle-cache coverage currently configures XDG_CACHE_HOME"
+        )
+
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "settings.py").write_text(
+        "INSTALLED_APPS = ['django.contrib.admin']\n"
+        "TEMPLATES = [{'BACKEND': "
+        "'django.template.backends.django.DjangoTemplates', 'APP_DIRS': True}]\n",
+        encoding="utf-8",
+    )
+    template = project / "page.html"
+    template.write_text(
+        "{% for item in items %}{{ item }}{% endfor %}\n"
+        "{% include 'admin/base.html' %}\n",
+        encoding="utf-8",
+    )
+    cache = tmp_path / "cache"
+    server_env = os.environ.copy()
+    server_env["XDG_CACHE_HOME"] = str(cache)
+    config = ClientServerConfig(server_command=SERVER_COMMAND, server_env=server_env)
+    lsp_client = await config.start()
+    await lsp_client.initialize_session(
+        InitializeParams(
+            capabilities=client_capabilities("visual-studio-code"),
+            initialization_options={
+                "django_settings_module": "settings",
+                "django_version": "6.0",
+                "venv_path": str(project / "missing-venv"),
+            },
+            workspace_folders=[WorkspaceFolder(uri=project.as_uri(), name="project")],
+        )
+    )
+    await wait_for_project_load(lsp_client)
+
+    yield lsp_client, template, cache / "djls" / "django"
+
+    await lsp_client.shutdown_session()

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+from urllib.parse import unquote
+from urllib.parse import urlparse
 
 import pytest
 from django.templatetags import static as django_static
 from lsprotocol.types import DefinitionParams
 from lsprotocol.types import DidOpenTextDocumentParams
+from lsprotocol.types import DocumentLinkParams
 from lsprotocol.types import Position
 from lsprotocol.types import Range
 from lsprotocol.types import ReferenceContext
@@ -35,6 +38,58 @@ FIRST_PARTY_TAG_LIBRARY = (
     TEST_WORKSPACE / "djls_app" / "templatetags" / "djls_app_tags.py"
 )
 DJANGO_STATIC_LIBRARY = Path(django_static.__file__)
+
+
+@pytest.mark.asyncio
+async def test_bundled_navigation_materializes_only_requested_targets(
+    isolated_bundled_navigation_client,
+):
+    client, template, bundle_cache = isolated_bundled_navigation_client
+    client.text_document_did_open(
+        DidOpenTextDocumentParams(
+            text_document=TextDocumentItem(
+                uri=template.as_uri(),
+                language_id="htmldjango",
+                version=1,
+                text=template.read_text(encoding="utf-8"),
+            )
+        )
+    )
+
+    assert not bundle_cache.exists()
+
+    definitions = await client.text_document_definition_async(
+        DefinitionParams(
+            text_document=TextDocumentIdentifier(uri=template.as_uri()),
+            position=position_in(template, "for item"),
+        )
+    )
+
+    assert definitions is not None
+    assert len(definitions) == 1
+    definition_target = Path(unquote(urlparse(definitions[0].target_uri).path))
+    assert definition_target.is_file()
+    assert definition_target.as_posix().endswith("django/template/defaulttags.py")
+    assert [path for path in bundle_cache.rglob("*") if path.is_file()] == [
+        definition_target
+    ]
+
+    links = await client.text_document_document_link_async(
+        DocumentLinkParams(text_document=TextDocumentIdentifier(uri=template.as_uri()))
+    )
+
+    assert links is not None
+    assert len(links) == 1
+    assert links[0].target is not None
+    link_target = Path(unquote(urlparse(links[0].target).path))
+    assert link_target.is_file()
+    assert link_target.as_posix().endswith(
+        "django/contrib/admin/templates/admin/base.html"
+    )
+    assert {path for path in bundle_cache.rglob("*") if path.is_file()} == {
+        definition_target,
+        link_target,
+    }
 
 
 @pytest.mark.asyncio
@@ -276,7 +331,9 @@ async def goto_first_party_definition(client: LanguageClient, name: str):
     )
     return await client.text_document_definition_async(
         DefinitionParams(
-            text_document=TextDocumentIdentifier(uri=FIRST_PARTY_LOAD_TEMPLATE.as_uri()),
+            text_document=TextDocumentIdentifier(
+                uri=FIRST_PARTY_LOAD_TEMPLATE.as_uri()
+            ),
             position=position_in(FIRST_PARTY_LOAD_TEMPLATE, name),
         )
     )

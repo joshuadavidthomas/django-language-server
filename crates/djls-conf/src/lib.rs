@@ -76,6 +76,8 @@ pub struct Settings {
     venv_path: Option<Utf8PathBuf>,
     django_settings_module: Option<String>,
     #[serde(default)]
+    django_version: Option<DjangoVersion>,
+    #[serde(default)]
     django_environments: Vec<DjangoEnvironmentConfig>,
     #[serde(default)]
     pythonpath: Vec<Utf8PathBuf>,
@@ -163,6 +165,11 @@ impl Settings {
         self.django_settings_module.as_deref()
     }
 
+    #[must_use]
+    pub fn django_version(&self) -> Option<DjangoVersion> {
+        self.django_version
+    }
+
     #[cfg(test)]
     #[must_use]
     fn django_environments(&self) -> &[DjangoEnvironmentConfig] {
@@ -195,6 +202,29 @@ impl Settings {
     }
 }
 
+/// Feature release used only when no Django source is installed.
+#[derive(Debug, Deserialize, Default, PartialEq, Eq, Clone, Copy)]
+pub enum DjangoVersion {
+    #[default]
+    #[serde(rename = "5.2")]
+    Django52,
+    #[serde(rename = "6.0")]
+    Django60,
+    #[serde(rename = "6.1")]
+    Django61,
+}
+
+impl DjangoVersion {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Django52 => "5.2",
+            Self::Django60 => "6.0",
+            Self::Django61 => "6.1",
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -202,6 +232,27 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+
+    #[test]
+    fn django_version_accepts_only_supported_feature_lines() {
+        for (line, expected) in [
+            ("5.2", DjangoVersion::Django52),
+            ("6.0", DjangoVersion::Django60),
+            ("6.1", DjangoVersion::Django61),
+        ] {
+            let settings: Settings =
+                serde_json::from_value(serde_json::json!({"django_version": line}))
+                    .expect("supported version");
+            assert_eq!(settings.django_version(), Some(expected));
+        }
+        assert_eq!(Settings::default().django_version(), None);
+        for invalid in ["5", "5.1", "5.2.17", "main"] {
+            assert!(
+                serde_json::from_value::<Settings>(serde_json::json!({"django_version": invalid}))
+                    .is_err()
+            );
+        }
+    }
 
     mod defaults {
         use super::*;
@@ -218,6 +269,7 @@ mod tests {
                 Settings {
                     venv_path: None,
                     django_settings_module: None,
+                    django_version: None,
                     django_environments: vec![],
                     pythonpath: vec![],
                     env_file: None,

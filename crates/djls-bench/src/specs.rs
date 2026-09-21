@@ -231,6 +231,7 @@ fn install_template_library_fixture(
         search_paths,
         python_environment,
         Some(settings_module),
+        None,
         Vec::new(),
         Vec::new(),
         TagSpecDef::default(),

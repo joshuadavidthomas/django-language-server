@@ -198,6 +198,30 @@ Django Discovery starts from the configured Django settings module. `djls-projec
 
 A full startup reload reads configuration, runs Django Discovery, primes intrinsic Template Library products, publishes generation readiness, republishes diagnostics, and then warms optional IDE caches. `djls-project` owns the discovery phase registry and domain progress metadata; `djls-ide` owns priming and cache warm-up; `djls-server` owns coalescing, generation readiness, cancellation/retry, and LSP progress transport. There is no embedded inspector zipapp, no `django.setup()`, and no Template Library disk cache in the server path.
 
+When no Django package or shadowing module exists on the discovered search paths,
+Django Discovery prepares bundled sources directly in `djls-project`.
+That crate embeds compressed, pinned Python sources and templates for each
+supported Django feature-release line. A filesystem mount indexes archive paths
+without decompressing file bodies; each source read decompresses only its ZIP entry.
+Discovery registers the selected `django_version` as an external search root.
+Content-addressed paths are stable source identities, whether or not a disk copy
+exists. IDE navigation URI preparation atomically materializes only the requested
+target at that same path. Plain URI conversion does not materialize sources.
+The server Workspace and CLI input setup assemble the mount above editor overlays
+and disk caches before passing the complete filesystem unchanged to the database.
+Tests opt into the bundle layer explicitly. The server retains a separate disk-only
+view for document event classification. The archive remains authoritative over
+cached edits. Analysis needs no writable cache; navigation
+does. Normal source extraction and template loader rules apply; no Python is executed. Installed
+Django always takes precedence as a whole package. `djls-project` selects the
+fallback from an explicit override, compatible lockfile entries, or declared
+dependency constraints, ultimately defaulting to the oldest supported LTS when
+no version can be inferred. The configured version override is a `Project` input
+updated on settings reload; the database does not select or provision bundles. Dependency metadata is reread
+during discovery and the resulting search-path input drives Salsa invalidation.
+Without settings source, the Template Library catalog exposes core builtins and Django's standard loadable
+libraries, but does not assume any contrib apps are installed.
+
 ### Rust-Side Extraction (Static Validation Rules)
 
 Static discovery reports *what* tags and filters exist. But to actually validate usage — "does this tag accept these arguments?" — the server needs to know *how* each tag and filter works. Django's template engine answers this question at runtime, by calling the tag's compilation function and seeing what happens. We don't have a runtime.

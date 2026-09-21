@@ -124,7 +124,7 @@ impl DefinitionTargetExt for DefinitionTarget {
         let (file, definition_span, name_span) = match self {
             DefinitionTarget::Block(site) => (site.file, site.full_span, site.name_span),
             DefinitionTarget::File(file) => {
-                let uri = file.path(db).to_lsp_uri()?;
+                let uri = file.path(db).to_navigation_uri()?;
                 let range = ls_types::Range::default();
                 return Some((uri, range, range));
             }
@@ -137,7 +137,7 @@ impl DefinitionTargetExt for DefinitionTarget {
         let range = definition_span.to_lsp_range_with_encoding(text.as_str(), line_index, encoding);
         let selection_range =
             name_span.to_lsp_range_with_encoding(text.as_str(), line_index, encoding);
-        Some((file.path(db).to_lsp_uri()?, range, selection_range))
+        Some((file.path(db).to_navigation_uri()?, range, selection_range))
     }
 }
 
@@ -283,17 +283,31 @@ impl CompletionInsertFormatExt for CompletionInsertFormat {
 
 pub(crate) trait Utf8PathExt {
     fn to_lsp_uri(&self) -> Option<ls_types::Uri>;
+    fn to_navigation_uri(&self) -> Option<ls_types::Uri>;
 }
 
 impl Utf8PathExt for Utf8Path {
     fn to_lsp_uri(&self) -> Option<ls_types::Uri> {
         ls_types::Uri::from_file_path(self.as_std_path())
     }
+
+    fn to_navigation_uri(&self) -> Option<ls_types::Uri> {
+        djls_project::materialize_bundled_path(self)
+            .inspect_err(|error| {
+                tracing::warn!("Could not prepare bundled navigation target {self}: {error}");
+            })
+            .ok()?;
+        self.to_lsp_uri()
+    }
 }
 
 impl Utf8PathExt for Utf8PathBuf {
     fn to_lsp_uri(&self) -> Option<ls_types::Uri> {
-        ls_types::Uri::from_file_path(self.as_std_path())
+        self.as_path().to_lsp_uri()
+    }
+
+    fn to_navigation_uri(&self) -> Option<ls_types::Uri> {
+        self.as_path().to_navigation_uri()
     }
 }
 
@@ -408,7 +422,7 @@ pub(crate) trait DiagnosticExt: std::fmt::Display {
             .filter_map(|(file, span, message)| {
                 let related_source = file.try_source(db).ok()?;
                 let location = ls_types::Location {
-                    uri: file.path(db).to_lsp_uri()?,
+                    uri: file.path(db).to_navigation_uri()?,
                     range: span.to_lsp_range_with_encoding(
                         related_source.as_str(),
                         file.line_index(db),

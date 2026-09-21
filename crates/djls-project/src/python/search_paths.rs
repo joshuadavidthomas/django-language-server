@@ -10,6 +10,7 @@ use djls_source::WalkEntryKind;
 use djls_source::WalkOptions;
 
 use crate::db::Db as ProjectDb;
+use crate::project::Project;
 use crate::python::PythonEnvironment;
 use crate::python::evaluation::StructuralOrd;
 
@@ -199,6 +200,40 @@ impl SearchPaths {
         }
 
         search_paths
+    }
+
+    pub(crate) fn add_bundled_django(&mut self, db: &dyn ProjectDb, project: Project) {
+        let fs = db.file_system();
+        // Treat even an incomplete/shadowing Django package as authoritative;
+        // never combine installed modules with a different bundled release.
+        if self.iter().any(|path| {
+            ["django", "django.py"]
+                .iter()
+                .any(|name| fs.path_exists_case_sensitive(&path.path().join(name), path.path()))
+        }) {
+            return;
+        }
+        let Some(version) = crate::django_version::bundled_django_version(
+            fs,
+            project.root(db),
+            project.django_version(db),
+        ) else {
+            return;
+        };
+        match crate::bundled::source_root(version) {
+            Ok(path) if fs.is_dir(&path) => {
+                tracing::info!(
+                    "Using bundled Django {} sources at {path}",
+                    version.as_str()
+                );
+                self.paths.push(SearchPath::SitePackages(path));
+            }
+            // Source-only fixtures may deliberately omit the archive mount.
+            Ok(_) => {}
+            Err(error) => {
+                tracing::warn!("Could not prepare bundled Django sources: {error}");
+            }
+        }
     }
 
     pub fn register_roots(&self, db: &dyn ProjectDb) {

@@ -61,8 +61,10 @@ use crate::document::TextDocument;
 pub(crate) struct Workspace {
     /// Thread-safe shared buffer storage for open documents.
     buffers: Buffers,
-    /// Filesystem abstraction that checks buffers first, then disk.
-    overlay: Arc<OverlayFileSystem>,
+    /// Immutable bundles, then open buffers, then disk.
+    file_system: Arc<dyn FileSystem>,
+    /// Disk-only view for document event classification.
+    disk: Arc<dyn FileSystem>,
 }
 
 impl Workspace {
@@ -70,21 +72,20 @@ impl Workspace {
     #[must_use]
     pub(crate) fn new() -> Self {
         let buffers = Buffers::new();
-        let overlay = Arc::new(OverlayFileSystem::new(
-            buffers.clone(),
-            Arc::new(OsFileSystem::default()),
-        ));
+        let disk: Arc<dyn FileSystem> = Arc::new(OsFileSystem::default());
+        let overlay = Arc::new(OverlayFileSystem::new(buffers.clone(), Arc::clone(&disk)));
 
-        Self { buffers, overlay }
+        Self {
+            buffers,
+            file_system: Arc::new(djls_project::BundledFileSystem::new(overlay)),
+            disk,
+        }
     }
 
-    /// Return the overlay filesystem for database reads.
-    ///
-    /// The overlay returns buffer contents when present and falls back to disk
-    /// otherwise.
+    /// Return the complete filesystem for database reads.
     #[must_use]
-    pub(crate) fn overlay(&self) -> Arc<dyn FileSystem> {
-        Arc::clone(&self.overlay) as Arc<dyn FileSystem>
+    pub(crate) fn file_system(&self) -> Arc<dyn FileSystem> {
+        Arc::clone(&self.file_system)
     }
 
     /// Return all currently open documents.
@@ -97,7 +98,7 @@ impl Workspace {
 
     #[must_use]
     pub(crate) fn disk_is_file(&self, path: &Utf8Path) -> bool {
-        self.overlay.disk.is_file(path)
+        self.disk.is_file(path)
     }
 
     #[must_use]
@@ -411,6 +412,91 @@ mod tests {
     }
 
     #[test]
+    fn bundled_python_navigation_preserves_identity_and_ignores_editor_changes() {
+        use djls_project::Db as _;
+        use djls_project::PythonModuleName;
+        use djls_project::PythonSourceModule;
+
+        use crate::ext::UriExt;
+
+        let temp = tempdir().expect("project");
+        let root = Utf8Path::from_path(temp.path()).expect("UTF-8 root");
+        let settings: Settings = serde_json::from_value(serde_json::json!({
+            "venv_path": root.join("missing"), "django_version": "6.0",
+            "django_settings_module": "settings"
+        }))
+        .expect("settings");
+        let mut workspace = Workspace::new();
+        workspace.open_document(
+            &root.join("settings.py"),
+            "INSTALLED_APPS = ['django.contrib.admin']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'APP_DIRS': True}]\n",
+            1,
+            FileKind::Python,
+        );
+        let mut db = DjangoDatabase::new(workspace.file_system(), &settings, Some(root));
+        db.apply_project_settings(settings);
+        djls_project::run_django_discovery(&mut db).expect("discovery");
+        let module = PythonSourceModule::resolve(
+            &db,
+            db.project().expect("project"),
+            PythonModuleName::parse("django.template.defaulttags").expect("name"),
+        )
+        .expect("module");
+        let original_file = module.file();
+        let path = original_file.path(&db).clone();
+        let original_text = original_file
+            .try_source(&db)
+            .expect("archive text")
+            .as_str()
+            .to_string();
+        let template_path = root.join("page.html");
+        workspace.open_document(
+            &template_path,
+            "{% for x in xs %}{% endfor %}",
+            1,
+            FileKind::Template,
+        );
+        let template = path_to_file(&db, &template_path).expect("template");
+        let response = djls_ide::goto_definition(
+            &db,
+            template,
+            djls_source::Offset::new(4),
+            true,
+            PositionEncoding::Utf8,
+        )
+        .expect("definition");
+        let tower_lsp_server::ls_types::GotoDefinitionResponse::Link(links) = response else {
+            panic!("location links");
+        };
+        assert_eq!(links.len(), 1);
+        let reopened = links[0].target_uri.to_utf8_path_buf().expect("file URI");
+        assert_eq!(reopened, path);
+        assert_eq!(
+            path_to_file(&db, &reopened).expect("same source"),
+            original_file
+        );
+
+        workspace.open_document(&reopened, "# edited cached source", 1, FileKind::Python);
+        SourceChanges::new([ChangeEvent::Opened(reopened.clone())]).apply(&mut db);
+        workspace
+            .update_document(
+                &reopened,
+                vec![DocumentChange::new(None, "# another edit".into())],
+                2,
+                PositionEncoding::Utf8,
+            )
+            .expect("edit");
+        SourceChanges::new([ChangeEvent::ContentChanged(reopened)]).apply(&mut db);
+        assert_eq!(
+            original_file
+                .try_source(&db)
+                .expect("immutable source after edit")
+                .as_str(),
+            original_text
+        );
+    }
+
+    #[test]
     fn buffer_reads_share_storage_and_edits_preserve_retained_documents() {
         let path = Utf8Path::new("/project/copy-on-write.html");
         let mut workspace = Workspace::new();
@@ -441,7 +527,7 @@ mod tests {
         assert!(!Arc::ptr_eq(&original, &edited));
         assert_eq!(
             workspace
-                .overlay()
+                .file_system()
                 .read_to_string(path)
                 .expect("overlay source"),
             "later 🌍"
@@ -634,7 +720,7 @@ mod tests {
             .expect("disk template fixture should be written");
 
         let mut workspace = Workspace::new();
-        let mut db = DjangoDatabase::new(workspace.overlay(), &Settings::default(), None);
+        let mut db = DjangoDatabase::new(workspace.file_system(), &Settings::default(), None);
         let root = db
             .files()
             .try_add_root(&db, root.to_path_buf(), FileRootKind::Project);
@@ -661,7 +747,7 @@ mod tests {
             .expect("disk template fixture should be written");
 
         let mut workspace = Workspace::new();
-        let mut db = DjangoDatabase::new(workspace.overlay(), &Settings::default(), None);
+        let mut db = DjangoDatabase::new(workspace.file_system(), &Settings::default(), None);
         let root = db
             .files()
             .try_add_root(&db, root.to_path_buf(), FileRootKind::Project);
@@ -685,7 +771,7 @@ mod tests {
         let file_path = root_path.join("template.html");
 
         let mut workspace = Workspace::new();
-        let mut db = DjangoDatabase::new(workspace.overlay(), &Settings::default(), None);
+        let mut db = DjangoDatabase::new(workspace.file_system(), &Settings::default(), None);
         let root = db
             .files()
             .try_add_root(&db, root_path.to_path_buf(), FileRootKind::Project);
@@ -710,7 +796,7 @@ mod tests {
             .expect("disk template fixture should be written");
 
         let mut workspace = Workspace::new();
-        let mut db = DjangoDatabase::new(workspace.overlay(), &Settings::default(), None);
+        let mut db = DjangoDatabase::new(workspace.file_system(), &Settings::default(), None);
         workspace.open_document(&file_path, "buffer template", 1, FileKind::Template);
         SourceChanges::new([ChangeEvent::BecameVisible(file_path.clone())]).apply(&mut db);
         let file = path_to_file(&db, &file_path).expect("opened document should be interned");

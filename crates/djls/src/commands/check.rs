@@ -71,7 +71,9 @@ impl CheckInput {
 
         if !reads_stdin {
             return Ok(Self::Files {
-                file_system: Arc::new(OsFileSystem::default()),
+                file_system: Arc::new(djls_project::BundledFileSystem::new(Arc::new(
+                    OsFileSystem::default(),
+                ))),
             });
         }
 
@@ -82,11 +84,9 @@ impl CheckInput {
 
         let path = Utf8PathBuf::from("<stdin>.html");
         Ok(Self::Stdin {
-            file_system: Arc::new(SingleFileOverlay::new(
-                path.clone(),
-                source,
-                OsFileSystem::default(),
-            )),
+            file_system: Arc::new(djls_project::BundledFileSystem::new(Arc::new(
+                SingleFileOverlay::new(path.clone(), source, OsFileSystem::default()),
+            ))),
             path,
         })
     }

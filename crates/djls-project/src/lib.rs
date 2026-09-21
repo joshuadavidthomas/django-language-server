@@ -1,12 +1,16 @@
 mod ast;
+mod bundled;
 mod db;
 mod discovery;
+mod django_version;
 mod models;
 mod project;
 mod python;
 mod settings;
 mod templates;
 
+pub use bundled::BundledFileSystem;
+pub use bundled::materialize_bundled_path;
 pub use db::Db;
 pub use discovery::CountLabel;
 pub use discovery::DjangoDiscoveryProgress;
@@ -22,6 +26,7 @@ pub use discovery::apply_project_facts;
 pub use discovery::environment_phases;
 pub use discovery::project_facts_phases;
 pub use discovery::run_django_discovery;
+pub use django_version::bundled_django_version;
 pub use models::ModelGraph;
 pub use models::ModelId;
 pub use models::compute_model_graph;

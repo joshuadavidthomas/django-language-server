@@ -23,6 +23,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Added a "Why a language server?" docs page.
 - Added a getting started guide and reorganized the documentation navigation.
 - Added a warning when a configured `venv_path` has no discoverable site-packages.
+- Added bundled Django source and templates for offline core tag/filter analysis, selecting the release line from project dependencies or `django_version`, with the oldest supported LTS as the ultimate fallback.
 - **Internal**: Added a Hawk visibility-audit job to the lint workflow.
 
 ### Changed

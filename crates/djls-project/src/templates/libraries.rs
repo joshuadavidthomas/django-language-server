@@ -2037,27 +2037,19 @@ pub fn template_library_catalog(
 ) -> TemplateLibraryCatalog<'_> {
     project.touch_search_path_roots(db);
 
-    if settings_module_file(db, project).is_none() {
-        if project.tagspecs(db).libraries.is_empty() {
-            return TemplateLibraryCatalog::default();
-        }
-
-        // Explicit configured structural facts remain useful to source-only commands even when
-        // there is no settings source or installed Django package to inspect. Model Django's
-        // default builtin modules as configured-only libraries: they have keyed module identity,
-        // but deliberately no source file or navigable origin.
-        let mut libraries = TemplateLibraryCatalog::from_libraries(Vec::new());
-        let backend =
-            insert_backend_library_values(db, project, &[], &[], &BTreeMap::new(), &mut libraries);
-        libraries.settings_cases = TemplateLibrarySettingsCases::Standalone {
-            backend,
-            omissions: Vec::new(),
-        };
-        libraries.add_configured_tag_definitions(db, project);
-        return libraries;
+    let has_settings = settings_module_file(db, project).is_some();
+    if !has_settings
+        && project.tagspecs(db).libraries.is_empty()
+        && PythonSourceModule::resolve(
+            db,
+            project,
+            python_module_name!(django.template.defaulttags),
+        )
+        .is_none()
+    {
+        return TemplateLibraryCatalog::default();
     }
 
-    let template_settings_cases = template_settings_cases(db, project);
     let mut libraries = TemplateLibraryCatalog::from_libraries(Vec::new());
     let mut loadable_template_library_modules = BTreeSet::new();
 
@@ -2072,6 +2064,27 @@ pub fn template_library_catalog(
         discovered,
     );
 
+    if !has_settings {
+        // Core libraries do not require project settings. Do not infer contrib
+        // apps or custom builtins in this standalone scope. The observed core
+        // inventory remains useful, but absent settings leave both configured
+        // load names and installed-app libraries open.
+        let mut backend =
+            insert_backend_library_values(db, project, &[], &[], &common_libraries, &mut libraries);
+        backend
+            .authoritative_names
+            .extend(common_libraries.keys().cloned());
+        backend.loadables_completeness = TemplateEvidenceCompleteness::Open;
+        backend.apps_completeness = TemplateEvidenceCompleteness::Open;
+        libraries.settings_cases = TemplateLibrarySettingsCases::Standalone {
+            backend,
+            omissions: Vec::new(),
+        };
+        libraries.add_configured_tag_definitions(db, project);
+        return libraries;
+    }
+
+    let template_settings_cases = template_settings_cases(db, project);
     let mut app_library_cases = Vec::new();
     let mut settings_cases = Vec::new();
     for settings_case in template_settings_cases.settings_cases() {

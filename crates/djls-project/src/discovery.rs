@@ -87,12 +87,13 @@ impl EnvironmentPhase {
     pub fn run(self, db: &dyn ProjectDb, project: Project) -> EnvironmentPart {
         match self {
             Self::SearchPaths => {
-                let search_paths = SearchPaths::from_project_settings(
+                let mut search_paths = SearchPaths::from_project_settings(
                     db.file_system(),
                     project.root(db),
                     project.python_environment(db),
                     project.pythonpath(db),
                 );
+                search_paths.add_bundled_django(db, project);
                 EnvironmentPart {
                     phase: self,
                     count: search_paths.iter().count(),
