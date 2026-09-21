@@ -14,6 +14,41 @@ fn database_uses_the_supplied_filesystem_unchanged() {
 }
 
 #[test]
+fn only_exactly_cased_django_suppresses_bundles() {
+    use djls_project::Db as _;
+    for (name, bundled) in [
+        ("Django.py", true),
+        ("Django/placeholder.py", true),
+        ("django.py", false),
+        ("django/placeholder.py", false),
+    ] {
+        let root = camino::Utf8Path::new("/project");
+        let mut fs = InMemoryFileSystem::case_insensitive();
+        fs.add_file(root.join(name), "# local module".into());
+        let settings: Settings = serde_json::from_value(
+            serde_json::json!({"venv_path": "/missing-venv", "django_version": "5.2"}),
+        )
+        .expect("settings");
+        let mut db = DjangoDatabase::new(
+            Arc::new(djls_project::BundledFileSystem::new(Arc::new(fs))),
+            &settings,
+            Some(root),
+        );
+        db.apply_project_settings(settings);
+        djls_project::run_django_discovery(&mut db).expect("discovery");
+        assert_eq!(
+            db.project()
+                .expect("project")
+                .search_paths(&db)
+                .iter()
+                .count(),
+            if bundled { 2 } else { 1 },
+            "{name}"
+        );
+    }
+}
+
+#[test]
 fn diagnostics_configuration_is_owned_by_each_database_snapshot() {
     let settings: Settings = serde_json::from_value(serde_json::json!({
         "django_settings_module": "project.settings",

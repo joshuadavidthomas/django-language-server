@@ -207,7 +207,9 @@ impl SearchPaths {
         // Treat even an incomplete/shadowing Django package as authoritative;
         // never combine installed modules with a different bundled release.
         if self.iter().any(|path| {
-            fs.exists(&path.path().join("django")) || fs.exists(&path.path().join("django.py"))
+            ["django", "django.py"]
+                .iter()
+                .any(|name| fs.path_exists_case_sensitive(&path.path().join(name), path.path()))
         }) {
             return;
         }

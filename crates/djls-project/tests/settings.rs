@@ -4987,3 +4987,102 @@ fn bundled_django_uv_only_activates_explicit_dependency_extras() {
         assert_eq!(bundled_django_version(&fs, root, None), Some(expected));
     }
 }
+
+#[test]
+fn bundled_django_url_requirements_activate_constraints() {
+    use djls_conf::DjangoVersion;
+    let root = Utf8Path::new("/project");
+    for (constraint, expected) in [
+        ("", Some(DjangoVersion::Django52)),
+        ("Django>=6.1,<6.2", Some(DjangoVersion::Django61)),
+        ("Django>=7", None),
+    ] {
+        let mut fs = InMemoryFileSystem::new();
+        fs.add_file(
+            root.join("requirements.txt"),
+            "Django @ https://example.org/django.whl\n-c constraints.txt\n".into(),
+        );
+        fs.add_file(root.join("constraints.txt"), constraint.into());
+        assert_eq!(
+            bundled_django_version(&fs, root, None),
+            expected,
+            "{constraint}"
+        );
+    }
+}
+
+#[test]
+fn bundled_django_declaration_extras_are_not_selected() {
+    use djls_conf::DjangoVersion;
+    let root = Utf8Path::new("/project");
+    for (marker, expected) in [
+        ("extra == 'web'", DjangoVersion::Django52),
+        ("extra != 'web'", DjangoVersion::Django61),
+        (
+            "extra == 'web' and sys_platform == 'win32'",
+            DjangoVersion::Django52,
+        ),
+        (
+            "extra == 'web' or sys_platform == 'win32'",
+            DjangoVersion::Django61,
+        ),
+    ] {
+        for poetry in [false, true] {
+            let mut fs = InMemoryFileSystem::new();
+            if poetry {
+                fs.add_file(root.join("pyproject.toml"), format!("[tool.poetry.dependencies]\nDjango = {{version = '>=6.1', markers = \"{marker}\"}}\n"));
+            } else {
+                fs.add_file(
+                    root.join("requirements.txt"),
+                    format!("Django>=6.1; {marker}\n"),
+                );
+            }
+            assert_eq!(
+                bundled_django_version(&fs, root, None),
+                Some(expected),
+                "{marker}, poetry={poetry}"
+            );
+        }
+    }
+}
+
+#[test]
+fn bundled_django_respects_project_python_bounds() {
+    use djls_conf::DjangoVersion;
+    let root = Utf8Path::new("/project");
+    for (bound, expected) in [
+        (">=3.12", DjangoVersion::Django61),
+        (">=3.10", DjangoVersion::Django52),
+    ] {
+        for style in ["pep621", "poetry", "setup"] {
+            let mut fs = InMemoryFileSystem::new();
+            match style {
+                "pep621" => fs.add_file(root.join("pyproject.toml"), format!("[project]\nrequires-python = '{bound}'\ndependencies = [\"Django>=5.2,<6; python_version < '3.12'\", \"Django>=6.1; python_version >= '3.12'\"]\n")),
+                "poetry" => fs.add_file(root.join("pyproject.toml"), format!("[tool.poetry.dependencies]\npython = '{bound}'\nDjango = [{{version = '>=5.2,<6', python = '<3.12'}}, {{version = '>=6.1', python = '>=3.12'}}]\n")),
+                _ => fs.add_file(root.join("setup.cfg"), format!("[options]\npython_requires = {bound}\ninstall_requires =\n    Django>=5.2,<6; python_version < '3.12'\n    Django>=6.1; python_version >= '3.12'\n")),
+            }
+            assert_eq!(
+                bundled_django_version(&fs, root, None),
+                Some(expected),
+                "{style}, {bound}"
+            );
+            fs.add_file(root.join("pylock.toml"), "[[packages]]\nname = 'django'\nversion = '5.2.17'\nmarker = \"python_version < '3.12'\"\n".into());
+            assert_eq!(
+                bundled_django_version(&fs, root, None),
+                Some(expected),
+                "lock: {style}, {bound}"
+            );
+        }
+        let mut fs = InMemoryFileSystem::new();
+        fs.add_file(
+            root.join("pyproject.toml"),
+            format!("[project]\nrequires-python = '{bound}'\n"),
+        );
+        fs.add_file(root.join("pylock.toml"), "[[packages]]\nname = 'django'\nversion = '5.2.17'\nmarker = \"python_version < '3.12'\"\n[[packages]]\nname = 'django'\nversion = '6.1.1'\nmarker = \"python_version >= '3.12'\"\n".into());
+        assert_eq!(
+            bundled_django_version(&fs, root, None),
+            Some(expected),
+            "lock-only: {bound}"
+        );
+    }
+}

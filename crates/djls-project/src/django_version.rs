@@ -30,6 +30,15 @@ pub fn bundled_django_version(
 
     let mut requirements = DjangoRequirements::default();
     if let Some(project) = read_toml(fs, &root.join("pyproject.toml")) {
+        if let Some(source) = project
+            .get("project")
+            .and_then(|project| project.get("requires-python"))
+            .and_then(toml::Value::as_str)
+            && let Ok(range) = source.parse::<VersionSpecifiers>()
+            && let Some(marker) = python_marker(&[range])
+        {
+            requirements.environment.and(marker);
+        }
         if let Some(dependencies) = project
             .get("project")
             .and_then(|project| project.get("dependencies"))
@@ -48,12 +57,24 @@ pub fn bundled_django_version(
             for (name, value) in dependencies {
                 if name.eq_ignore_ascii_case("django") {
                     requirements.add_poetry(value);
+                } else if name == "python"
+                    && let Some(source) = value.as_str()
+                    && let Some(ranges) = poetry_specifiers(source)
+                    && let Some(marker) = python_marker(&ranges)
+                {
+                    requirements.environment.and(marker);
                 }
             }
         }
     }
     requirements.read_setup_cfg(fs, root);
     requirements.read_files(fs, root);
+    for (_, marker, _) in &mut requirements.entries {
+        marker.and(requirements.environment.clone());
+    }
+    requirements
+        .entries
+        .retain(|(_, marker, _)| !marker.is_false());
 
     // Prefer a resolved version, but do not trust a lock that contradicts the
     // current declarations. Universal locks may contain several feasible versions.
@@ -66,7 +87,8 @@ pub fn bundled_django_version(
         "pylock.toml",
     ] {
         let mut versions = locked_django_versions(fs, &root.join(filename));
-        for candidate in &versions {
+        for candidate in &mut versions {
+            candidate.marker.and(requirements.environment.clone());
             locked_requirement.or(candidate.marker.clone());
         }
         versions.retain(|candidate| requirements.admits(&candidate.version, &candidate.marker));
@@ -209,6 +231,10 @@ fn runtime_marker(source: &str) -> MarkerTree {
     if warned {
         return MarkerTree::FALSE;
     }
+    without_extras(marker)
+}
+
+fn without_extras(marker: MarkerTree) -> MarkerTree {
     if marker.is_false() || marker.is_true() {
         return marker;
     }
@@ -357,6 +383,7 @@ fn feature_line(version: &Version) -> Option<DjangoVersion> {
 #[derive(Default)]
 struct DjangoRequirements {
     entries: Vec<(Vec<VersionSpecifiers>, MarkerTree, bool)>,
+    environment: MarkerTree,
 }
 
 impl DjangoRequirements {
@@ -373,12 +400,11 @@ impl DjangoRequirements {
         }
         let specifiers = match requirement.version_or_url {
             Some(VersionOrUrl::VersionSpecifier(specifiers)) => specifiers,
-            Some(VersionOrUrl::Url(_)) => return,
-            None => VersionSpecifiers::default(),
+            Some(VersionOrUrl::Url(_)) | None => VersionSpecifiers::default(),
         };
-        if !requirement.marker.is_false() {
-            self.entries
-                .push((vec![specifiers], requirement.marker, required));
+        let marker = without_extras(requirement.marker);
+        if !marker.is_false() {
+            self.entries.push((vec![specifiers], marker, required));
         }
     }
 
@@ -401,33 +427,15 @@ impl DjangoRequirements {
         };
         let mut marker = MarkerTree::TRUE;
         if let Some(source) = value.get("markers").and_then(toml::Value::as_str) {
-            let Ok(parsed) = source.parse::<MarkerTree>() else {
-                return;
-            };
-            marker.and(parsed);
+            marker.and(runtime_marker(source));
         }
         if let Some(source) = value.get("python").and_then(toml::Value::as_str) {
             let Some(ranges) = poetry_specifiers(source) else {
                 return;
             };
-            let mut python = MarkerTree::FALSE;
-            for range in ranges {
-                let mut branch = MarkerTree::TRUE;
-                for specifier in range.iter() {
-                    let text = specifier.to_string();
-                    let Some(start) = text.find(|c: char| c.is_ascii_digit()) else {
-                        return;
-                    };
-                    let (operator, version) = text.split_at(start);
-                    let Ok(parsed) =
-                        format!("python_full_version {operator} '{version}'").parse::<MarkerTree>()
-                    else {
-                        return;
-                    };
-                    branch.and(parsed);
-                }
-                python.or(branch);
-            }
+            let Some(python) = python_marker(&ranges) else {
+                return;
+            };
             marker.and(python);
         }
         if let Some(platform) = value.get("platform").and_then(toml::Value::as_str) {
@@ -453,6 +461,12 @@ impl DjangoRequirements {
         if let Err(error) = config.read(source) {
             tracing::warn!("Could not read Django dependency metadata from {path}: {error}");
             return;
+        }
+        if let Some(source) = config.get("options", "python_requires")
+            && let Ok(range) = source.parse::<VersionSpecifiers>()
+            && let Some(marker) = python_marker(&[range])
+        {
+            self.environment.and(marker);
         }
         if let Some(requirements) = config.get("options", "install_requires") {
             for requirement in requirements.lines() {
@@ -520,12 +534,14 @@ impl DjangoRequirements {
 
     fn admits(&self, version: &Version, lock_marker: &MarkerTree) -> bool {
         if self.is_empty() {
-            return !lock_marker.is_false();
+            let mut environment = self.environment.clone();
+            environment.and(lock_marker.clone());
+            return !environment.is_false();
         }
         // Look for a feasible environment in which Django is required and all
         // active constraints admit this version. Never use the host interpreter
         // to choose between a project's conditional dependency branches.
-        let mut allowed = MarkerTree::TRUE;
+        let mut allowed = self.environment.clone();
         // A reachable runtime lock entry is itself requirement evidence when
         // declarations contain constraints only.
         let mut required = if self.has_requirement() {
@@ -588,6 +604,25 @@ impl DjangoRequirements {
         }
         None
     }
+}
+
+fn python_marker(ranges: &[VersionSpecifiers]) -> Option<MarkerTree> {
+    let mut python = MarkerTree::FALSE;
+    for range in ranges {
+        let mut branch = MarkerTree::TRUE;
+        for specifier in range.iter() {
+            let text = specifier.to_string();
+            let start = text.find(|c: char| c.is_ascii_digit())?;
+            let (operator, version) = text.split_at(start);
+            branch.and(
+                format!("python_full_version {operator} '{version}'")
+                    .parse::<MarkerTree>()
+                    .ok()?,
+            );
+        }
+        python.or(branch);
+    }
+    Some(python)
 }
 
 // Poetry's legacy operators are not PEP 440 syntax. Translate each union branch

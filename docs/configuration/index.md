@@ -91,8 +91,11 @@ Lock entries using unsupported marker syntax, including pylock's set-valued
 
 Multiple conditional dependencies or locked versions are treated as possible
 alternatives, selecting the lowest compatible line rather than using the host's
-Python version. Optional dependency groups are not assumed to be active. Direct
-URL requirements do not supply a version. `Pipfile` declarations and executable
+Python version. Project Python bounds (`project.requires-python`, Poetry's
+`python` dependency, and `setup.cfg`'s `python_requires`) exclude incompatible
+branches in declarations and lock entries. Optional dependency groups and extras
+are not assumed to be active. Direct URL requirements do not supply a version,
+but accompanying constraints still apply. `Pipfile` declarations and executable
 `setup.py` metadata are not read; use an explicit override if needed.
 Named locks such as `pylock.production.toml` and standalone requirements files
 such as `requirements/dev.txt` are not automatically selected; requirements files
