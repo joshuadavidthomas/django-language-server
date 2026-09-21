@@ -14,7 +14,7 @@ use rustc_hash::FxHashSet;
 
 #[derive(Clone)]
 struct LockedDjango {
-    version: Version,
+    version: Option<Version>,
     marker: MarkerTree,
 }
 
@@ -91,10 +91,16 @@ pub fn bundled_django_version(
             candidate.marker.and(requirements.environment.clone());
             locked_requirement.or(candidate.marker.clone());
         }
-        versions.retain(|candidate| requirements.admits(&candidate.version, &candidate.marker));
-        versions.sort_by(|left, right| left.version.cmp(&right.version));
-        if let Some(candidate) = versions.first() {
-            let version = &candidate.version;
+        let version = versions
+            .iter()
+            .filter_map(|candidate| {
+                candidate
+                    .version
+                    .as_ref()
+                    .filter(|version| requirements.admits(version, &candidate.marker))
+            })
+            .min();
+        if let Some(version) = version {
             let selected = feature_line(version);
             if selected.is_none() {
                 tracing::warn!("Django {version} in {filename} has no supported bundle");
@@ -148,7 +154,7 @@ fn locked_django_versions(fs: &dyn FileSystem, path: &Utf8Path) -> Vec<LockedDja
                     .parse()
                     .ok()
                     .map(|version| LockedDjango {
-                        version,
+                        version: Some(version),
                         marker: match package.get("markers").and_then(serde_json::Value::as_str) {
                             Some(source) => runtime_marker(source),
                             None => MarkerTree::TRUE,
@@ -162,6 +168,10 @@ fn locked_django_versions(fs: &dyn FileSystem, path: &Utf8Path) -> Vec<LockedDja
     };
     if path.file_name() == Some("uv.lock") {
         return uv_locked_django_versions(&lock);
+    }
+    let mut scope = lock_scope(&lock);
+    if let Some(metadata) = lock.get("metadata") {
+        scope.and(lock_scope(metadata));
     }
     let key = if path.file_name() == Some("pylock.toml") {
         "packages"
@@ -203,13 +213,45 @@ fn locked_django_versions(fs: &dyn FileSystem, path: &Utf8Path) -> Vec<LockedDja
                     return None;
                 }
             }
-            let version = package.get("version")?.as_str()?.parse().ok()?;
-            Some(LockedDjango {
-                version,
-                marker: package_marker(package),
-            })
+            let version = match package.get("version") {
+                Some(value) => Some(value.as_str()?.parse().ok()?),
+                None if ["vcs", "directory", "archive"]
+                    .iter()
+                    .any(|key| package.get(key).is_some_and(toml::Value::is_table)) =>
+                {
+                    None
+                }
+                None => return None,
+            };
+            let mut marker = scope.clone();
+            marker.and(lock_scope(package));
+            marker.and(package_marker(package));
+            Some(LockedDjango { version, marker })
         })
         .collect()
+}
+
+fn lock_scope(value: &toml::Value) -> MarkerTree {
+    let mut scope = MarkerTree::TRUE;
+    for key in ["requires-python", "python-versions"] {
+        if let Some(value) = value.get(key) {
+            let marker = value
+                .as_str()
+                .and_then(poetry_specifiers)
+                .and_then(|ranges| python_marker(&ranges));
+            scope.and(marker.unwrap_or(MarkerTree::FALSE));
+        }
+    }
+    if let Some(environments) = value.get("environments") {
+        let mut alternatives = MarkerTree::FALSE;
+        if let Some(environments) = environments.as_array() {
+            for source in environments.iter().filter_map(toml::Value::as_str) {
+                alternatives.or(runtime_marker(source));
+            }
+        }
+        scope.and(alternatives);
+    }
+    scope
 }
 
 fn package_marker(package: &toml::Value) -> MarkerTree {
@@ -274,13 +316,14 @@ fn uv_locked_django_versions(lock: &toml::Value) -> Vec<LockedDjango> {
         .map(|(index, _)| index);
 
     let mut pending: Vec<_> = roots
-        .map(|index| (index, MarkerTree::TRUE, Vec::<String>::new()))
+        .map(|index| (index, lock_scope(lock), Vec::<String>::new()))
         .collect();
     let mut seen = FxHashSet::default();
     let mut found = Vec::new();
     while let Some((index, mut marker, extras)) = pending.pop() {
         let package = &packages[index];
         marker.and(package_marker(package));
+        marker.and(lock_scope(package));
         if let Some(markers) = package
             .get("resolution-markers")
             .and_then(toml::Value::as_array)
@@ -310,7 +353,7 @@ fn uv_locked_django_versions(lock: &toml::Value) -> Vec<LockedDjango> {
             && let Ok(version) = version.parse()
         {
             found.push(LockedDjango {
-                version,
+                version: Some(version),
                 marker: marker.clone(),
             });
         }
@@ -418,7 +461,16 @@ impl DjangoRequirements {
         if value.get("optional").and_then(toml::Value::as_bool) == Some(true) {
             return;
         }
-        let Some(source) = value.as_str().or_else(|| value.get("version")?.as_str()) else {
+        let source = value
+            .as_str()
+            .or_else(|| value.get("version")?.as_str())
+            .or_else(|| {
+                ["git", "url", "path", "file"]
+                    .iter()
+                    .any(|key| value.get(key).and_then(toml::Value::as_str).is_some())
+                    .then_some("*")
+            });
+        let Some(source) = source else {
             return;
         };
         let Some(specifiers) = poetry_specifiers(source) else {

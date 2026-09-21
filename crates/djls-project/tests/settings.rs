@@ -5086,3 +5086,127 @@ fn bundled_django_respects_project_python_bounds() {
         );
     }
 }
+
+#[test]
+fn bundled_django_lock_scope_must_overlap_project_scope() {
+    use djls_conf::DjangoVersion;
+    let root = Utf8Path::new("/project");
+    for (filename, source, expected) in [
+        (
+            "pylock.toml",
+            "requires-python = '>=3.12'\n[[packages]]\nname = 'django'\nversion = '6.1.1'\n",
+            DjangoVersion::Django52,
+        ),
+        (
+            "pylock.toml",
+            "[[packages]]\nname = 'django'\nversion = '6.1.1'\nrequires-python = '>=3.12'\n",
+            DjangoVersion::Django52,
+        ),
+        (
+            "pylock.toml",
+            "requires-python = '>=3.10'\n[[packages]]\nname = 'django'\nversion = '6.1.1'\nrequires-python = '<3.12'\n",
+            DjangoVersion::Django61,
+        ),
+        (
+            "pylock.toml",
+            "environments = [\"sys_platform == 'win32'\"]\n[[packages]]\nname = 'django'\nversion = '6.1.1'\n",
+            DjangoVersion::Django52,
+        ),
+        (
+            "pylock.toml",
+            "environments = [\"sys_platform == 'win32'\", \"sys_platform == 'linux'\"]\n[[packages]]\nname = 'django'\nversion = '6.1.1'\n",
+            DjangoVersion::Django61,
+        ),
+        (
+            "poetry.lock",
+            "[metadata]\npython-versions = '>=3.12'\n[[package]]\nname = 'django'\nversion = '6.1.1'\ngroups = ['main']\n",
+            DjangoVersion::Django52,
+        ),
+        (
+            "poetry.lock",
+            "[[package]]\nname = 'django'\nversion = '6.1.1'\ngroups = ['main']\npython-versions = '>=3.12'\n",
+            DjangoVersion::Django52,
+        ),
+        (
+            "uv.lock",
+            "requires-python = '>=3.12'\n[[package]]\nname = 'project'\nsource = {virtual = '.'}\ndependencies = [{name = 'django'}]\n[[package]]\nname = 'django'\nversion = '6.1.1'\n",
+            DjangoVersion::Django52,
+        ),
+    ] {
+        let mut fs = InMemoryFileSystem::new();
+        fs.add_file(root.join("pyproject.toml"), "[project]\nrequires-python = '==3.11.*'\ndependencies = [\"Django>=5.2; sys_platform == 'linux'\"]\n".into());
+        fs.add_file(root.join(filename), source.into());
+        assert_eq!(
+            bundled_django_version(&fs, root, None),
+            Some(expected),
+            "{filename}: {source}"
+        );
+    }
+}
+
+#[test]
+fn bundled_django_direct_sources_preserve_runtime_evidence() {
+    use djls_conf::DjangoVersion;
+    let root = Utf8Path::new("/project");
+    for (filename, source) in [
+        (
+            "pyproject.toml",
+            "[tool.poetry.dependencies]\ndjango = {git = 'https://example.org/django.git'",
+        ),
+        (
+            "pyproject.toml",
+            "[tool.poetry.dependencies]\ndjango = {url = 'https://example.org/django.tar.gz'",
+        ),
+        (
+            "pyproject.toml",
+            "[tool.poetry.dependencies]\ndjango = {path = '../django'",
+        ),
+        (
+            "pyproject.toml",
+            "[tool.poetry.dependencies]\ndjango = {file = '../django.tar.gz'",
+        ),
+        (
+            "pylock.toml",
+            "[[packages]]\nname = 'django'\ndirectory = {path = '../django'}\n",
+        ),
+        (
+            "pylock.toml",
+            "[[packages]]\nname = 'django'\nvcs = {type = 'git', url = 'https://example.org/django.git', commit-id = 'abc'}\n",
+        ),
+        (
+            "pylock.toml",
+            "[[packages]]\nname = 'django'\narchive = {path = '../django.tar.gz'}\n",
+        ),
+    ] {
+        for (constraint, active_expected) in [
+            ("Django>=6.1,<6.2", Some(DjangoVersion::Django61)),
+            ("Django>=7", None),
+        ] {
+            for active in [true, false] {
+                let marker = if active {
+                    "extra != 'web'"
+                } else {
+                    "extra == 'web'"
+                };
+                let metadata = if filename == "pyproject.toml" {
+                    format!("{source}, markers = \"{marker}\"}}\n")
+                } else {
+                    format!("{source}marker = \"{marker}\"\n")
+                };
+                let mut fs = InMemoryFileSystem::new();
+                fs.add_file(root.join(filename), metadata.clone());
+                fs.add_file(root.join("requirements.txt"), "-c constraints.txt\n".into());
+                fs.add_file(root.join("constraints.txt"), constraint.into());
+                assert_eq!(
+                    bundled_django_version(&fs, root, None),
+                    if active {
+                        active_expected
+                    } else {
+                        Some(DjangoVersion::Django52)
+                    },
+                    "{metadata}, {constraint}"
+                );
+            }
+        }
+    }
+}

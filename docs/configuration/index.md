@@ -76,6 +76,9 @@ the same environment. uv locks are traversed from the project at `.` through
 runtime dependency edges, including explicitly requested dependency extras;
 dev groups and unselected extras are not roots. Locks without an identifiable
 project root and ambiguous dependency edges are not used as version evidence.
+Lock-wide and package Python restrictions also apply, including pylock's
+`requires-python` and `environments`, uv's `requires-python`, and Poetry's
+`python-versions`.
 
 Legacy Poetry declarations support exact versions, PEP 440 comparisons, wildcards,
 caret/tilde ranges, comma or whitespace conjunctions, `||` alternatives, and conditional tables/arrays using
@@ -94,8 +97,10 @@ alternatives, selecting the lowest compatible line rather than using the host's
 Python version. Project Python bounds (`project.requires-python`, Poetry's
 `python` dependency, and `setup.cfg`'s `python_requires`) exclude incompatible
 branches in declarations and lock entries. Optional dependency groups and extras
-are not assumed to be active. Direct URL requirements do not supply a version,
-but accompanying constraints still apply. `Pipfile` declarations and executable
+are not assumed to be active. Direct URL requirements, Poetry Git/URL/path/file
+declarations, and versionless pylock source entries do not supply a version,
+but retain runtime dependency evidence so accompanying constraints still apply.
+`Pipfile` declarations and executable
 `setup.py` metadata are not read; use an explicit override if needed.
 Named locks such as `pylock.production.toml` and standalone requirements files
 such as `requirements/dev.txt` are not automatically selected; requirements files
