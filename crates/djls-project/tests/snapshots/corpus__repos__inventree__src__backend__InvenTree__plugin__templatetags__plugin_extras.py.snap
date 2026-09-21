@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "tag::inactive_plugin_list":
@@ -23,7 +23,7 @@ definitions:
     has_doc: false
 symbols_are_unobserved: false
 tag_rules:
-  "src.backend.InvenTree.plugin.templatetags.plugin_extras::tag::inactive_plugin_list":
+  "plugin.templatetags.plugin_extras::tag::inactive_plugin_list":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -37,7 +37,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: kwargs
     as_var: strip
-  "src.backend.InvenTree.plugin.templatetags.plugin_extras::tag::mixin_available":
+  "plugin.templatetags.plugin_extras::tag::mixin_available":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -54,7 +54,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: kwargs
     as_var: strip
-  "src.backend.InvenTree.plugin.templatetags.plugin_extras::tag::mixin_enabled":
+  "plugin.templatetags.plugin_extras::tag::mixin_enabled":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -74,7 +74,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: kwargs
     as_var: strip
-  "src.backend.InvenTree.plugin.templatetags.plugin_extras::tag::plugin_list":
+  "plugin.templatetags.plugin_extras::tag::plugin_list":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -88,7 +88,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: kwargs
     as_var: strip
-  "src.backend.InvenTree.plugin.templatetags.plugin_extras::tag::plugin_settings":
+  "plugin.templatetags.plugin_extras::tag::plugin_settings":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -105,7 +105,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: kwargs
     as_var: strip
-  "src.backend.InvenTree.plugin.templatetags.plugin_extras::tag::safe_url":
+  "plugin.templatetags.plugin_extras::tag::safe_url":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []

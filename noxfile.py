@@ -107,6 +107,17 @@ def tests(session, django):
             if arg:
                 args.extend(arg.split(" "))
         command.extend(args)
+    # Corpus-wide sweeps run once in the corpus job, not in every matrix entry.
+    if "--" not in command:
+        command.append("--")
+    for test_filter in (
+        "corpus_environment::",
+        "corpus_validation::",
+        "corpus_inheritance::",
+        "model_extraction_snapshots",
+        "corpus_registration_census",
+    ):
+        command.extend(["--skip", test_filter])
     session.run(
         "cargo",
         "run",
@@ -116,9 +127,41 @@ def tests(session, django):
         "corpus",
         "--",
         "sync",
+        "--source-only",
         external=True,
     )
     session.run(*command, external=True)
+
+
+@nox.session(python=False)
+def corpus(session):
+    """Prepare real project environments and run all corpus-wide suites."""
+    session.run(
+        "cargo", "run", "-q", "-p", "djls-testing", "--bin", "corpus", "--", "sync"
+    )
+    session.run(
+        "cargo",
+        "test",
+        "-p",
+        "djls-project",
+        "-p",
+        "djls-semantic",
+        "-p",
+        "djls-testing",
+        "--test",
+        "corpus",
+        "--test",
+        "corpus_settings",
+        "--test",
+        "corpus_models",
+        "--test",
+        "corpus_validation",
+        "--test",
+        "corpus_inheritance",
+        "--test",
+        "registration_coverage",
+        *session.posargs,
+    )
 
 
 @nox.session(python=PY_DEFAULT)

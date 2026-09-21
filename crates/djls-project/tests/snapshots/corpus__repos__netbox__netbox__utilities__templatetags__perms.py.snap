@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "filter::can_add":
@@ -24,10 +24,10 @@ definitions:
 symbols_are_unobserved: false
 tag_rules: {}
 filter_arities:
-  "netbox.utilities.templatetags.perms::filter::can_add": required_argument
-  "netbox.utilities.templatetags.perms::filter::can_change": required_argument
-  "netbox.utilities.templatetags.perms::filter::can_delete": required_argument
-  "netbox.utilities.templatetags.perms::filter::can_run": required_argument
-  "netbox.utilities.templatetags.perms::filter::can_sync": required_argument
-  "netbox.utilities.templatetags.perms::filter::can_view": required_argument
+  "utilities.templatetags.perms::filter::can_add": required_argument
+  "utilities.templatetags.perms::filter::can_change": required_argument
+  "utilities.templatetags.perms::filter::can_delete": required_argument
+  "utilities.templatetags.perms::filter::can_run": required_argument
+  "utilities.templatetags.perms::filter::can_sync": required_argument
+  "utilities.templatetags.perms::filter::can_view": required_argument
 block_specs: {}

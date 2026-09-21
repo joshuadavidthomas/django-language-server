@@ -11,18 +11,16 @@
 use std::collections::BTreeSet;
 #[cfg(not(windows))]
 use std::io;
+#[cfg(not(windows))]
+use std::sync::Arc;
 
 #[cfg(not(windows))]
-use djls_project::PythonEnvironment;
+use djls_project::Db as _;
 #[cfg(not(windows))]
 use djls_project::testing::django_settings;
 #[cfg(not(windows))]
 use djls_project::testing::settings_module_file;
 use djls_testing::Corpus;
-#[cfg(not(windows))]
-use djls_testing::OsTestDatabase;
-#[cfg(not(windows))]
-use djls_testing::ProjectFixture;
 use libtest_mimic::Arguments;
 #[cfg(not(windows))]
 use libtest_mimic::Trial;
@@ -139,7 +137,7 @@ fn check_predicate_correlations(repo_name: &str, settings: &Value) -> Result<(),
 #[cfg(not(windows))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Arguments::from_args();
-    let corpus = Corpus::require()?;
+    let corpus = Arc::new(Corpus::require()?);
     let declarations = corpus.repo_settings_projects()?;
     if declarations.is_empty() {
         return Err(io::Error::other(
@@ -148,14 +146,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .into());
     }
 
-    let python_environment = corpus.root().join("hermetic-no-venv");
     let mut snapshot_names = BTreeSet::new();
     let mut trials = Vec::new();
 
     for corpus_project in declarations {
         let repo_name = corpus_project.repo_name;
         let checkout_root = corpus_project.checkout_root;
-        let project_root = corpus_project.project_root;
 
         for settings_module in corpus_project.django_settings_modules {
             let snapshot_name = format!("{repo_name}__{}", settings_module.replace('.', "__"));
@@ -168,16 +164,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let repo_name = repo_name.clone();
             let checkout_root = checkout_root.clone();
-            let project_root = project_root.clone();
-            let python_environment = python_environment.clone();
-            trials.push(Trial::test(snapshot_name.clone(), move || {
+            let corpus = Arc::clone(&corpus);
+            trials.push(Trial::test(format!("corpus_environment::{snapshot_name}"), move || {
                 let _guard = snapshot_dir();
-                let mut db = OsTestDatabase::with_disk_roots([checkout_root.clone()]);
-                let python_environment = PythonEnvironment::Path(python_environment);
-                let project = ProjectFixture::new(project_root.clone())
-                    .django_settings_module(&settings_module)
-                    .python_environment(python_environment)
-                    .install(&mut db)?;
+                let db = corpus.environment_database(&repo_name)?;
+                let project = db.project().ok_or_else(|| io::Error::other("missing corpus project"))?;
 
                 settings_module_file(&db, project).ok_or_else(|| {
                     io::Error::other(format!(

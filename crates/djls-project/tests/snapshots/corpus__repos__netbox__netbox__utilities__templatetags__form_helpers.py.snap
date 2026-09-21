@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "filter::getfield":
@@ -26,7 +26,7 @@ definitions:
     has_doc: false
 symbols_are_unobserved: false
 tag_rules:
-  "netbox.utilities.templatetags.form_helpers::tag::render_custom_fields":
+  "utilities.templatetags.form_helpers::tag::render_custom_fields":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -40,7 +40,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: keep
-  "netbox.utilities.templatetags.form_helpers::tag::render_errors":
+  "utilities.templatetags.form_helpers::tag::render_errors":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -54,7 +54,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: keep
-  "netbox.utilities.templatetags.form_helpers::tag::render_field":
+  "utilities.templatetags.form_helpers::tag::render_field":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -74,7 +74,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: keep
-  "netbox.utilities.templatetags.form_helpers::tag::render_fieldset":
+  "utilities.templatetags.form_helpers::tag::render_fieldset":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -91,7 +91,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: keep
-  "netbox.utilities.templatetags.form_helpers::tag::render_form":
+  "utilities.templatetags.form_helpers::tag::render_form":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -106,6 +106,6 @@ tag_rules:
         variadic_keyword: ~
     as_var: keep
 filter_arities:
-  "netbox.utilities.templatetags.form_helpers::filter::getfield": required_argument
-  "netbox.utilities.templatetags.form_helpers::filter::widget_type": no_argument
+  "utilities.templatetags.form_helpers::filter::getfield": required_argument
+  "utilities.templatetags.form_helpers::filter::widget_type": no_argument
 block_specs: {}

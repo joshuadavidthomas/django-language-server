@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "tag::add":
@@ -89,7 +89,7 @@ definitions:
     has_doc: false
 symbols_are_unobserved: false
 tag_rules:
-  "src.backend.InvenTree.report.templatetags.report::tag::add":
+  "report.templatetags.report::tag::add":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -109,7 +109,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: strip
-  "src.backend.InvenTree.report.templatetags.report::tag::asset":
+  "report.templatetags.report::tag::asset":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -123,7 +123,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: strip
-  "src.backend.InvenTree.report.templatetags.report::tag::company_image":
+  "report.templatetags.report::tag::company_image":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -143,7 +143,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: kwargs
     as_var: strip
-  "src.backend.InvenTree.report.templatetags.report::tag::convert_currency":
+  "report.templatetags.report::tag::convert_currency":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -160,7 +160,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: kwargs
     as_var: strip
-  "src.backend.InvenTree.report.templatetags.report::tag::create_currency":
+  "report.templatetags.report::tag::create_currency":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -177,7 +177,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: kwargs
     as_var: strip
-  "src.backend.InvenTree.report.templatetags.report::tag::divide":
+  "report.templatetags.report::tag::divide":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -197,7 +197,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: strip
-  "src.backend.InvenTree.report.templatetags.report::tag::encode_svg_image":
+  "report.templatetags.report::tag::encode_svg_image":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -211,7 +211,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: strip
-  "src.backend.InvenTree.report.templatetags.report::tag::filter_db_model":
+  "report.templatetags.report::tag::filter_db_model":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -225,7 +225,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: kwargs
     as_var: strip
-  "src.backend.InvenTree.report.templatetags.report::tag::filter_queryset":
+  "report.templatetags.report::tag::filter_queryset":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -239,7 +239,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: kwargs
     as_var: strip
-  "src.backend.InvenTree.report.templatetags.report::tag::format_date":
+  "report.templatetags.report::tag::format_date":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -259,7 +259,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: strip
-  "src.backend.InvenTree.report.templatetags.report::tag::format_datetime":
+  "report.templatetags.report::tag::format_datetime":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -279,7 +279,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: strip
-  "src.backend.InvenTree.report.templatetags.report::tag::format_number":
+  "report.templatetags.report::tag::format_number":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -308,7 +308,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: strip
-  "src.backend.InvenTree.report.templatetags.report::tag::getindex":
+  "report.templatetags.report::tag::getindex":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -325,7 +325,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: strip
-  "src.backend.InvenTree.report.templatetags.report::tag::getkey":
+  "report.templatetags.report::tag::getkey":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -345,7 +345,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: strip
-  "src.backend.InvenTree.report.templatetags.report::tag::icon":
+  "report.templatetags.report::tag::icon":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -359,7 +359,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: kwargs
     as_var: strip
-  "src.backend.InvenTree.report.templatetags.report::tag::include_icon_fonts":
+  "report.templatetags.report::tag::include_icon_fonts":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -376,7 +376,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: strip
-  "src.backend.InvenTree.report.templatetags.report::tag::internal_link":
+  "report.templatetags.report::tag::internal_link":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -393,7 +393,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: strip
-  "src.backend.InvenTree.report.templatetags.report::tag::logo_image":
+  "report.templatetags.report::tag::logo_image":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -404,7 +404,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: kwargs
     as_var: strip
-  "src.backend.InvenTree.report.templatetags.report::tag::modulo":
+  "report.templatetags.report::tag::modulo":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -424,7 +424,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: strip
-  "src.backend.InvenTree.report.templatetags.report::tag::multiply":
+  "report.templatetags.report::tag::multiply":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -444,7 +444,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: strip
-  "src.backend.InvenTree.report.templatetags.report::tag::order_queryset":
+  "report.templatetags.report::tag::order_queryset":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -461,7 +461,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: strip
-  "src.backend.InvenTree.report.templatetags.report::tag::parameter":
+  "report.templatetags.report::tag::parameter":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -478,7 +478,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: strip
-  "src.backend.InvenTree.report.templatetags.report::tag::part_image":
+  "report.templatetags.report::tag::part_image":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -498,7 +498,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: kwargs
     as_var: strip
-  "src.backend.InvenTree.report.templatetags.report::tag::part_parameter":
+  "report.templatetags.report::tag::part_parameter":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -515,7 +515,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: strip
-  "src.backend.InvenTree.report.templatetags.report::tag::render_currency":
+  "report.templatetags.report::tag::render_currency":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -529,7 +529,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: kwargs
     as_var: strip
-  "src.backend.InvenTree.report.templatetags.report::tag::render_html_text":
+  "report.templatetags.report::tag::render_html_text":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -543,7 +543,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: kwargs
     as_var: strip
-  "src.backend.InvenTree.report.templatetags.report::tag::subtract":
+  "report.templatetags.report::tag::subtract":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -563,7 +563,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: strip
-  "src.backend.InvenTree.report.templatetags.report::tag::uploaded_image":
+  "report.templatetags.report::tag::uploaded_image":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []

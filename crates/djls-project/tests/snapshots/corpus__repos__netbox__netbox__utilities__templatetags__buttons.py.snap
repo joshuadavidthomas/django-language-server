@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "tag::action_buttons":
@@ -41,7 +41,7 @@ definitions:
     has_doc: false
 symbols_are_unobserved: false
 tag_rules:
-  "netbox.utilities.templatetags.buttons::tag::action_buttons":
+  "utilities.templatetags.buttons::tag::action_buttons":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -61,7 +61,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: kwargs
     as_var: strip
-  "netbox.utilities.templatetags.buttons::tag::add_button":
+  "utilities.templatetags.buttons::tag::add_button":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -81,7 +81,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: keep
-  "netbox.utilities.templatetags.buttons::tag::bookmark_button":
+  "utilities.templatetags.buttons::tag::bookmark_button":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -95,7 +95,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: keep
-  "netbox.utilities.templatetags.buttons::tag::bulk_delete_button":
+  "utilities.templatetags.buttons::tag::bulk_delete_button":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -115,7 +115,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: keep
-  "netbox.utilities.templatetags.buttons::tag::bulk_edit_button":
+  "utilities.templatetags.buttons::tag::bulk_edit_button":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -135,7 +135,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: keep
-  "netbox.utilities.templatetags.buttons::tag::clone_button":
+  "utilities.templatetags.buttons::tag::clone_button":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -149,7 +149,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: keep
-  "netbox.utilities.templatetags.buttons::tag::delete_button":
+  "utilities.templatetags.buttons::tag::delete_button":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -163,7 +163,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: keep
-  "netbox.utilities.templatetags.buttons::tag::edit_button":
+  "utilities.templatetags.buttons::tag::edit_button":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -177,7 +177,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: keep
-  "netbox.utilities.templatetags.buttons::tag::export_button":
+  "utilities.templatetags.buttons::tag::export_button":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -191,7 +191,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: keep
-  "netbox.utilities.templatetags.buttons::tag::import_button":
+  "utilities.templatetags.buttons::tag::import_button":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -208,7 +208,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: keep
-  "netbox.utilities.templatetags.buttons::tag::subscribe_button":
+  "utilities.templatetags.buttons::tag::subscribe_button":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []
@@ -222,7 +222,7 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: keep
-  "netbox.utilities.templatetags.buttons::tag::sync_button":
+  "utilities.templatetags.buttons::tag::sync_button":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []

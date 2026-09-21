@@ -6,214 +6,270 @@ name = "archivebox"
 url = "https://github.com/ArchiveBox/ArchiveBox.git"
 ref = "dev"
 django_settings_module = "archivebox.core.settings"
+environment = { dependencies = { kind = "uv_lock" } }
 
 [[repo]]
 name = "babybuddy"
 url = "https://github.com/babybuddy/babybuddy.git"
 ref = "master"
+environment = { dependencies = { kind = "requirements", inputs = ["requirements.txt"] } }
 
 [[repo]]
 name = "django-activity-stream"
 url = "https://github.com/justquick/django-activity-stream.git"
 ref = "2.0.0"
+environment = { dependencies = { kind = "requirements", inputs = ["setup.py"] } }
 
 [[repo]]
 name = "django-allauth"
 url = "https://github.com/pennersr/django-allauth.git"
 ref = "65.14.1"
 django_settings_module = "tests.projects.account_only.settings"
+environment = { dependencies = { kind = "requirements", inputs = ["pyproject.toml"] } }
 
 [[repo]]
 name = "django-avatar"
 url = "https://github.com/jazzband/django-avatar.git"
 ref = "v9.0.0"
+# Package metadata omits Django; the test application requirements supply it.
+environment = { dependencies = { kind = "requirements", inputs = ["pyproject.toml", "tests/requirements.txt"] } }
 
 [[repo]]
 name = "django-baton"
 url = "https://github.com/otto-torino/django-baton.git"
 ref = "master"
+# Package metadata omits Django; the test application requirements supply it.
+environment = { dependencies = { kind = "requirements", inputs = ["setup.py", "testapp/app/requirements.txt"] } }
 
 [[repo]]
 name = "django-bootstrap3"
 url = "https://github.com/zostera/django-bootstrap3.git"
 ref = "v26.1"
+environment = { source_roots = ["src", "."], dependencies = { kind = "uv_lock" } }
 
 [[repo]]
 name = "django-cms"
 url = "https://github.com/django-cms/django-cms.git"
 ref = "5.0.5"
+environment = { dependencies = { kind = "requirements", inputs = ["setup.py"] } }
 
 [[repo]]
 name = "django-compressor"
 url = "https://github.com/django-compressor/django-compressor.git"
 ref = "4.6"
+environment = { dependencies = { kind = "requirements", inputs = ["pyproject.toml"] } }
 
 [[repo]]
 name = "django-crispy-forms"
 url = "https://github.com/django-crispy-forms/django-crispy-forms.git"
 ref = "2.5"
+environment = { dependencies = { kind = "requirements", inputs = ["pyproject.toml"] } }
 
 [[repo]]
 name = "django-crm"
 url = "https://github.com/DjangoCRM/django-crm.git"
 ref = "main"
+environment = { dependencies = { kind = "requirements", inputs = ["requirements.txt"] } }
 
 [[repo]]
 name = "django-debug-toolbar"
 url = "https://github.com/django-debug-toolbar/django-debug-toolbar.git"
 ref = "6.2.0"
+environment = { dependencies = { kind = "requirements", inputs = ["pyproject.toml"] } }
 
 [[repo]]
 name = "django-fastdev"
 url = "https://github.com/boxed/django-fastdev.git"
 ref = "1.13.0"
+# tox.ini's venv environment selects Python 3.12 and this Django range.
+environment = { dependencies = { kind = "requirements", inputs = ["setup.py", "test_requirements.txt"], supplemental = ["Django>=4.2,<6.0"] } }
 
 [[repo]]
 name = "django-forms-bootstrap"
 url = "https://github.com/pinax/django-forms-bootstrap.git"
 ref = "v3.1.0"
+# Uses upstream's Python 3.6 / Django 1.11 tox profile.
+environment = { python = "3.6", dependencies = { kind = "requirements", inputs = ["setup.py"], supplemental = ["Django>=1.11,<1.12"] } }
 
 [[repo]]
 name = "django-formset-js-improved"
 url = "https://github.com/pretix/django-formset-js.git"
 ref = "0.5.0.5"
+environment = { dependencies = { kind = "requirements", inputs = ["setup.py"] } }
 
 [[repo]]
 name = "django-grappelli"
 url = "https://github.com/sehmaschine/django-grappelli.git"
 ref = "4.0.3"
+# Uses upstream's default py311-django50 tox environment.
+environment = { python = "3.11", dependencies = { kind = "requirements", inputs = ["setup.py", "requirements/requirements-testing.txt"], supplemental = ["Django>=5.0,<5.1", "coverage"] } }
 
 [[repo]]
 name = "django-guardian"
 url = "https://github.com/django-guardian/django-guardian.git"
 ref = "3.2.0"
+environment = { dependencies = { kind = "requirements", inputs = ["pyproject.toml"] } }
 
 [[repo]]
 name = "django-htmx"
 url = "https://github.com/adamchainz/django-htmx.git"
 ref = "1.27.0"
+environment = { source_roots = ["src", "."], dependencies = { kind = "uv_lock" } }
 
 [[repo]]
 name = "django-imagekit"
 url = "https://github.com/matthewwithanm/django-imagekit.git"
 ref = "6.0"
+environment = { dependencies = { kind = "requirements", inputs = ["setup.py"] } }
 
 [[repo]]
 name = "django-import-export"
 url = "https://github.com/django-import-export/django-import-export.git"
 ref = "4.4.0"
+environment = { dependencies = { kind = "requirements", inputs = ["pyproject.toml"] } }
 
 [[repo]]
 name = "django-jazzmin"
 url = "https://github.com/farridav/django-jazzmin.git"
 ref = "v3.0.2"
+environment = { dependencies = { kind = "poetry_lock" } }
 
 [[repo]]
 name = "django-markdownify"
 url = "https://github.com/erwinmatijsen/django-markdownify.git"
 ref = "0.9.6"
+environment = { dependencies = { kind = "requirements", inputs = ["setup.py"] } }
 
 [[repo]]
 name = "django-oscar"
 url = "https://github.com/django-oscar/django-oscar.git"
 ref = "4.1"
+environment = { source_roots = ["src", "."], dependencies = { kind = "requirements", inputs = ["pyproject.toml"] } }
 
 [[repo]]
 name = "django-permission"
 url = "https://github.com/lambdalisue/django-permission.git"
 ref = "v1.0.3"
+# Uses upstream's Python 3.6 / Django 1.11 tox profile.
+# app-version's published wheel contains stale 0.2.1 egg metadata beside 1.0.1;
+# building the same release from source produces consistent metadata.
+environment = { python = "3.6", source_roots = ["src", "."], dependencies = { kind = "requirements", inputs = ["setup.py", "requirements.txt"], supplemental = ["Django>=1.11,<2.0"], no_binary = ["app-version"] } }
 
 [[repo]]
 name = "django-pipeline"
 url = "https://github.com/jazzband/django-pipeline.git"
 ref = "4.1.0"
+# tox.ini's py312-dj52 environment; package metadata only installs build tools.
+environment = { dependencies = { kind = "requirements", inputs = ["pyproject.toml"], supplemental = ["Django>=5.2,<5.3", "jinja2", "coverage", "jsmin==3.0.0", "ply==3.4", "css-html-js-minify==2.5.5"] } }
 
 [[repo]]
 name = "django-qr-code"
 url = "https://github.com/dprog-philippe-docourt/django-qr-code.git"
 ref = "4.2.0"
+environment = { dependencies = { kind = "requirements", inputs = ["requirements.txt"] } }
 
 [[repo]]
 name = "django-sekizai"
 url = "https://github.com/django-cms/django-sekizai.git"
 ref = "4.1.0"
+# Upstream compiled with 3.9; its PyYAML 6.0 pin fails to build on the 3.12 fallback.
+environment = { python = "3.9", dependencies = { kind = "requirements", inputs = ["requirements.txt"] } }
 
 [[repo]]
 name = "django-simple-history"
 url = "https://github.com/jazzband/django-simple-history.git"
 ref = "3.11.0"
+environment = { dependencies = { kind = "requirements", inputs = ["pyproject.toml"] } }
 
 [[repo]]
 name = "django-statici18n"
 url = "https://github.com/zyegfryed/django-statici18n.git"
 ref = "v2.6.0"
+environment = { source_roots = ["src", "."], dependencies = { kind = "requirements", inputs = ["setup.py"] } }
 
 [[repo]]
 name = "django-tables2"
 url = "https://github.com/jieter/django-tables2.git"
 ref = "v2.8.0"
+environment = { dependencies = { kind = "requirements", inputs = ["pyproject.toml"] } }
 
 [[repo]]
 name = "django-typogrify"
 url = "https://github.com/chrisdrackett/django-typogrify.git"
 ref = "master"
+# Selected default profile: package metadata omits Django.
+environment = { dependencies = { kind = "requirements", inputs = ["setup.py"], supplemental = ["Django>=5.2,<5.3"] } }
 
 [[repo]]
 name = "django-unfold"
 url = "https://github.com/unfoldadmin/django-unfold.git"
 ref = "0.80.1"
+environment = { source_roots = ["src", "."], dependencies = { kind = "uv_lock" } }
 
 [[repo]]
 name = "django-widget-tweaks"
 url = "https://github.com/jazzband/django-widget-tweaks.git"
 ref = "1.5.1"
+environment = { metadata_version = "1.5.1", dependencies = { kind = "requirements", inputs = ["setup.py"] } }
 
 # https://endoflife.date/django
 [[repo]]
 name = "django-5.2"
 url = "https://github.com/django/django.git"
 ref = "5.2.11"
+# Django resolves from this checkout; only its dependencies need installing.
+environment = { dependencies = { kind = "requirements", inputs = ["pyproject.toml"] } }
 
 [[repo]]
 name = "django-6.0"
 url = "https://github.com/django/django.git"
 ref = "6.0.2"
+environment = { dependencies = { kind = "requirements", inputs = ["pyproject.toml"] } }
 
 [[repo]]
 name = "django-6.1"
 url = "https://github.com/django/django.git"
 ref = "6.1rc1"
+environment = { dependencies = { kind = "requirements", inputs = ["pyproject.toml"] } }
 
 [[repo]]
 name = "djangopackages.org"
 url = "https://github.com/djangopackages/djangopackages.git"
 ref = "main"
+# The locked django-test-plus requires Python <3.14 despite the project's >=3.12.
+environment = { python = ">=3.12,<3.14", dependencies = { kind = "uv_lock" } }
 
 [[repo]]
 name = "djangoproject.com"
 url = "https://github.com/django/djangoproject.com.git"
 ref = "main"
+environment = { dependencies = { kind = "requirements", inputs = ["requirements/dev.txt"] } }
 
 [[repo]]
 name = "geonode"
 url = "https://github.com/GeoNode/geonode.git"
 ref = "master"
+environment = { dependencies = { kind = "deferred", reason = "native GDAL headers" } }
 
 [[repo]]
 name = "healthchecks"
 url = "https://github.com/healthchecks/healthchecks.git"
 ref = "master"
 django_settings_module = "hc.settings"
+# Application dependencies are declared in requirements.txt, not package metadata.
+environment = { dependencies = { kind = "requirements", inputs = ["requirements.txt"] } }
 
 [[repo]]
 name = "horizon"
 url = "https://github.com/openstack/horizon.git"
 ref = "25.5.1"
+environment = { dependencies = { kind = "requirements", inputs = ["requirements.txt"] } }
 
 [[repo]]
 name = "hyperkitty"
 url = "https://gitlab.com/mailman/hyperkitty.git"
 ref = "1.3.12"
+environment = { dependencies = { kind = "requirements", inputs = ["pyproject.toml"] } }
 
 [[repo]]
 name = "inventree"
@@ -221,16 +277,19 @@ url = "https://github.com/inventree/InvenTree.git"
 ref = "master"
 project_root = "src/backend/InvenTree"
 django_settings_module = "InvenTree.settings"
+environment = { source_roots = ["src/backend/InvenTree", "src/backend", "."], dependencies = { kind = "requirements", inputs = ["src/backend/requirements.txt"] } }
 
 [[repo]]
 name = "linkding"
 url = "https://github.com/sissbruecker/linkding.git"
 ref = "master"
+environment = { dependencies = { kind = "uv_lock" } }
 
 [[repo]]
 name = "misago"
 url = "https://github.com/rafalp/Misago.git"
 ref = "main"
+environment = { dependencies = { kind = "requirements", inputs = ["requirements.txt"] } }
 
 [[repo]]
 name = "netbox"
@@ -238,64 +297,77 @@ url = "https://github.com/netbox-community/netbox.git"
 ref = "main"
 project_root = "netbox"
 django_settings_module = "netbox.settings"
+environment = { source_roots = ["netbox", "."], dependencies = { kind = "requirements", inputs = ["requirements.txt"] } }
 
 [[repo]]
 name = "nomnom"
 url = "https://github.com/WorldconVotingSystems/nomnom.git"
 ref = "main"
+environment = { source_roots = ["src", "."], dependencies = { kind = "uv_lock" } }
 
 [[repo]]
 name = "pretix"
 url = "https://github.com/pretix/pretix.git"
 ref = "master"
 django_settings_module = "pretix.settings"
+environment = { source_roots = ["src", "."], dependencies = { kind = "requirements", inputs = ["pyproject.toml"] } }
 
 [[repo]]
 name = "pythonic-news"
 url = "https://github.com/sebst/pythonic-news.git"
 ref = "master"
+environment = { python = "3.7", dependencies = { kind = "requirements", inputs = ["requirements.txt"] } }
 
 [[repo]]
 name = "readthedocs.org"
 url = "https://github.com/readthedocs/readthedocs.org.git"
 ref = "main"
+environment = { dependencies = { kind = "requirements", inputs = ["requirements/pip.txt"] } }
 
 [[repo]]
 name = "sentry"
 url = "https://github.com/getsentry/sentry.git"
 ref = "26.1.0"
 django_settings_module = "sentry.conf.server"
+environment = { source_roots = ["src", "."], dependencies = { kind = "uv_lock" } }
 
 [[repo]]
 name = "simonwillison.net"
 url = "https://github.com/simonw/simonwillisonblog.git"
 ref = "main"
+environment = { dependencies = { kind = "requirements", inputs = ["requirements.txt"] } }
 
 [[repo]]
 name = "sorl-thumbnail"
 url = "https://github.com/jazzband/sorl-thumbnail.git"
 ref = "13.0.0"
+# tox.ini's py312-django52-pil environment supplies the missing runtime deps.
+environment = { dependencies = { kind = "requirements", inputs = ["pyproject.toml"], supplemental = ["django>=5.2,<5.3", "pillow", "coverage[toml]"] } }
 
 # https://endoflife.date/wagtail
 [[repo]]
 name = "wagtail-6.3"
 url = "https://github.com/wagtail/wagtail.git"
 ref = "v6.3.6"
+environment = { dependencies = { kind = "requirements", inputs = ["setup.py"] } }
 
 [[repo]]
 name = "wagtail-7.0"
 url = "https://github.com/wagtail/wagtail.git"
 ref = "v7.0.4"
+environment = { dependencies = { kind = "requirements", inputs = ["pyproject.toml"] } }
 
 [[repo]]
 name = "wagtail-7.2"
 url = "https://github.com/wagtail/wagtail.git"
 ref = "v7.2.2"
+environment = { dependencies = { kind = "requirements", inputs = ["pyproject.toml"] } }
 
 [[repo]]
 name = "wagtail-7.3"
 url = "https://github.com/wagtail/wagtail.git"
 ref = "v7.3"
+environment = { dependencies = { kind = "requirements", inputs = ["pyproject.toml"] } }
 
 [[fixture]]
 name = "gh401-multisite"

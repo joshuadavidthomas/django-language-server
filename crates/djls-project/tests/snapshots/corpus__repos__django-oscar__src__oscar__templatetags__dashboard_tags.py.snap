@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "tag::dashboard_navigation":
@@ -8,7 +8,7 @@ definitions:
     has_doc: false
 symbols_are_unobserved: false
 tag_rules:
-  "src.oscar.templatetags.dashboard_tags::tag::dashboard_navigation":
+  "oscar.templatetags.dashboard_tags::tag::dashboard_navigation":
     arg_constraints: []
     required_keywords: []
     choice_at_constraints: []

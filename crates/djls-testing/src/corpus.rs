@@ -38,6 +38,7 @@ use ignore::WalkBuilder;
 
 pub(crate) mod archive;
 pub mod census;
+mod environment;
 mod lock;
 mod manifest;
 mod sync;
@@ -110,7 +111,7 @@ impl Corpus {
     }
 
     /// Get the corpus described by `manifest_path` after checking its lockfile.
-    fn require_from_manifest(manifest_path: &Utf8Path) -> anyhow::Result<Self> {
+    pub fn require_from_manifest(manifest_path: &Utf8Path) -> anyhow::Result<Self> {
         let manifest = Manifest::load(manifest_path)
             .with_context(|| format!("corpus manifest `{manifest_path}` is missing or invalid"))?;
         let manifest_dir = manifest_path
@@ -292,17 +293,6 @@ impl Corpus {
         }
 
         best.map(|(_, path)| path)
-    }
-
-    /// All extraction target files in the entire corpus.
-    #[must_use]
-    pub fn extraction_targets(&self) -> Vec<Utf8PathBuf> {
-        let mut targets = self
-            .locked_repo_dirs()
-            .flat_map(|member_root| Self::extraction_targets_in(&member_root))
-            .collect::<Vec<_>>();
-        targets.sort();
-        targets
     }
 
     pub fn extraction_target_members(&self) -> anyhow::Result<Vec<CorpusExtractionTarget>> {
@@ -600,7 +590,6 @@ mod tests {
             corpus.locked_repos().collect::<Vec<_>>(),
             vec![("djangopackages.org", registered.clone())]
         );
-        assert_eq!(corpus.extraction_targets(), vec![registered_tags.clone()]);
         let targets = corpus
             .extraction_target_members()
             .expect("locked extraction targets should have relative identities");

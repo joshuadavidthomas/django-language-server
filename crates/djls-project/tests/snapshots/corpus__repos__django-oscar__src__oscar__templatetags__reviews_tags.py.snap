@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "filter::as_stars":
@@ -15,7 +15,7 @@ definitions:
 symbols_are_unobserved: false
 tag_rules: {}
 filter_arities:
-  "src.oscar.templatetags.reviews_tags::filter::as_stars": no_argument
-  "src.oscar.templatetags.reviews_tags::filter::is_review_permitted": required_argument
-  "src.oscar.templatetags.reviews_tags::filter::may_vote": required_argument
+  "oscar.templatetags.reviews_tags::filter::as_stars": no_argument
+  "oscar.templatetags.reviews_tags::filter::is_review_permitted": required_argument
+  "oscar.templatetags.reviews_tags::filter::may_vote": required_argument
 block_specs: {}

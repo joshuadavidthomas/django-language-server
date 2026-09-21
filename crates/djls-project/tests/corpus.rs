@@ -6,11 +6,11 @@
 //!
 //! # Running
 //!
-//! These tests require the corpus to be synced.
+//! These tests require corpus source and per-repository environments.
 //!
 //! ```bash
 //! # Sync the corpus:
-//! cargo run -p djls-testing --bin corpus -- sync -U
+//! just corpus sync
 //!
 //! # Run all corpus tests:
 //! cargo test -p djls-project --test corpus -- --nocapture
@@ -19,12 +19,17 @@
 //! INSTA_UPDATE=1 cargo test -p djls-project --test corpus
 //! ```
 
-use djls_project::PythonModuleName;
+use std::collections::BTreeMap;
+use std::io;
+use std::sync::Arc;
+
+use djls_project::Db as _;
+use djls_project::file_to_module;
 use djls_testing::Corpus;
-use djls_testing::TestDatabase;
 use djls_testing::extract_bundle;
-use djls_testing::module_name_from_file;
 use djls_testing::sorted_snapshot;
+use libtest_mimic::Arguments;
+use libtest_mimic::Trial;
 
 fn snapshot_dir() -> insta::internals::SettingsBindDropGuard {
     let mut settings = insta::Settings::clone_current();
@@ -32,36 +37,52 @@ fn snapshot_dir() -> insta::internals::SettingsBindDropGuard {
     settings.bind_to_scope()
 }
 
-#[test]
-fn extraction_snapshots() {
-    let corpus = Corpus::require().expect("synced corpus should be available for corpus tests");
-    let targets = corpus.extraction_targets();
-    assert!(!targets.is_empty(), "No extraction targets in corpus.");
-
-    let _guard = snapshot_dir();
-    let db = TestDatabase::new();
-
-    for path in targets {
-        let source = std::fs::read_to_string(path.as_std_path())
-            .expect("test fixture source should be readable");
-        let module_name = module_name_from_file(&path);
-        db.add_file(path.as_str(), &source)
-            .expect("corpus extraction fixture should be added to the test database");
-        let file = db
-            .file(&path)
-            .expect("corpus extraction fixture should exist in the test database");
-        let bundle = extract_bundle(
-            &db,
-            file,
-            PythonModuleName::parse(&module_name).expect("test Python module name should be valid"),
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let corpus = Arc::new(Corpus::require()?);
+    let mut targets_by_member: BTreeMap<String, Vec<_>> = BTreeMap::new();
+    for target in corpus.extraction_target_members()? {
+        targets_by_member
+            .entry(target.member.clone())
+            .or_default()
+            .push(target);
+    }
+    if targets_by_member.is_empty() {
+        return Err(io::Error::other("No extraction targets in corpus.").into());
+    }
+    let mut trials = Vec::new();
+    for (name, _) in corpus.locked_repos() {
+        let name = name.to_string();
+        let deferred = corpus.environment_deferral(&name)?;
+        let label = deferred.as_ref().map_or_else(
+            || format!("corpus_environment::{name}"),
+            |reason| format!("corpus_environment::{name} [deferred: {reason}]"),
         );
-
-        let relative = path.strip_prefix(corpus.root()).unwrap_or(&path);
-        let snapshot_name = relative.as_str().replace('/', "__");
-
-        insta::assert_yaml_snapshot!(
-            snapshot_name,
-            sorted_snapshot(&bundle).expect("corpus extraction snapshot should serialize")
+        let corpus = Arc::clone(&corpus);
+        let targets = targets_by_member.remove(&name).unwrap_or_default();
+        trials.push(
+            Trial::test(label, move || {
+                let db = corpus.environment_database(&name)?;
+                let project = db
+                    .project()
+                    .ok_or_else(|| io::Error::other("missing corpus project"))?;
+                let _guard = snapshot_dir();
+                for target in targets {
+                    let module =
+                        file_to_module(&db, project, target.path.clone()).ok_or_else(|| {
+                            io::Error::other(format!(
+                                "target {} does not resolve in {name}",
+                                target.relative_path
+                            ))
+                        })?;
+                    let bundle = extract_bundle(&db, module.file(), module.name().clone());
+                    let relative = target.path.strip_prefix(corpus.root())?;
+                    let snapshot_name = relative.as_str().replace('/', "__");
+                    insta::assert_yaml_snapshot!(snapshot_name, sorted_snapshot(&bundle)?);
+                }
+                Ok(())
+            })
+            .with_ignored_flag(deferred.is_some()),
         );
     }
+    libtest_mimic::run(&Arguments::from_args(), trials).exit()
 }
