@@ -23,39 +23,23 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Added a "Why a language server?" docs page.
 - Added a getting started guide and reorganized the documentation navigation.
 - Added a warning when a configured `venv_path` has no discoverable site-packages.
-- Added bundled Django source and templates for offline core tag/filter analysis, selecting the release line from project dependencies or `django_version`, with the oldest supported LTS as the ultimate fallback.
-- **Internal**: Added a Hawk visibility-audit job to the lint workflow.
+- Added bundled Django source and templates for offline core tag/filter analysis, with the release line taken from project dependencies or the `django_version` setting.
+- Added an `S124` hint on `{% load %}` for unreadable library registrations, with a code action that opens a prefilled issue.
 
 ### Changed
 
-- Reduced document-edit allocations and bounded `djls check` validation tasks by worker count.
-- Improved template-name completion and resolution, and reused synchronized template-library discovery.
-- Reduced copying during Python module evaluation and repeated imports, and avoided duplicate `.pth` scans.
-- Reduced semantic validation allocations and improved block override and reference lookup.
-- Reduced allocations during template parsing and source registration.
-- Added an S124 hint on `{% load %}` for unreadable library registrations, with a code action that opens a prefilled issue.
-- Avoided constructing unused scalar-only collections during Django settings analysis while preserving their effects and source dependencies.
-- Reduced time and memory use for Django settings analysis by sharing immutable branch constraints and Python module identities.
-- Reused equal branch constraints during Django settings analysis with bounded, operation-local storage and compact immutable child lists.
-- Deferred template-library validation details until needed while keeping registration inventory and block structure ready before requests.
-- **Internal**: Made `just corpus sync` prepare project environments and moved corpus-wide suites out of the Python/Django test matrix.
-- **Internal**: Reused ready corpus environments during sync, added explicit dependency refresh, and made corpus validation use each project's environment.
-- **Internal**: Tag validation is tested against Django's own template libraries from the pinned corpus, with a fixture project comparing DJLS diagnostics against Django's compilation verdicts.
-- **Internal**: Test scenarios declare their own tag libraries and settings, either in markdown Python fences or from a typed `ProjectSettings` value.
-- **Internal**: Extraction snapshots record library symbol inventories and whether they are open, and a corpus census counts registration sites that no extracted definition matches.
-- **Internal**: Made corpus file selectors independent of checkout ancestor directory names.
-- **Internal**: Added cold settings-analysis benchmarks for conditional bindings and corpus projects.
-- **Internal**: Consolidated Salsa execution-event assertions in shared test infrastructure.
-- Reduced analysis time for Django settings with many conditional branches.
-- Reduced analysis time for Django settings with long `try` blocks.
-- Reduced analysis time for Django settings when installed Django packages are resolvable.
-- Removed eager Django Model scanning and Model Graph construction from project discovery and cache warm-up.
-- Expanded Python Environment discovery to support active Conda environments, Python installations on `PATH`, executable symlinks, and additional system package layouts without executing Python.
-- Swapped the automatic Python Environment order to prefer project venv directories over `VIRTUAL_ENV`, accounting for pre-commit isolated environments.
+- Sped up startup, document edits, and `djls check` by making settings and template-library analysis demand-driven and reducing allocations across parsing, validation, and Python module evaluation.
+- Reduced Django settings analysis time, especially for projects with many conditional branches or long `try` blocks.
+- Improved template-name completion and resolution.
+- Expanded Python environment discovery to support active Conda environments, Python installations on `PATH`, executable symlinks, and additional system package layouts.
+- Changed automatic interpreter discovery to prefer project virtual environments over `VIRTUAL_ENV`, including under pre-commit's isolated environments.
 - Updated `djangofmt` from 0.2.7 to 1.0.0, bringing roughly 2x faster template formatting and some bug fixes.
 - An unreadable or invalid `[tool.djangofmt]` section in `pyproject.toml` now surfaces as a formatting error instead of being silently ignored.
-- **Internal**: Reorganized `CONTRIBUTING.md` around a first-contribution path with editor/server orientation and an architecture overview, and grouped maintainer version and tool-pin updates into a Maintaining section.
-- **Internal**: Moved validation cases into per-file markdown snapshot tests, built every test project from disk through `ProjectFixture`, split the corpus sweeps into per-repository tests, and moved the full-corpus benchmark checks out of `cargo test`, which now runs about fifteen seconds faster.
+- **Internal**: Made `just corpus sync` prepare and reuse project environments, and moved corpus-wide suites out of the Python/Django test matrix.
+- **Internal**: Test scenarios now declare their own tag libraries and settings and validate against Django's own template libraries; full-corpus benchmarks moved out of `cargo test`, which runs about fifteen seconds faster.
+- **Internal**: Added cold settings-analysis benchmarks and consolidated Salsa execution-event test helpers.
+- **Internal**: Reorganized `CONTRIBUTING.md` around a first-contribution path.
+- **Internal**: Made releases draft-first and recoverable, verified through PyPI and standalone installations before publication.
 
 ### Removed
 
@@ -63,35 +47,23 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Fixed
 
-- Fixed filter argument checks for `stringfilter`-decorated filters such as `addslashes` when Django is analyzed from a source checkout.
-- Stopped deriving argument rules and body structure through unrecognized inner decorators, while retaining signature inference for resolved Django `stringfilter` decorators.
-- Fixed tag and filter registrations borrowing argument rules and block structure from unrelated same-named Python functions.
-- Fixed stale diagnostic version/content pairs during rapid edits and close/reopen cycles.
-- Fixed slow client progress and diagnostic-refresh responses blocking project updates.
-- Fixed quadratic recovery time for repeated template openers without closing delimiters.
-- Fixed queued template-library re-primes incorrectly satisfying pending full project reloads.
-- Fixed the server hanging when Python document changes overlap background cache warm-up.
-- Fixed recovered helper source used only for tag-rule inference making exact Template Library inventories inconclusive.
-- Fixed relative `pythonpath` entries resolving outside the project root.
-- Fixed static Django settings evaluation of `Path.parents[index]` expressions.
-- Fixed zero-configuration Django settings discovery for standard `manage.py` projects, including `src` layouts.
-- Fixed explicit `pythonpath` entries being treated as external editable dependencies when also discovered through a `.pth` file.
-- Fixed `.env` virtual environment directories being read as environment-variable files and producing a warning.
-- Fixed tag argument extraction from helper return paths, ordered `match` cases, and unpacking assignments, including nested helper calls, guard fallthrough, starred targets, caught failures, and scalar `finally` overrides.
-- Fixed tag-rule extraction for conditional list mutations, truthiness guards, early returns, `finally` validation, argument positions after unsupported `pop()` calls, and contradictory argument-count branches producing impossible forms.
-- Fixed static validation of `simple_tag`, `inclusion_tag`, and `simple_block_tag` arguments, including context-aware and curried registrations and block structure, to match Django's `parse_bits()` binding rules.
-- Fixed tag extraction, validation, and completion losing correlated argument forms such as `widthratio ... as variable`, Django `for ... reversed`, and forms whose keywords are positioned from the end of the tag, as in `{% get_flatpages %}`.
-- Fixed static validation of assignment lists parsed by Django's `token_kwargs()`, including `{% with %}` arguments.
+- Fixed tag and filter argument rules being borrowed from unrelated same-named functions or misderived through unrecognized decorators, including `stringfilter`-decorated filters in Django source checkouts.
+- Fixed static validation of `simple_tag`, `inclusion_tag`, and `simple_block_tag` arguments to match Django's `parse_bits()` binding rules.
+- Fixed tag argument extraction missing rules defined through helper functions, control flow, and assignment lists such as `{% with %}` arguments.
+- Fixed correlated argument forms such as `widthratio ... as variable`, `for ... reversed`, and trailing keywords like `{% get_flatpages %}` being lost from extraction, validation, and completion.
 - Fixed argument validation for Pipeline's `stylesheet` and `javascript` tags, Compressor output modes, and Django's `templatetag` choices.
+- Fixed stale diagnostics during rapid edits and close/reopen cycles.
+- Fixed server hangs and stalls when document changes overlap background cache warm-up, when progress or diagnostic-refresh responses arrive during project updates, and on templates with repeated unclosed delimiters.
+- Fixed queued template-library re-primes incorrectly satisfying pending full project reloads.
 - Fixed unloaded-tag diagnostics and load quick fixes disappearing when an unrelated template library has unknown registrations.
 - Fixed duplicate names and excess inclusion-tag arguments producing invented Template Library definitions.
-- Fixed false duplicate-option diagnostics for tag parsers that check membership without raising an error.
-- Fixed custom tags with mixed body-parser paths suppressing diagnostics and references for bodies Django still parses.
+- Fixed false duplicate-option diagnostics and suppressed diagnostics or references for custom tags with unusual body parsers.
+- Fixed zero-configuration Django settings discovery for standard `manage.py` projects, including `src` layouts.
+- Fixed relative `pythonpath` entries resolving outside the project root and explicit entries being shadowed by `.pth`-discovered editable installs.
+- Fixed static Django settings evaluation of `Path.parents[index]` expressions.
+- Fixed `.env` virtual environment directories being read as environment-variable files and producing a warning.
 - Fixed explicit `false` and empty LSP initialization options failing to override project configuration.
-- Fixed `djls check` scanning the project root when template settings branches differ only in context processors.
-- **Internal**: Stopped reconstructing bindings redundantly during tag extraction, and stopped marking synthesized tag arguments required past their known minimum.
-- **Internal**: Normalized glibc string-comparison dispatch across Intel and AMD CodSpeed simulation runners.
-- **Internal**: Made releases draft-first, recoverable without replacing published assets, and verified through PyPI and standalone installations before publication.
+- Fixed `djls check` scanning the project root when template settings differ only in context processors.
 
 ## [6.1.0]
 
