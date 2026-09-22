@@ -1,4 +1,5 @@
 use djls_conf::FormatBackend;
+use djls_format::FormatError;
 use djls_format::FormatOptions;
 use djls_format::FormatOutcome;
 use djls_format::IndentStyle;
@@ -38,8 +39,13 @@ pub fn format_document(
         match djls_format::format_template(source.as_str(), path, backend, format_options) {
             Ok(FormatOutcome::Changed(formatted)) => formatted,
             Ok(FormatOutcome::Unchanged | FormatOutcome::Ignored) => return Vec::new(),
-            Err(error) => {
-                tracing::debug!("Formatting failed for {path}: {error}");
+            Err(error @ FormatError::Config(_)) => {
+                tracing::warn!("Could not load formatter configuration");
+                tracing::debug!(%path, %error, "Formatter configuration error");
+                return Vec::new();
+            }
+            Err(error @ FormatError::Template(_)) => {
+                tracing::debug!(%path, %error, "Template formatting failed");
                 return Vec::new();
             }
         };

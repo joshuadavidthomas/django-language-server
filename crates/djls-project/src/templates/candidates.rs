@@ -309,17 +309,21 @@ fn scan_templatetag_root(
         } => {
             if !walk_issues.is_empty() {
                 tracing::warn!(
-                    "Partially walked Python source root {}: {:?}",
-                    base_dir,
-                    walk_issues
+                    issue_count = walk_issues.len(),
+                    "Partially walked Python source root while discovering template libraries"
                 );
+                tracing::debug!(root = %base_dir, issues = ?walk_issues, "Python source root walk issues");
                 scan.issue(TemplateTagCandidateIssue::Walk);
             }
             entries
         }
         RootWalk::Missing | RootWalk::File(_) => Vec::new(),
         RootWalk::Inaccessible(kind) => {
-            tracing::warn!("Failed to walk Python source root {}: {:?}", base_dir, kind);
+            tracing::warn!(
+                error_kind = ?kind,
+                "Failed to walk Python source root while discovering template libraries"
+            );
+            tracing::debug!(root = %base_dir, error_kind = ?kind, "Python source root walk failed");
             scan.issue(TemplateTagCandidateIssue::Walk);
             return scan;
         }
