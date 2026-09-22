@@ -3,7 +3,7 @@ mod db;
 mod django_facts;
 mod extraction;
 mod fixtures;
-mod log_capture;
+pub mod log_capture;
 mod mdtest;
 mod settings;
 mod vendor;

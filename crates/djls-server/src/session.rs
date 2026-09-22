@@ -621,7 +621,11 @@ impl Session {
         text_document: &ls_types::TextDocumentItem,
     ) -> DocumentMutation {
         let Some(path) = text_document.uri.to_utf8_path_buf() else {
-            tracing::debug!("Skip opening non-file URI: {}", text_document.uri.as_str());
+            tracing::debug!(
+                outcome = "skipped",
+                reason = "non_file_uri",
+                "Skip opening document"
+            );
             return DocumentMutation::Ignored;
         };
 
@@ -641,7 +645,11 @@ impl Session {
         text_document: &ls_types::TextDocumentIdentifier,
     ) -> DocumentMutation {
         let Some(path) = text_document.uri.to_utf8_path_buf() else {
-            tracing::debug!("Skip saving non-file URI: {}", text_document.uri.as_str());
+            tracing::debug!(
+                outcome = "skipped",
+                reason = "non_file_uri",
+                "Skip saving document"
+            );
             return DocumentMutation::Ignored;
         };
 
@@ -661,7 +669,11 @@ impl Session {
         changes: Vec<ls_types::TextDocumentContentChangeEvent>,
     ) -> DocumentMutation {
         let Some(path) = text_document.uri.to_utf8_path_buf() else {
-            tracing::debug!("Skip updating non-file URI: {}", text_document.uri.as_str());
+            tracing::debug!(
+                outcome = "skipped",
+                reason = "non_file_uri",
+                "Skip updating document"
+            );
             return DocumentMutation::Ignored;
         };
 
@@ -693,7 +705,11 @@ impl Session {
         text_document: &ls_types::TextDocumentIdentifier,
     ) -> DocumentMutation {
         let Some(path) = text_document.uri.to_utf8_path_buf() else {
-            tracing::debug!("Skip closing non-file URI: {}", text_document.uri.as_str());
+            tracing::debug!(
+                outcome = "skipped",
+                reason = "non_file_uri",
+                "Skip closing document"
+            );
             return DocumentMutation::Ignored;
         };
 
@@ -804,13 +820,12 @@ impl SessionSnapshot {
     pub(crate) fn file_for_document_request(
         &self,
         text_document: &ls_types::TextDocumentIdentifier,
-        request: &str,
     ) -> Option<File> {
         let Some(path) = text_document.uri.to_utf8_path_buf() else {
             tracing::debug!(
-                "Skipping non-file URI in {} request: {}",
-                request,
-                text_document.uri.as_str()
+                outcome = "skipped",
+                reason = "non_file_uri",
+                "Skipping document request"
             );
             return None;
         };
@@ -823,9 +838,8 @@ impl SessionSnapshot {
         &self,
         text_document: &ls_types::TextDocumentIdentifier,
         position: ls_types::Position,
-        request: &str,
     ) -> Option<(File, Offset)> {
-        let file = self.file_for_document_request(text_document, request)?;
+        let file = self.file_for_document_request(text_document)?;
         let source = file.try_source(&self.db).ok()?;
         let line_index = file.line_index(&self.db);
         let offset = position.to_offset(
@@ -842,9 +856,8 @@ impl SessionSnapshot {
         &self,
         text_document: &ls_types::TextDocumentIdentifier,
         range: ls_types::Range,
-        request: &str,
     ) -> Option<(File, Span)> {
-        let file = self.file_for_document_request(text_document, request)?;
+        let file = self.file_for_document_request(text_document)?;
         let source = file.try_source(&self.db).ok()?;
         let line_index = file.line_index(&self.db);
         let start = range.start.to_offset(
