@@ -12,12 +12,14 @@ use std::fmt::Write;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::RwLock;
+use std::time::Instant;
 
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tower_lsp_server::Client;
 use tower_lsp_server::ls_types;
 use tracing::Level;
+use tracing::debug;
 use tracing::field::Field;
 use tracing::field::Visit;
 use tracing_subscriber::EnvFilter;
@@ -140,7 +142,7 @@ impl LspLogControl {
     }
 
     #[cfg(test)]
-    fn disconnected() -> Self {
+    pub(crate) fn disconnected() -> Self {
         Self::new(Arc::new(RwLock::new(None)))
     }
 
@@ -175,6 +177,168 @@ impl LspLogControl {
         if let Some(task) = task {
             task.abort();
             drop(task.await);
+        }
+    }
+}
+
+/// Wraps `work` to run inside `span` on a Tokio blocking worker, and records
+/// how long it computed (excluding time queued for a worker).
+///
+/// Blocking workers don't inherit the caller's span, so it is captured here
+/// and entered only on the worker; no guard ever crosses an await.
+pub(crate) fn blocking_in_span<T>(
+    span: tracing::Span,
+    work: impl FnOnce() -> T,
+) -> impl FnOnce() -> T {
+    with_caller_dispatch(move || {
+        span.in_scope(|| {
+            let _timer = ComputeTimer(Instant::now());
+            work()
+        })
+    })
+}
+
+// Emit compute timing even when blocking work unwinds.
+struct ComputeTimer(Instant);
+
+impl Drop for ComputeTimer {
+    fn drop(&mut self) {
+        debug!(
+            event = "compute_completed",
+            compute_ms = self.0.elapsed().as_secs_f64() * 1000.0
+        );
+    }
+}
+
+// Production installs one global subscriber, which every thread already sees.
+// Tests install scoped subscribers, which Tokio's blocking pool does not
+// inherit, so only test builds carry the caller's dispatcher over.
+#[cfg(not(test))]
+fn with_caller_dispatch<T>(work: impl FnOnce() -> T) -> impl FnOnce() -> T {
+    work
+}
+
+#[cfg(test)]
+fn with_caller_dispatch<T>(work: impl FnOnce() -> T) -> impl FnOnce() -> T {
+    let dispatch = tracing::dispatcher::get_default(Clone::clone);
+    move || tracing::dispatcher::with_default(&dispatch, work)
+}
+
+/// Captures events, with their fields and enclosing spans, as JSON for
+/// instrumentation tests across modules.
+#[cfg(test)]
+pub(crate) mod capture {
+    use std::sync::Arc;
+    use std::sync::Mutex;
+
+    use tracing::field::Field;
+    use tracing::field::Visit;
+    use tracing_subscriber::layer::Context;
+    use tracing_subscriber::registry::LookupSpan;
+    use tracing_subscriber::registry::Scope;
+
+    /// Keep the returned dispatcher alive for the whole test.
+    ///
+    /// tracing-core 0.1.36's single-dispatch fast path can cache a callsite as
+    /// disabled when a subscriber-less thread registers it first. A second
+    /// registered (never installed) dispatcher keeps interest dynamic.
+    /// <https://github.com/tokio-rs/tracing/issues/2874>
+    #[must_use]
+    pub(crate) fn callsite_guard() -> tracing::Dispatch {
+        tracing::Dispatch::new(tracing::subscriber::NoSubscriber::new())
+    }
+
+    #[derive(Clone, Default)]
+    pub(crate) struct Capture(pub(crate) Arc<Mutex<Vec<serde_json::Value>>>);
+
+    #[derive(Default)]
+    struct Fields(serde_json::Map<String, serde_json::Value>);
+
+    impl Visit for Fields {
+        fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
+            self.0
+                .insert(field.name().into(), format!("{value:?}").into());
+        }
+
+        fn record_str(&mut self, field: &Field, value: &str) {
+            self.0.insert(field.name().into(), value.into());
+        }
+
+        fn record_bool(&mut self, field: &Field, value: bool) {
+            self.0.insert(field.name().into(), value.into());
+        }
+
+        fn record_f64(&mut self, field: &Field, value: f64) {
+            self.0.insert(field.name().into(), value.into());
+        }
+
+        fn record_i64(&mut self, field: &Field, value: i64) {
+            self.0.insert(field.name().into(), value.into());
+        }
+
+        fn record_u64(&mut self, field: &Field, value: u64) {
+            self.0.insert(field.name().into(), value.into());
+        }
+    }
+
+    impl<S> tracing_subscriber::Layer<S> for Capture
+    where
+        S: tracing::Subscriber + for<'a> LookupSpan<'a>,
+    {
+        fn enabled(&self, metadata: &tracing::Metadata<'_>, _ctx: Context<'_, S>) -> bool {
+            // Instrumentation lives at DEBUG and above; skip unrelated TRACE logging.
+            *metadata.level() <= tracing::Level::DEBUG
+        }
+
+        fn on_new_span(
+            &self,
+            attrs: &tracing::span::Attributes<'_>,
+            id: &tracing::span::Id,
+            ctx: Context<'_, S>,
+        ) {
+            let mut fields = Fields::default();
+            attrs.record(&mut fields);
+            ctx.span(id)
+                .expect("new span exists")
+                .extensions_mut()
+                .insert(fields);
+        }
+
+        fn on_record(
+            &self,
+            id: &tracing::span::Id,
+            values: &tracing::span::Record<'_>,
+            ctx: Context<'_, S>,
+        ) {
+            let span = ctx.span(id).expect("recorded span exists");
+            let mut extensions = span.extensions_mut();
+            if let Some(fields) = extensions.get_mut::<Fields>() {
+                values.record(fields);
+            }
+        }
+
+        fn on_event(&self, event: &tracing::Event<'_>, ctx: Context<'_, S>) {
+            let mut fields = Fields::default();
+            event.record(&mut fields);
+            let spans: Vec<_> = ctx
+                .event_scope(event)
+                .into_iter()
+                .flat_map(Scope::from_root)
+                .map(|span| {
+                    serde_json::json!({
+                        "name": span.name(),
+                        "fields": span.extensions().get::<Fields>().expect("span fields exist").0,
+                    })
+                })
+                .collect();
+            self.0
+                .lock()
+                .expect("capture lock should not be poisoned")
+                .push(serde_json::json!({
+                    "level": event.metadata().level().as_str(),
+                    "fields": fields.0,
+                    "spans": spans,
+                }));
         }
     }
 }

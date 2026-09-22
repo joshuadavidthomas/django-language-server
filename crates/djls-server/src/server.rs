@@ -1,5 +1,6 @@
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
+use std::time::Instant;
 
 use djls_ide::REPORT_UNREADABLE_REGISTRATION_COMMAND;
 use djls_ide::ReportUnreadableRegistrationParams;
@@ -25,6 +26,7 @@ use crate::diagnostics::DiagnosticPublisher;
 use crate::ext::PositionEncodingExt;
 use crate::ext::UriExt;
 use crate::logging::LspLogControl;
+use crate::logging::blocking_in_span;
 use crate::reload::ProjectReload;
 use crate::session::CancellationRetryAction;
 use crate::session::CancellationRetryState;
@@ -40,6 +42,61 @@ pub(crate) struct DjangoLanguageServer {
     reload: ProjectReload,
     diagnostics: DiagnosticPublisher,
     logging: LspLogControl,
+}
+
+// Drop emits a terminal event even if the request future is dropped or
+// panics, both reported as `cancelled`. This owns neither a snapshot nor an
+// entered span guard, so it is safe across awaits.
+struct RequestTimer {
+    start: Instant,
+    outcome: &'static str,
+    operation: &'static str,
+}
+
+impl RequestTimer {
+    fn new(operation: &'static str) -> Self {
+        Self {
+            start: Instant::now(),
+            outcome: "cancelled",
+            operation,
+        }
+    }
+
+    fn finish(&mut self, outcome: &'static str) {
+        self.outcome = outcome;
+    }
+
+    /// An empty result is normal; readiness or compute fallbacks that also
+    /// return empty are distinguished by the nested snapshot's outcome.
+    fn finish_result(&mut self, empty: bool) {
+        self.finish(if empty { "empty" } else { "result" });
+    }
+
+    fn finish_mutation(&mut self, mutation: DocumentMutation) {
+        self.finish(match mutation {
+            DocumentMutation::Ignored => "ignored",
+            DocumentMutation::Applied { .. } => "applied",
+        });
+    }
+}
+
+impl Drop for RequestTimer {
+    fn drop(&mut self) {
+        debug!(
+            event = "request_completed",
+            operation = self.operation,
+            outcome = self.outcome,
+            elapsed_ms = self.start.elapsed().as_secs_f64() * 1000.0
+        );
+    }
+}
+
+async fn traced_blocking<F, R>(f: F) -> Result<R, tokio::task::JoinError>
+where
+    F: FnOnce() -> R + Send + 'static,
+    R: Send + 'static,
+{
+    spawn_blocking(blocking_in_span(tracing::Span::current(), f)).await
 }
 
 impl DjangoLanguageServer {
@@ -58,6 +115,7 @@ impl DjangoLanguageServer {
         }
     }
 
+    #[tracing::instrument(level = "debug", skip_all, name = "session.mutation")]
     async fn with_session_mut<F, R>(&self, f: F) -> Option<R>
     where
         F: FnOnce(&mut Session) -> R + Send + 'static,
@@ -66,12 +124,14 @@ impl DjangoLanguageServer {
         // Preserve lock acquisition order, but let the event loop release async-held
         // snapshots while a Salsa setter waits for their storage handles to drop.
         let mut session = Arc::clone(&self.session).lock_owned().await;
-        match spawn_blocking(move || f(&mut session)).await {
-            Ok(result) => Some(result),
-            Err(error) => {
-                error!(?error, "Document mutation task failed");
-                None
-            }
+        if let Ok(result) = traced_blocking(move || f(&mut session)).await {
+            Some(result)
+        } else {
+            error!(
+                outcome = "blocking_task_failed",
+                "Document mutation task failed"
+            );
+            None
         }
     }
 
@@ -107,35 +167,36 @@ impl DjangoLanguageServer {
     }
 }
 
+#[tracing::instrument(level = "debug", skip_all, name = "session.syntax_snapshot")]
 async fn with_session_snapshot<F, R>(session: &Arc<Mutex<Session>>, f: Arc<F>) -> R
 where
     F: Fn(&SessionSnapshot) -> R + Send + Sync + 'static,
     R: Default + Send + 'static,
 {
+    let mut timer = RequestTimer::new("syntax_snapshot");
     let mut retry_state = CancellationRetryState::new();
     loop {
         let snapshot = { session.lock().await.snapshot() };
         let f = Arc::clone(&f);
-        let result =
-            match spawn_blocking(move || Cancelled::catch(AssertUnwindSafe(|| f(&snapshot)))).await
-            {
-                Ok(result) => result,
-                Err(error) => {
-                    error!(
-                        ?error,
-                        "Syntax-only request snapshot task failed; returning fallback"
-                    );
-                    return R::default();
-                }
-            };
+        let Ok(result) =
+            traced_blocking(move || Cancelled::catch(AssertUnwindSafe(|| f(&snapshot)))).await
+        else {
+            timer.finish("blocking_task_failed");
+            error!("Syntax-only request snapshot task failed; returning fallback");
+            return R::default();
+        };
         match result {
-            Ok(result) => return result,
-            Err(cancelled) => match retry_state.after_cancellation() {
+            Ok(result) => {
+                timer.finish("success");
+                return result;
+            }
+            Err(_) => match retry_state.after_cancellation() {
                 CancellationRetryAction::Retry { attempt } => {
-                    debug!(?cancelled, attempt, "Syntax snapshot cancelled; retrying");
+                    debug!(attempt, "Syntax snapshot cancelled; retrying");
                 }
                 CancellationRetryAction::Exhausted => {
-                    debug!(?cancelled, "Syntax snapshot cancelled; returning fallback");
+                    timer.finish("cancellation_exhausted");
+                    debug!("Syntax snapshot cancelled; returning fallback");
                     return R::default();
                 }
             },
@@ -143,42 +204,43 @@ where
     }
 }
 
+#[tracing::instrument(level = "debug", skip_all, name = "session.ready_snapshot")]
 async fn with_ready_session_snapshot<F, R>(session: &Arc<Mutex<Session>>, f: Arc<F>) -> R
 where
     F: Fn(&SessionSnapshot) -> R + Send + Sync + 'static,
     R: Default + Send + 'static,
 {
+    let mut timer = RequestTimer::new("ready_snapshot");
     let mut retry_state = CancellationRetryState::new();
     loop {
         let Some(snapshot) = await_ready_session_snapshot(session).await else {
+            timer.finish("readiness_failed");
             return R::default();
         };
         let f = Arc::clone(&f);
-        let result =
-            match spawn_blocking(move || Cancelled::catch(AssertUnwindSafe(|| f(&snapshot)))).await
-            {
-                Ok(result) => result,
-                Err(error) => {
-                    error!(
-                        ?error,
-                        "Project-aware request snapshot task failed; returning fallback"
-                    );
-                    return R::default();
-                }
-            };
+        let Ok(result) =
+            traced_blocking(move || Cancelled::catch(AssertUnwindSafe(|| f(&snapshot)))).await
+        else {
+            timer.finish("blocking_task_failed");
+            error!("Project-aware request snapshot task failed; returning fallback");
+            return R::default();
+        };
 
         match result {
-            Ok(result) => return result,
-            Err(cancelled) => match retry_state.after_cancellation() {
+            Ok(result) => {
+                timer.finish("success");
+                return result;
+            }
+            Err(_) => match retry_state.after_cancellation() {
                 CancellationRetryAction::Retry { attempt } => {
                     debug!(
-                        ?cancelled,
-                        attempt, "Snapshot request cancelled; retrying from intrinsic readiness"
+                        attempt,
+                        "Snapshot request cancelled; retrying from intrinsic readiness"
                     );
                 }
                 CancellationRetryAction::Exhausted => {
+                    timer.finish("cancellation_exhausted");
                     debug!(
-                        ?cancelled,
                         retries = SNAPSHOT_CANCEL_RETRIES,
                         "Snapshot request cancelled; returning fallback"
                     );
@@ -190,18 +252,30 @@ where
 }
 
 async fn await_ready_session_snapshot(session: &Arc<Mutex<Session>>) -> Option<SessionSnapshot> {
+    let start = Instant::now();
     let mut readiness = { session.lock().await.readiness_receiver() };
     loop {
         let observed = *readiness.borrow_and_update();
         match observed {
             IntrinsicReadinessState::Unready(_) => {
                 if readiness.changed().await.is_err() {
+                    debug!(
+                        event = "readiness_completed",
+                        outcome = "closed",
+                        ready_wait_ms = start.elapsed().as_secs_f64() * 1000.0
+                    );
                     return None;
                 }
             }
             IntrinsicReadinessState::Failed(generation) => {
                 let session = session.lock().await;
                 if session.readiness_state() == IntrinsicReadinessState::Failed(generation) {
+                    debug!(
+                        event = "readiness_completed",
+                        outcome = "failed",
+                        generation,
+                        ready_wait_ms = start.elapsed().as_secs_f64() * 1000.0
+                    );
                     return None;
                 }
             }
@@ -222,6 +296,12 @@ async fn await_ready_session_snapshot(session: &Arc<Mutex<Session>>) -> Option<S
                         false
                     }
                 });
+                debug!(
+                    event = "readiness_completed",
+                    outcome = "ready",
+                    generation = snapshot.intrinsic_generation(),
+                    ready_wait_ms = start.elapsed().as_secs_f64() * 1000.0
+                );
                 return Some(snapshot);
             }
         }
@@ -353,10 +433,17 @@ fn unreadable_registration_issue_uri(
 }
 
 impl LanguageServer for DjangoLanguageServer {
+    #[tracing::instrument(
+        level = "debug",
+        skip_all,
+        name = "lsp.request",
+        fields(method = "initialize")
+    )]
     async fn initialize(
         &self,
         params: ls_types::InitializeParams,
     ) -> LspResult<ls_types::InitializeResult> {
+        let mut timer = RequestTimer::new("handler");
         tracing::info!("Initializing server...");
 
         let session = Session::new(&params);
@@ -367,6 +454,7 @@ impl LanguageServer for DjangoLanguageServer {
             *session_lock = session;
         }
 
+        timer.finish("success");
         Ok(ls_types::InitializeResult {
             capabilities: ls_types::ServerCapabilities {
                 completion_provider: Some(ls_types::CompletionOptions {
@@ -438,71 +526,131 @@ impl LanguageServer for DjangoLanguageServer {
         })
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        skip_all,
+        name = "lsp.notification",
+        fields(method = "initialized")
+    )]
     async fn initialized(&self, _params: ls_types::InitializedParams) {
+        let mut timer = RequestTimer::new("handler");
         tracing::info!("Server received initialized notification.");
 
         self.reload.request_full_reload().await;
+        timer.finish("scheduled");
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        skip_all,
+        name = "lsp.request",
+        fields(method = "shutdown")
+    )]
     async fn shutdown(&self) -> LspResult<()> {
+        let mut timer = RequestTimer::new("handler");
+        timer.finish("success");
         self.logging.stop().await;
         Ok(())
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        skip_all,
+        name = "lsp.notification",
+        fields(method = "textDocument/didOpen")
+    )]
     async fn did_open(&self, params: ls_types::DidOpenTextDocumentParams) {
+        let mut timer = RequestTimer::new("handler");
         let Some(mutation) = self
             .with_session_mut(move |session| session.open_document(&params.text_document))
             .await
         else {
+            timer.finish("blocking_task_failed");
             return;
         };
 
         self.schedule_document_mutation(mutation);
+        timer.finish_mutation(mutation);
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        skip_all,
+        name = "lsp.notification",
+        fields(method = "textDocument/didSave")
+    )]
     async fn did_save(&self, params: ls_types::DidSaveTextDocumentParams) {
+        let mut timer = RequestTimer::new("handler");
         let Some(mutation) = self
             .with_session_mut(move |session| session.save_document(&params.text_document))
             .await
         else {
+            timer.finish("blocking_task_failed");
             return;
         };
 
         self.schedule_document_mutation(mutation);
+        timer.finish_mutation(mutation);
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        skip_all,
+        name = "lsp.notification",
+        fields(method = "textDocument/didChange")
+    )]
     async fn did_change(&self, params: ls_types::DidChangeTextDocumentParams) {
+        let mut timer = RequestTimer::new("handler");
         let Some(mutation) = self
             .with_session_mut(move |session| {
                 session.update_document(&params.text_document, params.content_changes)
             })
             .await
         else {
+            timer.finish("blocking_task_failed");
             return;
         };
 
         self.schedule_document_mutation(mutation);
+        timer.finish_mutation(mutation);
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        skip_all,
+        name = "lsp.notification",
+        fields(method = "textDocument/didClose")
+    )]
     async fn did_close(&self, params: ls_types::DidCloseTextDocumentParams) {
+        let mut timer = RequestTimer::new("handler");
         let Some(mutation) = self
             .with_session_mut(move |session| session.close_document(&params.text_document))
             .await
         else {
+            timer.finish("blocking_task_failed");
             return;
         };
         self.schedule_document_mutation(mutation);
+        timer.finish_mutation(mutation);
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        skip_all,
+        name = "lsp.request",
+        fields(method = "textDocument/codeAction")
+    )]
     async fn code_action(
         &self,
         params: ls_types::CodeActionParams,
     ) -> LspResult<Option<ls_types::CodeActionResponse>> {
+        let mut timer = RequestTimer::new("handler");
         if params.context.only.as_ref().is_some_and(|only| {
             !only
                 .iter()
                 .any(|kind| kind == &ls_types::CodeActionKind::QUICKFIX)
         }) {
+            timer.finish("empty");
             return Ok(None);
         }
 
@@ -511,7 +659,6 @@ impl LanguageServer for DjangoLanguageServer {
                 let (file, range) = snapshot.range_for_document_request(
                     &params.text_document,
                     params.range,
-                    "code action",
                 )?;
                 let db = snapshot.db();
 
@@ -524,27 +671,40 @@ impl LanguageServer for DjangoLanguageServer {
             })
             .await;
 
+        timer.finish_result(response.as_ref().is_none_or(Vec::is_empty));
         Ok(response)
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        skip_all,
+        name = "lsp.request",
+        fields(method = "workspace/executeCommand")
+    )]
     async fn execute_command(
         &self,
         params: ls_types::ExecuteCommandParams,
     ) -> LspResult<Option<serde_json::Value>> {
+        let mut timer = RequestTimer::new("handler");
         if params.command != REPORT_UNREADABLE_REGISTRATION_COMMAND {
+            timer.finish("invalid_params");
             return Err(LspError::invalid_params(format!(
                 "unknown command: {}",
                 params.command
             )));
         }
-        let report = parse_report_unreadable_registration_params(&params.arguments)
-            .map_err(LspError::invalid_params)?;
+        let report =
+            parse_report_unreadable_registration_params(&params.arguments).map_err(|error| {
+                timer.finish("invalid_params");
+                LspError::invalid_params(error)
+            })?;
         let issue_uri = self
             .with_ready_snapshot(move |snapshot| {
                 report_unreadable_registration_issue_uri(snapshot.db(), &report)
             })
             .await
             .ok_or_else(|| {
+                timer.finish("invalid_params");
                 LspError::invalid_params(
                     "reportUnreadableRegistration arguments do not match an unread registration",
                 )
@@ -557,21 +717,31 @@ impl LanguageServer for DjangoLanguageServer {
                 take_focus: None,
                 selection: None,
             })
-            .await?;
+            .await
+            .inspect_err(|_error| {
+                timer.finish("client_error");
+            })?;
 
+        timer.finish("success");
         Ok(None)
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        skip_all,
+        name = "lsp.request",
+        fields(method = "textDocument/completion")
+    )]
     async fn completion(
         &self,
         params: ls_types::CompletionParams,
     ) -> LspResult<Option<ls_types::CompletionResponse>> {
+        let mut timer = RequestTimer::new("handler");
         let response = self
             .with_ready_snapshot(move |snapshot| {
                 let (file, offset) = snapshot.position_for_document_request(
                     &params.text_document_position.text_document,
                     params.text_document_position.position,
-                    "completion",
                 )?;
                 let db = snapshot.db();
 
@@ -590,16 +760,29 @@ impl LanguageServer for DjangoLanguageServer {
             })
             .await;
 
+        let result_count = match &response {
+            None => 0,
+            Some(ls_types::CompletionResponse::Array(items)) => items.len(),
+            Some(ls_types::CompletionResponse::List(list)) => list.items.len(),
+        };
+        debug!(result_count);
+        timer.finish_result(result_count == 0);
         Ok(response)
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        skip_all,
+        name = "lsp.request",
+        fields(method = "textDocument/hover")
+    )]
     async fn hover(&self, params: ls_types::HoverParams) -> LspResult<Option<ls_types::Hover>> {
+        let mut timer = RequestTimer::new("handler");
         let response = self
             .with_ready_snapshot(move |snapshot| {
                 let (file, offset) = snapshot.position_for_document_request(
                     &params.text_document_position_params.text_document,
                     params.text_document_position_params.position,
-                    "hover",
                 )?;
                 let db = snapshot.db();
 
@@ -617,23 +800,25 @@ impl LanguageServer for DjangoLanguageServer {
             })
             .await;
 
+        timer.finish_result(response.is_none());
         Ok(response)
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        skip_all,
+        name = "lsp.request",
+        fields(method = "textDocument/diagnostic")
+    )]
     async fn diagnostic(
         &self,
         params: ls_types::DocumentDiagnosticParams,
     ) -> LspResult<ls_types::DocumentDiagnosticReportResult> {
-        debug!(
-            "Received diagnostic request for {:?}",
-            params.text_document.uri
-        );
+        let mut timer = RequestTimer::new("handler");
 
         let diagnostics = self
             .with_ready_snapshot(move |snapshot| {
-                let Some(file) =
-                    snapshot.file_for_document_request(&params.text_document, "diagnostic")
-                else {
+                let Some(file) = snapshot.file_for_document_request(&params.text_document) else {
                     return Vec::new();
                 };
 
@@ -646,6 +831,8 @@ impl LanguageServer for DjangoLanguageServer {
             })
             .await;
 
+        debug!(result_count = diagnostics.len());
+        timer.finish_result(diagnostics.is_empty());
         Ok(ls_types::DocumentDiagnosticReportResult::Report(
             ls_types::DocumentDiagnosticReport::Full(
                 ls_types::RelatedFullDocumentDiagnosticReport {
@@ -659,14 +846,21 @@ impl LanguageServer for DjangoLanguageServer {
         ))
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        skip_all,
+        name = "lsp.request",
+        fields(method = "textDocument/foldingRange")
+    )]
     async fn folding_range(
         &self,
         params: ls_types::FoldingRangeParams,
     ) -> LspResult<Option<Vec<ls_types::FoldingRange>>> {
+        let mut timer = RequestTimer::new("handler");
         let ranges = self
             .with_ready_snapshot(move |snapshot| {
                 let Some(file) =
-                    snapshot.file_for_document_request(&params.text_document, "folding")
+                    snapshot.file_for_document_request(&params.text_document)
                 else {
                     return Vec::new();
                 };
@@ -681,17 +875,26 @@ impl LanguageServer for DjangoLanguageServer {
             })
             .await;
 
+        debug!(result_count = ranges.len());
+        timer.finish_result(ranges.is_empty());
         Ok(Some(ranges))
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        skip_all,
+        name = "lsp.request",
+        fields(method = "textDocument/documentSymbol")
+    )]
     async fn document_symbol(
         &self,
         params: ls_types::DocumentSymbolParams,
     ) -> LspResult<Option<ls_types::DocumentSymbolResponse>> {
+        let mut timer = RequestTimer::new("handler");
         let symbols = self
             .with_ready_snapshot(move |snapshot| {
                 let Some(file) =
-                    snapshot.file_for_document_request(&params.text_document, "document symbol")
+                    snapshot.file_for_document_request(&params.text_document)
                 else {
                     return Vec::new();
                 };
@@ -710,17 +913,26 @@ impl LanguageServer for DjangoLanguageServer {
             })
             .await;
 
+        debug!(result_count = symbols.len());
+        timer.finish_result(symbols.is_empty());
         Ok(Some(ls_types::DocumentSymbolResponse::Nested(symbols)))
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        skip_all,
+        name = "lsp.request",
+        fields(method = "textDocument/documentLink")
+    )]
     async fn document_link(
         &self,
         params: ls_types::DocumentLinkParams,
     ) -> LspResult<Option<Vec<ls_types::DocumentLink>>> {
+        let mut timer = RequestTimer::new("handler");
         let links = self
             .with_ready_snapshot(move |snapshot| {
                 let Some(file) =
-                    snapshot.file_for_document_request(&params.text_document, "document link")
+                    snapshot.file_for_document_request(&params.text_document)
                 else {
                     return Vec::new();
                 };
@@ -739,19 +951,27 @@ impl LanguageServer for DjangoLanguageServer {
             })
             .await;
 
+        debug!(result_count = links.len());
+        timer.finish_result(links.is_empty());
         Ok(Some(links))
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        skip_all,
+        name = "lsp.request",
+        fields(method = "textDocument/definition")
+    )]
     async fn goto_definition(
         &self,
         params: ls_types::GotoDefinitionParams,
     ) -> LspResult<Option<ls_types::GotoDefinitionResponse>> {
+        let mut timer = RequestTimer::new("handler");
         let response = self
             .with_ready_snapshot(move |snapshot| {
                 let (file, offset) = snapshot.position_for_document_request(
                     &params.text_document_position_params.text_document,
                     params.text_document_position_params.position,
-                    "goto definition",
                 )?;
                 let db = snapshot.db();
 
@@ -770,19 +990,33 @@ impl LanguageServer for DjangoLanguageServer {
             })
             .await;
 
+        let result_count = match &response {
+            None => 0,
+            Some(ls_types::GotoDefinitionResponse::Scalar(_)) => 1,
+            Some(ls_types::GotoDefinitionResponse::Array(locations)) => locations.len(),
+            Some(ls_types::GotoDefinitionResponse::Link(links)) => links.len(),
+        };
+        debug!(result_count);
+        timer.finish_result(result_count == 0);
         Ok(response)
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        skip_all,
+        name = "lsp.request",
+        fields(method = "textDocument/references")
+    )]
     async fn references(
         &self,
         params: ls_types::ReferenceParams,
     ) -> LspResult<Option<Vec<ls_types::Location>>> {
+        let mut timer = RequestTimer::new("handler");
         let response = self
             .with_ready_snapshot(move |snapshot| {
                 let (file, offset) = snapshot.position_for_document_request(
                     &params.text_document_position.text_document,
                     params.text_document_position.position,
-                    "references",
                 )?;
                 let db = snapshot.db();
 
@@ -801,18 +1035,24 @@ impl LanguageServer for DjangoLanguageServer {
             })
             .await;
 
+        timer.finish_result(response.as_ref().is_none_or(Vec::is_empty));
         Ok(response)
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        skip_all,
+        name = "lsp.request",
+        fields(method = "textDocument/formatting")
+    )]
     async fn formatting(
         &self,
         params: ls_types::DocumentFormattingParams,
     ) -> LspResult<Option<Vec<ls_types::TextEdit>>> {
+        let mut timer = RequestTimer::new("handler");
         let edits = self
             .with_snapshot(move |snapshot| {
-                let Some(file) =
-                    snapshot.file_for_document_request(&params.text_document, "formatting")
-                else {
+                let Some(file) = snapshot.file_for_document_request(&params.text_document) else {
                     return Vec::new();
                 };
                 let db = snapshot.db();
@@ -839,12 +1079,22 @@ impl LanguageServer for DjangoLanguageServer {
             })
             .await;
 
+        debug!(result_count = edits.len());
+        timer.finish_result(edits.is_empty());
         Ok(Some(edits))
     }
 
+    #[tracing::instrument(
+        level = "debug",
+        skip_all,
+        name = "lsp.notification",
+        fields(method = "workspace/didChangeConfiguration")
+    )]
     async fn did_change_configuration(&self, _params: ls_types::DidChangeConfigurationParams) {
+        let mut timer = RequestTimer::new("handler");
         tracing::info!("Configuration change detected. Requesting project reload...");
         self.reload.request_full_reload().await;
+        timer.finish("scheduled");
     }
 }
 
@@ -863,9 +1113,360 @@ mod tests {
     use percent_encoding::percent_decode_str;
     use tokio::spawn as spawn_task;
     use tokio::time::timeout;
+    use tracing::Instrument;
+    use tracing::instrument::WithSubscriber;
+    use tracing_subscriber::layer::SubscriberExt;
 
     use super::*;
+    use crate::logging::capture::Capture;
+    use crate::logging::capture::callsite_guard;
     use crate::session::ProjectWork;
+
+    #[tokio::test]
+    async fn observability_interleaved_requests_keep_scoped_context_and_private_values() {
+        let _callsite_guard = callsite_guard();
+        let first = Capture::default();
+        let second = Capture::default();
+        let barrier = Arc::new(tokio::sync::Barrier::new(2));
+        let run = |method, capture: Capture, barrier: Arc<tokio::sync::Barrier>| async move {
+            let dispatch = tracing::Dispatch::new(tracing_subscriber::registry().with(capture));
+            let span = tracing::dispatcher::with_default(&dispatch, || {
+                tracing::debug_span!("lsp.request", method)
+            });
+            async move {
+                let session = Arc::new(Mutex::new(Session::default()));
+                barrier.wait().await;
+                tokio::task::yield_now().await;
+                let result = with_session_snapshot(
+                    &session,
+                    Arc::new(|snapshot: &SessionSnapshot| {
+                        debug!(event = "worker_probe");
+                        assert!(
+                            snapshot
+                                .file_for_document_request(&ls_types::TextDocumentIdentifier {
+                                    uri: "untitled:PRIVATE_URI_SENTINEL"
+                                        .parse()
+                                        .expect("valid test URI"),
+                                },)
+                                .is_none()
+                        );
+                        "PRIVATE_RETURN_SENTINEL".to_string()
+                    }),
+                )
+                .await;
+                assert_eq!(result, "PRIVATE_RETURN_SENTINEL");
+            }
+            .instrument(span)
+            .with_subscriber(dispatch)
+            .await;
+        };
+        tokio::join!(
+            run("first", first.clone(), Arc::clone(&barrier)),
+            run("second", second.clone(), barrier)
+        );
+        for (capture, method) in [(first, "first"), (second, "second")] {
+            let events = capture
+                .0
+                .lock()
+                .expect("capture lock should not be poisoned");
+            let probes: Vec<_> = events
+                .iter()
+                .filter(|event| event["fields"]["event"] == "worker_probe")
+                .collect();
+            assert_eq!(probes.len(), 1);
+            assert_eq!(probes[0]["spans"][0]["fields"]["method"], method);
+            assert_eq!(probes[0]["spans"][1]["name"], "session.syntax_snapshot");
+            let terminal = events
+                .iter()
+                .find(|event| event["fields"]["event"] == "request_completed")
+                .expect("snapshot should emit completion");
+            assert_eq!(terminal["fields"]["outcome"], "success");
+            assert!(terminal["fields"]["elapsed_ms"].is_f64());
+            assert!(
+                !serde_json::to_string(&*events)
+                    .expect("captured JSON should serialize")
+                    .contains("PRIVATE_")
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn observability_fallback_outcomes_are_distinct() {
+        let _callsite_guard = callsite_guard();
+        let capture = Capture::default();
+        async {
+            let session = Arc::new(Mutex::new(Session::default()));
+            assert_eq!(
+                with_session_snapshot(&session, Arc::new(|_: &SessionSnapshot| 0_usize)).await,
+                0
+            );
+            assert_eq!(
+                with_session_snapshot(
+                    &session,
+                    Arc::new(|_: &SessionSnapshot| -> usize {
+                        panic!("PRIVATE_PANIC_SENTINEL");
+                    })
+                )
+                .await,
+                0
+            );
+            assert_eq!(
+                with_session_snapshot(
+                    &session,
+                    Arc::new(|_: &SessionSnapshot| -> usize {
+                        std::panic::resume_unwind(Box::new(Cancelled::Local));
+                    })
+                )
+                .await,
+                0
+            );
+            assert!(session.lock().await.fail_intrinsic_readiness(0));
+            assert_eq!(
+                with_ready_session_snapshot(&session, Arc::new(|_: &SessionSnapshot| 19_usize))
+                    .await,
+                0
+            );
+        }
+        .with_subscriber(tracing_subscriber::registry().with(capture.clone()))
+        .await;
+        let events = capture
+            .0
+            .lock()
+            .expect("capture lock should not be poisoned");
+        let outcomes: Vec<_> = events
+            .iter()
+            .filter(|event| event["fields"]["event"] == "request_completed")
+            .map(|event| {
+                event["fields"]["outcome"]
+                    .as_str()
+                    .expect("outcome should be a string")
+            })
+            .collect();
+        assert_eq!(
+            outcomes,
+            [
+                "success",
+                "blocking_task_failed",
+                "cancellation_exhausted",
+                "readiness_failed"
+            ]
+        );
+        let attempts: Vec<_> = events
+            .iter()
+            .filter_map(|event| event["fields"]["attempt"].as_u64())
+            .collect();
+        assert_eq!(attempts, [1, 2]);
+        assert!(
+            !serde_json::to_string(&*events)
+                .expect("captured JSON should serialize")
+                .contains("PRIVATE_")
+        );
+    }
+
+    #[test]
+    fn observability_compute_timing_excludes_blocking_pool_queue() {
+        let _callsite_guard = callsite_guard();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .max_blocking_threads(1)
+            .build()
+            .expect("test runtime should build");
+        let capture = Capture::default();
+        runtime.block_on(
+            async {
+                let session = Arc::new(Mutex::new(Session::default()));
+                let (release_tx, release_rx) = mpsc::channel();
+                let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+                let blocker = spawn_blocking(move || {
+                    started_tx.send(()).expect("start receiver should exist");
+                    release_rx.recv().expect("release should arrive");
+                });
+                started_rx.await.expect("worker should start");
+                let start = Instant::now();
+                let work =
+                    with_session_snapshot(&session, Arc::new(|_: &SessionSnapshot| 37_usize));
+                tokio::pin!(work);
+                assert!(timeout(Duration::from_millis(30), &mut work).await.is_err());
+                let queue_ms = start.elapsed().as_secs_f64() * 1000.0;
+                release_tx.send(()).expect("release receiver should exist");
+                assert_eq!(work.await, 37);
+                blocker.await.expect("blocker should finish");
+                let events = capture
+                    .0
+                    .lock()
+                    .expect("capture lock should not be poisoned");
+                let compute_ms = events
+                    .iter()
+                    .find_map(|event| event["fields"]["compute_ms"].as_f64())
+                    .expect("compute timing should be numeric");
+                // Compare measured intervals rather than assuming a fast worker or a
+                // fixed upper bound on scheduler latency.
+                assert!(compute_ms < start.elapsed().as_secs_f64() * 1000.0 - queue_ms);
+            }
+            .with_subscriber(tracing_subscriber::registry().with(capture.clone())),
+        );
+    }
+
+    #[tokio::test]
+    async fn observability_readiness_wait_is_separate_from_compute_and_drop_is_cancelled() {
+        let _callsite_guard = callsite_guard();
+        let capture = Capture::default();
+        let held_ms = async {
+            let session = Arc::new(Mutex::new(Session::default()));
+            let primed = prime_template_library_products(session.lock().await.db())
+                .expect("session should have a project");
+            {
+                let request =
+                    with_ready_session_snapshot(&session, Arc::new(|_: &SessionSnapshot| 41_usize));
+                tokio::pin!(request);
+                assert!(
+                    timeout(Duration::from_millis(10), &mut request)
+                        .await
+                        .is_err()
+                );
+                // Dropping this pending request must not be reported as success.
+            }
+            let request =
+                with_ready_session_snapshot(&session, Arc::new(|_: &SessionSnapshot| 43_usize));
+            tokio::pin!(request);
+            assert!(
+                timeout(Duration::from_millis(10), &mut request)
+                    .await
+                    .is_err()
+            );
+            let held = Instant::now();
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            let held_ms = held.elapsed().as_secs_f64() * 1000.0;
+            assert!(session.lock().await.publish_intrinsic_readiness(0, &primed));
+            assert_eq!(request.await, 43);
+            held_ms
+        }
+        .with_subscriber(tracing_subscriber::registry().with(capture.clone()))
+        .await;
+        let events = capture
+            .0
+            .lock()
+            .expect("capture lock should not be poisoned");
+        let terminal: Vec<_> = events
+            .iter()
+            .filter(|event| event["fields"]["event"] == "request_completed")
+            .collect();
+        assert_eq!(terminal[0]["fields"]["outcome"], "cancelled");
+        assert_eq!(terminal[1]["fields"]["outcome"], "success");
+        let ready = events
+            .iter()
+            .find(|event| event["fields"]["event"] == "readiness_completed")
+            .expect("readiness should emit completion");
+        assert_eq!(ready["fields"]["generation"], 0);
+        let ready_ms = ready["fields"]["ready_wait_ms"]
+            .as_f64()
+            .expect("readiness timing should be numeric");
+        assert!(ready_ms >= held_ms);
+        let compute_ms = events
+            .iter()
+            .find_map(|event| event["fields"]["compute_ms"].as_f64())
+            .expect("compute timing should be numeric");
+        assert!(
+            terminal[1]["fields"]["elapsed_ms"]
+                .as_f64()
+                .expect("elapsed timing should be numeric")
+                >= ready_ms + compute_ms
+        );
+    }
+
+    #[tokio::test]
+    async fn observability_handler_events_by_filter_and_privacy() {
+        let _callsite_guard = callsite_guard();
+        for (mode, filter) in [
+            ("disabled", "off"),
+            ("default", "warn,djls_server=info"),
+            ("debug", "warn,djls_server=debug"),
+        ] {
+            let capture = Capture::default();
+            let dispatch = tracing::Dispatch::new(
+                tracing_subscriber::registry()
+                    .with(capture.clone())
+                    .with(tracing_subscriber::EnvFilter::new(filter)),
+            );
+            let (service, _socket) = tower_lsp_server::LspService::new(|client| {
+                DjangoLanguageServer::new(client, LspLogControl::disconnected())
+            });
+            let server = service.inner();
+            async {
+                for _ in 0..20 {
+                    server
+                        .did_open(ls_types::DidOpenTextDocumentParams {
+                            text_document: ls_types::TextDocumentItem {
+                                uri: "untitled:PRIVATE_URI_SENTINEL"
+                                    .parse()
+                                    .expect("valid test URI"),
+                                language_id: "PRIVATE_LANGUAGE_SENTINEL".into(),
+                                text: "PRIVATE_SOURCE_SENTINEL".into(),
+                                version: 1,
+                            },
+                        })
+                        .await;
+                    let result = server
+                        .formatting(ls_types::DocumentFormattingParams {
+                            text_document: ls_types::TextDocumentIdentifier {
+                                uri: "untitled:PRIVATE_URI_SENTINEL"
+                                    .parse()
+                                    .expect("valid test URI"),
+                            },
+                            options: ls_types::FormattingOptions::default(),
+                            work_done_progress_params: ls_types::WorkDoneProgressParams::default(),
+                        })
+                        .await
+                        .expect("formatting should succeed");
+                    assert_eq!(result, Some(Vec::new()));
+                }
+            }
+            .with_subscriber(dispatch)
+            .await;
+            let events = capture
+                .0
+                .lock()
+                .expect("capture lock should not be poisoned");
+            assert!(
+                !serde_json::to_string(&*events)
+                    .expect("captured JSON should serialize")
+                    .contains("PRIVATE_")
+            );
+            if mode == "debug" {
+                let handlers: Vec<_> = events
+                    .iter()
+                    .filter(|event| {
+                        event["fields"]["event"] == "request_completed"
+                            && event["fields"]["operation"] == "handler"
+                    })
+                    .collect();
+                assert_eq!(handlers.len(), 40);
+                assert_eq!(
+                    handlers
+                        .iter()
+                        .filter(|event| event["fields"]["outcome"] == "ignored")
+                        .count(),
+                    20
+                );
+                assert_eq!(
+                    handlers
+                        .iter()
+                        .filter(|event| event["fields"]["outcome"] == "empty")
+                        .count(),
+                    20
+                );
+                for event in handlers {
+                    assert!(event["fields"]["elapsed_ms"].is_f64());
+                    assert!(matches!(
+                        event["spans"][0]["fields"]["method"].as_str(),
+                        Some("textDocument/didOpen" | "textDocument/formatting")
+                    ));
+                }
+            } else {
+                assert!(events.is_empty());
+            }
+        }
+    }
 
     fn report_params() -> ReportUnreadableRegistrationParams {
         ReportUnreadableRegistrationParams {
