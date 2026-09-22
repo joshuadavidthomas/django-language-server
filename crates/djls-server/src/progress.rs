@@ -236,6 +236,65 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn supported_progress_sends_begin_report_end_with_one_token() {
+        let (mut service, socket) = LspService::new(TransportBackend);
+        service
+            .call(
+                jsonrpc::Request::build("initialize")
+                    .params(serde_json::json!({"capabilities": {}}))
+                    .id(1_i64)
+                    .finish(),
+            )
+            .await
+            .expect("initialize");
+        let capabilities = ls_types::ClientCapabilities {
+            window: Some(ls_types::WindowClientCapabilities {
+                work_done_progress: Some(true),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let reporter = ProgressReporter::new(
+            service.inner().0.clone(),
+            ClientInfo::new(&capabilities, None, ClientOptions::default()),
+        );
+        let (mut requests, mut responses) = socket.split();
+        let report = async {
+            let item = reporter.begin("Django Environment").await;
+            item.report_fraction(2, 7, "files").await;
+            item.finish("complete").await;
+        };
+        let receive = async {
+            let create = requests.next().await.expect("create request");
+            assert_eq!(create.method(), "window/workDoneProgress/create");
+            let token = create.params().expect("create params")["token"].clone();
+            responses
+                .send(jsonrpc::Response::from_ok(
+                    create.id().expect("create id").clone(),
+                    serde_json::Value::Null,
+                ))
+                .await
+                .expect("create response");
+            for kind in ["begin", "report", "end"] {
+                let message = requests.next().await.expect("progress notification");
+                assert_eq!(message.method(), "$/progress");
+                let params = message.params().expect("progress params");
+                assert_eq!(params["token"], token);
+                assert_eq!(params["value"]["kind"], kind);
+                if kind == "report" {
+                    assert_eq!(params["value"]["percentage"], 28);
+                    assert_eq!(params["value"]["message"], "2/7 files");
+                }
+            }
+        };
+        tokio::time::timeout(Duration::from_secs(3), async {
+            tokio::join!(report, receive)
+        })
+        .await
+        .expect("progress completes");
+    }
+
+    #[tokio::test]
     async fn unavailable_progress_falls_back_to_info_tracing() {
         let log = tempfile::NamedTempFile::new().expect("log file");
         let subscriber = tracing_subscriber::fmt()

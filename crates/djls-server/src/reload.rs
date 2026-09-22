@@ -10,6 +10,7 @@ use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU8;
 use std::sync::atomic::Ordering as AtomicOrdering;
+use std::time::Instant;
 
 use djls_conf::Settings;
 use djls_db::DjangoDatabase;
@@ -40,12 +41,14 @@ use tokio::task::JoinHandle;
 use tokio::task::JoinSet;
 use tokio::task::spawn_blocking;
 use tower_lsp_server::Client;
+use tracing::Instrument;
 use tracing::debug;
 use tracing::error;
-use tracing::warn;
+use tracing::instrument::WithSubscriber;
 
 use crate::client::ClientInfo;
 use crate::diagnostics::DiagnosticPublisher;
+use crate::logging::blocking_in_span;
 use crate::progress::ProgressItem;
 use crate::progress::ProgressReporter;
 use crate::session::CancellationRetryAction;
@@ -60,6 +63,21 @@ use crate::session::SessionSnapshot;
 enum ReloadRunOutcome {
     Complete,
     Cancelled,
+    Failed,
+    Stale,
+    Skipped,
+}
+
+impl ReloadRunOutcome {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Complete => "success",
+            Self::Cancelled => "cancelled",
+            Self::Failed => "failed",
+            Self::Stale => "stale",
+            Self::Skipped => "skipped",
+        }
+    }
 }
 
 /// Drives full Project reloads and intrinsic-only re-primes off the request path.
@@ -116,12 +134,22 @@ impl ProjectReload {
                     if rx.is_closed() {
                         return;
                     }
-                    if runner(job).await == ReloadRunOutcome::Cancelled {
+                    let operation = match job {
+                        ProjectWork::FullReload => tracing::info_span!(parent: None, "project.reload", ?job, generation = tracing::field::Empty),
+                        ProjectWork::Reprime => tracing::debug_span!(parent: None, "project.reprime", ?job, generation = tracing::field::Empty),
+                    };
+                    let run = operation.in_scope(|| runner(job));
+                    let outcome = async move {
+                        let outcome = run.await;
+                        debug!(outcome = outcome.as_str(), "Project operation finished");
+                        outcome
+                    }.instrument(operation).await;
+                    if outcome == ReloadRunOutcome::Cancelled {
                         merge_project_work(&worker_pending, job);
                     }
                 }
             }
-        });
+        }.with_current_subscriber());
 
         Self {
             tx,
@@ -252,8 +280,15 @@ async fn reload_project(
     client_info: ClientInfo,
     diagnostics: DiagnosticPublisher,
 ) -> ReloadRunOutcome {
-    let generation = { session.lock().await.desired_generation() };
-    let start = std::time::Instant::now();
+    let generation = {
+        let session = session.lock().await;
+        tracing::Span::current().record("generation", session.desired_generation());
+        if session.db().project().is_none() {
+            return ReloadRunOutcome::Skipped;
+        }
+        session.desired_generation()
+    };
+    let start = Instant::now();
     let progress = ProgressReporter::new(client.clone(), client_info);
 
     // Start visible progress before touching the session. Clients often send
@@ -265,8 +300,7 @@ async fn reload_project(
     }
 
     if !load_and_apply_project_settings(&session, &mut environment_progress).await {
-        fail_generation(&session, generation).await;
-        return ReloadRunOutcome::Complete;
+        return fail_generation(&session, generation).await;
     }
 
     let environment =
@@ -274,14 +308,12 @@ async fn reload_project(
             StageOutcome::Complete(environment) => environment,
             StageOutcome::Cancelled => return ReloadRunOutcome::Cancelled,
             StageOutcome::Failed => {
-                fail_generation(&session, generation).await;
-                return ReloadRunOutcome::Complete;
+                return fail_generation(&session, generation).await;
             }
         };
     if !apply_environment(&session, environment).await {
         finish_progress(&mut environment_progress, ProgressEnd::Skipped).await;
-        fail_generation(&session, generation).await;
-        return ReloadRunOutcome::Complete;
+        return ReloadRunOutcome::Skipped;
     }
     finish_progress(&mut environment_progress, ProgressEnd::Complete).await;
 
@@ -290,27 +322,23 @@ async fn reload_project(
         StageOutcome::Complete(facts) => facts,
         StageOutcome::Cancelled => return ReloadRunOutcome::Cancelled,
         StageOutcome::Failed => {
-            fail_generation(&session, generation).await;
-            return ReloadRunOutcome::Complete;
+            return fail_generation(&session, generation).await;
         }
     };
     if !apply_facts(&session, &facts).await {
         finish_progress(&mut facts_progress, ProgressEnd::Skipped).await;
-        fail_generation(&session, generation).await;
-        return ReloadRunOutcome::Complete;
+        return ReloadRunOutcome::Skipped;
     }
     finish_progress(&mut facts_progress, ProgressEnd::Complete).await;
 
     let Some(intrinsic_snapshot) = snapshot_session(&session).await else {
-        fail_generation(&session, generation).await;
-        return ReloadRunOutcome::Complete;
+        return ReloadRunOutcome::Skipped;
     };
     let primed = match prime_snapshot(intrinsic_snapshot).await {
         StageOutcome::Complete(primed) => primed,
         StageOutcome::Cancelled => return ReloadRunOutcome::Cancelled,
         StageOutcome::Failed => {
-            fail_generation(&session, generation).await;
-            return ReloadRunOutcome::Complete;
+            return fail_generation(&session, generation).await;
         }
     };
     if !session
@@ -318,20 +346,26 @@ async fn reload_project(
         .await
         .publish_intrinsic_readiness(generation, &primed)
     {
-        return ReloadRunOutcome::Complete;
+        return ReloadRunOutcome::Stale;
     }
 
+    tracing::info!(
+        outcome = "success",
+        elapsed_ms = start.elapsed().as_secs_f64() * 1000.0,
+        library_count = primed.library_count(),
+        discovered_file_count = facts.discovered_file_count(),
+        "Project reload completed"
+    );
     // Readiness is observable as soon as the required intrinsic products are
     // current. The remaining IDE cache warm-up is optional and must not hold
     // project-aware requests behind unrelated work.
     diagnostics.project_ready(&session, generation).await;
-    spawn_task(warm_snapshot_queries(
-        Arc::clone(&session),
-        progress,
-        generation,
-    ));
+    spawn_task(
+        warm_snapshot_queries(Arc::clone(&session), progress, generation)
+            .instrument(tracing::debug_span!(parent: None, "ide_cache.warmup", generation))
+            .with_current_subscriber(),
+    );
 
-    tracing::info!("Project reload completed in {:?}", start.elapsed());
     ReloadRunOutcome::Complete
 }
 
@@ -339,9 +373,15 @@ async fn reprime_project(
     session: Arc<Mutex<Session>>,
     diagnostics: DiagnosticPublisher,
 ) -> ReloadRunOutcome {
-    let Some((generation, snapshot)) = session.lock().await.reprime_snapshot() else {
-        return ReloadRunOutcome::Complete;
+    let snapshot = {
+        let session = session.lock().await;
+        tracing::Span::current().record("generation", session.desired_generation());
+        session.reprime_snapshot()
     };
+    let Some((generation, snapshot)) = snapshot else {
+        return ReloadRunOutcome::Skipped;
+    };
+    let start = Instant::now();
     match prime_snapshot(snapshot).await {
         StageOutcome::Complete(primed) => {
             if !session
@@ -349,21 +389,28 @@ async fn reprime_project(
                 .await
                 .publish_intrinsic_readiness(generation, &primed)
             {
-                return ReloadRunOutcome::Complete;
+                return ReloadRunOutcome::Stale;
             }
+            debug!(
+                outcome = "success",
+                elapsed_ms = start.elapsed().as_secs_f64() * 1000.0,
+                library_count = primed.library_count(),
+                "Project re-prime completed"
+            );
             diagnostics.project_ready(&session, generation).await;
             ReloadRunOutcome::Complete
         }
         StageOutcome::Cancelled => ReloadRunOutcome::Cancelled,
-        StageOutcome::Failed => {
-            fail_generation(&session, generation).await;
-            ReloadRunOutcome::Complete
-        }
+        StageOutcome::Failed => fail_generation(&session, generation).await,
     }
 }
 
-async fn fail_generation(session: &Arc<Mutex<Session>>, generation: u64) {
-    session.lock().await.fail_intrinsic_readiness(generation);
+async fn fail_generation(session: &Arc<Mutex<Session>>, generation: u64) -> ReloadRunOutcome {
+    if session.lock().await.fail_intrinsic_readiness(generation) {
+        ReloadRunOutcome::Failed
+    } else {
+        ReloadRunOutcome::Stale
+    }
 }
 
 async fn warm_snapshot_queries(
@@ -371,6 +418,7 @@ async fn warm_snapshot_queries(
     progress: ProgressReporter,
     generation: u64,
 ) {
+    let start = Instant::now();
     let warm_progress = progress.begin(WARM_CACHES_TITLE).await;
     for phase in warm_cache_phases() {
         warm_progress.report(phase.progress().message).await;
@@ -383,10 +431,20 @@ async fn warm_snapshot_queries(
             .then(|| session.snapshot())
     };
     let Some(snapshot) = snapshot else {
+        debug!(
+            outcome = "stale",
+            elapsed_ms = start.elapsed().as_secs_f64() * 1000.0,
+            "IDE cache warm-up skipped"
+        );
         warm_progress.finish(ProgressEnd::Cancelled.as_str()).await;
         return;
     };
     let batch = warm_cache_queries(snapshot).await;
+    debug!(
+        outcome = batch.status.progress_end().as_str(),
+        elapsed_ms = start.elapsed().as_secs_f64() * 1000.0,
+        "IDE cache warm-up finished"
+    );
     if batch.status == WarmOutcome::Complete {
         for (index, part) in batch.parts.iter().enumerate() {
             if let Some(count) = part.count() {
@@ -476,15 +534,34 @@ async fn load_project_settings(session: &Arc<Mutex<Session>>) -> StageOutcome<Se
             )
         })
     }) else {
-        tracing::info!("Task: No project configured, skipping settings load.");
+        debug!(
+            outcome = "skipped",
+            "No project configured for settings load"
+        );
         return StageOutcome::Failed;
     };
 
-    let joined = spawn_blocking(move || Settings::new(&project_root, Some(config_overrides))).await;
+    let joined = spawn_blocking(blocking_in_span(
+        tracing::debug_span!("project.settings_load"),
+        move || {
+            let result = Settings::new(&project_root, Some(config_overrides));
+            debug!(
+                outcome = if result.is_ok() { "success" } else { "failed" },
+                "Settings load finished"
+            );
+            result
+        },
+    ))
+    .await;
     let settings = match classify_child_task_join(joined) {
         ChildTaskJoin::Complete(settings) => settings,
         ChildTaskJoin::Failed(error) => {
-            error!(?error, "Project settings load task failed");
+            error!(
+                panicked = error.is_panic(),
+                outcome = "failed",
+                "Project settings load task failed"
+            );
+            debug!(?error, "Task failure detail");
             return StageOutcome::Failed;
         }
     };
@@ -492,7 +569,10 @@ async fn load_project_settings(session: &Arc<Mutex<Session>>) -> StageOutcome<Se
     match settings {
         Ok(settings) => StageOutcome::Complete(settings),
         Err(error) => {
-            error!(%error, "Error loading project settings");
+            // `ConfigError`'s message names only the failing stage; its source
+            // carries the key, value, and file detail.
+            error!(%error, outcome = "failed", "Error loading project settings");
+            debug!(?error, "Project settings error detail");
             StageOutcome::Failed
         }
     }
@@ -541,9 +621,22 @@ async fn compute_environment(
         let mut jobs: JoinSet<EnvironmentJobResult> = JoinSet::new();
         for phase in environment_phases() {
             let db = compute_db.clone();
-            jobs.spawn_blocking(move || {
-                Cancelled::catch(AssertUnwindSafe(|| phase.run(&db, project)))
-            });
+            jobs.spawn_blocking(blocking_in_span(
+                tracing::debug_span!("project.django_environment", ?phase),
+                move || {
+                    let result = Cancelled::catch(AssertUnwindSafe(|| phase.run(&db, project)));
+                    debug!(
+                        outcome = if result.is_ok() {
+                            "success"
+                        } else {
+                            "cancelled"
+                        },
+                        count = result.as_ref().ok().map(EnvironmentPart::count),
+                        "Environment phase finished"
+                    );
+                    result
+                },
+            ));
         }
         // Only workers retain storage; the coordinator may await progress during collection.
         drop(compute_db);
@@ -561,7 +654,7 @@ async fn compute_environment(
                 }
                 CancellationRetryAction::Exhausted => {
                     finish_progress(progress, ProgressEnd::Cancelled).await;
-                    warn!(
+                    debug!(
                         retries = SNAPSHOT_CANCEL_RETRIES,
                         "Environment compute cancelled repeatedly; project reload cancelled"
                     );
@@ -606,7 +699,12 @@ async fn collect_environment_jobs(
             }
             ChildTaskJoin::Failed(error) => {
                 failed = true;
-                error!(?error, "Django Environment phase task failed");
+                error!(
+                    panicked = error.is_panic(),
+                    outcome = "failed",
+                    "Django Environment phase task failed"
+                );
+                debug!(?error, "Task failure detail");
             }
         }
     }
@@ -618,7 +716,7 @@ async fn collect_environment_jobs(
         match DjangoEnvironmentData::assemble(parts) {
             Ok(environment) => StageOutcome::Complete(environment),
             Err(error) => {
-                error!(%error, "Django environment assembly failed");
+                error!(%error, outcome = "failed", "Django environment assembly failed");
                 StageOutcome::Failed
             }
         }
@@ -646,9 +744,22 @@ async fn compute_project_facts_data(
         let mut jobs: JoinSet<ProjectFactsJobResult> = JoinSet::new();
         for phase in project_facts_phases() {
             let db = compute_db.clone();
-            jobs.spawn_blocking(move || {
-                Cancelled::catch(AssertUnwindSafe(|| phase.run(&db, project)))
-            });
+            jobs.spawn_blocking(blocking_in_span(
+                tracing::debug_span!("project.facts", ?phase),
+                move || {
+                    let result = Cancelled::catch(AssertUnwindSafe(|| phase.run(&db, project)));
+                    debug!(
+                        outcome = if result.is_ok() {
+                            "success"
+                        } else {
+                            "cancelled"
+                        },
+                        count = result.as_ref().ok().map(ProjectFactsPart::count),
+                        "Project Facts phase finished"
+                    );
+                    result
+                },
+            ));
         }
         // Collection/reporting must not keep the coordinator's storage clone alive.
         drop(compute_db);
@@ -666,7 +777,7 @@ async fn compute_project_facts_data(
                 }
                 CancellationRetryAction::Exhausted => {
                     finish_progress(progress, ProgressEnd::Cancelled).await;
-                    warn!(
+                    debug!(
                         retries = SNAPSHOT_CANCEL_RETRIES,
                         "Project Facts compute cancelled repeatedly; project reload cancelled"
                     );
@@ -705,7 +816,12 @@ async fn collect_project_facts_jobs(
             }
             ChildTaskJoin::Failed(error) => {
                 failed = true;
-                error!(?error, "Project Facts phase task failed");
+                error!(
+                    panicked = error.is_panic(),
+                    outcome = "failed",
+                    "Project Facts phase task failed"
+                );
+                debug!(?error, "Task failure detail");
             }
         }
     }
@@ -736,7 +852,7 @@ async fn capture_discovery_db(session: &Arc<Mutex<Session>>) -> Option<(DjangoDa
     let session_lock = session.lock().await;
     let db = session_lock.db();
     let Some(project) = db.project() else {
-        tracing::info!("Task: No project configured, skipping initialization.");
+        debug!(outcome = "skipped", "No project configured for discovery");
         return None;
     };
     Some((db.clone(), project))
@@ -822,11 +938,28 @@ type WarmJobResult = Result<WarmCachePart, Cancelled>;
 type WarmJobHandle = JoinHandle<WarmJobResult>;
 
 async fn prime_snapshot(snapshot: SessionSnapshot) -> StageOutcome<PrimedTemplateLibraries> {
-    let joined = spawn_blocking(move || {
-        Cancelled::catch(AssertUnwindSafe(|| {
-            prime_template_library_products(snapshot.db())
-        }))
-    })
+    let joined = spawn_blocking(blocking_in_span(
+        tracing::debug_span!("project.intrinsic_priming"),
+        move || {
+            let result = Cancelled::catch(AssertUnwindSafe(|| {
+                prime_template_library_products(snapshot.db())
+            }));
+            debug!(
+                outcome = match &result {
+                    Ok(Some(_)) => "success",
+                    Ok(None) => "skipped",
+                    Err(_) => "cancelled",
+                },
+                count = result
+                    .as_ref()
+                    .ok()
+                    .and_then(Option::as_ref)
+                    .map(PrimedTemplateLibraries::library_count),
+                "Intrinsic priming finished"
+            );
+            result
+        },
+    ))
     .await;
 
     classify_prime_task_join(joined)
@@ -843,7 +976,12 @@ fn classify_prime_task_join(
             StageOutcome::Cancelled
         }
         ChildTaskJoin::Failed(error) => {
-            error!(?error, "Template Library priming task failed");
+            error!(
+                panicked = error.is_panic(),
+                outcome = "failed",
+                "Template Library priming task failed"
+            );
+            debug!(?error, "Task failure detail");
             StageOutcome::Failed
         }
     }
@@ -865,7 +1003,22 @@ impl WarmOutcome {
 }
 
 fn spawn_warm_cache_job(phase: WarmCachePhase, snapshot: SessionSnapshot) -> WarmJobHandle {
-    spawn_blocking(move || Cancelled::catch(AssertUnwindSafe(|| phase.run(snapshot.db()))))
+    spawn_blocking(blocking_in_span(
+        tracing::debug_span!("ide_cache.phase", ?phase),
+        move || {
+            let result = Cancelled::catch(AssertUnwindSafe(|| phase.run(snapshot.db())));
+            debug!(
+                outcome = if result.is_ok() {
+                    "success"
+                } else {
+                    "cancelled"
+                },
+                count = result.as_ref().ok().and_then(WarmCachePart::count),
+                "IDE cache phase finished"
+            );
+            result
+        },
+    ))
 }
 
 async fn join_warm_cache_job(
@@ -883,7 +1036,13 @@ async fn join_warm_cache_job(
             StageOutcome::Cancelled
         }
         ChildTaskJoin::Failed(error) => {
-            error!(?error, ?phase, "IDE cache warm-up task failed");
+            error!(
+                panicked = error.is_panic(),
+                ?phase,
+                outcome = "failed",
+                "IDE cache warm-up task failed"
+            );
+            debug!(?error, "Task failure detail");
             StageOutcome::Failed
         }
     }
@@ -950,6 +1109,8 @@ mod tests {
     use std::time::Duration;
 
     use camino::Utf8PathBuf;
+    use futures_util::SinkExt;
+    use futures_util::StreamExt;
     use tempfile::tempdir;
     use tokio::spawn as spawn_task;
     use tokio::sync::Notify;
@@ -958,9 +1119,233 @@ mod tests {
     use tokio::task::spawn_blocking;
     use tokio::task::yield_now;
     use tokio::time::timeout;
+    use tower_lsp_server::LanguageServer;
+    use tower_lsp_server::LspService;
+    use tower_lsp_server::jsonrpc;
     use tower_lsp_server::ls_types;
+    use tower_service::Service;
 
     use super::*;
+
+    struct TransportBackend(Client);
+
+    impl LanguageServer for TransportBackend {
+        async fn initialize(
+            &self,
+            _: ls_types::InitializeParams,
+        ) -> jsonrpc::Result<ls_types::InitializeResult> {
+            Ok(ls_types::InitializeResult::default())
+        }
+
+        async fn shutdown(&self) -> jsonrpc::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn failure_outcome_requires_current_generation_and_is_accepted_once() {
+        let session = Arc::new(Mutex::new(Session::default()));
+        assert_eq!(fail_generation(&session, 1).await, ReloadRunOutcome::Stale);
+        assert_eq!(fail_generation(&session, 0).await, ReloadRunOutcome::Failed);
+        assert_eq!(fail_generation(&session, 0).await, ReloadRunOutcome::Stale);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn blocking_phases_inherit_scoped_dispatcher_and_operation() {
+        let log = tempfile::NamedTempFile::new().expect("log file");
+        let subscriber = tracing_subscriber::fmt()
+            .with_ansi(false)
+            .with_max_level(tracing::Level::DEBUG)
+            .with_writer(StdMutex::new(log.reopen().expect("log writer")))
+            .finish();
+        async {
+            let operation = tracing::info_span!("project.reload", generation = 73);
+            async {
+                let mut jobs = JoinSet::new();
+                jobs.spawn_blocking(blocking_in_span(
+                    tracing::debug_span!("project.django_environment", phase = "test"),
+                    || {
+                        debug!(count = 7, "phase evidence");
+                    },
+                ));
+                jobs.join_next()
+                    .await
+                    .expect("phase job")
+                    .expect("phase result");
+                spawn_warm_cache_job(
+                    WarmCachePhase::ResolveTemplateDirs,
+                    Session::default().snapshot(),
+                )
+                .await
+                .expect("warm job")
+                .expect("warm result");
+                prime_snapshot(Session::default().snapshot()).await;
+            }
+            .instrument(operation)
+            .await;
+        }
+        .with_subscriber(subscriber)
+        .await;
+        let output = std::fs::read_to_string(log.path()).expect("read log");
+        for line in output
+            .lines()
+            .filter(|line| line.contains("phase evidence") || line.contains("compute_completed"))
+        {
+            assert!(line.contains("project.reload{generation=73}"), "{line}");
+        }
+        assert!(output.contains("phase evidence count=7"), "{output}");
+        assert!(output.contains("ide_cache.phase"), "{output}");
+        assert!(output.contains("project.intrinsic_priming"), "{output}");
+    }
+
+    #[tokio::test]
+    async fn dequeued_jobs_have_distinct_operation_spans() {
+        async {
+            let (tx, mut rx) = mpsc::channel(2);
+            let reload = ProjectReload::spawn(move |_| {
+                let tx = tx.clone();
+                async move {
+                    tx.send(tracing::Span::current())
+                        .await
+                        .expect("observed operation");
+                    ReloadRunOutcome::Complete
+                }
+            });
+            reload.request_current(ProjectWork::FullReload);
+            let full = rx.recv().await.expect("full reload span");
+            reload.request_current(ProjectWork::Reprime);
+            let reprime = rx.recv().await.expect("re-prime span");
+            assert_eq!(
+                full.metadata().expect("full metadata").name(),
+                "project.reload"
+            );
+            assert_eq!(
+                reprime.metadata().expect("re-prime metadata").name(),
+                "project.reprime"
+            );
+            assert_ne!(full.id(), reprime.id());
+        }
+        .with_subscriber(tracing_subscriber::registry())
+        .await;
+    }
+
+    #[tokio::test]
+    #[allow(clippy::too_many_lines)] // Keep the progress handshake and readiness assertions together.
+    async fn readiness_summary_precedes_stalled_warmup_and_warmup_has_separate_context() {
+        let root = tempdir().expect("project root");
+        let log = tempfile::NamedTempFile::new().expect("log file");
+        let subscriber = tracing_subscriber::fmt()
+            .with_ansi(false)
+            .with_env_filter("off,djls_server::reload=debug,salsa::function::execute=info")
+            .with_writer(StdMutex::new(log.reopen().expect("log writer")))
+            .finish();
+        let (mut service, socket) = LspService::new(TransportBackend);
+        service
+            .call(
+                jsonrpc::Request::build("initialize")
+                    .params(serde_json::json!({"capabilities": {}}))
+                    .id(1_i64)
+                    .finish(),
+            )
+            .await
+            .expect("initialize");
+        let params = ls_types::InitializeParams {
+            workspace_folders: Some(vec![ls_types::WorkspaceFolder {
+                uri: ls_types::Uri::from_file_path(root.path()).expect("root URI"),
+                name: "private-workspace-canary".into(),
+            }]),
+            capabilities: ls_types::ClientCapabilities {
+                window: Some(ls_types::WindowClientCapabilities {
+                    work_done_progress: Some(true),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let session = Arc::new(Mutex::new(Session::new(&params)));
+        let client = service.inner().0.clone();
+        let diagnostics = DiagnosticPublisher::new(Arc::clone(&session), client.clone());
+        let client_info = session.lock().await.client_info().clone();
+        let (mut requests, mut responses) = socket.split();
+        let observe = async {
+            let mut creates = 0;
+            while let Some(message) = requests.next().await {
+                if message.method() == "window/workDoneProgress/create" {
+                    creates += 1;
+                    if creates == 3 {
+                        assert_eq!(
+                            session.lock().await.readiness_state(),
+                            IntrinsicReadinessState::Ready(0)
+                        );
+                        let before =
+                            std::fs::read_to_string(log.path()).expect("read readiness log");
+                        assert_eq!(before.matches("Project reload completed").count(), 1);
+                        assert!(!before.contains("IDE cache warm-up finished"));
+                        // Telemetry must not force optional indexing, Models,
+                        // or per-Template work just to produce summary counts.
+                        assert!(before.contains("template_library_catalog("));
+                        for query in ["template_resolution(", "model_graph(", "parse_template("] {
+                            assert!(!before.contains(query), "unexpected eager query: {query}");
+                        }
+                        tokio::time::sleep(Duration::from_millis(30)).await;
+                        assert_eq!(
+                            std::fs::read_to_string(log.path()).expect("read stalled log"),
+                            before
+                        );
+                    }
+                    responses
+                        .send(jsonrpc::Response::from_ok(
+                            message.id().expect("create id").clone(),
+                            serde_json::Value::Null,
+                        ))
+                        .await
+                        .expect("create response");
+                } else if creates == 3
+                    && message.method() == "$/progress"
+                    && message.params().expect("progress params")["value"]["kind"] == "end"
+                {
+                    break;
+                }
+            }
+            assert_eq!(creates, 3);
+        };
+        let run = async {
+            reload_project(Arc::clone(&session), client, client_info, diagnostics)
+                .instrument(tracing::info_span!(
+                    "project.reload",
+                    generation = tracing::field::Empty
+                ))
+                .await
+        }
+        .with_subscriber(subscriber);
+        let (outcome, ()) = timeout(Duration::from_secs(30), async {
+            tokio::join!(run, observe)
+        })
+        .await
+        .expect("reload and warm-up complete");
+        assert_eq!(outcome, ReloadRunOutcome::Complete);
+        let output = std::fs::read_to_string(log.path()).expect("read log");
+        assert_eq!(
+            output
+                .lines()
+                .filter(|line| line.contains(" INFO ") && line.contains("djls_server::reload:"))
+                .count(),
+            1,
+            "{output}"
+        );
+        let warm = output
+            .lines()
+            .find(|line| line.contains("IDE cache warm-up finished"))
+            .expect("warm summary");
+        assert!(warm.contains("ide_cache.warmup{generation=0}"), "{warm}");
+        assert!(!warm.contains("project.reload"), "{warm}");
+        assert!(!output.contains("private-workspace-canary"), "{output}");
+        assert!(
+            !output.contains(root.path().to_str().expect("root path")),
+            "{output}"
+        );
+    }
 
     struct DropProbe {
         dropped: Option<oneshot::Sender<()>>,
@@ -1159,7 +1544,7 @@ mod tests {
                             classify_prime_task_join(joined),
                             StageOutcome::Failed
                         ));
-                        fail_generation(&session, 0).await;
+                        assert_eq!(fail_generation(&session, 0).await, ReloadRunOutcome::Failed);
                     }
                     completed_tx
                         .send(run)
@@ -1767,7 +2152,7 @@ S100 = "off"
             .expect("temporary project path should be valid UTF-8");
         std::fs::write(
             root.join("djls.toml").as_std_path(),
-            "pythonpath = 'not an array'",
+            "pythonpath = 'private-config-canary'",
         )
         .expect("invalid project settings fixture should be written");
 
@@ -1781,8 +2166,34 @@ S100 = "off"
         };
         let session = Arc::new(Mutex::new(Session::new(&params)));
 
-        let outcome = load_project_settings(&session).await;
+        let log = tempfile::NamedTempFile::new().expect("log file");
+        let subscriber = tracing_subscriber::fmt()
+            .with_ansi(false)
+            .with_max_level(tracing::Level::DEBUG)
+            .with_writer(StdMutex::new(log.reopen().expect("log writer")))
+            .finish();
+        let outcome = load_project_settings(&session)
+            .with_subscriber(subscriber)
+            .await;
 
         assert!(matches!(outcome, StageOutcome::Failed));
+        let output = std::fs::read_to_string(log.path()).expect("read log");
+        assert!(output.contains("Settings load finished"), "{output}");
+        let default_visible: Vec<_> = output
+            .lines()
+            .filter(|line| !line.contains(" DEBUG "))
+            .collect();
+        assert!(
+            default_visible
+                .iter()
+                .any(|line| line.contains("Error loading project settings")),
+            "{output}"
+        );
+        for line in default_visible {
+            assert!(!line.contains("private-config-canary"), "{line}");
+            assert!(!line.contains(root.as_str()), "{line}");
+        }
+        // The detail needed to fix the setting stays available at DEBUG.
+        assert!(output.contains("key `pythonpath`"), "{output}");
     }
 }
