@@ -33,6 +33,9 @@ pub fn run() -> Result<()> {
         eprintln!("Ctrl+C may not work as expected due to LSP stdio communication.");
     }
 
+    // Locals drop in reverse order: flush file tracing only after runtime teardown.
+    let logging = logging::init_tracing();
+    let lsp_logging = logging.lsp();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
@@ -42,21 +45,13 @@ pub fn run() -> Result<()> {
         let stdout = tokio::io::stdout();
 
         let (service, socket) = LspService::build(|client| {
-            let logging = logging::init_tracing({
-                let client = client.clone();
-                move |message_type, message| {
-                    let client = client.clone();
-                    tokio::spawn(async move {
-                        client.log_message(message_type, message).await;
-                    });
-                }
-            });
-
-            DjangoLanguageServer::new(client, logging)
+            lsp_logging.start(client.clone());
+            DjangoLanguageServer::new(client, lsp_logging.clone())
         })
         .finish();
 
         Server::new(stdin, stdout, socket).serve(service).await;
+        lsp_logging.stop().await;
 
         Ok(())
     })
