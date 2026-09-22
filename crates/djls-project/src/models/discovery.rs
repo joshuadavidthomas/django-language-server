@@ -25,8 +25,12 @@ pub fn model_modules(db: &dyn ProjectDb, project: Project) -> Vec<PythonSourceMo
             let _ = root.revision(db);
         } else {
             tracing::warn!(
-                "Search path has no registered source root: {}",
-                search_path.path()
+                search_path_kind = search_path.kind_name(),
+                "Search path has no registered source root"
+            );
+            tracing::debug!(
+                path = %search_path.path(),
+                "Search path without registered source root"
             );
         }
 
@@ -92,16 +96,22 @@ fn discover_model_files_in_root(
         RootWalk::Directory { entries, issues } => {
             if !issues.is_empty() {
                 tracing::warn!(
-                    "Partially walked Python source root {}: {:?}",
-                    base_dir,
-                    issues
+                    issue_count = issues.len(),
+                    root_kind = ?root_kind,
+                    "Partially walked Python source root"
                 );
+                tracing::debug!(root = %base_dir, ?issues, "Python source root walk issues");
             }
             entries
         }
         RootWalk::Missing | RootWalk::File(_) => return results,
         RootWalk::Inaccessible(kind) => {
-            tracing::warn!("Failed to walk Python source root {}: {:?}", base_dir, kind);
+            tracing::warn!(
+                error_kind = ?kind,
+                root_kind = ?root_kind,
+                "Failed to walk Python source root"
+            );
+            tracing::debug!(root = %base_dir, error_kind = ?kind, "Python source root walk failed");
             return results;
         }
     };

@@ -129,7 +129,10 @@ fn template_reference_response(
     supports_location_links: bool,
     position_encoding: PositionEncoding,
 ) -> Option<ls_types::GotoDefinitionResponse> {
-    tracing::debug!("Found template reference: '{}'", template_name.name(db));
+    tracing::debug!(
+        template = template_name.name(db),
+        "Found template reference at navigation position"
+    );
 
     let origin_selection_range = encoded_range(db, file, span, position_encoding)?;
     let project = db.project()?;
@@ -137,7 +140,7 @@ fn template_reference_response(
     match resolve_reference_for_file(db, resolution, file, template_name, kind)? {
         TemplateResolutionResult::Found(origin) => {
             let path = origin.path_buf(db);
-            tracing::debug!("Resolved template to: {}", path);
+            tracing::debug!(%path, "Resolved template reference for navigation");
 
             let target_uri = path.to_navigation_uri()?;
             let target_range = ls_types::Range::default();
@@ -194,10 +197,10 @@ fn template_reference_response(
             }
         }
         TemplateResolutionResult::DoesNotExist(error) => {
-            tracing::warn!(
-                "Template '{}' not found. Tried: {:?}",
-                error.name.name(db),
-                error.tried
+            tracing::debug!(
+                template = error.name.name(db),
+                tried = ?error.tried,
+                "Template reference did not resolve for navigation"
             );
             None
         }
@@ -348,8 +351,8 @@ pub fn find_references(
             ..
         } => {
             tracing::debug!(
-                "Cursor is inside template-reference tag referencing: '{}'",
-                template_name.name(db)
+                template = template_name.name(db),
+                "Cursor is inside template-reference tag"
             );
 
             let project = db.project()?;

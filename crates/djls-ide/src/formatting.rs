@@ -38,8 +38,10 @@ pub fn format_document(
         match djls_format::format_template(source.as_str(), path, backend, format_options) {
             Ok(FormatOutcome::Changed(formatted)) => formatted,
             Ok(FormatOutcome::Unchanged | FormatOutcome::Ignored) => return Vec::new(),
+            // FormatError does not separate configuration failures from parse failures of a
+            // half-typed buffer, so logging it default-visible would fire on routine saves.
             Err(error) => {
-                tracing::debug!("Formatting failed for {path}: {error}");
+                tracing::debug!(%path, %error, "Template formatting failed");
                 return Vec::new();
             }
         };

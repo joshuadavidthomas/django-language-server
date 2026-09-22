@@ -99,35 +99,31 @@ impl InitializeParamsExt for ls_types::InitializeParams {
                     // Null means no override, including for non-optional settings.
                     fields.retain(|_, value| !value.is_null());
                 }
-                match ClientOptions::deserialize(&value) {
-                    Ok(mut opts) => {
-                        if let serde_json::Value::Object(fields) = value {
-                            opts.overrides = fields;
-                            opts.overrides
-                                .retain(|key, _| !opts.unknown.contains_key(key));
-                        }
-                        Some(opts)
+                let mut opts = match ClientOptions::deserialize(&value) {
+                    Ok(opts) => opts,
+                    Err(error) => {
+                        tracing::warn!("Invalid initialization options; using defaults");
+                        tracing::debug!(%error, "Initialization options deserialize error");
+                        return None;
                     }
-                    Err(err) => {
-                        tracing::error!(
-                            "Failed to deserialize initialization options: {}. Using defaults.",
-                            err
-                        );
-                        None
-                    }
+                };
+                if let serde_json::Value::Object(fields) = value {
+                    opts.overrides = fields;
+                    opts.overrides
+                        .retain(|key, _| !opts.unknown.contains_key(key));
                 }
+                Some(opts)
             })
             .unwrap_or_default();
 
         if !client_options.unknown.is_empty() {
             tracing::warn!(
-                "Received unknown initialization options: {}",
-                client_options
-                    .unknown
-                    .keys()
-                    .map(String::as_str)
-                    .collect::<Vec<_>>()
-                    .join(", ")
+                unknown_option_count = client_options.unknown.len(),
+                "Received unknown initialization options"
+            );
+            tracing::debug!(
+                names = ?client_options.unknown.keys().collect::<Vec<_>>(),
+                "Unknown initialization option names"
             );
         }
 
@@ -188,10 +184,7 @@ impl UriExt for ls_types::Uri {
         // The real scheme branching logic will live in DocumentPath::from_uri(), not here.
         // For now (Step 1), only handle file:// URIs
         if self.scheme().as_str() != "file" {
-            tracing::trace!(
-                "URI conversion to path failed for: {} (non-file scheme)",
-                self.as_str()
-            );
+            tracing::trace!(reason = "non_file_scheme", "URI conversion to path failed");
             return None;
         }
 
@@ -199,10 +192,7 @@ impl UriExt for ls_types::Uri {
 
         Utf8PathBuf::from_path_buf(path.into_owned())
             .inspect_err(|_| {
-                tracing::trace!(
-                    "URI conversion to path failed for: {} (non-UTF-8 path)",
-                    self.as_str()
-                );
+                tracing::trace!(reason = "non_utf8_path", "URI conversion to path failed");
             })
             .ok()
     }
@@ -211,6 +201,8 @@ impl UriExt for ls_types::Uri {
 #[cfg(test)]
 mod tests {
     use std::str::FromStr;
+
+    use djls_testing::capture_events;
 
     use super::*;
 
@@ -266,6 +258,38 @@ mod tests {
             );
             assert!(options.overrides.is_empty(), "{supplied}");
         }
+    }
+
+    #[test]
+    fn initialization_warnings_do_not_include_client_values_or_option_names() {
+        const SENTINEL_OPTION: &str = "private_sentinel_option";
+        const SENTINEL_VALUE: &str = "private-sentinel-value";
+        let unknown = ls_types::InitializeParams {
+            initialization_options: Some(serde_json::json!({SENTINEL_OPTION: SENTINEL_VALUE})),
+            ..Default::default()
+        };
+        let invalid = ls_types::InitializeParams {
+            initialization_options: Some(serde_json::json!({"pythonpath": SENTINEL_VALUE})),
+            ..Default::default()
+        };
+
+        let ((), events) = capture_events(|| {
+            unknown.client_options();
+            invalid.client_options();
+        });
+
+        let visible = &events.default_visible;
+        assert!(visible.contains("unknown_option_count=1"), "{visible}");
+        assert!(
+            visible.contains("Invalid initialization options"),
+            "{visible}"
+        );
+        for private in [SENTINEL_OPTION, SENTINEL_VALUE] {
+            assert!(!visible.contains(private), "leaked {private}: {visible}");
+        }
+        let debug = &events.debug;
+        assert!(debug.contains(SENTINEL_OPTION), "{debug}");
+        assert!(debug.contains("invalid type"), "{debug}");
     }
 
     #[test]
