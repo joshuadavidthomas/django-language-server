@@ -5,9 +5,14 @@ on:
   push:
     branches: [main]
   workflow_call:
+    inputs:
+      ref:
+        description: Git ref to lint
+        required: false
+        type: string
 
 concurrency:
-  group: lint-${{ github.head_ref }}
+  group: lint-${{ inputs.ref || github.head_ref || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -32,6 +37,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.ref }}
           persist-credentials: false
 
       - name: Install uv
@@ -56,17 +62,37 @@ jobs:
           SKIP=no-commit-to-branch,cargo-fmt,cargo-clippy \
           uv run --no-project --with "nox[uv]" nox --session lint
 
+  release-metadata:
+    needs: should-run
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Install uv
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+        with:
+          add_shims_to_path: false
+          install_args: uv
+
+      - name: Check release metadata
+        run: uv run tools/release.py check
+
   rust-changes:
     needs: should-run
     runs-on: ubuntu-latest
     outputs:
-      rust: ${{ steps.filter.outputs.rust }}
+      rust: ${{ inputs.ref != '' && 'true' || steps.filter.outputs.rust }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.ref }}
           persist-credentials: false
 
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        if: inputs.ref == ''
         id: filter
         with:
           filters: |
@@ -91,6 +117,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.ref }}
           persist-credentials: false
 
       - name: Cache rustup toolchain
@@ -130,6 +157,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.ref }}
           persist-credentials: false
 
       - name: Cache rustup toolchain
@@ -169,6 +197,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.ref }}
           persist-credentials: false
 
       - name: Cache rustup toolchain
@@ -210,6 +239,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.ref }}
           persist-credentials: false
 
       - name: Cache rustup toolchain

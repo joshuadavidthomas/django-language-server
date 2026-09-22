@@ -42,6 +42,7 @@ nav:
   - Command-line interface: cli.md
   - Pre-commit: pre-commit.md
   - Versioning: versioning.md
+  - Releasing: releasing.md
   - Changelog: changelog.md
   - Contributing: contributing.md
 repo_name: django-language-server

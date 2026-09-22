@@ -87,16 +87,17 @@ Standalone binaries are available for macOS, Linux, and Windows from [GitHub Rel
 
     ```powershell
     # Set this to the release you want to install.
-    \Version = "6.1.0"
-    $Archive = "django-language-server-v$Version-windows-x64.zip"
+    $Archive = "django-language-server-v6.1.0-windows-x64.zip"
 
     # Download and extract the Windows x64 archive.
-    Invoke-WebRequest -Uri "https://github.com/joshuadavidthomas/django-language-server/releases/download/v$Version/$Archive" -OutFile $Archive
+    Invoke-WebRequest -Uri "https://github.com/joshuadavidthomas/django-language-server/releases/download/v6.1.0/$Archive" -OutFile $Archive
     Expand-Archive -Path $Archive -DestinationPath .
 
     # Move the binary to a location in your PATH (requires admin),
     # or add its extracted directory to your PATH.
-    Move-Item -Path "django-language-server-v$Version-windows-x64\djls.exe" -Destination "$env:LOCALAPPDATA\Programs\djls.exe"
+    $Directory = [IO.Path]::GetFileNameWithoutExtension($Archive)
+    $Destination = [IO.Path]::Combine($env:LOCALAPPDATA, "Programs", "djls.exe")
+    Move-Item -Path (Join-Path $Directory "djls.exe") -Destination $Destination
     ```
 
 ## Building from source

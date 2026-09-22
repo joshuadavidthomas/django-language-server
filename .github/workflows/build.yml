@@ -14,6 +14,10 @@ on:
       - rust-toolchain.toml
   workflow_call:
     inputs:
+      ref:
+        description: Git ref to build
+        required: false
+        type: string
       version:
         description: Version tag for release packaging
         required: false
@@ -26,7 +30,7 @@ on:
         type: string
 
 concurrency:
-  group: build-${{ github.ref }}
+  group: build-${{ inputs.ref || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -60,6 +64,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.ref }}
           persist-credentials: false
 
       - name: Prepare target and platform identifiers
@@ -92,7 +97,7 @@ jobs:
           echo "ARCH=${arch:-'unknown'}" >> $GITHUB_ENV
 
       - name: Cache rustup toolchain
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        if: ${{ inputs.version == '' && !startsWith(github.ref, 'refs/tags/') }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -102,7 +107,7 @@ jobs:
             ${{ runner.os }}-${{ runner.arch }}-rustup-pinned-
 
       - name: Cache Homebrew packages (macOS)
-        if: ${{ !startsWith(github.ref, 'refs/tags/') && runner.os == 'macOS' }}
+        if: ${{ inputs.version == '' && !startsWith(github.ref, 'refs/tags/') && runner.os == 'macOS' }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -114,7 +119,7 @@ jobs:
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
         with:
           add_shims_to_path: false
-          cache: ${{ !startsWith(github.ref, 'refs/tags/') }}
+          cache: ${{ inputs.version == '' && !startsWith(github.ref, 'refs/tags/') }}
           install_args: rust
 
       - name: Install Rust target
@@ -122,10 +127,10 @@ jobs:
         run: rustup target add "$TARGET"
 
       - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        if: ${{ inputs.version == '' && !startsWith(github.ref, 'refs/tags/') }}
 
       - name: Cache Zig toolchain
-        if: ${{ !startsWith(github.ref, 'refs/tags/') && runner.os == 'Linux' && matrix.platform.target == 'aarch64' }}
+        if: ${{ inputs.version == '' && !startsWith(github.ref, 'refs/tags/') && runner.os == 'Linux' && matrix.platform.target == 'aarch64' }}
         id: cache-zig
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -204,7 +209,7 @@ jobs:
         shell: bash
         run: |
           7z a "${ARCHIVE}.zip" "$ARCHIVE"
-          certutil -hashfile "${ARCHIVE}.zip" SHA256 > "${ARCHIVE}.zip.sha256"
+          sha256sum "${ARCHIVE}.zip" > "${ARCHIVE}.zip.sha256"
           echo "ARTIFACT_PATH=${ARCHIVE}.zip*" >> $GITHUB_ENV
 
       - name: Package for release (Unix)
@@ -234,6 +239,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.ref }}
           persist-credentials: false
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -245,7 +251,7 @@ jobs:
         with:
           target: ${{ matrix.platform.target }}
           args: --release --out dist --find-interpreter
-          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
+          sccache: ${{ inputs.version == '' && !startsWith(github.ref, 'refs/tags/') }}
           manylinux: auto
 
       - name: Upload wheels
@@ -267,6 +273,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.ref }}
           persist-credentials: false
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -278,7 +285,7 @@ jobs:
         with:
           target: ${{ matrix.platform.target }}
           args: --release --out dist --find-interpreter
-          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
+          sccache: ${{ inputs.version == '' && !startsWith(github.ref, 'refs/tags/') }}
           manylinux: musllinux_1_2
 
       - name: Upload wheels
@@ -298,6 +305,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.ref }}
           persist-credentials: false
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -306,7 +314,7 @@ jobs:
           python-version: 3.x
 
       - name: Cache rustup toolchain
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        if: ${{ inputs.version == '' && !startsWith(github.ref, 'refs/tags/') }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -316,7 +324,7 @@ jobs:
             ${{ runner.os }}-${{ runner.arch }}-rustup-pinned-
 
       - name: Cache Cargo registry
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        if: ${{ inputs.version == '' && !startsWith(github.ref, 'refs/tags/') }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -332,7 +340,7 @@ jobs:
         with:
           target: ${{ matrix.platform.target }}
           args: --release --out dist --find-interpreter
-          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
+          sccache: ${{ inputs.version == '' && !startsWith(github.ref, 'refs/tags/') }}
 
       - name: Upload wheels
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -353,6 +361,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.ref }}
           persist-credentials: false
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -360,7 +369,7 @@ jobs:
           python-version: 3.x
 
       - name: Cache rustup toolchain
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        if: ${{ inputs.version == '' && !startsWith(github.ref, 'refs/tags/') }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -370,7 +379,7 @@ jobs:
             ${{ runner.os }}-${{ runner.arch }}-rustup-pinned-
 
       - name: Cache Cargo registry
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        if: ${{ inputs.version == '' && !startsWith(github.ref, 'refs/tags/') }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -386,7 +395,7 @@ jobs:
         with:
           target: ${{ matrix.platform.target }}
           args: --release --out dist --find-interpreter
-          sccache: ${{ !startsWith(github.ref, 'refs/tags/') }}
+          sccache: ${{ inputs.version == '' && !startsWith(github.ref, 'refs/tags/') }}
 
       - name: Upload wheels
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -400,6 +409,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.ref }}
           persist-credentials: false
 
       - name: Build sdist
