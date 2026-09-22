@@ -4,7 +4,20 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
+setup_start=$SECONDS
+
+run_step() {
+    local label="$1"
+    shift
+    local start=$SECONDS
+
+    echo "==> $label"
+    "$@"
+    echo "==> $label complete ($((SECONDS - start))s)"
+}
+
 echo "==> Installing system build dependencies"
+step_start=$SECONDS
 missing_packages=()
 for package in build-essential libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev libffi-dev liblzma-dev libpq-dev libcurl4-openssl-dev; do
     if [[ "$(dpkg-query -W -f='${db:Status-Status}' "$package" 2>/dev/null || true)" != installed ]]; then
@@ -15,6 +28,7 @@ if (( ${#missing_packages[@]} )); then
     sudo apt-get update
     sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "${missing_packages[@]}"
 fi
+echo "==> Installing system build dependencies complete ($((SECONDS - step_start))s)"
 
 echo "==> Configuring tool paths for login shells"
 profile_marker="# django-language-server toolchain"
@@ -39,6 +53,7 @@ if ! command -v mise >/dev/null 2>&1; then
 fi
 
 echo "==> Installing development tools"
+step_start=$SECONDS
 mise trust "$repo_root/mise.toml"
 mise install
 mise -C tools/rustfmt install rust
@@ -63,14 +78,14 @@ done
 for tool in cargo-insta cargo-hawk; do
     ln -sf "$(mise which "$tool")" "${CARGO_HOME:-$HOME/.cargo}/bin/$tool"
 done
+echo "==> Installing development tools complete ($((SECONDS - step_start))s)"
 
-echo "==> Installing locked Python dependencies"
-uv sync --frozen --no-install-project
+run_step "Installing locked Python dependencies" uv sync --frozen --no-install-project
 
-echo "==> Fetching locked Rust dependencies"
-cargo fetch --locked
+run_step "Fetching locked Rust dependencies" cargo fetch --locked
 
 echo "==> Installing pre-commit hooks"
+step_start=$SECONDS
 hooks_path="$(git config --path core.hooksPath || true)"
 if [[ -n "$hooks_path" && "$hooks_path" == /* && "$(basename "$hooks_path")" == hooks ]]; then
     # Amp uses a global hooks directory for its prepare-commit-msg hook. Install
@@ -79,8 +94,11 @@ if [[ -n "$hooks_path" && "$hooks_path" == /* && "$(basename "$hooks_path")" == 
 else
     prek install --prepare-hooks
 fi
+echo "==> Installing pre-commit hooks complete ($((SECONDS - step_start))s)"
 
-echo "==> Syncing the locked test corpus"
-just corpus sync
+# Everyday tests need the pinned source fixtures, but not the per-project Python
+# environments used only by `just corpus`. Preparing every environment here also
+# builds historical interpreters and resolves dozens of unrelated dependency sets.
+run_step "Syncing locked corpus source" just corpus sync --source-only
 
-echo "==> Setup complete"
+echo "==> Setup complete ($((SECONDS - setup_start))s total)"
