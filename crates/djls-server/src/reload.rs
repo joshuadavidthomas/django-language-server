@@ -5,6 +5,8 @@
 //! under the lock, then warm derived queries and republish diagnostics from a
 //! snapshot.
 
+mod failure_notice;
+
 use std::future::Future;
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
@@ -51,6 +53,7 @@ use crate::diagnostics::DiagnosticPublisher;
 use crate::logging::blocking_in_span;
 use crate::progress::ProgressItem;
 use crate::progress::ProgressReporter;
+use crate::reload::failure_notice::ReloadFailureNotice;
 use crate::session::CancellationRetryAction;
 use crate::session::CancellationRetryState;
 use crate::session::IntrinsicReadinessState;
@@ -98,20 +101,36 @@ impl ProjectReload {
         diagnostics: DiagnosticPublisher,
     ) -> Self {
         let worker_session = Arc::clone(&session);
+        let notice = ReloadFailureNotice::new(&session, client.clone());
         let reload = Self::spawn(move |job| {
             let session = Arc::clone(&worker_session);
             let client = client.clone();
             let diagnostics = diagnostics.clone();
+            let notice = notice.clone();
             async move {
                 let client_info = { session.lock().await.client_info().clone() };
-                match job {
+                let outcome = match job {
                     ProjectWork::FullReload => {
                         reload_project(Arc::clone(&session), client, client_info, diagnostics).await
                     }
                     ProjectWork::Reprime => {
                         reprime_project(Arc::clone(&session), diagnostics).await
                     }
+                };
+                match outcome {
+                    ReloadRunOutcome::Failed => {
+                        if let IntrinsicReadinessState::Failed(generation) =
+                            session.lock().await.readiness_state()
+                        {
+                            notice.failed(generation);
+                        }
+                    }
+                    ReloadRunOutcome::Complete => notice.recovered(),
+                    ReloadRunOutcome::Cancelled
+                    | ReloadRunOutcome::Stale
+                    | ReloadRunOutcome::Skipped => {}
                 }
+                outcome
             }
         });
         Self {
