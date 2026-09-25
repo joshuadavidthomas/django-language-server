@@ -274,7 +274,9 @@ Infrastructure code — the CLI, file I/O, configuration loading — uses `anyho
 
 ### Observability
 
-The server uses `tracing` with a custom `LspLayer` subscriber that routes a single log call to two destinations: rotating daily log files on disk, and the editor's output panel via LSP `window/logMessage` notifications. This means `tracing::info!("something happened")` in any crate automatically shows up in both places without the callsite knowing about LSP.
+The server uses `tracing` with a custom `LspLayer` subscriber that routes a single log call to two destinations: log files on disk, and the editor's output panel via LSP `window/logMessage` notifications. This means `tracing::info!("something happened")` in any DJLS crate automatically shows up in both places without the callsite knowing about LSP. `LspLayer` queues events into a bounded lossy queue drained by one worker, so emitting an event never blocks or spawns a task. The file worker guard outlives both the service and Tokio runtime so teardown can still log; the LSP worker stops before transport teardown.
+
+Dependencies default to WARN in files; explicitly listed DJLS runtime crate targets accept INFO. A valid `RUST_LOG` replaces the file defaults, while the editor independently accepts INFO and above only from those DJLS runtime targets. Transport, dependency, DEBUG, and TRACE events are never forwarded to the editor, preventing transport failures from feeding back through tracing. Supported work-done progress sends Begin/Report/End; unavailable progress falls back to the same bounded tracing path. See [Logging](docs/logging.md) for destination policies, file locations, and current storage limits.
 
 ### Configurability
 

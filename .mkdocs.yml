@@ -40,6 +40,7 @@ nav:
   - Configuration: configuration/index.md
   - Template Validation: template-validation.md
   - Command-line interface: cli.md
+  - Logging: logging.md
   - Pre-commit: pre-commit.md
   - Versioning: versioning.md
   - Releasing: releasing.md
