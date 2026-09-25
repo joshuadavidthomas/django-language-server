@@ -80,8 +80,12 @@ impl Project {
                 let _ = root.revision(db);
             } else {
                 tracing::warn!(
-                    "Search path has no registered source root: {}",
-                    search_path.path()
+                    search_path_kind = search_path.kind_name(),
+                    "Search path has no registered source root"
+                );
+                tracing::debug!(
+                    path = %search_path.path(),
+                    "Search path without registered source root"
                 );
             }
         }
@@ -203,47 +207,60 @@ fn load_env_file(
     if !fs.is_file(&env_path) {
         if settings.env_file().is_some() {
             if fs.exists(&env_path) {
-                tracing::warn!("Configured env_file is not a file: {}", env_path);
+                tracing::warn!(reason = "not_file", "Configured env file is unavailable");
             } else {
-                tracing::warn!("Configured env_file not found: {}", env_path);
+                tracing::warn!(reason = "not_found", "Configured env file is unavailable");
             }
+            tracing::debug!(path = %env_path, "Configured env file path");
         } else {
-            tracing::debug!("No .env file found at {}", env_path);
+            tracing::debug!(path = %env_path, "No default env file found");
         }
         return Vec::new();
     }
 
     let content = match fs.read_to_string(&env_path) {
         Ok(content) => content,
-        Err(err) => {
-            tracing::warn!("Failed to read env file {}: {}", env_path, err);
+        Err(error) => {
+            tracing::warn!(error_kind = ?error.kind(), "Failed to read env file");
+            tracing::debug!(path = %env_path, %error, "Env file read error");
             return Vec::new();
         }
     };
 
     let mut vars = Vec::new();
+    let mut parse_error_count = 0usize;
     for item in dotenvy::from_read_iter(content.as_bytes()) {
         match item {
             Ok((key, value)) => {
-                tracing::debug!("Loaded env var from file: {}", key);
                 vars.push((key, value));
             }
+            // dotenvy parse errors embed the offending line, which may hold a secret value.
             Err(_) => {
-                tracing::warn!("{}", env_file_parse_warning(&env_path));
+                parse_error_count += 1;
             }
         }
     }
+    if parse_error_count > 0 {
+        tracing::warn!(parse_error_count, "Skipped invalid entries in env file");
+        tracing::debug!(
+            path = %env_path,
+            parse_error_count,
+            "Env file has invalid entries"
+        );
+    }
     if !vars.is_empty() {
         tracing::info!(
-            "Loaded {} environment variable(s) from env file",
-            vars.len()
+            variable_count = vars.len(),
+            "Loaded environment variables from env file"
+        );
+        // Names only: values are commonly secrets.
+        tracing::debug!(
+            path = %env_path,
+            names = ?vars.iter().map(|(key, _)| key.as_str()).collect::<Vec<_>>(),
+            "Loaded environment variable names from env file"
         );
     }
     vars
-}
-
-fn env_file_parse_warning(env_path: &Utf8Path) -> String {
-    format!("Could not parse an entry in env file {env_path}; skipped the entry")
 }
 
 pub(crate) fn django_settings_module_name(
@@ -269,15 +286,20 @@ pub(crate) fn django_settings_module_name(
     let source = match fs.read_to_string(&manage_path) {
         Ok(source) => source,
         Err(error) => {
-            tracing::warn!(%error, "Could not read manage.py for Django settings auto-detection");
+            tracing::warn!(
+                error_kind = ?error.kind(),
+                "Could not read manage.py for Django settings auto-detection"
+            );
+            tracing::debug!(path = %manage_path, %error, "manage.py read error");
             return None;
         }
     };
     let module = django_settings_module_from_manage_source(&source);
     if let Some(module) = &module {
-        tracing::info!(
-            "Auto-detected Django settings module from manage.py: {}",
-            module.as_str()
+        tracing::info!(source = "manage_py", "Auto-detected Django settings module");
+        tracing::debug!(
+            module = module.as_str(),
+            "Auto-detected Django settings module name"
         );
         return Some(module.clone());
     }
@@ -389,6 +411,7 @@ mod tests {
 
     use camino::Utf8Path;
     use djls_conf::Settings;
+    use djls_testing::capture_events;
     use tempfile::tempdir;
 
     use super::*;
@@ -656,22 +679,70 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "site2.settings")
 
         #[test]
         fn malformed_entry_warning_does_not_include_file_contents() {
-            const SENTINEL_SECRET: &str = "djls-sentinel-secret-do-not-log";
-            let env_path = Utf8Path::new("/project/.env");
-            let malformed = format!("SECRET=\"{SENTINEL_SECRET}");
-            let error = dotenvy::from_read_iter(malformed.as_bytes())
-                .next()
-                .expect("malformed env entry should produce a parser result")
-                .expect_err("unterminated quoted value should fail to parse");
+            const SENTINEL_PATH: &str = "private-sentinel.env";
+            const SENTINEL_KEY: &str = "DJLS_PRIVATE_SENTINEL_KEY";
+            const SENTINEL_VALUE: &str = "djls-sentinel-secret-do-not-log";
+            let dir = tempdir().expect("test temporary directory should be created");
+            let root = Utf8Path::from_path(dir.path())
+                .expect("test temporary directory path should convert to UTF-8");
+            fs::write(
+                dir.path().join(SENTINEL_PATH),
+                format!("{SENTINEL_KEY}=safe\nBROKEN=\"{SENTINEL_VALUE}"),
+            )
+            .expect("test env file should be written");
+            fs::write(
+                dir.path().join("djls.toml"),
+                format!("env_file = \"{SENTINEL_PATH}\""),
+            )
+            .expect("test settings file should be written");
+            let settings = Settings::new(root, None).expect("test settings should parse");
 
-            let warning = env_file_parse_warning(env_path);
+            let (vars, events) = capture_events(|| {
+                load_env_file(&djls_source::OsFileSystem::default(), root, &settings)
+            });
 
-            assert!(matches!(error, dotenvy::Error::LineParse(_, _)));
-            assert_eq!(
-                warning,
-                "Could not parse an entry in env file /project/.env; skipped the entry"
-            );
-            assert!(!warning.contains(SENTINEL_SECRET));
+            assert_eq!(vars, vec![(SENTINEL_KEY.to_string(), "safe".to_string())]);
+            let visible = &events.default_visible;
+            assert!(visible.contains("parse_error_count=1"), "{visible}");
+            assert!(visible.contains("variable_count=1"), "{visible}");
+            for private in [SENTINEL_PATH, SENTINEL_KEY, SENTINEL_VALUE] {
+                assert!(!visible.contains(private), "leaked {private}: {visible}");
+            }
+            let debug = &events.debug;
+            assert!(debug.contains(SENTINEL_PATH), "{debug}");
+            assert!(debug.contains(SENTINEL_KEY), "{debug}");
+            assert!(!debug.contains(SENTINEL_VALUE), "leaked value: {debug}");
         }
+    }
+
+    #[test]
+    fn settings_auto_detection_info_does_not_include_source_module() {
+        const SENTINEL_MODULE: &str = "private_sentinel.settings";
+        let dir = tempdir().expect("test temporary directory should be created");
+        let root = Utf8Path::from_path(dir.path())
+            .expect("test temporary directory path should convert to UTF-8");
+        fs::write(
+            dir.path().join("manage.py"),
+            format!(
+                "import os\nos.environ.setdefault(\"DJANGO_SETTINGS_MODULE\", \
+                 \"{SENTINEL_MODULE}\")\n"
+            ),
+        )
+        .expect("test manage.py should be written");
+
+        let (module, events) = capture_events(|| {
+            django_settings_module_name(
+                &djls_source::OsFileSystem::default(),
+                root,
+                &Settings::default(),
+                None,
+            )
+        });
+
+        assert_eq!(module.expect("settings module").as_str(), SENTINEL_MODULE);
+        let visible = &events.default_visible;
+        assert!(visible.contains("source=manage_py"), "{visible}");
+        assert!(!visible.contains(SENTINEL_MODULE), "{visible}");
+        assert!(events.debug.contains(SENTINEL_MODULE), "{}", events.debug);
     }
 }

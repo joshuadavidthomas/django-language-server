@@ -87,6 +87,15 @@ impl SearchPath {
             Self::SitePackages(_) | Self::Editable(_) => FileRootKind::SearchPath,
         }
     }
+
+    pub(crate) fn kind_name(&self) -> &'static str {
+        match self {
+            Self::FirstParty(_) => "first_party",
+            Self::Extra(_) => "extra",
+            Self::SitePackages(_) => "site_packages",
+            Self::Editable(_) => "editable",
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -135,22 +144,28 @@ impl SearchPaths {
             match python_environment {
                 PythonEnvironment::Path(venv_path) => {
                     tracing::warn!(
-                        "Could not discover site-packages under configured venv_path \
-                         '{venv_path}'; expected a conventional Python environment layout; \
+                        python_environment = "configured",
+                        "Could not discover site-packages in the selected Python environment; \
                          continuing with project and configured pythonpath roots"
+                    );
+                    tracing::debug!(
+                        %venv_path,
+                        "Configured Python environment has no conventional site-packages layout"
                     );
                 }
                 PythonEnvironment::Auto => {
                     tracing::debug!(
-                        "No virtual-environment site-packages discovered for project {root}; \
+                        %root,
+                        "No virtual-environment site-packages discovered; \
                          continuing with project and configured pythonpath roots"
                     );
                 }
             }
         } else {
-            for site_packages in &discovered_site_packages {
-                tracing::debug!("Using discovered site-packages search path: {site_packages}");
-            }
+            tracing::debug!(
+                paths = ?discovered_site_packages,
+                "Discovered Python package search paths"
+            );
         }
 
         let mut processed_site_packages = Vec::new();
@@ -223,15 +238,20 @@ impl SearchPaths {
         match crate::bundled::source_root(version) {
             Ok(path) if fs.is_dir(&path) => {
                 tracing::info!(
-                    "Using bundled Django {} sources at {path}",
-                    version.as_str()
+                    django_version = version.as_str(),
+                    "Using bundled Django sources"
                 );
+                tracing::debug!(%path, "Bundled Django source root");
                 self.paths.push(SearchPath::SitePackages(path));
             }
             // Source-only fixtures may deliberately omit the archive mount.
             Ok(_) => {}
             Err(error) => {
-                tracing::warn!("Could not prepare bundled Django sources: {error}");
+                tracing::warn!(
+                    error_kind = ?error.kind(),
+                    "Could not prepare bundled Django sources"
+                );
+                tracing::debug!(%error, "Bundled Django sources preparation error");
             }
         }
     }

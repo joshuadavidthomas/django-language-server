@@ -1102,6 +1102,7 @@ dependencies = [
  "djls-ide",
  "djls-project",
  "djls-source",
+ "djls-testing",
  "futures-util",
  "percent-encoding",
  "rustc-hash",
