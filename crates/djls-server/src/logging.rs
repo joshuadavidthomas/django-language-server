@@ -5,6 +5,8 @@
 //! destination has its own filter, and neither can block the code emitting
 //! the event.
 
+mod file_writer;
+
 use std::fmt;
 use std::fmt::Write;
 use std::sync::Arc;
@@ -18,7 +20,6 @@ use tower_lsp_server::ls_types;
 use tracing::Level;
 use tracing::field::Field;
 use tracing::field::Visit;
-use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::Layer;
 use tracing_subscriber::Registry;
@@ -296,7 +297,7 @@ impl Write for BoundedText {
 /// Keep it alive until after the service and runtime are dropped so the file
 /// worker flushes last.
 pub(crate) struct LoggingGuard {
-    _file_guard: WorkerGuard,
+    _file_guard: file_writer::WorkerGuard,
     lsp: LspLogControl,
 }
 
@@ -314,20 +315,15 @@ pub(crate) fn init_tracing() -> LoggingGuard {
     // Never print invalid environment contents; they can contain sensitive data.
     let env_filter = log_filter(std::env::var("RUST_LOG").ok().as_deref());
 
-    let (non_blocking, file_guard) = match djls_conf::log_dir() {
-        Ok(log_dir) => {
-            let file_appender = tracing_appender::rolling::daily(log_dir.as_std_path(), "djls.log");
-            tracing_appender::non_blocking(file_appender)
-        }
-        Err(error) => {
-            eprintln!("Warning: Failed to initialize file logging: {error}");
-            eprintln!("Falling back to stderr logging...");
-            tracing_appender::non_blocking(std::io::stderr())
-        }
-    };
+    let counters = Arc::new(file_writer::Counters::default());
+    let writer = file_writer::FileWriter::new(
+        djls_conf::log_dir().map_err(std::io::Error::other),
+        Arc::clone(&counters),
+    );
+    let (output, file_guard) = file_writer::RecordWriter::start(writer, counters);
 
     let log_layer = tracing_fmt::layer()
-        .with_writer(non_blocking)
+        .with_writer(output)
         .with_ansi(false)
         .with_thread_ids(true)
         .with_thread_names(true)

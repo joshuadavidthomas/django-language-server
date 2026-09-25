@@ -20,7 +20,7 @@ Cancelling an item that already sent Begin still sends End.
 
 ## File location
 
-Files are named `djls.log.YYYY-MM-DD` in the platform application cache directory:
+Files live in the platform application cache directory:
 
 | Platform | Default directory |
 | --- | --- |
@@ -28,13 +28,50 @@ Files are named `djls.log.YYYY-MM-DD` in the platform application cache director
 | macOS | `~/Library/Caches/djls` |
 | Windows | `%LOCALAPPDATA%\djls\cache` |
 
-If no platform cache directory is available, DJLS uses `/tmp`. Failure to create
-the directory falls back to stderr. Logs never use stdout, which carries LSP.
-The logging worker stays alive through service and runtime teardown.
+If no platform cache directory is available, DJLS uses `/tmp`. Logs never use
+stdout, which carries LSP. The logging worker stays alive through service and
+runtime teardown.
 
-Rotation is currently **daily only**, with no byte-size cap or automatic retention
-limit. This change reduces default volume but does not bound disk usage. Remove
-old logs as needed; byte-size rotation is a separate planned change.
+## Hard limits and failure policy
+
+The managed family is `djls-bounded.log` (active), `djls-bounded.log.1` (newest
+archive), `.2`, and `.3` (oldest). Each file is at most **16 MiB**, for a maximum
+**64 MiB of managed payload**. Before a record would exceed the active limit,
+DJLS removes `.3`, moves `.2` to `.3`, `.1` to `.2`, and active to `.1`, then
+opens a new active file. Exact-limit records do not rotate until the next write.
+On the next accepted write after restart, existing oversized managed files are
+truncated to 16 MiB before rotation; actual file lengths, not cached counters,
+determine space available. If repair fails, logging stops rather than growing
+the family. Pre-existing oversized data cannot be bounded until repair succeeds.
+
+Cooperating upgraded processes share this budget using `djls-bounded.lock`.
+Each record acquires its own exclusive OS file lock, checks file lengths, rotates
+if needed, writes, and closes active before releasing the lock. The background
+worker waits for the lock; if another process holds it for long, the lossy queue
+fills and new records are dropped instead of blocking the server. **Do not delete the lock file while any
+server is running.** The bound does not cover non-cooperating writers, filesystem
+metadata/allocation overhead, or files outside this family.
+
+Formatted records above **16 KiB** are dropped in full before enqueueing. Each
+process's lossy **1,024-record** queue retains at most **16 MiB of record payload**,
+plus queue metadata and one worker record. Formatting itself may temporarily allocate
+a larger string; this is a retained-output bound, not a process-memory limit.
+Oversize, full-queue, and unavailable-output drops, plus filesystem failures, have separate saturating in-process counters;
+drops never emit tracing events. These internal counters are not currently
+exposed through LSP.
+
+Any filesystem error disables that process's file sink for the rest of its
+lifetime, with at most one direct stderr warning and no fallback event stream.
+A partial failed write may leave a partial final record, but cannot exceed the
+file limit. Restarting retries file output. A private worker closes admission
+on shutdown, drains the finite queue, flushes, and joins without a shutdown
+message competing for queue space. Shutdown waits for outstanding filesystem
+operations; it cannot promise a time limit on a stalled filesystem.
+
+Daily `djls.log.YYYY-MM-DD` files written by earlier releases are deleted at
+startup once they have not been modified for a day; a recently written one is
+kept in case an older server is still running, and is removed on a later start.
+Unrelated cache files are never touched.
 
 ## Filtering
 
@@ -52,8 +89,8 @@ RUST_LOG=warn,djls_server=debug djls serve
 
 Unset, empty, non-Unicode, or invalid values silently fall back to the defaults; DJLS
 does not print the environment value. `RUST_LOG` changes only file filtering and
-cannot enable dependency, DEBUG, or TRACE events in the editor. Broad overrides
-such as `RUST_LOG=info` or `RUST_LOG=trace` can still produce very large files
-until byte-size rotation is added. Prefer narrow targets and remove diagnostic
-overrides after troubleshooting. Review logs for sensitive paths or project
-details before sharing them.
+cannot enable dependency, DEBUG, or TRACE events in the editor or raise disk,
+record, or queue limits. Verbose overrides rotate history faster and may drop
+records. Prefer narrow targets and remove diagnostic overrides after
+troubleshooting. Review logs for sensitive paths or project details before
+sharing them.
