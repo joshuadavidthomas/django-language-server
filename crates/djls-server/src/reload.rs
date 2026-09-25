@@ -5,6 +5,8 @@
 //! under the lock, then warm derived queries and republish diagnostics from a
 //! snapshot.
 
+mod failure_notice;
+
 use std::future::Future;
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
@@ -53,6 +55,7 @@ use crate::logging::blocking_in_span;
 use crate::logging::elapsed_ms;
 use crate::progress::ProgressItem;
 use crate::progress::ProgressReporter;
+use crate::reload::failure_notice::ReloadFailureNotice;
 use crate::session::CancellationRetryAction;
 use crate::session::CancellationRetryState;
 use crate::session::IntrinsicReadinessState;
@@ -100,20 +103,36 @@ impl ProjectReload {
         diagnostics: DiagnosticPublisher,
     ) -> Self {
         let worker_session = Arc::clone(&session);
+        let notice = ReloadFailureNotice::new(&session, client.clone());
         let reload = Self::spawn(move |job| {
             let session = Arc::clone(&worker_session);
             let client = client.clone();
             let diagnostics = diagnostics.clone();
+            let notice = notice.clone();
             async move {
                 let client_info = { session.lock().await.client_info().clone() };
-                match job {
+                let outcome = match job {
                     ProjectWork::FullReload => {
                         reload_project(Arc::clone(&session), client, client_info, diagnostics).await
                     }
                     ProjectWork::Reprime => {
                         reprime_project(Arc::clone(&session), diagnostics).await
                     }
+                };
+                match outcome {
+                    ReloadRunOutcome::Failed => {
+                        if let IntrinsicReadinessState::Failed(generation) =
+                            session.lock().await.readiness_state()
+                        {
+                            notice.failed(generation);
+                        }
+                    }
+                    ReloadRunOutcome::Complete => notice.recovered(),
+                    ReloadRunOutcome::Cancelled
+                    | ReloadRunOutcome::Stale
+                    | ReloadRunOutcome::Skipped => {}
                 }
+                outcome
             }
         });
         Self {
@@ -1130,6 +1149,7 @@ mod tests {
     use tower_lsp_server::jsonrpc;
     use tower_lsp_server::ls_types;
     use tower_service::Service;
+    use tracing_subscriber::layer::SubscriberExt;
 
     use super::*;
     use crate::testing::TransportBackend;
@@ -1188,6 +1208,77 @@ mod tests {
         assert!(output.contains("phase evidence count=7"), "{output}");
         assert!(output.contains("ide_cache.phase"), "{output}");
         assert!(output.contains("project.intrinsic_priming"), "{output}");
+    }
+
+    #[tokio::test]
+    async fn reload_worker_notifies_once_and_rearms_after_recovery() {
+        let _guard = crate::logging::capture::callsite_guard();
+        let capture = crate::logging::capture::Capture::default();
+        let _subscriber =
+            tracing::subscriber::set_default(tracing_subscriber::registry().with(capture.clone()));
+        let root = tempdir().expect("project root");
+        let config = root.path().join("djls.toml");
+        let (mut service, mut socket) = LspService::new(TransportBackend);
+        service
+            .call(
+                jsonrpc::Request::build("initialize")
+                    .params(serde_json::json!({"capabilities": {}}))
+                    .id(1_i64)
+                    .finish(),
+            )
+            .await
+            .expect("initialize");
+        let params = ls_types::InitializeParams {
+            workspace_folders: Some(vec![ls_types::WorkspaceFolder {
+                uri: ls_types::Uri::from_file_path(root.path()).expect("root URI"),
+                name: "test project".into(),
+            }]),
+            ..Default::default()
+        };
+        let session = Arc::new(Mutex::new(Session::new(&params)));
+        let client = service.inner().0.clone();
+        let diagnostics = DiagnosticPublisher::new(Arc::clone(&session), client.clone());
+        let reload = ProjectReload::new(Arc::clone(&session), client, diagnostics);
+        for (index, broken) in [true, true, false, true].into_iter().enumerate() {
+            std::fs::write(&config, if broken { "pythonpath = 1" } else { "" })
+                .expect("project config");
+            reload.request_full_reload().await;
+            timeout(Duration::from_secs(5), async {
+                loop {
+                    let completed = capture
+                        .0
+                        .lock()
+                        .expect("events")
+                        .iter()
+                        .filter(|event| event["fields"]["message"] == "Project operation finished")
+                        .count();
+                    if completed > index {
+                        break;
+                    }
+                    yield_now().await;
+                }
+            })
+            .await
+            .expect("reload finished");
+            if index == 0 || index == 3 {
+                let message = timeout(Duration::from_secs(5), socket.next())
+                    .await
+                    .expect("notice timeout")
+                    .expect("failure notice");
+                assert_eq!(message.method(), "window/showMessage");
+                assert_eq!(
+                    message.params().expect("notice params")["message"],
+                    "Django project failed to load. See the Django Language Server output for details."
+                );
+            } else {
+                assert!(
+                    timeout(Duration::from_millis(50), socket.next())
+                        .await
+                        .is_err(),
+                    "repeated failure and recovery should not show a notice"
+                );
+            }
+        }
     }
 
     #[tokio::test]
