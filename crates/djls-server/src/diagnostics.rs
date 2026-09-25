@@ -4,6 +4,7 @@
 use std::collections::BTreeMap;
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
+use std::time::Instant;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
@@ -15,13 +16,17 @@ use tokio::task::JoinError;
 use tokio::task::spawn_blocking;
 use tower_lsp_server::Client;
 use tower_lsp_server::ls_types;
+use tracing::Instrument;
 use tracing::debug;
+use tracing::debug_span;
 use tracing::error;
 
 use crate::document::TextDocument;
 use crate::ext::UriExt;
+use crate::logging::blocking_in_span;
 use crate::session::IntrinsicReadinessState;
 use crate::session::Session;
+use crate::session::SessionSnapshot;
 
 #[derive(Default)]
 pub(crate) struct DiagnosticQueue {
@@ -145,10 +150,21 @@ async fn refresh_diagnostics(client: Client, wake: Arc<Notify>) {
         // One active refresh and one pending wake, regardless of edit rate.
         // Dropping this future does not retire the client's pending RPC. Keep it
         // alive until the response arrives; this worker owns no database snapshot.
-        match client.workspace_diagnostic_refresh().await {
-            Ok(()) => debug!("Requested workspace diagnostics refresh"),
-            Err(error) => debug!(?error, "Client rejected workspace diagnostics refresh"),
+        async {
+            let started = Instant::now();
+            debug!(outcome = "started", "Diagnostic refresh");
+            let outcome = match client.workspace_diagnostic_refresh().await {
+                Ok(()) => "accepted",
+                Err(_) => "rejected",
+            };
+            debug!(
+                outcome,
+                transport_ms = started.elapsed().as_secs_f64() * 1000.0,
+                "Diagnostic refresh"
+            );
         }
+        .instrument(debug_span!("diagnostics.refresh"))
+        .await;
     }
 }
 
@@ -181,55 +197,137 @@ async fn publish_pending(session: Arc<Mutex<Session>>, client: Client, wake: Arc
             continue;
         };
 
-        let path = document.path.clone();
-        let result = spawn_blocking(move || {
-            Cancelled::catch(AssertUnwindSafe(|| {
-                let file = path_to_file(snapshot.db(), &path).ok()?;
-                djls_ide::collect_diagnostics(
-                    snapshot.db(),
-                    file,
-                    snapshot.client_info().position_encoding(),
-                )
-            }))
-        })
-        .await;
-        let diagnostics = match classify_diagnostics_task_join(result) {
-            Ok(Some(diagnostics)) => diagnostics,
-            Ok(None) => {
-                session.lock().await.diagnostics.finish(&document);
-                continue;
-            }
-            Err(_) => {
-                session.lock().await.diagnostics.retry(document);
-                continue;
-            }
+        let generation = match state {
+            IntrinsicReadinessState::Ready(generation) => Some(generation),
+            IntrinsicReadinessState::ReadyWithoutProject
+            | IntrinsicReadinessState::Unready(_)
+            | IntrinsicReadinessState::Failed(_) => None,
         };
-        {
-            let mut session = session.lock().await;
-            if !session.diagnostics.is_current(&document) {
-                continue;
-            }
-            if session.readiness_state() != state {
-                session.diagnostics.retry(document);
-                continue;
-            }
-        }
-        let Some(uri) = ls_types::Uri::from_path(&document.path) else {
-            session.lock().await.diagnostics.finish(&document);
-            continue;
-        };
-        // This single publisher preserves commit order without holding the session
-        // mutex during client backpressure. The payload and version share a snapshot.
-        client
-            .publish_diagnostics(uri, diagnostics, Some(document.version))
+        let span = debug_span!(
+            "diagnostics.publication",
+            ticket = document.ticket,
+            version = document.version,
+            generation
+        );
+        publish_document(&session, &client, document, state, snapshot)
+            .instrument(span)
             .await;
-        // A fallback obligation ends after delivery, unless an intervening edit
-        // superseded this ticket and requires a current-version publication.
-        session.lock().await.diagnostics.finish(&document);
     }
 }
 
+async fn publish_document(
+    session: &Mutex<Session>,
+    client: &Client,
+    document: DiagnosticDocument,
+    state: IntrinsicReadinessState,
+    snapshot: SessionSnapshot,
+) {
+    debug!(outcome = "started", "Diagnostic publication");
+    let path = document.path.clone();
+    let result = spawn_blocking(blocking_in_span(tracing::Span::current(), move || {
+        compute_diagnostics(&snapshot, &path)
+    }))
+    .await;
+    let task_failed = result.is_err();
+    let diagnostics = match classify_diagnostics_task_join(result) {
+        Ok(Some(diagnostics)) => diagnostics,
+        Ok(None) => {
+            let mut session = session.lock().await;
+            // A failed task is reported even if an edit superseded it meanwhile.
+            let outcome = if task_failed {
+                "blocking_task_failed"
+            } else if !session.diagnostics.is_current(&document) {
+                "superseded"
+            } else {
+                "no_payload"
+            };
+            session.diagnostics.finish(&document);
+            debug!(outcome, "Diagnostic publication");
+            return;
+        }
+        Err(_) => {
+            let mut session = session.lock().await;
+            let outcome = if session.diagnostics.is_current(&document) {
+                "retried"
+            } else {
+                "superseded"
+            };
+            session.diagnostics.retry(document);
+            debug!(
+                outcome,
+                reason = "computation_cancelled",
+                "Diagnostic publication"
+            );
+            return;
+        }
+    };
+    {
+        let mut session = session.lock().await;
+        if !session.diagnostics.is_current(&document) {
+            debug!(outcome = "superseded", "Diagnostic publication");
+            return;
+        }
+        if session.readiness_state() != state {
+            session.diagnostics.retry(document);
+            debug!(
+                outcome = "retried",
+                reason = "readiness_changed",
+                "Diagnostic publication"
+            );
+            return;
+        }
+    }
+    let Some(uri) = ls_types::Uri::from_path(&document.path) else {
+        session.lock().await.diagnostics.finish(&document);
+        debug!(
+            outcome = "no_payload",
+            reason = "invalid_uri",
+            "Diagnostic publication"
+        );
+        return;
+    };
+    // This single publisher preserves commit order without holding the session
+    // mutex during client backpressure. The payload and version share a snapshot.
+    let started = Instant::now();
+    debug!(
+        phase = "transport",
+        outcome = "started",
+        "Diagnostic publication"
+    );
+    client
+        .publish_diagnostics(uri, diagnostics, Some(document.version))
+        .await;
+    // Completion is a transport observation, not an editor acknowledgement.
+    debug!(
+        phase = "transport",
+        outcome = "success",
+        transport_ms = started.elapsed().as_secs_f64() * 1000.0,
+        "Diagnostic publication"
+    );
+    // A fallback obligation ends after delivery, unless an intervening edit
+    // superseded this ticket and requires a current-version publication.
+    session.lock().await.diagnostics.finish(&document);
+}
+
 type DiagnosticsJobResult = Result<Option<Vec<ls_types::Diagnostic>>, Cancelled>;
+
+fn compute_diagnostics(snapshot: &SessionSnapshot, path: &Utf8Path) -> DiagnosticsJobResult {
+    let result = Cancelled::catch(AssertUnwindSafe(|| {
+        let file = path_to_file(snapshot.db(), path).ok()?;
+        djls_ide::collect_diagnostics(
+            snapshot.db(),
+            file,
+            snapshot.client_info().position_encoding(),
+        )
+    }));
+    let outcome = match &result {
+        Ok(Some(_)) => "success",
+        Ok(None) => "no_payload",
+        Err(_) => "cancelled",
+    };
+    debug!(phase = "computation", outcome, "Diagnostic computation");
+    result
+}
 
 fn classify_diagnostics_task_join(
     joined: Result<DiagnosticsJobResult, JoinError>,
@@ -237,7 +335,12 @@ fn classify_diagnostics_task_join(
     match joined {
         Ok(result) => result,
         Err(error) => {
-            error!(?error, "Diagnostic computation failed");
+            // Panic payloads can contain source text or paths.
+            error!(
+                panicked = error.is_panic(),
+                "Diagnostic computation task failed"
+            );
+            debug!(?error, "Task failure detail");
             Ok(None)
         }
     }
@@ -252,13 +355,18 @@ mod tests {
     use std::time::Duration;
 
     use djls_source::FileKind;
+    use futures_util::SinkExt;
     use futures_util::StreamExt;
     use tower_lsp_server::LanguageServer;
     use tower_lsp_server::LspService;
     use tower_lsp_server::jsonrpc;
     use tower_service::Service;
+    use tracing::instrument::WithSubscriber;
+    use tracing_subscriber::layer::SubscriberExt;
 
     use super::*;
+    use crate::logging::capture::Capture;
+    use crate::logging::capture::callsite_guard;
 
     struct TransportBackend(Client);
 
@@ -278,6 +386,9 @@ mod tests {
     #[tokio::test]
     #[allow(clippy::too_many_lines)]
     async fn pull_fallback_edit_during_blocked_publication_reaches_latest_version() {
+        let _callsite_guard = callsite_guard();
+        let capture = Capture::default();
+        let subscriber = tracing_subscriber::registry().with(capture.clone());
         tokio::time::timeout(Duration::from_secs(10), async {
             let (mut service, mut socket) = LspService::new(TransportBackend);
             poll_fn(|cx| service.poll_ready(cx))
@@ -346,6 +457,21 @@ mod tests {
             .expect("diagnostic params");
             assert_eq!(old.version, Some(1));
             assert_eq!(old.diagnostics.len(), 1);
+            {
+                let events = capture.0.lock().expect("capture lock");
+                assert!(events.iter().any(|event| {
+                    event["fields"]["phase"] == "computation"
+                        && event["fields"]["outcome"] == "success"
+                        && event["spans"][0]["fields"]["version"] == 1
+                }));
+                assert!(
+                    !events
+                        .iter()
+                        .any(|event| event["fields"]["phase"] == "transport"
+                            && event["fields"]["outcome"] == "success"),
+                    "an enqueued message is not a completed send"
+                );
+            }
             {
                 let mut session = session.lock().await;
                 assert!(
@@ -416,8 +542,140 @@ mod tests {
             })
             .await;
         })
+        .with_subscriber(subscriber)
         .await
         .expect("publisher must make progress despite backpressure");
+        let events = capture.0.lock().expect("capture lock");
+        let sends: Vec<_> = events
+            .iter()
+            .filter(|event| {
+                event["fields"]["phase"] == "transport" && event["fields"]["outcome"] == "success"
+            })
+            .collect();
+        assert_eq!(sends.len(), 2);
+        assert_eq!(sends[0]["spans"][0]["fields"]["version"], 1);
+        assert_eq!(sends[1]["spans"][0]["fields"]["version"], 2);
+        assert!(
+            sends[0]["spans"][0]["fields"]["ticket"].as_u64()
+                < sends[1]["spans"][0]["fields"]["ticket"].as_u64()
+        );
+        for send in sends {
+            assert_eq!(send["spans"][0]["name"], "diagnostics.publication");
+            assert!(send["spans"][0]["fields"]["generation"].is_u64());
+            assert!(send["fields"]["transport_ms"].is_f64());
+            let computation = events
+                .iter()
+                .find(|event| {
+                    event["fields"]["phase"] == "computation"
+                        && event["spans"][0] == send["spans"][0]
+                })
+                .expect("blocking computation inherits ticket context");
+            assert_eq!(computation["spans"].as_array().map(Vec::len), Some(1));
+            assert!(events.iter().any(|event| {
+                event["fields"]["compute_ms"].is_f64() && event["spans"][0] == send["spans"][0]
+            }));
+        }
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event["fields"].get("phase").is_none()
+                    && event["fields"]["outcome"] == "started")
+                .count(),
+            2,
+            "idle wakes and queue polls do not start operations"
+        );
+        let serialized = serde_json::to_string(&*events).expect("captured events");
+        assert!(!serialized.contains("backpressure.html"));
+        assert!(!serialized.contains("file:///"));
+        assert!(!serialized.contains("{{ value"));
+    }
+
+    #[tokio::test]
+    async fn publication_terminal_outcomes() {
+        let _callsite_guard = callsite_guard();
+        for (name, expected) in [
+            ("page.txt", "no_payload"),
+            ("page.html", "retried"),
+            ("closed.html", "superseded"),
+        ] {
+            let capture = Capture::default();
+            let subscriber = tracing_subscriber::registry().with(capture.clone());
+            let (service, _socket) = LspService::new(TransportBackend);
+            let mut session = Session::default();
+            let _mutation = session.open_document(&ls_types::TextDocumentItem {
+                uri: format!("file:///tmp/{name}").parse().expect("URI"),
+                language_id: "htmldjango".into(),
+                version: 9,
+                text: "{{ value".into(),
+            });
+            let document = session.diagnostics.take_next().expect("ticket");
+            if expected == "superseded" {
+                session.diagnostics.close(&document.path);
+            }
+            let snapshot = session.snapshot();
+            let session = Mutex::new(session);
+            publish_document(
+                &session,
+                &service.inner().0,
+                document.clone(),
+                IntrinsicReadinessState::Ready(u64::MAX),
+                snapshot,
+            )
+            .with_subscriber(subscriber)
+            .await;
+            let mut session = session.lock().await;
+            if expected == "retried" {
+                assert_eq!(
+                    session.diagnostics.take_next().expect("retry").ticket,
+                    document.ticket
+                );
+            } else {
+                assert!(!session.diagnostics.has_outstanding(&document.path));
+            }
+            let events = capture.0.lock().expect("capture lock");
+            assert_eq!(
+                events.last().expect("terminal event")["fields"]["outcome"],
+                expected,
+                "{name}"
+            );
+            assert!(
+                !events
+                    .iter()
+                    .any(|event| event["fields"]["phase"] == "transport"),
+                "{name}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn publication_is_quiet_under_default_filter() {
+        let _callsite_guard = callsite_guard();
+        let capture = Capture::default();
+        let subscriber = tracing_subscriber::registry()
+            .with(capture.clone())
+            .with(tracing_subscriber::EnvFilter::new("warn,djls_server=info"));
+        let (service, _socket) = LspService::new(TransportBackend);
+        let mut session = Session::default();
+        let _mutation = session.open_document(&ls_types::TextDocumentItem {
+            uri: "file:///tmp/page.html".parse().expect("URI"),
+            language_id: "htmldjango".into(),
+            version: 9,
+            text: "{{ value".into(),
+        });
+        let document = session.diagnostics.take_next().expect("ticket");
+        let snapshot = session.snapshot();
+        let session = Mutex::new(session);
+        publish_document(
+            &session,
+            &service.inner().0,
+            document,
+            IntrinsicReadinessState::Ready(u64::MAX),
+            snapshot,
+        )
+        .with_subscriber(subscriber)
+        .await;
+        let events = capture.0.lock().expect("capture lock");
+        assert!(events.is_empty(), "{events:?}");
     }
 
     #[test]
@@ -555,17 +813,120 @@ mod tests {
 
     #[tokio::test]
     async fn diagnostics_snapshot_task_panic_produces_no_publish_payload() {
+        let _callsite_guard = callsite_guard();
+        let capture = Capture::default();
+        let subscriber = tracing_subscriber::registry().with(capture.clone());
         let joined = spawn_blocking(|| {
             panic!("synthetic diagnostics panic");
             #[allow(unreachable_code)]
             Ok::<Option<Vec<ls_types::Diagnostic>>, Cancelled>(None)
         })
         .await;
+        tracing::subscriber::with_default(subscriber, || {
+            let span = debug_span!("diagnostics.publication", ticket = 7_u64, version = 3);
+            let _entered = span.enter();
+            assert!(
+                classify_diagnostics_task_join(joined)
+                    .expect("not Salsa cancellation")
+                    .is_none()
+            );
+        });
+        let events = capture.0.lock().expect("capture lock");
+        let failure = events
+            .iter()
+            .find(|event| event["level"] == "ERROR")
+            .expect("task failure event");
+        assert_eq!(failure["fields"]["panicked"], true);
+        assert_eq!(failure["spans"][0]["name"], "diagnostics.publication");
+        assert_eq!(failure["spans"][0]["fields"]["ticket"], 7);
+        let default_visible: Vec<_> = events
+            .iter()
+            .filter(|event| event["level"] != "DEBUG")
+            .collect();
         assert!(
-            classify_diagnostics_task_join(joined)
-                .expect("not Salsa cancellation")
-                .is_none()
+            !serde_json::to_string(&default_visible)
+                .expect("events")
+                .contains("synthetic diagnostics panic")
         );
+    }
+
+    #[tokio::test]
+    async fn refresh_attempts_report_responses_and_coalesce_pending_wakes() {
+        let _callsite_guard = callsite_guard();
+        let capture = Capture::default();
+        let subscriber = tracing_subscriber::registry().with(capture.clone());
+        tokio::time::timeout(Duration::from_secs(10), async {
+            let (mut service, mut socket) = LspService::new(TransportBackend);
+            service
+                .call(
+                    jsonrpc::Request::build("initialize")
+                        .params(serde_json::json!({"capabilities": {}}))
+                        .id(1_i64)
+                        .finish(),
+                )
+                .await
+                .expect("initialize");
+            let wake = Arc::new(Notify::new());
+            let mut worker = pin!(refresh_diagnostics(
+                service.inner().0.clone(),
+                Arc::clone(&wake)
+            ));
+            wake.notify_one();
+            for accepted in [true, false] {
+                let request = poll_fn(|cx| {
+                    assert!(worker.as_mut().poll(cx).is_pending());
+                    socket.poll_next_unpin(cx)
+                })
+                .await
+                .expect("refresh request");
+                assert_eq!(request.method(), "workspace/diagnostic/refresh");
+                if accepted {
+                    for _ in 0..40 {
+                        wake.notify_one();
+                    }
+                }
+                poll_fn(|cx| {
+                    assert!(worker.as_mut().poll(cx).is_pending());
+                    assert!(
+                        socket.poll_next_unpin(cx).is_pending(),
+                        "only one active RPC"
+                    );
+                    Poll::Ready(())
+                })
+                .await;
+                let id = request.id().expect("request ID").clone();
+                let response = if accepted {
+                    jsonrpc::Response::from_ok(id, serde_json::Value::Null)
+                } else {
+                    jsonrpc::Response::from_error(id, jsonrpc::Error::invalid_request())
+                };
+                socket.send(response).await.expect("client response");
+            }
+            poll_fn(|cx| {
+                assert!(worker.as_mut().poll(cx).is_pending());
+                assert!(
+                    socket.poll_next_unpin(cx).is_pending(),
+                    "pending wakes coalesced"
+                );
+                Poll::Ready(())
+            })
+            .await;
+        })
+        .with_subscriber(subscriber)
+        .await
+        .expect("refresh progress");
+        let events = capture.0.lock().expect("capture lock");
+        let outcomes: Vec<_> = events
+            .iter()
+            .map(|event| event["fields"]["outcome"].as_str().expect("outcome"))
+            .collect();
+        assert_eq!(outcomes, ["started", "accepted", "started", "rejected"]);
+        for event in events.iter() {
+            assert_eq!(event["spans"][0]["name"], "diagnostics.refresh");
+            if event["fields"]["outcome"] != "started" {
+                assert!(event["fields"]["transport_ms"].is_f64());
+            }
+        }
     }
 
     #[tokio::test]
