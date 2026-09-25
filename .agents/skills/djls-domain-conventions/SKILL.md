@@ -49,5 +49,5 @@ rg "ValidationError" crates/ -g '*.rs'
 
 ## Local runtime state
 
-- Server logs: `~/.cache/djls/djls.log.YYYY-MM-DD`
+- Server logs: `~/.cache/djls/djls-bounded.log` (rotated to `.1`–`.3`)
 - Inspector cache: `~/.cache/djls/inspector/`

@@ -25,6 +25,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Added a warning when a configured `venv_path` has no discoverable site-packages.
 - Added bundled Django source and templates for offline core tag/filter analysis, with the release line taken from project dependencies or the `django_version` setting.
 - Added an `S124` hint on `{% load %}` for unreadable library registrations, with a code action that opens a prefilled issue.
+- Added a [Logging](https://djls.joshthomas.dev/logging/) docs page covering log locations, limits, filtering, and privacy.
 
 ### Changed
 
@@ -35,6 +36,9 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Changed automatic interpreter discovery to prefer project virtual environments over `VIRTUAL_ENV`, including under pre-commit's isolated environments.
 - Updated `djangofmt` from 0.2.7 to 1.0.0, bringing roughly 2x faster template formatting and some bug fixes.
 - An unreadable or invalid `[tool.djangofmt]` section in `pyproject.toml` now surfaces as a formatting error instead of being silently ignored.
+- Changed server log files to `djls-bounded.log` plus three rotated archives, capped at 64 MiB in total. Old `djls.log.YYYY-MM-DD` files are deleted at startup once they have not been written for a day.
+- Changed the editor's output panel to show only DJLS messages at INFO and above, including their structured fields; dependency logs such as Salsa's per-query messages now stay out of it regardless of `RUST_LOG`.
+- Changed default log levels: dependencies log at WARN unless `RUST_LOG` says otherwise, and DJLS warnings no longer include file paths or error text by default (enable DEBUG for the detail).
 - **Internal**: Made `just corpus sync` prepare and reuse project environments, and moved corpus-wide suites out of the Python/Django test matrix.
 - **Internal**: Test scenarios now declare their own tag libraries and settings and validate against Django's own template libraries; full-corpus benchmarks moved out of `cargo test`, which runs about fifteen seconds faster.
 - **Internal**: Added cold settings-analysis benchmarks and consolidated Salsa execution-event test helpers.
@@ -64,6 +68,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Fixed `.env` virtual environment directories being read as environment-variable files and producing a warning.
 - Fixed explicit `false` and empty LSP initialization options failing to override project configuration.
 - Fixed `djls check` scanning the project root when template settings differ only in context processors.
+- Fixed server logs growing without limit, including hundreds of gigabytes per day from Salsa's INFO-level query logging ([#836](https://github.com/joshuadavidthomas/django-language-server/issues/836)).
 
 ## [6.1.0]
 

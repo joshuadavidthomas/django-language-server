@@ -94,3 +94,38 @@ record, or queue limits. Verbose overrides rotate history faster and may drop
 records. Prefer narrow targets and remove diagnostic overrides after
 troubleshooting. Review logs for sensitive paths or project details before
 sharing them.
+
+## Instrumentation model
+
+DJLS instruments operation boundaries rather than individual Salsa queries. INFO
+records cover low-frequency lifecycle summaries such as `Project reload completed`.
+DEBUG spans cover LSP requests and notifications, Session snapshots and mutations,
+project reload phases and cache warm-up, and diagnostic publication and refresh.
+Blocking computations run inside their operation's span, so their records remain
+attributable without holding an entered span across an await.
+
+Records follow shared conventions so they can be queried together:
+
+- Span names are `area.operation`, for example `lsp.request`,
+  `session.ready_snapshot`, `project.reload`, `ide_cache.warmup`, and
+  `diagnostics.publication`.
+- `outcome` uses one vocabulary: `success`, `empty`, `cancelled`, `failed`,
+  `blocking_task_failed`, `superseded`, `stale`, `skipped`, and `retried`, plus
+  operation-specific values such as `ignored` or `accepted`.
+- `elapsed_ms` is the whole operation's duration. Parts of it are separate
+  fields: `ready_wait_ms` (waiting for project readiness), `compute_ms`
+  (computation inside blocking work, excluding time queued for a worker), and
+  `transport_ms` (LSP transport). All timings are fractional milliseconds.
+
+A transport `success` means the send future completed, not that an editor
+displayed or acted on the message. Cancellation, stale-generation suppression,
+unavailable payloads, and partial work are recorded as outcomes instead of being
+inferred from missing completion events.
+
+Default-visible (INFO, WARN, and ERROR) records avoid raw project paths, URIs,
+environment names or values, client option contents, source-derived module
+names, panic payloads, and arbitrary error strings. Where a warning needs that
+detail to be actionable, a DEBUG record next to it carries it, so
+`RUST_LOG=warn,djls_project=debug` (or the relevant crate) shows what failed.
+DEBUG, TRACE, and third-party targets enabled through `RUST_LOG` can contain
+paths and implementation detail, so inspect any log before sharing it.

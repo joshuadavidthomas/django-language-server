@@ -45,6 +45,23 @@ async def wait_for_notification(
     await asyncio.wait_for(asyncio.shield(future), timeout=timeout)
 
 
+async def wait_for_log_message(client: LanguageClient, prefix: str) -> None:
+    def found_message() -> bool:
+        return any(
+            message.message.startswith(prefix) for message in client.log_messages
+        )
+
+    while not found_message():
+        try:
+            await wait_for_notification(client, types.WINDOW_LOG_MESSAGE)
+        except TimeoutError as exc:
+            if found_message():
+                return
+            raise AssertionError(
+                f"Timed out waiting for log message: {prefix}"
+            ) from exc
+
+
 async def wait_for_project_load(client: LanguageClient) -> None:
     def completed_titles() -> set[str]:
         titles = set()
