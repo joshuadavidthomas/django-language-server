@@ -278,6 +278,15 @@ The server uses `tracing` with a custom `LspLayer` subscriber that routes a sing
 
 Dependencies default to WARN in files; `djls*` targets accept INFO. A valid `RUST_LOG` replaces the file defaults, while the editor independently accepts INFO and above only from `djls*` targets. Transport, dependency, DEBUG, and TRACE events are never forwarded to the editor, preventing transport failures from feeding back through tracing. Supported work-done progress sends Begin/Report/End; unavailable progress falls back to the same bounded tracing path. User-facing log locations and `RUST_LOG` usage are in [Logging](docs/logging.md).
 
+DJLS instruments operation boundaries rather than individual Salsa queries. INFO records are low-frequency lifecycle summaries such as `Project reload completed`. DEBUG spans cover LSP requests and notifications, Session snapshots and mutations, project reload phases and cache warm-up, and diagnostic publication and refresh. Blocking computations run inside their operation's span, so their records stay attributable without holding an entered span across an await. Records share conventions so they can be queried together:
+
+- Span names are `area.operation`, for example `lsp.request`, `session.ready_snapshot`, `project.reload`, `ide_cache.warmup`, and `diagnostics.publication`.
+- `outcome` uses one vocabulary: `success`, `empty`, `cancelled`, `failed`, `blocking_task_failed`, `superseded`, `stale`, `skipped`, `retried`, and `handed_off`. The specific cause goes in a separate `reason` field, such as `retries_exhausted`, `not_ready`, `non_file_uri`, or `client_rejected`. The start of an operation is marked with `event = "started"`, not an outcome. Cancellation, stale-generation suppression, and partial work are recorded as outcomes rather than inferred from missing completion events.
+- Each LSP request ends with one `event = "request_completed"`; acquiring a Session snapshot inside it ends with `event = "snapshot_completed"`.
+- `elapsed_ms` is the whole operation's duration. Parts of it are separate fields: `ready_wait_ms` (waiting for project readiness), `compute_ms` (computation inside blocking work, excluding time queued for a worker), and `transport_ms` (LSP transport, where `handed_off` means the send future completed, not that the editor received or acted on it). Timings are milliseconds rounded to 0.1 ms.
+
+INFO, WARN, and ERROR records avoid raw project paths, URIs, environment names or values, client option contents, source-derived module names, panic payloads, and arbitrary error strings. When a warning needs that detail to be actionable, a DEBUG record next to it carries it.
+
 ### Configurability
 
 `djls-conf` merges settings from multiple sources (user config, project TOML files, LSP client options) into a single `Settings` type. When settings change at runtime via `didChangeConfiguration`, the server compares each field before calling Salsa setters — this avoids unnecessary invalidation and keeps incremental recomputation tight.
