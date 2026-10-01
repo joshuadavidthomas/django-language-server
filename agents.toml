@@ -6,7 +6,3 @@ agents = ["claude", "codex", "opencode"]
 
 [trust]
 allow_all = true
-
-[[skills]]
-name = "dex"
-source = "dcramer/dex"

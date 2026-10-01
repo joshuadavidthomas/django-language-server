@@ -58,6 +58,3 @@ Run `just hawk` when changing public APIs, moving code across crates, or cleanin
 - Use `anyhow::Result` in binaries and `thiserror` in libraries.
 - Prefer comments that explain why; do not write obvious doc comments.
 - Use `folder.rs`, not `folder/mod.rs`.
-
-## Task management
-Use `/dex` for multi-step work that needs task tracking across sessions.

@@ -208,10 +208,6 @@ target_local/
 # flamegraph perf
 perf.data*
 
-# dex
-/.dex/*
-!/.dex/config.toml
-
 # Riptide artifacts (cloud-synced)
 .humanlayer/tasks/
 
