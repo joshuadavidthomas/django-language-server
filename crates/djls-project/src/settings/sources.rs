@@ -18,7 +18,14 @@ pub(super) fn django_settings_from_module(
     let file = module.file();
     match python_module_facts(db, project, module, EvaluationDemand::Settings) {
         Ok(values) => settings_from_values(db, file, values),
-        Err(_) => DjangoSettings::unreadable(),
+        Err(error) => {
+            tracing::warn!(
+                error_kind = %error.kind(),
+                "Could not read the Django settings module; installed apps and template settings are unknown"
+            );
+            tracing::debug!(%error, "Django settings module read error");
+            DjangoSettings::unreadable()
+        }
     }
 }
 

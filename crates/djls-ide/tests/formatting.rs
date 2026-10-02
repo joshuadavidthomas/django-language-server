@@ -3,6 +3,7 @@ use djls_conf::FormatBackend;
 use djls_ide::format_document;
 use djls_source::PositionEncoding;
 use djls_testing::TestDatabase;
+use djls_testing::capture_events;
 use tower_lsp_server::ls_types;
 
 fn formatting_options() -> ls_types::FormattingOptions {
@@ -40,5 +41,67 @@ fn format_document_returns_full_document_edit() {
     assert_eq!(
         edits[0].new_text,
         "<div style=\"background-image: url('{{ MEDIA_URL }}{{ picture }}')\">\n    Content\n</div>\n",
+    );
+}
+
+#[test]
+fn format_document_logs_failures_by_cause() {
+    let temp = tempfile::tempdir().expect("temporary directory");
+    let root = Utf8Path::from_path(temp.path()).expect("UTF-8 path");
+    std::fs::create_dir(root.join("configured")).expect("project directory");
+    std::fs::write(root.join("configured/pyproject.toml"), "[tool.djangofmt\n")
+        .expect("broken pyproject");
+    let broken_config = root.join("configured/template.html");
+    let broken_template = root.join("template.html");
+    let db = TestDatabase::new();
+    db.add_file(broken_config.as_str(), "<div>ok</div>\n")
+        .expect("template fixture should be added");
+    db.add_file(broken_template.as_str(), "<div class=\"\n")
+        .expect("template fixture should be added");
+    let options = formatting_options();
+
+    let (edits, config_events) = capture_events(|| {
+        format_document(
+            &db,
+            db.file(&broken_config)
+                .expect("template fixture file should exist"),
+            PositionEncoding::Utf16,
+            FormatBackend::Djangofmt,
+            &options,
+        )
+    });
+    assert!(edits.is_empty());
+    let visible = &config_events.default_visible;
+    assert!(
+        visible.contains("WARN message=Could not load formatter configuration"),
+        "{visible}"
+    );
+    assert!(!visible.contains(root.as_str()), "leaked path: {visible}");
+    assert!(
+        config_events
+            .debug
+            .contains("Failed to parse pyproject.toml"),
+        "{}",
+        config_events.debug
+    );
+
+    let (edits, template_events) = capture_events(|| {
+        format_document(
+            &db,
+            db.file(&broken_template)
+                .expect("template fixture file should exist"),
+            PositionEncoding::Utf16,
+            FormatBackend::Djangofmt,
+            &options,
+        )
+    });
+    assert!(edits.is_empty());
+    let visible = &template_events.default_visible;
+    assert!(!visible.contains("WARN"), "{visible}");
+    assert!(!visible.contains("Template"), "{visible}");
+    assert!(
+        template_events.debug.contains("Template formatting failed"),
+        "{}",
+        template_events.debug
     );
 }

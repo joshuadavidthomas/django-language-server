@@ -294,7 +294,12 @@ impl Utf8PathExt for Utf8Path {
     fn to_navigation_uri(&self) -> Option<ls_types::Uri> {
         djls_project::materialize_bundled_path(self)
             .inspect_err(|error| {
-                tracing::warn!("Could not prepare bundled navigation target {self}: {error}");
+                tracing::warn!(
+                    reason = "materialize_failed",
+                    error_kind = ?error.kind(),
+                    "Could not prepare bundled navigation target"
+                );
+                tracing::debug!(path = %self, %error, "Bundled navigation target detail");
             })
             .ok()?;
         self.to_lsp_uri()
