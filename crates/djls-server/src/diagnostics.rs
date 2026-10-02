@@ -253,27 +253,12 @@ mod tests {
 
     use djls_source::FileKind;
     use futures_util::StreamExt;
-    use tower_lsp_server::LanguageServer;
     use tower_lsp_server::LspService;
     use tower_lsp_server::jsonrpc;
     use tower_service::Service;
 
     use super::*;
-
-    struct TransportBackend(Client);
-
-    impl LanguageServer for TransportBackend {
-        async fn initialize(
-            &self,
-            _: ls_types::InitializeParams,
-        ) -> jsonrpc::Result<ls_types::InitializeResult> {
-            Ok(ls_types::InitializeResult::default())
-        }
-
-        async fn shutdown(&self) -> jsonrpc::Result<()> {
-            Ok(())
-        }
-    }
+    use crate::testing::TransportBackend;
 
     #[tokio::test]
     #[allow(clippy::too_many_lines)]
