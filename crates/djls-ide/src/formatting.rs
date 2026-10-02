@@ -44,6 +44,11 @@ pub fn format_document(
                 tracing::debug!(%path, %error, "Formatter configuration error");
                 return Vec::new();
             }
+            Err(error @ FormatError::Syntax { line, column, .. }) => {
+                tracing::debug!(line, column, "Template not formatted: syntax error");
+                tracing::debug!(%path, %error, "Template formatting failed");
+                return Vec::new();
+            }
             Err(error @ FormatError::Template(_)) => {
                 tracing::debug!(%path, %error, "Template formatting failed");
                 return Vec::new();

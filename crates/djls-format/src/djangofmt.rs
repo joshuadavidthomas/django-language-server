@@ -4,6 +4,7 @@ use ::djangofmt::commands::format::format_text;
 use ::djangofmt::line_width::IndentWidth as DjangofmtIndentWidth;
 use ::djangofmt::pyproject;
 use camino::Utf8Path;
+use markup_fmt::SyntaxErrorKind;
 
 use crate::FormatError;
 use crate::FormatOptions;
@@ -40,6 +41,53 @@ pub(super) fn format(
         config.json.use_tabs = use_tabs;
     }
 
-    format_text(source, &config, profile, Some(path.as_std_path()))
-        .map_err(|error| FormatError::Template(format!("{error:?}")))
+    format_text(source, &config, profile, Some(path.as_std_path())).map_err(|error| match error {
+        markup_fmt::FormatError::Syntax(syntax) => {
+            // An unclosed tag is reported where parsing gave up, often the end of
+            // the file; its opening tag is the place to fix.
+            let pos = if let SyntaxErrorKind::ExpectCloseTag { pos, .. } = &syntax.kind {
+                *pos
+            } else if let SyntaxErrorKind::ExpectJinjaBlockEnd { pos, .. } = &syntax.kind {
+                // This position is just past the `{%`.
+                source
+                    .get(..*pos)
+                    .and_then(|before| before.rfind("{%"))
+                    .unwrap_or(*pos)
+            } else {
+                syntax.pos
+            };
+            let (line, column) = line_column(source, pos);
+            FormatError::Syntax {
+                line,
+                column,
+                detail: format!("{:?}", syntax.kind),
+            }
+        }
+        markup_fmt::FormatError::External(_) => FormatError::Template(format!("{error:?}")),
+    })
+}
+
+// markup_fmt's own line/column are off by one after the first line and zero on
+// the last, so derive 1-based values from the byte offset.
+fn line_column(source: &str, pos: usize) -> (usize, usize) {
+    let before = source.get(..pos).unwrap_or(source);
+    let line_start = before.rfind('\n').map_or(0, |newline| newline + 1);
+    let line = before.matches('\n').count() + 1;
+    let column = before[line_start..].chars().count() + 1;
+    (line, column)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::line_column;
+
+    #[test]
+    fn line_column_is_one_based_on_every_line() {
+        let source = "ab\ncd\né";
+        assert_eq!(line_column(source, 0), (1, 1));
+        assert_eq!(line_column(source, 1), (1, 2));
+        assert_eq!(line_column(source, 3), (2, 1));
+        assert_eq!(line_column(source, 6), (3, 1));
+        assert_eq!(line_column(source, source.len()), (3, 2));
+    }
 }

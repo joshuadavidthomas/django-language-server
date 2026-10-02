@@ -8,6 +8,7 @@ camino = { workspace = true }
 djls-conf = { workspace = true }
 djls-source = { workspace = true }
 djangofmt = { workspace = true }
+markup_fmt = { workspace = true }
 thiserror = { workspace = true }
 
 [lints]

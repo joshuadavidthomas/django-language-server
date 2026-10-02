@@ -985,6 +985,7 @@ dependencies = [
  "djangofmt",
  "djls-conf",
  "djls-source",
+ "markup_fmt",
  "thiserror 2.0.21",
 ]
 
