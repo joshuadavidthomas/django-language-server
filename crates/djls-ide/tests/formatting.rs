@@ -100,6 +100,13 @@ fn format_document_logs_failures_by_cause() {
     assert!(!visible.contains("WARN"), "{visible}");
     assert!(!visible.contains("Template"), "{visible}");
     assert!(
+        template_events
+            .debug
+            .contains("Template not formatted: syntax error"),
+        "{}",
+        template_events.debug
+    );
+    assert!(
         template_events.debug.contains("Template formatting failed"),
         "{}",
         template_events.debug

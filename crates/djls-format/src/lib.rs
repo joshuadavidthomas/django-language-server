@@ -166,7 +166,14 @@ pub enum FormatError {
     /// The nearest `pyproject.toml` could not be read or parsed.
     #[error("djangofmt configuration failed: {0}")]
     Config(String),
-    /// The template could not be formatted, which is routine while it is half-typed.
+    /// The template could not be parsed, which is routine while it is half-typed.
+    #[error("djangofmt could not parse the template at line {line}, column {column}: {detail}")]
+    Syntax {
+        line: usize,
+        column: usize,
+        detail: String,
+    },
+    /// An embedded `<script>` or `<style>` block could not be formatted.
     #[error("djangofmt failed: {0}")]
     Template(String),
 }
@@ -333,5 +340,26 @@ mod tests {
             .expect("ignored template should be recognized"),
             FormatOutcome::Ignored,
         );
+    }
+
+    #[test]
+    fn syntax_errors_point_at_the_tag_to_fix() {
+        for (source, expected) in [
+            ("<p>ok</p>\n<div><p>{{ x }}</p>\n", (2, 1)),
+            ("<p>ok</p>\n  {% if x %}\n<p>{{ x }}</p>\n", (2, 3)),
+            ("<section>\n  <div/>\n</section>\n", (2, 3)),
+        ] {
+            let error = format_template(
+                source,
+                Utf8Path::new("template.html"),
+                FormatBackend::Djangofmt,
+                FormatOptions::default(),
+            )
+            .expect_err("broken template should not format");
+            let FormatError::Syntax { line, column, .. } = error else {
+                panic!("expected a syntax error, got {error:?}");
+            };
+            assert_eq!((line, column), expected, "{source:?}");
+        }
     }
 }
