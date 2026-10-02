@@ -26,6 +26,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Added bundled Django source and templates for offline core tag/filter analysis, with the release line taken from project dependencies or the `django_version` setting.
 - Added an `S124` hint on `{% load %}` for unreadable library registrations, with a code action that opens a prefilled issue.
 - Added a [Logging](https://djls.joshthomas.dev/logging/) docs page covering where to find server logs, how to turn on debug output, and what to check before sharing them.
+- Added an error notification when the Django project fails to load, shown once per failure until a reload succeeds.
 
 ### Changed
 
