@@ -210,9 +210,11 @@ impl UriExt for ls_types::Uri {
 mod tests {
     use std::str::FromStr;
 
-    use djls_testing::capture_events;
+    use tracing_subscriber::layer::SubscriberExt;
 
     use super::*;
+    use crate::logging::capture::Capture;
+    use crate::logging::capture::callsite_guard;
 
     #[test]
     fn client_options_keep_supplied_fields_separate_from_startup_defaults() {
@@ -281,13 +283,22 @@ mod tests {
             ..Default::default()
         };
 
-        let ((), events) = capture_events(|| {
-            unknown.client_options();
-            invalid.client_options();
-        });
+        let _callsite_guard = callsite_guard();
+        let capture = Capture::default();
+        tracing::subscriber::with_default(
+            tracing_subscriber::registry().with(capture.clone()),
+            || {
+                unknown.client_options();
+                invalid.client_options();
+            },
+        );
 
-        let visible = &events.default_visible;
-        assert!(visible.contains("unknown_option_count=1"), "{visible}");
+        let events = capture.0.lock().expect("capture lock");
+        let (debug, visible): (Vec<_>, Vec<_>) =
+            events.iter().partition(|event| event["level"] == "DEBUG");
+        let visible = serde_json::to_string(&visible).expect("serialize events");
+        let debug = serde_json::to_string(&debug).expect("serialize events");
+        assert!(visible.contains(r#""unknown_option_count":1"#), "{visible}");
         assert!(
             visible.contains("Invalid initialization options"),
             "{visible}"
@@ -295,7 +306,6 @@ mod tests {
         for private in [SENTINEL_OPTION, SENTINEL_VALUE] {
             assert!(!visible.contains(private), "leaked {private}: {visible}");
         }
-        let debug = &events.debug;
         assert!(debug.contains(SENTINEL_OPTION), "{debug}");
         assert!(debug.contains("invalid type"), "{debug}");
     }
