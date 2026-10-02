@@ -14,8 +14,8 @@ platform's cache directory:
 | macOS | `~/Library/Caches/djls` |
 | Windows | `%LOCALAPPDATA%\djls\cache` |
 
-Old files are not removed automatically, so delete them when you no longer need
-them.
+The server keeps the seven most recent files and deletes older ones when it
+starts and each time it starts a new file.
 
 Your editor's output panel for the language server also shows the
 server's main messages, but not debug output.
