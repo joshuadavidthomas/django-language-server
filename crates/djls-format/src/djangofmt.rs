@@ -15,7 +15,7 @@ pub(super) fn format(
     format_options: FormatOptions,
 ) -> Result<Option<String>, FormatError> {
     let (options, _root) = pyproject::load_options(path.as_std_path())
-        .map_err(|error| FormatError::Djangofmt(format!("{error}")))?;
+        .map_err(|error| FormatError::Config(format!("{error}")))?;
     let profile = options
         .profile
         .or_else(|| Profile::from_path(path.as_std_path()))
@@ -41,5 +41,5 @@ pub(super) fn format(
     }
 
     format_text(source, &config, profile, Some(path.as_std_path()))
-        .map_err(|error| FormatError::Djangofmt(format!("{error:?}")))
+        .map_err(|error| FormatError::Template(format!("{error:?}")))
 }

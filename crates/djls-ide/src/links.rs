@@ -49,9 +49,9 @@ pub fn document_links(
                         }),
                         TemplateResolutionResult::DoesNotExist(error) => {
                             tracing::debug!(
-                                "Skipping unresolved template document link for '{}': {:?}",
-                                error.name.name(db),
-                                error.tried
+                                template = error.name.name(db),
+                                tried = ?error.tried,
+                                "Skipping unresolved template document link"
                             );
                             None
                         }
@@ -60,8 +60,9 @@ pub fn document_links(
                             // might target the wrong shadow is worse than no link; only
                             // definitive resolutions are linked.
                             tracing::debug!(
-                                "Skipping inconclusive template document link for '{}'",
-                                search.name.name(db)
+                                template = search.name.name(db),
+                                possible_origin_count = search.possible_origins.len(),
+                                "Skipping inconclusive template document link"
                             );
                             None
                         }

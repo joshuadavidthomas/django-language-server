@@ -16,6 +16,7 @@ use djls_project::testing::django_settings;
 use djls_project::testing::python_module_evaluation;
 use djls_project::testing::python_settings_evaluation;
 use djls_project::testing::python_syntax_errors;
+use djls_project::testing::settings_module_file;
 use djls_project::*;
 use djls_source::CaseSensitivity;
 use djls_source::ChangeEvent;
@@ -32,6 +33,7 @@ use djls_testing::OsTestDatabase;
 use djls_testing::ProjectFixture;
 use djls_testing::SalsaEventLog;
 use djls_testing::TestDatabase;
+use djls_testing::capture_events;
 use djls_testing::django_facts_project;
 use djls_testing::will_execute_count;
 use serde_json::Value;
@@ -2224,8 +2226,9 @@ fn unreadable_root_settings_are_dynamic_never_unset() {
         .install(&mut db)
         .expect("settings project fixture should build");
 
-    let settings =
-        to_value(django_settings(&db, project)).expect("test Python module name should be valid");
+    let (settings, events) = capture_events(|| {
+        to_value(django_settings(&db, project)).expect("test Python module name should be valid")
+    });
     assert_eq!(
         settings["installed_apps"]["cases"][0]["dynamic"]["evidence"][0]["issue"]["kind"],
         "unreadable"
@@ -2233,6 +2236,47 @@ fn unreadable_root_settings_are_dynamic_never_unset() {
     assert_eq!(
         settings["templates"]["cases"][0]["dynamic"]["evidence"][0]["issue"]["kind"],
         "unreadable"
+    );
+    let visible = &events.default_visible;
+    assert!(
+        visible.contains("WARN message=Could not read the Django settings module"),
+        "{visible}"
+    );
+    assert!(
+        visible.contains("error_kind=filesystem error: PermissionDenied"),
+        "{visible}"
+    );
+    assert!(!visible.contains("/proj"), "leaked path: {visible}");
+    assert!(
+        events.debug.contains("/proj/myproject/settings.py"),
+        "{}",
+        events.debug
+    );
+}
+
+#[test]
+fn missing_settings_module_warns() {
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/proj")
+        .django_settings_module("private_sentinel.settings")
+        .install(&mut db)
+        .expect("settings project fixture should build");
+
+    let (file, events) = capture_events(|| settings_module_file(&db, project));
+    assert!(file.is_none());
+    let visible = &events.default_visible;
+    assert!(
+        visible.contains("WARN message=Django settings module not found on the Python path"),
+        "{visible}"
+    );
+    assert!(
+        !visible.contains("private_sentinel"),
+        "leaked module: {visible}"
+    );
+    assert!(
+        events.debug.contains("private_sentinel.settings"),
+        "{}",
+        events.debug
     );
 }
 

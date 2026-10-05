@@ -1069,7 +1069,7 @@ fn template_directory_index<'db>(
         by_file: backend_scopes_by_file,
     } = backend_selection_evidence.finish(db, &origins_by_file);
 
-    debug!("Discovered {} total template origins", ordered.len());
+    debug!(origin_count = ordered.len(), "Discovered template origins");
 
     TemplateDirectoryIndex::new(
         db,
@@ -1293,8 +1293,12 @@ fn project_template_searches(db: &dyn ProjectDb, project: Project) -> ProjectTem
             let _ = root.revision(db);
         } else {
             warn!(
-                "Search path has no registered source root: {}",
-                search_path.path()
+                search_path_kind = search_path.kind_name(),
+                "Search path has no registered source root"
+            );
+            debug!(
+                path = %search_path.path(),
+                "Search path without registered source root"
             );
         }
     }
@@ -1326,13 +1330,8 @@ fn project_template_searches(db: &dyn ProjectDb, project: Project) -> ProjectTem
                 }
             });
             let mut root_evidence = Vec::new();
-            // A traversal issue can hide a matching file anywhere in this root, so it must precede
-            // every positive retained from the same walk.
+            // Traversal issues precede positives because they can hide a match anywhere in a root.
             for &kind in issues.iter() {
-                warn!(
-                    "Failed to fully walk template directory {}: {:?}",
-                    root, kind
-                );
                 search.push(ProjectTemplateSearchEvidence::Issue {
                     issue: TemplateSearchIssue::Walk {
                         root: root.clone(),
@@ -1352,7 +1351,6 @@ fn project_template_searches(db: &dyn ProjectDb, project: Project) -> ProjectTem
                         backend,
                     }),
                     Err(error) => {
-                        warn!("Failed to index template file {}: {}", entry.path, error);
                         root_evidence.push(ProjectTemplateSearchEvidence::Issue {
                             issue: TemplateSearchIssue::File {
                                 name,
@@ -1392,7 +1390,37 @@ fn project_template_searches(db: &dyn ProjectDb, project: Project) -> ProjectTem
         });
     }
 
+    warn_template_search_issues(&searches);
+
     ProjectTemplateSearches { searches }
+}
+
+fn warn_template_search_issues(searches: &[ProjectTemplateSearch]) {
+    // Alternatives share one walk per root, so the same issue recurs across searches.
+    let mut distinct = FxHashSet::default();
+    for evidence in searches.iter().flat_map(|search| &search.evidence) {
+        let ProjectTemplateSearchEvidence::Issue { issue, .. } = evidence else {
+            continue;
+        };
+        match issue {
+            TemplateSearchIssue::Walk { root, kind } => {
+                if distinct.insert((root.as_path(), Some(*kind))) {
+                    debug!(%root, error_kind = ?kind, "Failed to fully walk template directory");
+                }
+            }
+            TemplateSearchIssue::File { path, error, .. } => {
+                if distinct.insert((path.as_path(), None)) {
+                    debug!(%path, %error, "Failed to index template file");
+                }
+            }
+        }
+    }
+    if !distinct.is_empty() {
+        warn!(
+            issue_count = distinct.len(),
+            "Template discovery completed with partial results"
+        );
+    }
 }
 
 #[cfg(test)]

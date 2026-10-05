@@ -163,8 +163,12 @@ fn trim_trailing_line_whitespace(mut text: String) -> String {
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum FormatError {
+    /// The nearest `pyproject.toml` could not be read or parsed.
+    #[error("djangofmt configuration failed: {0}")]
+    Config(String),
+    /// The template could not be formatted, which is routine while it is half-typed.
     #[error("djangofmt failed: {0}")]
-    Djangofmt(String),
+    Template(String),
 }
 
 pub fn format_template(

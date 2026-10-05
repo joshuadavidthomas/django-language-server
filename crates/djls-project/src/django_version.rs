@@ -102,7 +102,11 @@ pub fn bundled_django_version(
         if let Some(version) = version {
             let selected = feature_line(version);
             if selected.is_none() {
-                tracing::warn!("Django {version} in {filename} has no supported bundle");
+                tracing::warn!(
+                    metadata_kind = dependency_metadata_kind(Utf8Path::new(filename)),
+                    version = %version,
+                    "Resolved Django version has no supported bundle"
+                );
             }
             return selected;
         }
@@ -134,10 +138,10 @@ fn locked_django_versions(fs: &dyn FileSystem, path: &Utf8Path) -> Vec<LockedDja
         let Ok(source) = fs.read_to_string(path) else {
             return Vec::new();
         };
-        let lock: serde_json::Value = match serde_json::from_str(&source) {
+        let lock = match serde_json::from_str::<serde_json::Value>(&source) {
             Ok(lock) => lock,
             Err(error) => {
-                tracing::warn!("Could not read Django dependency metadata from {path}: {error}");
+                warn_invalid_dependency_metadata(path, "invalid_json", &error);
                 return Vec::new();
             }
         };
@@ -409,9 +413,35 @@ fn read_toml(fs: &dyn FileSystem, path: &Utf8Path) -> Option<toml::Value> {
     match toml::from_str(&source) {
         Ok(value) => Some(value),
         Err(error) => {
-            tracing::warn!("Could not read Django dependency metadata from {path}: {error}");
+            warn_invalid_dependency_metadata(path, "invalid_toml", &error);
             None
         }
+    }
+}
+
+fn warn_invalid_dependency_metadata(
+    path: &Utf8Path,
+    parse_error: &'static str,
+    error: &dyn std::fmt::Display,
+) {
+    tracing::warn!(
+        metadata_kind = dependency_metadata_kind(path),
+        parse_error,
+        "Could not parse Django dependency metadata"
+    );
+    tracing::debug!(%path, %error, "Django dependency metadata parse error");
+}
+
+fn dependency_metadata_kind(path: &Utf8Path) -> &'static str {
+    match path.file_name() {
+        Some("pyproject.toml") => "pyproject",
+        Some("uv.lock") => "uv_lock",
+        Some("poetry.lock") => "poetry_lock",
+        Some("pdm.lock") => "pdm_lock",
+        Some("Pipfile.lock") => "pipfile_lock",
+        Some("pylock.toml") => "pylock",
+        Some("setup.cfg") => "setup_cfg",
+        _ => "other",
     }
 }
 
@@ -485,7 +515,14 @@ impl DjangoRequirements {
             return;
         };
         let Some(specifiers) = poetry_specifiers(source) else {
-            tracing::warn!("Could not read Poetry Django version constraint: {source}");
+            tracing::warn!(
+                constraint_kind = "poetry",
+                "Could not parse Django version constraint"
+            );
+            tracing::debug!(
+                constraint = source,
+                "Unparsed Poetry Django version constraint"
+            );
             return;
         };
         let mut marker = MarkerTree::TRUE;
@@ -523,7 +560,7 @@ impl DjangoRequirements {
         // Semicolons belong to PEP 508 environment markers, not INI comments.
         config.set_inline_comment_symbols(Some(&['#']));
         if let Err(error) = config.read(source) {
-            tracing::warn!("Could not read Django dependency metadata from {path}: {error}");
+            warn_invalid_dependency_metadata(&path, "invalid_ini", &error);
             return;
         }
         if let Some(source) = config.get("options", "python_requires")
