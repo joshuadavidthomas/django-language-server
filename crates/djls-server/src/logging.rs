@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::RwLock;
 
+use camino::Utf8Path;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tower_lsp_server::Client;
@@ -19,6 +20,8 @@ use tracing::Level;
 use tracing::field::Field;
 use tracing::field::Visit;
 use tracing_appender::non_blocking::WorkerGuard;
+use tracing_appender::rolling::RollingFileAppender;
+use tracing_appender::rolling::Rotation;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::Layer;
 use tracing_subscriber::Registry;
@@ -30,6 +33,8 @@ use tracing_subscriber::util::SubscriberInitExt;
 
 const LSP_QUEUE_LIMIT: usize = 256;
 const LSP_RECORD_LIMIT: usize = 4 * 1024;
+const LOG_FILE_PREFIX: &str = "djls.log";
+const LOG_FILE_LIMIT: usize = 7;
 
 // `djls` matches every `djls*` target. The tooling crates it also covers
 // (`djls_testing`, `djls_bench`) are never linked into the server.
@@ -296,6 +301,18 @@ impl LoggingGuard {
     }
 }
 
+/// Daily files, keeping the newest [`LOG_FILE_LIMIT`]. Older files with the
+/// same prefix, including those from earlier releases, are pruned at startup.
+fn file_appender(
+    log_dir: &Utf8Path,
+) -> Result<RollingFileAppender, tracing_appender::rolling::InitError> {
+    RollingFileAppender::builder()
+        .rotation(Rotation::DAILY)
+        .filename_prefix(LOG_FILE_PREFIX)
+        .max_log_files(LOG_FILE_LIMIT)
+        .build(log_dir)
+}
+
 /// Initialize the dual-layer tracing subscriber.
 ///
 /// - File layer: `RUST_LOG`, or [`DEFAULT_FILTER`] when unset, empty, or invalid.
@@ -304,11 +321,11 @@ pub(crate) fn init_tracing() -> LoggingGuard {
     // Never print invalid environment contents; they can contain sensitive data.
     let env_filter = log_filter(std::env::var("RUST_LOG").ok().as_deref());
 
-    let (non_blocking, file_guard) = match djls_conf::log_dir() {
-        Ok(log_dir) => {
-            let file_appender = tracing_appender::rolling::daily(log_dir.as_std_path(), "djls.log");
-            tracing_appender::non_blocking(file_appender)
-        }
+    let appender = djls_conf::log_dir()
+        .map_err(|error| error.to_string())
+        .and_then(|log_dir| file_appender(&log_dir).map_err(|error| error.to_string()));
+    let (non_blocking, file_guard) = match appender {
+        Ok(appender) => tracing_appender::non_blocking(appender),
         Err(error) => {
             eprintln!("Warning: Failed to initialize file logging: {error}");
             eprintln!("Falling back to stderr logging...");
@@ -458,6 +475,50 @@ mod tests {
             assert!(text.text.len() <= LSP_RECORD_LIMIT, "prefix {prefix}");
             assert!(text.text.ends_with('…'), "prefix {prefix}");
             assert!(text.truncated, "prefix {prefix}");
+        }
+    }
+
+    #[test]
+    fn file_appender_prunes_existing_daily_files() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let dir = Utf8Path::from_path(dir.path()).expect("UTF-8 temp dir");
+        let mut old_logs = Vec::new();
+        for day in 1..=10 {
+            let path = dir.join(format!("djls.log.2000-01-{day:02}"));
+            std::fs::write(&path, "old").expect("old log");
+            old_logs.push(path);
+        }
+        std::fs::write(dir.join("unrelated.txt"), "keep").expect("unrelated file");
+
+        drop(file_appender(dir).expect("appender"));
+
+        let mut names: Vec<_> = std::fs::read_dir(dir)
+            .expect("read dir")
+            .map(|entry| {
+                entry
+                    .expect("entry")
+                    .file_name()
+                    .into_string()
+                    .expect("UTF-8")
+            })
+            .collect();
+        names.sort();
+        let logs = names
+            .iter()
+            .filter(|name| name.starts_with(LOG_FILE_PREFIX))
+            .count();
+        assert_eq!(logs, LOG_FILE_LIMIT);
+        assert_eq!(
+            std::fs::read_to_string(dir.join("unrelated.txt")).expect("unrelated file"),
+            "keep"
+        );
+        // The appender sorts by filesystem creation time, falling back to the
+        // filename date. Rapidly created fixtures can share a timestamp, so
+        // assert retention without imposing an order among tied old files.
+        let retained: Vec<_> = old_logs.iter().filter(|path| path.exists()).collect();
+        assert_eq!(retained.len(), LOG_FILE_LIMIT - 1);
+        for path in retained {
+            assert_eq!(std::fs::read_to_string(path).expect("retained log"), "old");
         }
     }
 
