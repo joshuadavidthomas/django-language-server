@@ -24,7 +24,7 @@ use tracing::error;
 use crate::diagnostics::DiagnosticPublisher;
 use crate::ext::PositionEncodingExt;
 use crate::ext::UriExt;
-use crate::logging::LoggingGuard;
+use crate::logging::LspLogControl;
 use crate::reload::ProjectReload;
 use crate::session::CancellationRetryAction;
 use crate::session::CancellationRetryState;
@@ -39,12 +39,12 @@ pub(crate) struct DjangoLanguageServer {
     session: Arc<Mutex<Session>>,
     reload: ProjectReload,
     diagnostics: DiagnosticPublisher,
-    logging: LoggingGuard,
+    logging: LspLogControl,
 }
 
 impl DjangoLanguageServer {
     #[must_use]
-    pub(crate) fn new(client: Client, logging: LoggingGuard) -> Self {
+    pub(crate) fn new(client: Client, logging: LspLogControl) -> Self {
         let session = Arc::new(Mutex::new(Session::default()));
         let diagnostics = DiagnosticPublisher::new(Arc::clone(&session), client.clone());
         let reload = ProjectReload::new(Arc::clone(&session), client.clone(), diagnostics.clone());
@@ -445,7 +445,7 @@ impl LanguageServer for DjangoLanguageServer {
     }
 
     async fn shutdown(&self) -> LspResult<()> {
-        self.logging.disable_lsp();
+        self.logging.stop().await;
         Ok(())
     }
 
