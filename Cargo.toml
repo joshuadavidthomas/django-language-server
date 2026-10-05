@@ -41,6 +41,8 @@ futures-util = "0.3"
 ignore = "0.4"
 insta = { version = "1.47", features = ["glob", "yaml"] }
 libtest-mimic = "0.8.2"
+# Keep in sync with djangofmt's pin; `djls-format` matches on its error type.
+markup_fmt = { git = "https://github.com/UnknownPlatypus/markup_fmt", rev = "c5ebe002d53736f1945ac8ec2f20df49878d9070" }
 memchr = "2.8"
 notify = "8.2"
 pep440_rs = "0.7.3"
