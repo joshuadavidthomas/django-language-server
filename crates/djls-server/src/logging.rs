@@ -10,6 +10,7 @@ use std::fmt::Write;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::RwLock;
+use std::time::Instant;
 
 use camino::Utf8Path;
 use tokio::sync::mpsc;
@@ -17,6 +18,7 @@ use tokio::task::JoinHandle;
 use tower_lsp_server::Client;
 use tower_lsp_server::ls_types;
 use tracing::Level;
+use tracing::debug;
 use tracing::field::Field;
 use tracing::field::Visit;
 use tracing_appender::non_blocking::WorkerGuard;
@@ -133,7 +135,7 @@ impl LspLogControl {
     }
 
     #[cfg(test)]
-    fn disconnected() -> Self {
+    pub(crate) fn disconnected() -> Self {
         Self::new(Arc::new(RwLock::new(None)))
     }
 
@@ -170,6 +172,59 @@ impl LspLogControl {
             drop(task.await);
         }
     }
+}
+
+/// Wraps `work` to run inside `span` on a Tokio blocking worker, and records
+/// how long it computed (excluding time queued for a worker).
+///
+/// Blocking workers don't inherit the caller's span, so it is captured here
+/// and entered only on the worker; no guard ever crosses an await.
+pub(crate) fn blocking_in_span<T>(
+    span: tracing::Span,
+    work: impl FnOnce() -> T,
+) -> impl FnOnce() -> T {
+    with_caller_dispatch(move || {
+        span.in_scope(|| {
+            let _timer = ComputeTimer(Instant::now());
+            work()
+        })
+    })
+}
+
+/// Milliseconds since `start`, rounded to 0.1 ms so timing fields stay readable.
+pub(crate) fn elapsed_ms(start: Instant) -> f64 {
+    (start.elapsed().as_secs_f64() * 10_000.0).round() / 10.0
+}
+
+// Emit compute timing even when blocking work unwinds.
+struct ComputeTimer(Instant);
+
+impl Drop for ComputeTimer {
+    fn drop(&mut self) {
+        debug!(event = "compute_completed", compute_ms = elapsed_ms(self.0));
+    }
+}
+
+// Production installs one global subscriber, which every thread already sees.
+// Tests install scoped subscribers, which Tokio's blocking pool does not
+// inherit, so only test builds carry the caller's dispatcher over.
+#[cfg(not(test))]
+fn with_caller_dispatch<T>(work: impl FnOnce() -> T) -> impl FnOnce() -> T {
+    work
+}
+
+#[cfg(test)]
+fn with_caller_dispatch<T>(work: impl FnOnce() -> T) -> impl FnOnce() -> T {
+    let dispatch = tracing::dispatcher::get_default(Clone::clone);
+    move || tracing::dispatcher::with_default(&dispatch, work)
+}
+
+/// Captures events, with their fields and enclosing spans, as JSON for
+/// instrumentation tests across modules.
+#[cfg(test)]
+pub(crate) mod capture {
+    pub(crate) use djls_testing::log_capture::Capture;
+    pub(crate) use djls_testing::log_capture::callsite_guard;
 }
 
 #[derive(Default)]
