@@ -85,6 +85,45 @@ impl ReloadRunOutcome {
     }
 }
 
+// Stage retries must not restart the worker's budget indefinitely. Track it
+// across runs of the same generation; a new edit gets its own bounded budget.
+struct ReloadRetryState {
+    generation: Option<u64>,
+    cancellation: CancellationRetryState,
+}
+
+impl ReloadRetryState {
+    const fn new() -> Self {
+        Self {
+            generation: None,
+            cancellation: CancellationRetryState::new(),
+        }
+    }
+
+    async fn finish(
+        &mut self,
+        session: &Arc<Mutex<Session>>,
+        generation: u64,
+        outcome: ReloadRunOutcome,
+    ) -> ReloadRunOutcome {
+        if self.generation != Some(generation) || outcome != ReloadRunOutcome::Cancelled {
+            self.generation = Some(generation);
+            self.cancellation = CancellationRetryState::new();
+        }
+        if outcome == ReloadRunOutcome::Cancelled
+            && self.cancellation.after_cancellation() == CancellationRetryAction::Exhausted
+        {
+            warn!(
+                reason = "retries_exhausted",
+                retries = SNAPSHOT_CANCEL_RETRIES,
+                "Project reload cancelled repeatedly; stopping automatic retries"
+            );
+            return fail_generation(session, generation).await;
+        }
+        outcome
+    }
+}
+
 /// Drives full Project reloads and intrinsic-only re-primes off the request path.
 ///
 /// The channel is only a wake-up edge. Pending work is one atomic state where
@@ -104,13 +143,18 @@ impl ProjectReload {
     ) -> Self {
         let worker_session = Arc::clone(&session);
         let notice = ReloadFailureNotice::new(&session, client.clone());
+        let retry = Arc::new(Mutex::new(ReloadRetryState::new()));
         let reload = Self::spawn(move |job| {
             let session = Arc::clone(&worker_session);
             let client = client.clone();
             let diagnostics = diagnostics.clone();
             let notice = notice.clone();
+            let retry = Arc::clone(&retry);
             async move {
-                let client_info = { session.lock().await.client_info().clone() };
+                let (client_info, generation) = {
+                    let session = session.lock().await;
+                    (session.client_info().clone(), session.desired_generation())
+                };
                 let outcome = match job {
                     ProjectWork::FullReload => {
                         reload_project(Arc::clone(&session), client, client_info, diagnostics).await
@@ -119,6 +163,11 @@ impl ProjectReload {
                         reprime_project(Arc::clone(&session), diagnostics).await
                     }
                 };
+                let outcome = retry
+                    .lock()
+                    .await
+                    .finish(&session, generation, outcome)
+                    .await;
                 match outcome {
                     ReloadRunOutcome::Failed => {
                         if let IntrinsicReadinessState::Failed(generation) =
@@ -1886,6 +1935,70 @@ mod tests {
             .expect("reload worker should drop its runner capture");
 
         assert_eq!(run_count.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn persistent_cancellation_stops_and_new_generation_can_retry() {
+        let session = Arc::new(Mutex::new(Session::default()));
+        session.lock().await.mark_project_changed();
+        let generation = session.lock().await.desired_generation();
+        let retry = Arc::new(Mutex::new(ReloadRetryState::new()));
+        let runs = Arc::new(AtomicUsize::new(0));
+        let (tx, mut rx) = mpsc::channel(8);
+        let reload = ProjectReload::spawn({
+            let session = Arc::clone(&session);
+            let retry = Arc::clone(&retry);
+            let runs = Arc::clone(&runs);
+            move |_| {
+                let session = Arc::clone(&session);
+                let retry = Arc::clone(&retry);
+                let runs = Arc::clone(&runs);
+                let tx = tx.clone();
+                async move {
+                    runs.fetch_add(1, Ordering::SeqCst);
+                    let generation = session.lock().await.desired_generation();
+                    let outcome = retry
+                        .lock()
+                        .await
+                        .finish(&session, generation, ReloadRunOutcome::Cancelled)
+                        .await;
+                    tx.send(outcome).await.expect("observed run");
+                    outcome
+                }
+            }
+        });
+        for expected_generation in [generation, generation + 1] {
+            reload.request_current(ProjectWork::FullReload);
+            for _ in 0..SNAPSHOT_CANCEL_RETRIES {
+                assert_eq!(
+                    timeout(Duration::from_secs(1), rx.recv())
+                        .await
+                        .expect("cancelled run")
+                        .expect("outcome"),
+                    ReloadRunOutcome::Cancelled
+                );
+            }
+            assert_eq!(
+                timeout(Duration::from_secs(1), rx.recv())
+                    .await
+                    .expect("exhausted run")
+                    .expect("outcome"),
+                ReloadRunOutcome::Failed
+            );
+            assert_eq!(
+                session.lock().await.readiness_state(),
+                IntrinsicReadinessState::Failed(expected_generation)
+            );
+            assert!(
+                timeout(Duration::from_millis(50), rx.recv()).await.is_err(),
+                "exhaustion must not requeue another run"
+            );
+            session.lock().await.mark_project_changed();
+        }
+        assert_eq!(
+            runs.load(Ordering::SeqCst),
+            2 * (SNAPSHOT_CANCEL_RETRIES + 1)
+        );
     }
 
     #[tokio::test]
