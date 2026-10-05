@@ -124,9 +124,10 @@ needed. Analysis does not require a writable cache. Navigation materializes only
 the requested target in the platform's DJLS cache directory
 (`~/.cache/djls/django` on Linux), under a content-addressed path. These files are
 read-only views: edits to cached files or their editor buffers do not change
-analysis. The log reports the selected release line and source path. If the cache
-cannot be written, navigation to bundled files is unavailable, but analysis still
-works. Removing the cache causes individual targets to be recreated on navigation.
+analysis. The log reports the selected release line without exposing the source
+path. If the cache cannot be written, navigation to bundled files is unavailable,
+but analysis still works. Removing the cache causes individual targets to be
+recreated on navigation.
 
 ### `venv_path`
 

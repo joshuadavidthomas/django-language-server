@@ -39,5 +39,7 @@ troubleshooting.
 
 ## Sharing logs
 
-Debug logs can include file paths and details about your project. Review a log
-before attaching it to an issue.
+By default, warnings leave out file paths, error messages, and other details
+about your project. If a warning doesn't say enough to act on, turn on debug
+output as described above to see the details. Debug logs can include file paths
+and details about your project, so review a log before attaching it to an issue.

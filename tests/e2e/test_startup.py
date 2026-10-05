@@ -11,6 +11,7 @@ from pytest_lsp import client_capabilities
 
 from .conftest import SERVER_COMMAND
 from .conftest import TEST_WORKSPACE
+from .conftest import wait_for_log_message
 from .utils import position_after
 
 BASE_TEMPLATE = TEST_WORKSPACE / "djls_app" / "templates" / "djls_app" / "base.html"
@@ -115,23 +116,6 @@ async def wait_for_notification(
 ) -> None:
     future = asyncio.wrap_future(client.protocol.wait_for_notification(method))
     await asyncio.wait_for(asyncio.shield(future), timeout=timeout)
-
-
-async def wait_for_log_message(client: LanguageClient, prefix: str) -> None:
-    def found_message() -> bool:
-        return any(
-            message.message.startswith(prefix) for message in client.log_messages
-        )
-
-    while not found_message():
-        try:
-            await wait_for_notification(client, types.WINDOW_LOG_MESSAGE)
-        except TimeoutError as exc:
-            if found_message():
-                return
-            raise AssertionError(
-                f"Timed out waiting for log message: {prefix}"
-            ) from exc
 
 
 async def wait_for_progress_titles(
