@@ -309,7 +309,7 @@ class PyPIResponse(BaseModel):
 
 
 class GitHubAsset(BaseModel):
-    id: int
+    api_url: str = Field(alias="apiUrl")
     name: str
     state: Literal["open", "starter", "uploaded"]
     size: Annotated[int, Field(ge=0)]
@@ -350,8 +350,11 @@ def binary_artifacts() -> list[Artifact]:
 def release_assets(release: Release) -> list[GitHubAsset]:
     output = run(
         "gh",
-        "api",
-        f"repos/{{owner}}/{{repo}}/releases/tags/{release.tag}",
+        "release",
+        "view",
+        release.tag,
+        "--json",
+        "assets",
         capture=True,
     )
     return GitHubRelease.model_validate_json(output).assets
@@ -488,7 +491,7 @@ def github_assets(tag: str) -> None:
                 "api",
                 "--method",
                 "DELETE",
-                f"repos/{{owner}}/{{repo}}/releases/assets/{asset.id}",
+                asset.api_url,
             )
     attached = {asset.name for asset in assets if asset.uploaded}
     for artifact in artifacts:

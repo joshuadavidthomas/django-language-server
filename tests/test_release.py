@@ -71,7 +71,7 @@ def test_starter_asset_is_removed_before_retry(monkeypatch, tmp_path: Path) -> N
 
     def release_assets(_release: Release) -> list[GitHubAsset]:
         uploaded = [
-            GitHubAsset(id=index, name=name, state="uploaded", size=len(content))
+            GitHubAsset(apiUrl=f"https://api.github.com/repos/owner/repo/releases/assets/{index}", name=name, state="uploaded", size=len(content))
             for index, (name, content) in enumerate(published.items(), start=1)
         ]
         return [*uploaded, *stalled.values()]
@@ -86,7 +86,7 @@ def test_starter_asset_is_removed_before_retry(monkeypatch, tmp_path: Path) -> N
         if path == artifact.checksum and interrupt_checksum:
             interrupt_checksum = False
             stalled[path.name] = GitHubAsset(
-                id=100,
+                apiUrl="https://api.github.com/repos/owner/repo/releases/assets/100",
                 name=path.name,
                 state="starter",
                 size=0,
@@ -181,3 +181,26 @@ def test_pypi_verification_retries_http_errors(monkeypatch, tmp_path: Path) -> N
         release_tool.verify_pypi("v1.2.3")
 
     assert requests == 2
+
+
+@pytest.mark.parametrize("draft", [True, False])
+def test_release_assets_uses_draft_aware_lookup(monkeypatch, draft: bool) -> None:
+    # Published payload captured from gh release view v6.1.0 --json assets;
+    # a newly created draft has the same envelope with an empty asset list.
+    payload = '{"assets": []}' if draft else (Path(__file__).parent / "fixtures" / "github-release-assets.json").read_text()
+
+    def run(*args: str, capture: bool = False) -> str:
+        assert args == ("gh", "release", "view", "v6.1.1", "--json", "assets")
+        assert capture
+        return payload
+
+    monkeypatch.setattr(release_tool, "run", run)
+    assets = release_tool.release_assets(Release(tag="v6.1.1"))
+
+    if draft:
+        assert assets == []
+    else:
+        assert len(assets) == 2
+        assert assets[0].uploaded
+        assert assets[0].api_url == "https://api.github.com/repos/joshuadavidthomas/django-language-server/releases/assets/615743661"
+        assert assets[1].name.endswith(".sha256")
