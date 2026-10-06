@@ -1,0 +1,32 @@
+{
+  "assets": [
+    {
+      "apiUrl": "https://api.github.com/repos/joshuadavidthomas/django-language-server/releases/assets/615743661",
+      "contentType": "application/x-gtar",
+      "createdAt": "2026-10-06T14:24:55Z",
+      "digest": "sha256:b7c0f4a565d59296b6ccfe9c0ff850cf07abb991f5ef55f3ae0d7447b75c34bd",
+      "downloadCount": 2,
+      "id": "RA_kwDONZLcv84ks4Ct",
+      "label": "",
+      "name": "django-language-server-v6.1.0-darwin-arm64.tar.gz",
+      "size": 6262762,
+      "state": "uploaded",
+      "updatedAt": "2026-10-06T14:24:57Z",
+      "url": "https://github.com/joshuadavidthomas/django-language-server/releases/download/v6.1.0/django-language-server-v6.1.0-darwin-arm64.tar.gz"
+    },
+    {
+      "apiUrl": "https://api.github.com/repos/joshuadavidthomas/django-language-server/releases/assets/615743778",
+      "contentType": "application/octet-stream",
+      "createdAt": "2026-10-06T14:24:57Z",
+      "digest": "sha256:ecff7c1c72c81b1be87d8ec44d55cf7ad6ed547b01ddda5cf50642e2f94e3c3f",
+      "downloadCount": 0,
+      "id": "RA_kwDONZLcv84ks4Ei",
+      "label": "",
+      "name": "django-language-server-v6.1.0-darwin-arm64.tar.gz.sha256",
+      "size": 116,
+      "state": "uploaded",
+      "updatedAt": "2026-10-06T14:24:58Z",
+      "url": "https://github.com/joshuadavidthomas/django-language-server/releases/download/v6.1.0/django-language-server-v6.1.0-darwin-arm64.tar.gz.sha256"
+    }
+  ]
+}
