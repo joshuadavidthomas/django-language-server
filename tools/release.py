@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import glob
 import hashlib
+import json
 import os
 import re
 import subprocess
@@ -145,11 +146,7 @@ def load_toml(path: str, model: type[ModelT]) -> ModelT:
 
 def package_version(document: Lockfile, name: str) -> str | None:
     return next(
-        (
-            package.version
-            for package in document.package
-            if package.name == name
-        ),
+        (package.version for package in document.package if package.name == name),
         None,
     )
 
@@ -197,9 +194,7 @@ class ReleaseMetadata(BaseModel):
             "Python project": self.project_version,
             "bumpver": normalize_cargo_version(self.bumpver_version),
             "Cargo package": normalize_cargo_version(self.cargo_version),
-            "Cargo.lock": normalize_cargo_version(
-                self.cargo_lock_version or "missing"
-            ),
+            "Cargo.lock": normalize_cargo_version(self.cargo_lock_version or "missing"),
             "uv.lock": self.uv_lock_version or "missing",
         }
         errors = [
@@ -348,12 +343,19 @@ def binary_artifacts() -> list[Artifact]:
 
 
 def release_assets(release: Release) -> list[GitHubAsset]:
+    # The release-by-tag endpoint excludes drafts. Listing releases includes
+    # drafts visible to the token and also works after publication.
     output = run(
         "gh",
         "api",
-        f"repos/{{owner}}/{{repo}}/releases/tags/{release.tag}",
+        "--paginate",
+        "repos/{owner}/{repo}/releases",
+        "--jq",
+        f'.[] | select(.tag_name == "{release.tag}")',
         capture=True,
     )
+    if not output:
+        raise ReleaseError(f"GitHub release {release.tag} was not found")
     return GitHubRelease.model_validate_json(output).assets
 
 
@@ -449,6 +451,82 @@ def preflight(tag: str, workflow_sha: str) -> None:
 def verify_binaries() -> None:
     for artifact in binary_artifacts():
         artifact.verify()
+
+
+@app.command("recovery-preflight")
+def recovery_preflight(tag: str, run_id: int) -> None:
+    release = Release(tag=tag)
+    original = json.loads(
+        run(
+            "gh",
+            "api",
+            f"repos/{{owner}}/{{repo}}/actions/runs/{run_id}",
+            capture=True,
+        )
+    )
+    if (
+        original["path"] != ".github/workflows/release.yml"
+        or original["head_branch"] != release.tag
+        or original["event"] not in {"push", "workflow_dispatch"}
+        or original["status"] != "completed"
+    ):
+        raise ReleaseError("Recovery requires a completed release run from the tag")
+    preflight(release.tag, original["head_sha"])
+    jobs = json.loads(
+        run(
+            "gh",
+            "api",
+            "--paginate",
+            "--slurp",
+            f"repos/{{owner}}/{{repo}}/actions/runs/{run_id}/jobs?filter=latest",
+            capture=True,
+        )
+    )
+    completed = [job for page in jobs for job in page["jobs"]]
+    if not any(
+        job["name"] == "build / attest" and job["conclusion"] == "success"
+        for job in completed
+    ) or any(
+        job["name"] not in {"release", "recover"}
+        and job["conclusion"] != "success"
+        for job in completed
+    ):
+        raise ReleaseError(
+            "Recovery requires successful release checks and attested builds"
+        )
+
+
+@app.command("verify-provenance")
+def verify_provenance(tag: str) -> None:
+    release = Release(tag=tag)
+    commit = run("git", "rev-parse", "HEAD", capture=True)
+    repository = run(
+        "gh",
+        "repo",
+        "view",
+        "--json",
+        "nameWithOwner",
+        "--jq",
+        ".nameWithOwner",
+        capture=True,
+    )
+    artifacts = [artifact.archive for artifact in binary_artifacts()]
+    artifacts.extend(Path(path) for path in sorted(glob.glob("wheels-*/*")))
+    for artifact in artifacts:
+        run(
+            "gh",
+            "attestation",
+            "verify",
+            str(artifact),
+            "--repo",
+            repository,
+            "--signer-workflow",
+            f"{repository}/.github/workflows/build.yml",
+            "--source-digest",
+            commit,
+            "--source-ref",
+            f"refs/tags/{release.tag}",
+        )
 
 
 @app.command("github-draft")

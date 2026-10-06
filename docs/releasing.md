@@ -83,3 +83,18 @@ the failed workflow run, verify that archive against the published checksum,
 and upload the matching archive. A newly rebuilt archive may contain different
 timestamps and must not be substituted merely because it came from the same
 tag. Rerun the release workflow after restoring the matching archive.
+
+If the publishing code itself failed, a rerun from the tag still uses that code.
+Merge the publishing fix into `main`, then dispatch from `main` with the existing
+tag and the original release run ID:
+
+```bash
+gh workflow run release.yml --ref main \
+  -f recover_tag=vX.Y.Z -f artifacts_run_id=123456789
+```
+
+This recovery uses updated publishing tools with the original tag's metadata
+and artifacts. It requires the original run's checks and attested builds to have
+succeeded, verifies artifact provenance against the tag's commit and ref, and
+repeats the publishing and installation checks. It does not rebuild packages or
+move the tag. The original run's artifacts must still be available.

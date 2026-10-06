@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 
 import httpx2
@@ -151,9 +152,7 @@ def test_only_newest_stable_release_is_latest(
 
     release_tool.github_publish(tag)
 
-    assert commands == [
-        ("gh", "release", "edit", tag, "--draft=false", latest_flag)
-    ]
+    assert commands == [("gh", "release", "edit", tag, "--draft=false", latest_flag)]
 
 
 def test_pypi_verification_retries_http_errors(monkeypatch, tmp_path: Path) -> None:
@@ -181,3 +180,150 @@ def test_pypi_verification_retries_http_errors(monkeypatch, tmp_path: Path) -> N
         release_tool.verify_pypi("v1.2.3")
 
     assert requests == 2
+
+
+def test_release_assets_includes_drafts(monkeypatch) -> None:
+    commands: list[tuple[str, ...]] = []
+
+    def run(*args: str, capture: bool = False) -> str:
+        assert capture
+        commands.append(args)
+        return json.dumps(
+            {
+                "assets": [
+                    {
+                        "id": 42,
+                        "name": "example.tar.gz",
+                        "state": "uploaded",
+                        "size": 123,
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setattr(release_tool, "run", run)
+    assets = release_tool.release_assets(Release(tag="v6.1.1"))
+
+    assert [asset.name for asset in assets] == ["example.tar.gz"]
+    assert commands == [
+        (
+            "gh",
+            "api",
+            "--paginate",
+            "repos/{owner}/{repo}/releases",
+            "--jq",
+            '.[] | select(.tag_name == "v6.1.1")',
+        )
+    ]
+
+
+def test_release_assets_reports_missing_release(monkeypatch) -> None:
+    monkeypatch.setattr(release_tool, "run", lambda *args, **kwargs: "")
+
+    with pytest.raises(ReleaseError, match="GitHub release v6.1.1 was not found"):
+        release_tool.release_assets(Release(tag="v6.1.1"))
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("path", ".github/workflows/build.yml"),
+        ("head_branch", "main"),
+        ("event", "pull_request"),
+        ("status", "in_progress"),
+    ],
+)
+def test_recovery_rejects_wrong_source_run(monkeypatch, field: str, value: str) -> None:
+    original = {
+        "path": ".github/workflows/release.yml",
+        "head_branch": "v6.1.1",
+        "event": "push",
+        "status": "completed",
+        "head_sha": "release-commit",
+    }
+    original[field] = value
+    monkeypatch.setattr(
+        release_tool, "run", lambda *args, **kwargs: json.dumps(original)
+    )
+
+    with pytest.raises(ReleaseError, match="completed release run from the tag"):
+        release_tool.recovery_preflight("v6.1.1", 123)
+
+
+@pytest.mark.parametrize(
+    "test_conclusion", ["success", "failure", "cancelled", "skipped"]
+)
+def test_recovery_requires_successful_checks(monkeypatch, test_conclusion: str) -> None:
+    original = {
+        "path": ".github/workflows/release.yml",
+        "head_branch": "v6.1.1",
+        "event": "push",
+        "status": "completed",
+        "head_sha": "release-commit",
+    }
+    pages = [
+        {"jobs": [{"name": "test / e2e", "conclusion": test_conclusion}]},
+        {
+            "jobs": [
+                {"name": "build / attest", "conclusion": "success"},
+                {"name": "release", "conclusion": "failure"},
+            ]
+        },
+    ]
+    checked: list[tuple[str, str]] = []
+
+    def run(*args: str, capture: bool = False) -> str:
+        assert capture
+        return json.dumps(pages if "--slurp" in args else original)
+
+    monkeypatch.setattr(release_tool, "run", run)
+    monkeypatch.setattr(
+        release_tool, "preflight", lambda tag, sha: checked.append((tag, sha))
+    )
+
+    if test_conclusion == "success":
+        release_tool.recovery_preflight("v6.1.1", 123)
+        assert checked == [("v6.1.1", "release-commit")]
+    else:
+        with pytest.raises(
+            ReleaseError, match="successful release checks and attested builds"
+        ):
+            release_tool.recovery_preflight("v6.1.1", 123)
+
+
+def test_recovery_verifies_original_artifact_provenance(
+    monkeypatch, tmp_path: Path
+) -> None:
+    archive = tmp_path / "binary-linux-x64" / "example.tar.gz"
+    archive.parent.mkdir()
+    archive.write_bytes(b"archive")
+    wheel = tmp_path / "wheels-python" / "example.whl"
+    wheel.parent.mkdir()
+    wheel.write_bytes(b"wheel")
+    commands: list[tuple[str, ...]] = []
+
+    def run(*args: str, capture: bool = False) -> str:
+        if args[:2] == ("git", "rev-parse"):
+            return "release-commit"
+        if args[:3] == ("gh", "repo", "view"):
+            return "owner/repo"
+        commands.append(args)
+        return ""
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(release_tool, "run", run)
+    release_tool.verify_provenance("v6.1.1")
+
+    assert len(commands) == 2
+    for command in commands:
+        assert command[:3] == ("gh", "attestation", "verify")
+        assert command[4:] == (
+            "--repo",
+            "owner/repo",
+            "--signer-workflow",
+            "owner/repo/.github/workflows/build.yml",
+            "--source-digest",
+            "release-commit",
+            "--source-ref",
+            "refs/tags/v6.1.1",
+        )

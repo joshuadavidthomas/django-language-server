@@ -18,6 +18,10 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ## [Unreleased]
 
+### Fixed
+
+- **Internal**: Fixed draft release asset lookup and added recovery using the original attested artifacts when publishing code needs a fix.
+
 ## [6.1.1]
 
 ### Added
