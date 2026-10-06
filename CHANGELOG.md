@@ -34,7 +34,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Sped up startup, document edits, template-name completion and resolution, and `djls check`, especially for projects with complex Django settings.
 - Expanded Python environment discovery to support active Conda environments, Python installations on `PATH`, executable symlinks, and additional system package layouts.
 - Changed automatic interpreter discovery to prefer project virtual environments over `VIRTUAL_ENV`, including under pre-commit's isolated environments.
-- Updated `djangofmt` from 0.2.7 to 1.0.0 for faster template formatting.
+- Updated `djangofmt` from 0.2.7 to 1.0.0, bringing roughly 2x faster template formatting and some bug fixes.
 - Changed the server to keep only the seven most recent daily `djls.log.YYYY-MM-DD` files and fall back to stderr when a log file can't be created.
 - Changed the editor output panel to show only DJLS messages at INFO and above. Dependencies default to WARN unless overridden by `RUST_LOG`; DJLS warnings omit file paths and error details unless DEBUG logging is enabled.
 - **Internal**: Made `just corpus sync` prepare reusable project environments and separated corpus-wide tests and benchmarks from the regular test matrix.
