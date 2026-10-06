@@ -25,7 +25,7 @@ docs = [
 
 [project]
 name = "django-language-server"
-version = "6.1.0"
+version = "6.1.1"
 description = "A language server for the Django web framework"
 readme = "README.md"
 authors = [
@@ -94,7 +94,7 @@ Source = "https://github.com/joshuadavidthomas/django-language-server"
 [tool.bumpver]
 commit = true
 commit_message = ":bookmark: bump version {old_version} -> {new_version}"
-current_version = "6.1.0"
+current_version = "6.1.1"
 push = true
 tag = false
 version_pattern = "MAJOR.MINOR.PATCH[-TAG[.NUM]]"

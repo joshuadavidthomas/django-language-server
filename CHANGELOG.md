@@ -18,6 +18,8 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ## [Unreleased]
 
+## [6.1.1]
+
 ### Added
 
 - Added a "Why a language server?" docs page.
@@ -426,7 +428,8 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 - Josh Thomas <josh@joshthomas.dev> (maintainer)
 
-[unreleased]: https://github.com/joshuadavidthomas/django-language-server/compare/v6.1.0...HEAD
+[unreleased]: https://github.com/joshuadavidthomas/django-language-server/compare/v6.1.1...HEAD
+[6.1.1]: https://github.com/joshuadavidthomas/django-language-server/releases/tag/v6.1.1
 [5.1.0a0]: https://github.com/joshuadavidthomas/django-language-server/releases/tag/v5.1.0a0
 [5.1.0a1]: https://github.com/joshuadavidthomas/django-language-server/releases/tag/v5.1.0a1
 [5.1.0a2]: https://github.com/joshuadavidthomas/django-language-server/releases/tag/v5.1.0a2
