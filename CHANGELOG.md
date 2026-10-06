@@ -18,10 +18,6 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ## [Unreleased]
 
-### Fixed
-
-- **Internal**: Fixed release asset lookup for draft GitHub releases.
-
 ## [6.1.1]
 
 ### Added
