@@ -18,34 +18,28 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ## [Unreleased]
 
+## [6.1.1]
+
 ### Added
 
-- Added a "Why a language server?" docs page.
-- Added a getting started guide and reorganized the documentation navigation.
-- Added a warning when a configured `venv_path` has no discoverable site-packages.
-- Added bundled Django source and templates for offline core tag/filter analysis, with the release line taken from project dependencies or the `django_version` setting.
-- Added an `S124` hint on `{% load %}` for unreadable library registrations, with a code action that opens a prefilled issue.
-- Added a [Logging](https://djls.joshthomas.dev/logging/) docs page covering where to find server logs, how to turn on debug output, and what to check before sharing them.
+- Added bundled Django 5.2, 6.0, and 6.1 sources and templates for core tag and filter analysis without a Django installation or Python interpreter. Installed or project-local Django sources take precedence.
+- Added the `django_version` setting to select a bundled Django release line, otherwise inferred from the project's lockfile or declared dependencies.
+- Added an `S124` hint on `{% load %}` when DJLS can't read a library's tag or filter registrations, with a code action that opens a prefilled issue.
 - Added an error notification when the Django project fails to load, shown once per failure until a reload succeeds.
+- Added a logged warning when a configured `venv_path` has no discoverable site-packages.
+- Added a getting started guide, a "Why a language server?" page, and a [Logging](https://djls.joshthomas.dev/logging/) guide, and reorganized the documentation navigation.
 
 ### Changed
 
-- Updated bundled Django sources to 5.2.18, 6.0.9, and 6.1.2.
-- Sped up startup, document edits, and `djls check` by making settings and template-library analysis demand-driven and reducing allocations across parsing, validation, and Python module evaluation.
-- Reduced Django settings analysis time, especially for projects with many conditional branches or long `try` blocks.
-- Improved template-name completion and resolution.
+- Sped up startup, document edits, template-name completion and resolution, and `djls check`, especially for projects with complex Django settings.
 - Expanded Python environment discovery to support active Conda environments, Python installations on `PATH`, executable symlinks, and additional system package layouts.
 - Changed automatic interpreter discovery to prefer project virtual environments over `VIRTUAL_ENV`, including under pre-commit's isolated environments.
 - Updated `djangofmt` from 0.2.7 to 1.0.0, bringing roughly 2x faster template formatting and some bug fixes.
-- An unreadable or invalid `[tool.djangofmt]` section in `pyproject.toml` now surfaces as a formatting error instead of being silently ignored.
-- Changed the server to keep only the seven most recent daily `djls.log.YYYY-MM-DD` files, deleting older ones at startup and whenever a new day's file starts. If the log file can't be created, the server now logs to stderr instead of crashing.
-- Changed the editor's output panel to show only DJLS messages at INFO and above, including their structured fields; dependency logs such as Salsa's per-query messages now stay out of it regardless of `RUST_LOG`.
-- Changed default log levels: dependencies log at WARN unless `RUST_LOG` says otherwise, and DJLS warnings no longer include file paths or error text by default (enable DEBUG for the detail).
-- **Internal**: Made `just corpus sync` prepare and reuse project environments, and moved corpus-wide suites out of the Python/Django test matrix.
-- **Internal**: Test scenarios now declare their own tag libraries and settings and validate against Django's own template libraries; full-corpus benchmarks moved out of `cargo test`, which runs about fifteen seconds faster.
-- **Internal**: Added cold settings-analysis benchmarks and consolidated Salsa execution-event test helpers.
+- Changed the server to keep only the seven most recent daily `djls.log.YYYY-MM-DD` files and fall back to stderr when a log file can't be created.
+- Changed the editor output panel to show only DJLS messages at INFO and above. Dependencies default to WARN unless overridden by `RUST_LOG`; DJLS warnings omit file paths and error details unless DEBUG logging is enabled.
+- **Internal**: Made `just corpus sync` prepare reusable project environments and separated corpus-wide tests and benchmarks from the regular test matrix.
 - **Internal**: Reorganized `CONTRIBUTING.md` around a first-contribution path.
-- **Internal**: Made releases draft-first and recoverable, verified through PyPI and standalone installations before publication.
+- **Internal**: Made releases draft-first and recoverable, with PyPI and standalone installation checks before publication.
 
 ### Removed
 
@@ -53,26 +47,25 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Fixed
 
-- Fixed tag and filter argument rules being borrowed from unrelated same-named functions or misderived through unrecognized decorators, including `stringfilter`-decorated filters in Django source checkouts.
-- Fixed static validation of `simple_tag`, `inclusion_tag`, and `simple_block_tag` arguments to match Django's `parse_bits()` binding rules.
-- Fixed tag argument extraction missing rules defined through helper functions, control flow, and assignment lists such as `{% with %}` arguments.
-- Fixed correlated argument forms such as `widthratio ... as variable`, `for ... reversed`, and trailing keywords like `{% get_flatpages %}` being lost from extraction, validation, and completion.
+- Fixed incorrect tag and filter argument diagnostics for decorated functions, including `stringfilter`-decorated filters in Django source checkouts, and for unrelated functions sharing the same name.
+- Fixed argument validation for `simple_tag`, `inclusion_tag`, and `simple_block_tag` to match Django's rules, and missing argument validation for tags defined through helper functions or control flow.
+- Fixed validation and completion for `{% with %}` assignments, `widthratio ... as variable`, `for ... reversed`, and trailing keywords in `{% get_flatpages %}`.
 - Fixed argument validation for Pipeline's `stylesheet` and `javascript` tags, Compressor output modes, and Django's `templatetag` choices.
-- Fixed stale diagnostics during rapid edits and close/reopen cycles.
-- Fixed server hangs and stalls when document changes overlap background cache warm-up, when progress or diagnostic-refresh responses arrive during project updates, and on templates with repeated unclosed delimiters.
-- Fixed queued template-library re-primes incorrectly satisfying pending full project reloads.
+- Fixed false duplicate-option diagnostics and missing diagnostics or references for custom tags with unusual body parsers.
+- Fixed invalid tag registrations appearing as valid tags when they supply a name twice or pass excess arguments to `inclusion_tag`.
 - Fixed unloaded-tag diagnostics and load quick fixes disappearing when an unrelated template library has unknown registrations.
-- Fixed duplicate names and excess inclusion-tag arguments producing invented Template Library definitions.
-- Fixed false duplicate-option diagnostics and suppressed diagnostics or references for custom tags with unusual body parsers.
+- Fixed stale diagnostics during rapid edits and close/reopen cycles.
+- Fixed server hangs during edits and project reloads, and on templates with repeated unclosed delimiters.
+- Fixed a pending full project reload being skipped when a template-library refresh was already queued.
 - Fixed zero-configuration Django settings discovery for standard `manage.py` projects, including `src` layouts.
+- Fixed an invalid, missing, or unreadable Django settings module going unreported; the server now logs a warning.
 - Fixed relative `pythonpath` entries resolving outside the project root and explicit entries being shadowed by `.pth`-discovered editable installs.
-- Fixed static Django settings evaluation of `Path.parents[index]` expressions.
+- Fixed Django settings analysis for paths built with `Path.parents[index]`.
 - Fixed `.env` virtual environment directories being read as environment-variable files and producing a warning.
 - Fixed explicit `false` and empty LSP initialization options failing to override project configuration.
 - Fixed `djls check` scanning the project root when template settings differ only in context processors.
-- Fixed an invalid, missing, or unreadable Django settings module going unreported; the server now logs a warning instead of silently continuing without installed apps or template settings.
-- Fixed formatting a template with a syntax error doing nothing without explanation; the server now logs the line and column, which matters for HTML errors such as an unclosed `<div>` that template diagnostics don't report.
-- Fixed server logs growing without limit, including hundreds of gigabytes per day from Salsa's INFO-level query logging ([#836](https://github.com/joshuadavidthomas/django-language-server/issues/836)).
+- Fixed missing explanations for formatting failures: invalid or unreadable `[tool.djangofmt]` configuration now logs a warning and skips formatting; syntax errors include their line and column in the debug log.
+- Fixed excessive log growth from dependency messages such as Salsa's query logging ([#836](https://github.com/joshuadavidthomas/django-language-server/issues/836)).
 
 ## [6.1.0]
 
@@ -426,7 +419,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 - Josh Thomas <josh@joshthomas.dev> (maintainer)
 
-[unreleased]: https://github.com/joshuadavidthomas/django-language-server/compare/v6.1.0...HEAD
+[unreleased]: https://github.com/joshuadavidthomas/django-language-server/compare/v6.1.1...HEAD
 [5.1.0a0]: https://github.com/joshuadavidthomas/django-language-server/releases/tag/v5.1.0a0
 [5.1.0a1]: https://github.com/joshuadavidthomas/django-language-server/releases/tag/v5.1.0a1
 [5.1.0a2]: https://github.com/joshuadavidthomas/django-language-server/releases/tag/v5.1.0a2
@@ -441,3 +434,4 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 [6.0.2]: https://github.com/joshuadavidthomas/django-language-server/releases/tag/v6.0.2
 [6.0.3]: https://github.com/joshuadavidthomas/django-language-server/releases/tag/v6.0.3
 [6.1.0]: https://github.com/joshuadavidthomas/django-language-server/releases/tag/v6.1.0
+[6.1.1]: https://github.com/joshuadavidthomas/django-language-server/releases/tag/v6.1.1

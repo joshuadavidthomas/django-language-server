@@ -900,7 +900,7 @@ dependencies = [
 
 [[package]]
 name = "djls"
-version = "6.1.0"
+version = "6.1.1"
 dependencies = [
  "anyhow",
  "camino",
