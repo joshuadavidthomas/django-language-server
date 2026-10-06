@@ -30,6 +30,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Changed
 
+- Updated bundled Django sources to 5.2.18, 6.0.9, and 6.1.2.
 - Sped up startup, document edits, and `djls check` by making settings and template-library analysis demand-driven and reducing allocations across parsing, validation, and Python module evaluation.
 - Reduced Django settings analysis time, especially for projects with many conditional branches or long `try` blocks.
 - Improved template-name completion and resolution.
