@@ -16,6 +16,21 @@ babybuddy/core/templatetags/duration.py: 7 / 7 / 0
 babybuddy/core/templatetags/misc.py: 2 / 2 / 0
 babybuddy/core/templatetags/timers.py: 3 / 3 / 0
 babybuddy/dashboard/templatetags/cards.py: 14 / 14 / 0
+dj-angles/src/dj_angles/templatetags/call.py: 0 / 0 / 0
+dj-angles/src/dj_angles/templatetags/dj_angles.py: 6 / 6 / 0
+dj-angles/src/dj_angles/templatetags/model.py: 0 / 0 / 0
+dj-angles/src/dj_angles/templatetags/template.py: 0 / 0 / 0
+dj-angles/src/dj_angles/templatetags/view.py: 0 / 0 / 0
+dj-angles/tests/dj_angles/templatetags/call/test_do_call.py: 0 / 0 / 0
+dj-angles/tests/dj_angles/templatetags/call/test_render.py: 0 / 0 / 0
+dj-angles/tests/dj_angles/templatetags/model/test_do_model.py: 0 / 0 / 0
+dj-angles/tests/dj_angles/templatetags/model/test_overlap.py: 0 / 0 / 0
+dj-angles/tests/dj_angles/templatetags/model/test_render.py: 0 / 0 / 0
+dj-angles/tests/dj_angles/templatetags/template/test_errors.py: 0 / 0 / 0
+dj-angles/tests/dj_angles/templatetags/template/test_render.py: 0 / 0 / 0
+dj-angles/tests/dj_angles/templatetags/test_dj_angles.py: 0 / 0 / 0
+dj-angles/tests/dj_angles/templatetags/view/test_urls.py: 0 / 0 / 0
+dj-angles/tests/dj_angles/templatetags/view/test_view.py: 0 / 0 / 0
 django-5.2/django/contrib/admin/templatetags/admin_list.py: 8 / 8 / 0
 django-5.2/django/contrib/admin/templatetags/admin_modify.py: 4 / 4 / 0
 django-5.2/django/contrib/admin/templatetags/admin_urls.py: 3 / 3 / 0
@@ -125,6 +140,28 @@ django-allauth/allauth/socialaccount/templatetags/socialaccount.py: 4 / 4 / 0
 django-allauth/allauth/templatetags/allauth.py: 3 / 3 / 0
 django-avatar/avatar/templatetags/avatar_tags.py: 5 / 5 / 0
 django-baton/baton/templatetags/baton_tags.py: 7 / 7 / 0
+django-bird/src/django_bird/templatetags/django_bird.py: 8 / 0 / 8
+  Tag Direct 236..290 Unresolved: asset.AssetTag.CSS.value
+  Tag Direct 291..344 Unresolved: asset.AssetTag.JS.value
+  Tag Direct 345..381 Unresolved: bird.TAG
+  Tag Direct 382..418 Unresolved: load.TAG
+  Tag Direct 419..455 Unresolved: prop.TAG
+  Tag Direct 456..492 Unresolved: slot.TAG
+  Tag Direct 493..526 Unresolved: var.TAG
+  Tag Direct 527..568 Unresolved: var.END_TAG
+django-bird/src/django_bird/templatetags/tags/asset.py: 0 / 0 / 0
+django-bird/src/django_bird/templatetags/tags/bird.py: 0 / 0 / 0
+django-bird/src/django_bird/templatetags/tags/load.py: 0 / 0 / 0
+django-bird/src/django_bird/templatetags/tags/prop.py: 0 / 0 / 0
+django-bird/src/django_bird/templatetags/tags/slot.py: 0 / 0 / 0
+django-bird/src/django_bird/templatetags/tags/var.py: 0 / 0 / 0
+django-bird/tests/templatetags/test_asset.py: 0 / 0 / 0
+django-bird/tests/templatetags/test_bird.py: 1 / 0 / 1
+  Filter Decorator 40756..40771 Known: make_fancy
+django-bird/tests/templatetags/test_load.py: 0 / 0 / 0
+django-bird/tests/templatetags/test_prop.py: 0 / 0 / 0
+django-bird/tests/templatetags/test_slot.py: 0 / 0 / 0
+django-bird/tests/templatetags/test_var.py: 0 / 0 / 0
 django-bootstrap3/src/bootstrap3/templatetags/bootstrap3.py: 21 / 21 / 0
 django-cms/cms/templatetags/cms_admin.py: 15 / 7 / 8
   Tag Direct 1593..1658 Unresolved: GetAdminUrlForLanguage.name
@@ -147,7 +184,15 @@ django-cms/menus/templatetags/menu_tags.py: 6 / 0 / 6
   Tag Direct 10145..10181 Known: show_breadcrumb
   Tag Direct 13010..13047 Known: language_chooser
   Tag Direct 14735..14773 Known: page_language_url
+django-components/docs_site/apps/docs/templatetags/docs_extras.py: 6 / 6 / 0
+django-components/src/django_components/templatetags/component_tags.py: 1 / 1 / 0
 django-compressor/compressor/templatetags/compress.py: 1 / 1 / 0
+django-cotton/django_cotton/templatetags/_component.py: 0 / 0 / 0
+django-cotton/django_cotton/templatetags/_slot.py: 0 / 0 / 0
+django-cotton/django_cotton/templatetags/_vars.py: 0 / 0 / 0
+django-cotton/django_cotton/templatetags/cotton.py: 5 / 5 / 0
+django-cotton/docs/docs_project/docs_project/templatetags/custom_tags.py: 2 / 2 / 0
+django-cotton/docs/docs_project/docs_project/templatetags/force_escape.py: 2 / 2 / 0
 django-crispy-forms/crispy_forms/templatetags/crispy_forms_field.py: 12 / 12 / 0
 django-crispy-forms/crispy_forms/templatetags/crispy_forms_filters.py: 5 / 5 / 0
 django-crispy-forms/crispy_forms/templatetags/crispy_forms_tags.py: 1 / 1 / 0
@@ -170,6 +215,8 @@ django-htmx/src/django_htmx/templatetags/django_htmx.py: 2 / 2 / 0
 django-htmx/tests/templatetags/test_django_htmx.py: 0 / 0 / 0
 django-imagekit/imagekit/templatetags/imagekit.py: 2 / 2 / 0
 django-import-export/import_export/templatetags/import_export_tags.py: 1 / 1 / 0
+django-includecontents/includecontents/icons/templatetags/icons.py: 3 / 3 / 0
+django-includecontents/includecontents/templatetags/includecontents.py: 5 / 5 / 0
 django-jazzmin/jazzmin/templatetags/jazzmin.py: 25 / 25 / 0
 django-markdownify/markdownify/templatetags/markdownify.py: 2 / 2 / 0
 django-oscar/src/oscar/templatetags/basket_tags.py: 1 / 1 / 0
@@ -206,10 +253,17 @@ django-simple-history/simple_history/templatetags/simple_history_compat.py: 1 / 
   Tag Direct 104..121 Unresolved: callable-name:url
 django-statici18n/src/statici18n/templatetags/statici18n.py: 2 / 2 / 0
 django-tables2/django_tables2/templatetags/django_tables2.py: 7 / 7 / 0
+django-template-partials/src/template_partials/templatetags/partials.py: 3 / 3 / 0
 django-typogrify/typogrify/templatetags/typogrify_tags.py: 4 / 3 / 1
   Filter Direct 1018..1055 Unresolved: fn.__name__
 django-unfold/src/unfold/templatetags/unfold.py: 29 / 29 / 0
 django-unfold/src/unfold/templatetags/unfold_list.py: 4 / 4 / 0
+django-unicorn/src/django_unicorn/templatetags/unicorn.py: 3 / 3 / 0
+django-unicorn/tests/templatetags/test_unicorn.py: 0 / 0 / 0
+django-unicorn/tests/templatetags/test_unicorn_render.py: 0 / 0 / 0
+django-unicorn/tests/templatetags/test_unicorn_scripts.py: 0 / 0 / 0
+django-viewcomponent/src/django_viewcomponent/templatetags/viewcomponent_tags.py: 2 / 2 / 0
+django-web-components/django_web_components/templatetags/components.py: 3 / 3 / 0
 django-widget-tweaks/widget_tweaks/templatetags/widget_tweaks.py: 12 / 12 / 0
 djangopackages.org/core/templatetags/markdown_tags.py: 1 / 1 / 0
 djangopackages.org/core/templatetags/page_metadata_tags.py: 1 / 1 / 0
@@ -263,6 +317,10 @@ inventree/src/backend/InvenTree/plugin/templatetags/plugin_extras.py: 6 / 6 / 0
 inventree/src/backend/InvenTree/report/templatetags/barcode.py: 4 / 4 / 0
 inventree/src/backend/InvenTree/report/templatetags/report.py: 28 / 28 / 0
 inventree/src/backend/InvenTree/web/templatetags/spa_helper.py: 2 / 2 / 0
+labb/docs/labbdocs/search/templatetags/search_tags.py: 1 / 1 / 0
+labb/docs/labbdocs/templatetags/docs_tags.py: 14 / 14 / 0
+labb/labb/templatetags/lb_tags.py: 16 / 16 / 0
+labb/labb/templatetags/lbr_tags.py: 17 / 17 / 0
 linkding/bookmarks/templatetags/bookmarks.py: 1 / 1 / 0
 linkding/bookmarks/templatetags/pagination.py: 1 / 1 / 0
 linkding/bookmarks/templatetags/shared.py: 12 / 12 / 0
@@ -364,8 +422,10 @@ simonwillison.net/blog/templatetags/blog_calendar.py: 2 / 2 / 0
 simonwillison.net/blog/templatetags/blog_tags.py: 10 / 10 / 0
 simonwillison.net/blog/templatetags/entry_tags.py: 15 / 15 / 0
 simonwillison.net/blog/templatetags/tag_cloud.py: 2 / 2 / 0
+slippers/slippers/templatetags/slippers.py: 5 / 5 / 0
 sorl-thumbnail/sorl/thumbnail/templatetags/sorl_thumbnail.py: 0 / 0 / 0
 sorl-thumbnail/sorl/thumbnail/templatetags/thumbnail.py: 7 / 7 / 0
+tetra/src/tetra/templatetags/tetra.py: 9 / 9 / 0
 wagtail-6.3/wagtail/admin/templatetags/wagtailadmin_tags.py: 69 / 68 / 1
   Tag Direct 10542..10606 Unresolved: EscapeScriptNode.TAG_NAME
 wagtail-6.3/wagtail/admin/templatetags/wagtailuserbar.py: 1 / 1 / 0

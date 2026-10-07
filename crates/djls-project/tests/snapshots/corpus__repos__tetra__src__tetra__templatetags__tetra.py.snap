@@ -1,0 +1,166 @@
+---
+source: crates/djls-project/tests/corpus.rs
+expression: sorted_snapshot(&bundle)?
+---
+definitions:
+  "filter::else":
+    kind: filter
+    has_doc: false
+  "filter::if":
+    kind: filter
+    has_doc: false
+  "tag::...":
+    kind: tag
+    has_doc: false
+  "tag::component":
+    kind: tag
+    has_doc: false
+  "tag::livevar":
+    kind: tag
+    has_doc: false
+  "tag::router_view":
+    kind: tag
+    has_doc: false
+  "tag::slot":
+    kind: tag
+    has_doc: false
+  "tag::tetra_scripts":
+    kind: tag
+    has_doc: false
+  "tag::tetra_styles":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
+tag_rules:
+  "tetra.templatetags.tetra::tag::...":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Min: 2
+        message:
+          Static: Attr tag requires at least one argument
+    argument_syntax:
+      Parameters:
+        - name: arg1
+          requirement: required
+          kind: Variable
+    as_var: keep
+  "tetra.templatetags.tetra::tag::component":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Min: 2
+        message:
+          Static: Component tag requires a component name
+    argument_syntax:
+      Parameters:
+        - name: arg1
+          requirement: required
+          kind: Variable
+    as_var: keep
+  "tetra.templatetags.tetra::tag::livevar":
+    arg_constraints:
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Max: 3
+        message:
+          Static: "livevar tag requires maximum two arguments: the variable name, and optionally the HTML tag."
+    argument_syntax:
+      Forms:
+        forms:
+          - pattern:
+              - name: arg1
+                kind: Variable
+              - name: arg2
+                kind: Variable
+        coverage: partial
+    as_var: keep
+  "tetra.templatetags.tetra::tag::slot":
+    arg_constraints:
+      - OneOf:
+          - 2
+          - 3
+          - 5
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            OneOf:
+              - 2
+              - 3
+              - 5
+        message:
+          PercentFormat:
+            template: "'%s' tag takes one, two or four arguments"
+            args:
+              - SplitElement:
+                  Forward: 0
+    argument_syntax:
+      Forms:
+        forms:
+          - pattern:
+              - name: slot_name
+                kind: Variable
+              - name: arg2
+                kind: Variable
+              - name: arg3
+                kind: Variable
+              - name: expose_as
+                kind: Variable
+          - pattern:
+              - name: expose_as
+                kind: Variable
+              - name: arg2
+                kind: Variable
+        coverage: partial
+    as_var: keep
+  "tetra.templatetags.tetra::tag::tetra_scripts":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters:
+          - name: include_alpine
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+  "tetra.templatetags.tetra::tag::tetra_styles":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+filter_arities:
+  "tetra.templatetags.tetra::filter::else": required_argument
+  "tetra.templatetags.tetra::filter::if": required_argument
+block_specs:
+  "tetra.templatetags.tetra::tag::slot":
+    body_analysis_evidence: not_detected
+    end_tag: endslot
+    intermediates: []

@@ -403,28 +403,102 @@ fn call_escapes_register(call: &ExprCall) -> bool {
             .any(|keyword| contains_register(&keyword.value))
 }
 
-fn is_fresh_canonical_library(
-    expr: &Expr,
-    template_is_django: bool,
-    library_constructor: Option<&str>,
-) -> bool {
-    let Expr::Call(call) = expr else {
-        return false;
-    };
-    if !call.arguments.args.is_empty() || !call.arguments.keywords.is_empty() {
-        return false;
+/// Module-level names that currently spell Django's canonical `Library` constructor.
+#[derive(Default)]
+struct CanonicalLibraryBindings<'a> {
+    /// Names bound to `django.template.Library` itself.
+    constructors: Vec<&'a str>,
+    /// Names bound to `django`, `django.template`, or `django.template.library`.
+    modules: Vec<(&'a str, TemplateModuleBinding)>,
+}
+
+#[derive(Clone, Copy)]
+enum TemplateModuleBinding {
+    /// `import django.template[.library]` binds the `django` package root.
+    DjangoRoot,
+    /// `from django import template` or `import django.template as name`.
+    Template,
+    /// `from django.template import library` or `import django.template.library as name`.
+    TemplateLibrary,
+}
+
+impl<'a> CanonicalLibraryBindings<'a> {
+    fn bind_import(&mut self, clause: &DirectImportClause<'a>) {
+        let bound = clause.bound();
+        self.forget(bound);
+        let binding = match (clause.binds_root(), clause.requested()) {
+            (true, "django.template" | "django.template.library") => {
+                TemplateModuleBinding::DjangoRoot
+            }
+            (false, "django.template") => TemplateModuleBinding::Template,
+            (false, "django.template.library") => TemplateModuleBinding::TemplateLibrary,
+            _ => return,
+        };
+        self.modules.push((bound, binding));
     }
-    if template_is_django
-        && call.func.path_segments().is_some_and(|path| {
-            matches!(path.as_slice(), [template, library]
-                if template == "template" && library == "Library")
-        })
-    {
-        return true;
+
+    fn bind_from_import(
+        &mut self,
+        syntax: &FromImportSyntax,
+        member: &str,
+        bound: &'a str,
+        module_name: &str,
+    ) {
+        self.forget(bound);
+        if is_canonical_library_import(syntax, module_name) && member == "Library" {
+            self.constructors.push(bound);
+            return;
+        }
+        if syntax.level() != 0 {
+            return;
+        }
+        let binding = match (syntax.module(), member) {
+            (Some("django"), "template") => TemplateModuleBinding::Template,
+            (Some("django.template"), "library") => TemplateModuleBinding::TemplateLibrary,
+            _ => return,
+        };
+        self.modules.push((bound, binding));
     }
-    call.func
-        .name_target()
-        .is_some_and(|name| Some(name) == library_constructor)
+
+    /// A later binding of `name` replaces whatever canonical spelling it held.
+    fn forget(&mut self, name: &str) {
+        self.constructors.retain(|bound| *bound != name);
+        self.modules.retain(|(bound, _)| *bound != name);
+    }
+
+    fn clear(&mut self) {
+        *self = Self::default();
+    }
+
+    fn is_fresh_library(&self, expr: &Expr) -> bool {
+        let Expr::Call(call) = expr else {
+            return false;
+        };
+        if !call.arguments.args.is_empty() || !call.arguments.keywords.is_empty() {
+            return false;
+        }
+        let Some(path) = call.func.path_segments() else {
+            return false;
+        };
+        let path: Vec<&str> = path.iter().map(String::as_str).collect();
+        if let [name] = path.as_slice() {
+            return self.constructors.contains(name);
+        }
+        self.modules
+            .iter()
+            .any(|(bound, binding)| match (binding, path.as_slice()) {
+                (
+                    TemplateModuleBinding::DjangoRoot,
+                    [root, "template", "Library"] | [root, "template", "library", "Library"],
+                )
+                | (
+                    TemplateModuleBinding::Template,
+                    [root, "Library"] | [root, "library", "Library"],
+                )
+                | (TemplateModuleBinding::TemplateLibrary, [root, "Library"]) => root == bound,
+                _ => false,
+            })
+    }
 }
 
 fn is_canonical_library_import(syntax: &FromImportSyntax, module_name: &str) -> bool {
@@ -457,8 +531,7 @@ fn analyze_registrations_from_body_in_module(
 ) -> RegistrationSourceAnalysis {
     let mut analysis = RegistrationSourceAnalysis::default();
     let mut transparent_decorated_functions = BTreeMap::new();
-    let mut template_is_django = false;
-    let mut library_constructor = None;
+    let mut library_bindings = CanonicalLibraryBindings::default();
 
     for stmt in body {
         if statement_contains_named_binding(stmt) {
@@ -467,12 +540,7 @@ fn analyze_registrations_from_body_in_module(
         match stmt {
             Stmt::Import(import) => {
                 for clause in DirectImportClause::lower(import) {
-                    if clause.bound() == "template" {
-                        template_is_django = false;
-                    }
-                    if library_constructor == Some(clause.bound()) {
-                        library_constructor = None;
-                    }
+                    library_bindings.bind_import(&clause);
                     if clause.bound() == "register" {
                         analysis.registrations.clear();
                         analysis.open_inventory(import, UnreadShape::RegisterRebound);
@@ -483,23 +551,16 @@ fn analyze_registrations_from_body_in_module(
             Stmt::ImportFrom(import) => {
                 let syntax = FromImportSyntax::lower(import);
                 if syntax.has_star() {
-                    template_is_django = false;
-                    library_constructor = None;
+                    library_bindings.clear();
                     transparent_decorated_functions.clear();
                 }
-                let canonical_library_import = is_canonical_library_import(&syntax, module_name);
                 for member in syntax.named_members() {
-                    if member.bound() == "template" {
-                        template_is_django = syntax.level() == 0
-                            && syntax.module() == Some("django")
-                            && member.imported() == "template";
-                    }
-                    if library_constructor == Some(member.bound()) {
-                        library_constructor = None;
-                    }
-                    if canonical_library_import && member.imported() == "Library" {
-                        library_constructor = Some(member.bound());
-                    }
+                    library_bindings.bind_from_import(
+                        &syntax,
+                        member.imported(),
+                        member.bound(),
+                        module_name,
+                    );
                     if member.bound() == "register" {
                         analysis.registrations.clear();
                         analysis.open_inventory(import, UnreadShape::RegisterRebound);
@@ -519,19 +580,11 @@ fn analyze_registrations_from_body_in_module(
                 let shares_register_binding = binds_register
                     && (assign.targets.len() != 1
                         || assign.targets[0].name_target() != Some("register"));
-                if assign.targets.iter().any(|target| {
-                    target
-                        .name_target()
-                        .is_some_and(|name| library_constructor == Some(name))
-                }) {
-                    library_constructor = None;
+                let fresh_canonical = library_bindings.is_fresh_library(&assign.value);
+                for name in assign.targets.iter().filter_map(ExprExt::name_target) {
+                    library_bindings.forget(name);
                 }
                 if binds_register {
-                    let fresh_canonical = is_fresh_canonical_library(
-                        &assign.value,
-                        template_is_django,
-                        library_constructor,
-                    );
                     if fresh_canonical && !binds_template && !shares_register_binding {
                         analysis.observe_fresh_library();
                     } else {
@@ -543,9 +596,6 @@ fn analyze_registrations_from_body_in_module(
                     || (contains_register(&assign.value) && !binds_register)
                 {
                     analysis.open_inventory(assign, UnreadShape::InventoryMutated);
-                }
-                if binds_template {
-                    template_is_django = false;
                 }
                 for target in &assign.targets {
                     invalidate_transparent_decorator_target(
@@ -564,15 +614,8 @@ fn analyze_registrations_from_body_in_module(
                 {
                     analysis.open_inventory(assign, UnreadShape::InventoryMutated);
                 }
-                if assign.target.name_target() == Some("template") {
-                    template_is_django = false;
-                }
-                if assign
-                    .target
-                    .name_target()
-                    .is_some_and(|name| library_constructor == Some(name))
-                {
-                    library_constructor = None;
+                if let Some(name) = assign.target.name_target() {
+                    library_bindings.forget(name);
                 }
                 invalidate_transparent_decorator_target(
                     &mut transparent_decorated_functions,
@@ -586,15 +629,8 @@ fn analyze_registrations_from_body_in_module(
                 {
                     analysis.open_inventory(assign, UnreadShape::RegisterRebound);
                 }
-                if assign.target.name_target() == Some("template") {
-                    template_is_django = false;
-                }
-                if assign
-                    .target
-                    .name_target()
-                    .is_some_and(|name| library_constructor == Some(name))
-                {
-                    library_constructor = None;
+                if let Some(name) = assign.target.name_target() {
+                    library_bindings.forget(name);
                 }
                 invalidate_transparent_decorator_target(
                     &mut transparent_decorated_functions,
@@ -609,19 +645,8 @@ fn analyze_registrations_from_body_in_module(
                 }) {
                     analysis.open_inventory(delete, UnreadShape::RegisterRebound);
                 }
-                if delete
-                    .targets
-                    .iter()
-                    .any(|target| target.name_target() == Some("template"))
-                {
-                    template_is_django = false;
-                }
-                if delete.targets.iter().any(|target| {
-                    target
-                        .name_target()
-                        .is_some_and(|name| library_constructor == Some(name))
-                }) {
-                    library_constructor = None;
+                for name in delete.targets.iter().filter_map(ExprExt::name_target) {
+                    library_bindings.forget(name);
                 }
                 for target in &delete.targets {
                     invalidate_transparent_decorator_target(
@@ -631,12 +656,7 @@ fn analyze_registrations_from_body_in_module(
                 }
             }
             Stmt::FunctionDef(function) => {
-                if function.name.as_str() == "template" {
-                    template_is_django = false;
-                }
-                if library_constructor == Some(function.name.as_str()) {
-                    library_constructor = None;
-                }
+                library_bindings.forget(function.name.as_str());
                 if function.name.as_str() == "register" {
                     analysis.registrations.clear();
                     analysis.open_inventory(function, UnreadShape::RegisterRebound);
@@ -662,12 +682,7 @@ fn analyze_registrations_from_body_in_module(
                 }
             }
             Stmt::ClassDef(class) => {
-                if class.name.as_str() == "template" {
-                    template_is_django = false;
-                }
-                if library_constructor == Some(class.name.as_str()) {
-                    library_constructor = None;
-                }
+                library_bindings.forget(class.name.as_str());
                 if class.name.as_str() == "register" {
                     analysis.registrations.clear();
                     analysis.open_inventory(class, UnreadShape::RegisterRebound);
@@ -700,8 +715,7 @@ fn analyze_registrations_from_body_in_module(
             | Stmt::With(_)
             | Stmt::Match(_)
             | Stmt::Try(_) => {
-                template_is_django = false;
-                library_constructor = None;
+                library_bindings.clear();
                 transparent_decorated_functions.clear();
                 if statement_contains_register(stmt) {
                     analysis.open_inventory(stmt, UnreadShape::RegisterInControlFlow);
@@ -1843,16 +1857,17 @@ pub fn template_library_structure_facts<'db>(
         {
             continue;
         }
-        let Some(func) = descriptor
-            .function
-            .as_ref()
-            .and_then(|definition| definition.statement(db))
-        else {
+        let Some((definition, func)) = descriptor.function.as_ref().and_then(|definition| {
+            definition
+                .statement(db)
+                .map(|statement| (definition, statement))
+        }) else {
             continue;
         };
-        if let Some(block_spec) = descriptor
-            .kind
-            .extract_block_spec(func, &descriptor.options)
+        if let Some(block_spec) =
+            descriptor
+                .kind
+                .extract_block_spec(db, definition.file(), func, &descriptor.options)
         {
             let end_tag = match block_spec.end_tag {
                 EndTagEvidence::Literal(end_tag) => Some(end_tag),
@@ -2680,14 +2695,27 @@ def my_tag(parser, token):
             "from django import template\nregister = template.Library()\n@register.simple_tag\ndef known(): pass\n",
         );
         assert!(!canonical.inventory_is_open());
-        let direct_import =
-            analyze_registrations("from django.template import Library\nregister = Library()\n");
-        assert!(!direct_import.inventory_is_open());
+        for source in [
+            "from django.template import Library\nregister = Library()\n",
+            "from django.template.library import Library as L\nregister = L()\n",
+            "from django import template as dt\nregister = dt.Library()\n",
+            "from django.template import library\nregister = library.Library()\n",
+            "import django.template as template\nregister = template.Library()\n",
+            "import django.template\nregister = django.template.Library()\n",
+            "import django.template.library\nregister = django.template.library.Library()\n",
+            "import django.template.library as lib\nregister = lib.Library()\n",
+        ] {
+            assert!(
+                !analyze_registrations(source).inventory_is_open(),
+                "constructor should be closed: {source}"
+            );
+        }
 
         for source in [
             "register = Library()\n",
-            "from django import template as dt\nregister = dt.Library()\n",
-            "import django.template as template\nregister = template.Library()\n",
+            "import django\nregister = django.template.Library()\n",
+            "import django.template\ndjango = other\nregister = django.template.Library()\n",
+            "import django.template as dt\nregister = dt.library.Other()\n",
             "from django import template\nalias = register = template.Library()\n",
             "from django import template\nimport other as template\nregister = template.Library()\n",
             "from django import template\nregister = template.Library()\nfrom shared import register\n",

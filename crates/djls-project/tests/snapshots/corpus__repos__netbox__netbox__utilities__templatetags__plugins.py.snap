@@ -27,7 +27,7 @@ definitions:
   "tag::plugin_right_page":
     kind: tag
     has_doc: false
-symbols_are_unobserved: true
+symbols_are_unobserved: false
 tag_rules:
   "utilities.templatetags.plugins::tag::plugin_alerts":
     arg_constraints: []

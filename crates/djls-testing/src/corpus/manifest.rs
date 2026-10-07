@@ -268,6 +268,7 @@ mod tests {
             projects,
             vec![
                 ("archivebox", ".", vec!["archivebox.core.settings"]),
+                ("citry", "examples/starters/django", vec!["config.settings"]),
                 (
                     "django-allauth",
                     ".",

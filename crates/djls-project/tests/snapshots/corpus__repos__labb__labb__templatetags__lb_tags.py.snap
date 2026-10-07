@@ -1,0 +1,190 @@
+---
+source: crates/djls-project/tests/corpus.rs
+expression: sorted_snapshot(&bundle)?
+---
+definitions:
+  "filter::get_dict_item":
+    kind: filter
+    has_doc: false
+  "filter::is_half_rate":
+    kind: filter
+    has_doc: false
+  "filter::is_whole_rate":
+    kind: filter
+    has_doc: false
+  "filter::lb_icon_exists":
+    kind: filter
+    has_doc: false
+  "filter::make_range":
+    kind: filter
+    has_doc: false
+  "filter::remove_l_attrs":
+    kind: filter
+    has_doc: false
+  "filter::strip_icon_attrs":
+    kind: filter
+    has_doc: false
+  "tag::labb_theme":
+    kind: tag
+    has_doc: false
+  "tag::labb_theme_val":
+    kind: tag
+    has_doc: false
+  "tag::lb_chart_deps":
+    kind: tag
+    has_doc: false
+  "tag::lb_css_path":
+    kind: tag
+    has_doc: false
+  "tag::lb_load_stack":
+    kind: tag
+    has_doc: false
+  "tag::lb_push_stack":
+    kind: tag
+    has_doc: false
+  "tag::lb_stack_has":
+    kind: tag
+    has_doc: false
+  "tag::parse_icon":
+    kind: tag
+    has_doc: false
+  "tag::resolve_labb_link":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
+tag_rules:
+  "labb.templatetags.lb_tags::tag::labb_theme":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+  "labb.templatetags.lb_tags::tag::labb_theme_val":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+  "labb.templatetags.lb_tags::tag::lb_chart_deps":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+  "labb.templatetags.lb_tags::tag::lb_css_path":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+  "labb.templatetags.lb_tags::tag::lb_load_stack":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters:
+          - name: name
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+  "labb.templatetags.lb_tags::tag::lb_push_stack":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters:
+          - name: name
+            requirement: required
+            kind: Variable
+          - name: path
+            requirement: required
+            kind: Variable
+          - name: mode
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+  "labb.templatetags.lb_tags::tag::lb_stack_has":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters:
+          - name: name
+            requirement: required
+            kind: Variable
+          - name: path
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+  "labb.templatetags.lb_tags::tag::parse_icon":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters:
+          - name: attrs
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+  "labb.templatetags.lb_tags::tag::resolve_labb_link":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters:
+          - name: viewname
+            requirement: required
+            kind: Variable
+          - name: attrs
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+filter_arities:
+  "labb.templatetags.lb_tags::filter::get_dict_item": required_argument
+  "labb.templatetags.lb_tags::filter::is_half_rate": required_argument
+  "labb.templatetags.lb_tags::filter::is_whole_rate": required_argument
+  "labb.templatetags.lb_tags::filter::lb_icon_exists": no_argument
+  "labb.templatetags.lb_tags::filter::make_range": no_argument
+  "labb.templatetags.lb_tags::filter::remove_l_attrs": no_argument
+  "labb.templatetags.lb_tags::filter::strip_icon_attrs": no_argument
+block_specs: {}

@@ -1,3 +1,4 @@
+use djls_source::File;
 use ruff_python_ast::StmtFunctionDef;
 
 use crate::templates::FilterArity;
@@ -80,6 +81,8 @@ impl RegistrationKind {
 
     pub(crate) fn extract_block_spec(
         self,
+        db: &dyn crate::db::Db,
+        file: File,
         func: &StmtFunctionDef,
         options: &RegistrationOptions,
     ) -> Option<blocks::ExtractedBlockSpec> {
@@ -94,7 +97,16 @@ impl RegistrationKind {
                 intermediates: Vec::new(),
                 body_analysis_evidence: BodyAnalysisEvidence::NotDetected,
             }),
-            Self::Tag | Self::SimpleTag | Self::InclusionTag => blocks::extract_block_spec(func),
+            Self::Tag | Self::SimpleTag | Self::InclusionTag => {
+                // Most compile functions spell stop tokens literally. Scan module
+                // constants only for those that name them.
+                let constants = if blocks::names_stop_tokens(func) {
+                    analysis::constants::module_static_bindings(db, file).visible_in(func)
+                } else {
+                    analysis::constants::VisibleConstants::default()
+                };
+                blocks::extract_block_spec(func, &constants)
+            }
         }
     }
 }

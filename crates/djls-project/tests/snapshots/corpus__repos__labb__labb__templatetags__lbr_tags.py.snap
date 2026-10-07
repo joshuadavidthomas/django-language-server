@@ -1,0 +1,322 @@
+---
+source: crates/djls-project/tests/corpus.rs
+expression: sorted_snapshot(&bundle)?
+---
+definitions:
+  "filter::lbr_bind_path":
+    kind: filter
+    has_doc: false
+  "filter::lbr_signals_json":
+    kind: filter
+    has_doc: false
+  "filter::strip_signal_attrs":
+    kind: filter
+    has_doc: false
+  "tag::lbr_bind":
+    kind: tag
+    has_doc: false
+  "tag::lbr_build_signals":
+    kind: tag
+    has_doc: false
+  "tag::lbr_chart_signal":
+    kind: tag
+    has_doc: false
+  "tag::lbr_delete_action":
+    kind: tag
+    has_doc: false
+  "tag::lbr_get_action":
+    kind: tag
+    has_doc: false
+  "tag::lbr_post_action":
+    kind: tag
+    has_doc: false
+  "tag::lbr_props":
+    kind: tag
+    has_doc: false
+  "tag::lbr_query_sync_js":
+    kind: tag
+    has_doc: false
+  "tag::lbr_reactive_attr":
+    kind: tag
+    has_doc: false
+  "tag::lbr_reactive_text":
+    kind: tag
+    has_doc: false
+  "tag::lbr_replace_url_js":
+    kind: tag
+    has_doc: false
+  "tag::lbr_resolve_url":
+    kind: tag
+    has_doc: false
+  "tag::lbr_schema_signals":
+    kind: tag
+    has_doc: false
+  "tag::lbr_style_vars":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
+tag_rules:
+  "labb.templatetags.lbr_tags::tag::lbr_bind":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters:
+          - name: component_name
+            requirement: required
+            kind: Variable
+          - name: bind
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+  "labb.templatetags.lbr_tags::tag::lbr_build_signals":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters:
+          - name: attrs
+            requirement: required
+            kind: Variable
+          - name: ifmissing
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+  "labb.templatetags.lbr_tags::tag::lbr_chart_signal":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters:
+          - name: data
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+  "labb.templatetags.lbr_tags::tag::lbr_delete_action":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters:
+          - name: href
+            requirement: required
+            kind: Variable
+          - name: before
+            requirement: optional
+            kind: Variable
+          - name: confirm
+            requirement: optional
+            kind: Variable
+          - name: options
+            requirement: optional
+            kind: Variable
+          - name: csrf
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+  "labb.templatetags.lbr_tags::tag::lbr_get_action":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters:
+          - name: href
+            requirement: required
+            kind: Variable
+          - name: before
+            requirement: optional
+            kind: Variable
+          - name: replace_url
+            requirement: optional
+            kind: Variable
+          - name: push_url
+            requirement: optional
+            kind: Variable
+          - name: preserve_query
+            requirement: optional
+            kind: Variable
+          - name: options
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+  "labb.templatetags.lbr_tags::tag::lbr_post_action":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters:
+          - name: href
+            requirement: required
+            kind: Variable
+          - name: before
+            requirement: optional
+            kind: Variable
+          - name: tag
+            requirement: optional
+            kind: Variable
+          - name: options
+            requirement: optional
+            kind: Variable
+          - name: csrf
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+  "labb.templatetags.lbr_tags::tag::lbr_props":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters:
+          - name: component_name
+            requirement: required
+            kind: Variable
+          - name: attrs
+            requirement: optional
+            kind: Variable
+          - name: extra
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: override_kwargs
+    as_var: strip
+  "labb.templatetags.lbr_tags::tag::lbr_query_sync_js":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters:
+          - name: attrs
+            requirement: required
+            kind: Variable
+          - name: schema
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+  "labb.templatetags.lbr_tags::tag::lbr_reactive_attr":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters:
+          - name: name
+            requirement: required
+            kind: Variable
+          - name: value
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+  "labb.templatetags.lbr_tags::tag::lbr_reactive_text":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters:
+          - name: value
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+  "labb.templatetags.lbr_tags::tag::lbr_replace_url_js":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters:
+          - name: href
+            requirement: required
+            kind: Variable
+          - name: push
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+  "labb.templatetags.lbr_tags::tag::lbr_resolve_url":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters:
+          - name: to
+            requirement: required
+            kind: Variable
+          - name: kwargs_json
+            requirement: optional
+            kind: Variable
+          - name: pk
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+  "labb.templatetags.lbr_tags::tag::lbr_schema_signals":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters:
+          - name: schema
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+  "labb.templatetags.lbr_tags::tag::lbr_style_vars":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: kwargs
+    as_var: strip
+filter_arities:
+  "labb.templatetags.lbr_tags::filter::lbr_bind_path": no_argument
+  "labb.templatetags.lbr_tags::filter::lbr_signals_json": no_argument
+  "labb.templatetags.lbr_tags::filter::strip_signal_attrs": no_argument
+block_specs: {}

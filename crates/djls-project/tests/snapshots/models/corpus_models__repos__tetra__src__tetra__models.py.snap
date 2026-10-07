@@ -1,0 +1,14 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  src.tetra.models.ReactiveModel:
+    name:
+      value: ReactiveModel
+      span:
+        start: 374
+        length: 13
+    module_name: src.tetra.models
+    relations: []
+    kind: abstract

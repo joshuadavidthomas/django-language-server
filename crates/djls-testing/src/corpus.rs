@@ -707,6 +707,11 @@ mod tests {
                     vec!["archivebox.core.settings".to_string()],
                 ),
                 (
+                    "citry".to_string(),
+                    "examples/starters/django".to_string(),
+                    vec!["config.settings".to_string()],
+                ),
+                (
                     "django-allauth".to_string(),
                     ".".to_string(),
                     vec!["tests.projects.account_only.settings".to_string()],

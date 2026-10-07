@@ -1,0 +1,52 @@
+---
+source: crates/djls-project/tests/corpus.rs
+expression: sorted_snapshot(&bundle)?
+---
+definitions:
+  "tag::unicorn":
+    kind: tag
+    has_doc: false
+  "tag::unicorn_errors":
+    kind: tag
+    has_doc: false
+  "tag::unicorn_scripts":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
+tag_rules:
+  "django_unicorn.templatetags.unicorn::tag::unicorn":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Parameters:
+        - name: arg1
+          requirement: required
+          kind: Variable
+    as_var: keep
+  "django_unicorn.templatetags.unicorn::tag::unicorn_errors":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: keep
+  "django_unicorn.templatetags.unicorn::tag::unicorn_scripts":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: keep
+filter_arities: {}
+block_specs: {}

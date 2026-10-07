@@ -1,0 +1,52 @@
+---
+source: crates/djls-project/tests/corpus.rs
+expression: sorted_snapshot(&bundle)?
+---
+definitions:
+  "tag::icon":
+    kind: tag
+    has_doc: false
+  "tag::icon_sprite_url":
+    kind: tag
+    has_doc: false
+  "tag::icons_inline":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: true
+tag_rules:
+  "includecontents.icons.templatetags.icons::tag::icon":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Parameters:
+        - name: icon_name_token
+          requirement: required
+          kind: Variable
+    as_var: strip
+  "includecontents.icons.templatetags.icons::tag::icon_sprite_url":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+  "includecontents.icons.templatetags.icons::tag::icons_inline":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+filter_arities: {}
+block_specs: {}

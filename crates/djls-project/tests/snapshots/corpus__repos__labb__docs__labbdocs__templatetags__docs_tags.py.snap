@@ -1,0 +1,218 @@
+---
+source: crates/djls-project/tests/corpus.rs
+expression: sorted_snapshot(&bundle)?
+---
+definitions:
+  "filter::get_component_spec":
+    kind: filter
+    has_doc: false
+  "filter::is_full_url":
+    kind: filter
+    has_doc: false
+  "tag::blocks_by_ref":
+    kind: tag
+    has_doc: false
+  "tag::doc_github_url":
+    kind: tag
+    has_doc: false
+  "tag::doc_url":
+    kind: tag
+    has_doc: false
+  "tag::generate_structured_data":
+    kind: tag
+    has_doc: false
+  "tag::get_all_component_names":
+    kind: tag
+    has_doc: false
+  "tag::get_blog_posts":
+    kind: tag
+    has_doc: false
+  "tag::get_components_menu":
+    kind: tag
+    has_doc: false
+  "tag::get_seo_metadata":
+    kind: tag
+    has_doc: false
+  "tag::labb_docs_banner":
+    kind: tag
+    has_doc: false
+  "tag::load_icon_metadata":
+    kind: tag
+    has_doc: false
+  "tag::search_enabled":
+    kind: tag
+    has_doc: false
+  "tag::show_component_example":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
+tag_rules:
+  "docs.labbdocs.templatetags.docs_tags::tag::blocks_by_ref":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters:
+          - name: refs
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+  "docs.labbdocs.templatetags.docs_tags::tag::doc_github_url":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters:
+          - name: component_name
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+  "docs.labbdocs.templatetags.docs_tags::tag::doc_url":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters:
+          - name: file_path
+            requirement: required
+            kind: Variable
+          - name: doc_name
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+  "docs.labbdocs.templatetags.docs_tags::tag::generate_structured_data":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters:
+          - name: doc_info
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+  "docs.labbdocs.templatetags.docs_tags::tag::get_all_component_names":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+  "docs.labbdocs.templatetags.docs_tags::tag::get_blog_posts":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters:
+          - name: doc_name
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+  "docs.labbdocs.templatetags.docs_tags::tag::get_components_menu":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters:
+          - name: doc_name
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+  "docs.labbdocs.templatetags.docs_tags::tag::get_seo_metadata":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters:
+          - name: doc_info
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+  "docs.labbdocs.templatetags.docs_tags::tag::labb_docs_banner":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+  "docs.labbdocs.templatetags.docs_tags::tag::load_icon_metadata":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+  "docs.labbdocs.templatetags.docs_tags::tag::search_enabled":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+  "docs.labbdocs.templatetags.docs_tags::tag::show_component_example":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters:
+          - name: path
+            requirement: required
+            kind: Variable
+          - name: style
+            requirement: optional
+            kind: Variable
+          - name: previewStyle
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+filter_arities:
+  "docs.labbdocs.templatetags.docs_tags::filter::get_component_spec": no_argument
+  "docs.labbdocs.templatetags.docs_tags::filter::is_full_url": no_argument
+block_specs: {}

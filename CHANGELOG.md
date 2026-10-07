@@ -22,6 +22,13 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 - Changed `djls check` to print a summary when no errors are found, such as `No errors found in 12 files.`, or `No templates found to check.` when no templates match. Pass `--quiet` to suppress it.
 
+### Fixed
+
+- Fixed false "Unknown tag" errors, including for `{% if %}` and `{% for %}`, in templates served by a third-party `DjangoTemplates` subclass such as django-includecontents' `includecontents.django.DjangoTemplates`. DJLS now applies the backend's `DIRS`, `APP_DIRS`, and configured libraries, and does not report names the backend may preload.
+- Fixed tag libraries built with `import django.template` and `django.template.Library()`, or an aliased import such as `from django import template as t`, being treated as unreadable. Unknown tags and filters are now reported in projects that use them, such as django-viewcomponent.
+- Fixed false "Unknown tag" errors for closing tags passed as module constants, such as django-bird's `{% endbird:slot %}`, or as `parser.parse(parse_until=[...])`, including when the result is assigned with a type annotation.
+- Fixed argument-count checks being skipped when a tag bounds its argument count with a module-level integer constant, such as `{% unicorn %}` in django-unicorn.
+
 ## [6.1.1]
 
 ### Added
