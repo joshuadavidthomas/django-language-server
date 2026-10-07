@@ -205,7 +205,10 @@ impl Command for Check {
         };
         let files = input.files(&self.paths, &db, &project_root, &walk_options)?;
         if files.is_empty() {
-            return Ok(Exit::success());
+            if quiet {
+                return Ok(Exit::success());
+            }
+            return Ok(Exit::success().with_message("No templates found to check."));
         }
 
         // Prime shared intrinsic and Template-index work before the database is
@@ -214,12 +217,13 @@ impl Command for Check {
             .context("Failed to prepare project Template analysis")?;
 
         let results = check_files_parallel(db, &files)?;
-        report_results(results, &config, &fmt, quiet, input.summary())
+        report_results(results, files.len(), &config, &fmt, quiet, input.summary())
     }
 }
 
 fn report_results(
     mut results: Vec<CheckedTemplate>,
+    checked_count: usize,
     config: &DiagnosticsConfig,
     fmt: &DiagnosticRenderer,
     quiet: bool,
@@ -254,11 +258,23 @@ fn report_results(
         }
     }
 
-    if error_count == 0 {
-        return Ok(Exit::success());
-    }
     if quiet {
-        return Ok(Exit::error());
+        return Ok(if error_count == 0 {
+            Exit::success()
+        } else {
+            Exit::error()
+        });
+    }
+
+    if error_count == 0 {
+        let message = match summary_style {
+            SummaryStyle::Files => {
+                let file_word = if checked_count == 1 { "file" } else { "files" };
+                format!("No errors found in {checked_count} {file_word}.")
+            }
+            SummaryStyle::Stdin => "No errors found.".to_string(),
+        };
+        return Ok(Exit::success().with_message(message));
     }
 
     let error_word = if error_count == 1 { "error" } else { "errors" };

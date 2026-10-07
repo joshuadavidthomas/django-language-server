@@ -48,7 +48,7 @@ printf '{{ value|default }}' | djls check -
 | `--color always\|auto\|never` | Control colored diagnostic output |
 | `-q, --quiet` | Suppress output and report the result through the exit status |
 
-`djls check` exits with status 0 when no enabled diagnostics are found and status 1 when diagnostics or a command error occur. Run `djls check --help` for the command's full help text.
+`djls check` exits with status 0 when no enabled diagnostics are found and status 1 when diagnostics or a command error occur. Diagnostics are written to standard output, followed by a summary on standard error, such as `Found 2 errors in 1 file.` or `No errors found in 12 files.` Pass `--quiet` to suppress both. Run `djls check --help` for the command's full help text.
 
 The [pre-commit hook](pre-commit.md) runs this command on staged templates.
 

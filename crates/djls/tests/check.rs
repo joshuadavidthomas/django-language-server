@@ -120,7 +120,10 @@ fn check_clean_template_exits_zero() {
         String::from_utf8_lossy(&output.stderr),
     );
     assert!(output.stdout.is_empty());
-    assert!(output.stderr.is_empty());
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr),
+        "No errors found in 1 file.\n"
+    );
 }
 
 #[test]
@@ -382,10 +385,10 @@ fn check_ignore_suppresses_errors() {
         "disabled diagnostics must not be rendered: {}",
         String::from_utf8_lossy(&output.stdout)
     );
-    assert!(
-        output.stderr.is_empty(),
-        "disabled diagnostics must not be summarized: {}",
-        String::from_utf8_lossy(&output.stderr)
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr),
+        "No errors found in 1 file.\n",
+        "disabled diagnostics must not be counted"
     );
 }
 
@@ -544,7 +547,7 @@ fn check_multi_backend_stdin_uses_inventory_while_concrete_path_uses_backend() {
         String::from_utf8_lossy(&stdin.stderr)
     );
     assert!(stdin.stdout.is_empty());
-    assert!(stdin.stderr.is_empty());
+    assert_eq!(String::from_utf8_lossy(&stdin.stderr), "No errors found.\n");
 }
 
 #[test]
@@ -843,5 +846,62 @@ fn check_no_templates_exits_zero() {
         output.status.success(),
         "Expected exit 0 for empty dir, got {:?}",
         output.status.code(),
+    );
+}
+
+#[test]
+fn check_no_templates_reports_nothing_to_check() {
+    let dir = tempdir().expect("temporary test directory should be created");
+    setup_project(dir.path()).expect("test project fixture should be configured");
+    fs::create_dir_all(dir.path().join("templates"))
+        .expect("test fixture directory should be created");
+
+    let output = Command::new(djls_binary())
+        .args(["check", "templates/"])
+        .current_dir(dir.path())
+        .output()
+        .expect("djls check process should run");
+
+    assert!(output.status.success());
+    assert!(output.stdout.is_empty());
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr),
+        "No templates found to check.\n"
+    );
+
+    let quiet = Command::new(djls_binary())
+        .args(["check", "--quiet", "templates/"])
+        .current_dir(dir.path())
+        .output()
+        .expect("djls check process should run");
+
+    assert!(quiet.status.success());
+    assert!(quiet.stdout.is_empty());
+    assert!(quiet.stderr.is_empty());
+}
+
+#[test]
+fn check_plural_clean_files_summary_exactly() {
+    let dir = tempdir().expect("temporary test directory should be created");
+    setup_project(dir.path()).expect("test project fixture should be configured");
+
+    let templates = dir.path().join("templates");
+    fs::create_dir_all(&templates).expect("test fixture directory should be created");
+    fs::write(templates.join("first.html"), "<p>first</p>\n")
+        .expect("test fixture file should be written");
+    fs::write(templates.join("second.html"), "<p>second</p>\n")
+        .expect("test fixture file should be written");
+
+    let output = Command::new(djls_binary())
+        .args(["check", "templates/"])
+        .current_dir(dir.path())
+        .output()
+        .expect("djls check process should run");
+
+    assert!(output.status.success());
+    assert!(output.stdout.is_empty());
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr),
+        "No errors found in 2 files.\n"
     );
 }

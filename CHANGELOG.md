@@ -18,6 +18,10 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ## [Unreleased]
 
+### Changed
+
+- Changed `djls check` to print a summary when no errors are found, such as `No errors found in 12 files.`, or `No templates found to check.` when no templates match. Pass `--quiet` to suppress it.
+
 ## [6.1.1]
 
 ### Added
