@@ -1,0 +1,15 @@
+---
+source: crates/djls-project/tests/corpus_settings.rs
+expression: settings
+---
+installed_apps:
+  cases:
+    - known:
+        apps:
+          - spans:
+              - length: 45
+                start: 374
+            value: project_explorer.apps.ProjectExplorerConfig
+templates:
+  cases:
+    - unset

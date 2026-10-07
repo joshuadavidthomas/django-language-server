@@ -331,13 +331,30 @@ impl TemplateBackendSettings {
     }
 }
 
+/// How DJLS interprets a configured `BACKEND` path.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum TemplateBackendKind {
+    /// `django.template.backends.django.DjangoTemplates`.
+    Django,
+    /// A non-Django-template backend that Django ships (`Jinja2`, `TemplateStrings`).
+    NonDjango,
+    /// Any other backend. It may subclass `DjangoTemplates` and add builtins,
+    /// libraries, or template syntax (django-includecontents does all three).
+    Custom,
+}
+
 impl TemplateBackendCase {
     pub(super) fn id(&self) -> TemplateBackendId {
         self.id
     }
 
-    pub(super) fn backend_name(&self) -> Option<&str> {
-        self.data.backend_name.as_deref()
+    pub(super) fn backend_kind(&self) -> Option<TemplateBackendKind> {
+        Some(match self.data.backend_name.as_deref()? {
+            "django.template.backends.django.DjangoTemplates" => TemplateBackendKind::Django,
+            "django.template.backends.jinja2.Jinja2"
+            | "django.template.backends.dummy.TemplateStrings" => TemplateBackendKind::NonDjango,
+            _ => TemplateBackendKind::Custom,
+        })
     }
 
     pub(super) fn backend_completeness(&self) -> TemplateEvidenceCompleteness {

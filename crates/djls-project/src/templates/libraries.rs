@@ -17,6 +17,7 @@ use super::resolution::TemplateBackendScopeKind;
 use super::resolution::TemplateBackendSelection;
 use super::settings_cases::TemplateBackendCase;
 use super::settings_cases::TemplateBackendId;
+use super::settings_cases::TemplateBackendKind;
 use super::settings_cases::TemplateBackendSlot;
 use super::settings_cases::TemplateEvidenceCompleteness;
 use super::settings_cases::TemplateSettingsCase;
@@ -2200,26 +2201,44 @@ fn build_library_settings_case<'db>(
         .iter()
         .map(|slot| match slot {
             TemplateBackendSlot::Backend(backend) => {
-                let mut backend_libraries = if backend.backend_name()
-                    == Some("django.template.backends.django.DjangoTemplates")
-                {
-                    insert_configured_backend_libraries(
+                let mut backend_libraries = match backend.backend_kind() {
+                    Some(TemplateBackendKind::Django) => insert_configured_backend_libraries(
                         db,
                         project,
                         backend,
                         &app_libraries.libraries,
                         libraries,
-                    )
-                } else if backend.backend_name().is_some()
-                    && !backend.backend_completeness().is_open()
-                {
-                    TemplateBackendLibraries::default()
-                } else {
-                    TemplateBackendLibraries {
-                        backend_completeness: TemplateEvidenceCompleteness::Open,
-                        loadables_completeness: TemplateEvidenceCompleteness::Open,
-                        builtins_completeness: TemplateEvidenceCompleteness::Open,
-                        ..TemplateBackendLibraries::default()
+                    ),
+                    // A DjangoTemplates subclass keeps its configured libraries but
+                    // may preload more builtins, as django-includecontents does.
+                    // Its loadable libraries stay exact: opening them would open
+                    // the Project grammar vocabulary for every backend's Templates.
+                    Some(TemplateBackendKind::Custom)
+                        if !backend.backend_completeness().is_open() =>
+                    {
+                        TemplateBackendLibraries {
+                            builtins_completeness: TemplateEvidenceCompleteness::Open,
+                            ..insert_configured_backend_libraries(
+                                db,
+                                project,
+                                backend,
+                                &app_libraries.libraries,
+                                libraries,
+                            )
+                        }
+                    }
+                    Some(TemplateBackendKind::NonDjango)
+                        if !backend.backend_completeness().is_open() =>
+                    {
+                        TemplateBackendLibraries::default()
+                    }
+                    Some(TemplateBackendKind::Custom | TemplateBackendKind::NonDjango) | None => {
+                        TemplateBackendLibraries {
+                            backend_completeness: TemplateEvidenceCompleteness::Open,
+                            loadables_completeness: TemplateEvidenceCompleteness::Open,
+                            builtins_completeness: TemplateEvidenceCompleteness::Open,
+                            ..TemplateBackendLibraries::default()
+                        }
                     }
                 };
                 for (load_name, known_candidate) in &app_libraries.unresolved_names {

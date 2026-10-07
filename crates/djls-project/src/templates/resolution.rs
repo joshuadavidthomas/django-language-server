@@ -25,6 +25,7 @@ use crate::settings::types::InstalledAppEvidence;
 use crate::templates::installed_app_package_module;
 use crate::templates::settings_cases::TemplateBackendCase;
 use crate::templates::settings_cases::TemplateBackendId;
+use crate::templates::settings_cases::TemplateBackendKind;
 use crate::templates::settings_cases::TemplateBackendSlot;
 use crate::templates::settings_cases::TemplateDirectorySlot;
 use crate::templates::settings_cases::TemplateSettingsCaseId;
@@ -143,7 +144,12 @@ fn add_backend_roots(
     if backend.backend_completeness().is_open() {
         alternative.mark_unknown_roots(TemplateBackendSelection::Backend(backend.id()));
     }
-    if backend.backend_name() != Some("django.template.backends.django.DjangoTemplates") {
+    // Custom backends keep the base Engine's DIRS and APP_DIRS meaning; their
+    // library uncertainty is modeled by the Template Library catalog.
+    if !matches!(
+        backend.backend_kind(),
+        Some(TemplateBackendKind::Django | TemplateBackendKind::Custom)
+    ) {
         return;
     }
     for evidence in backend.directories() {

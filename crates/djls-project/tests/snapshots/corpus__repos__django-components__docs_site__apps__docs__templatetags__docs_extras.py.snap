@@ -1,0 +1,120 @@
+---
+source: crates/djls-project/tests/corpus.rs
+expression: sorted_snapshot(&bundle)?
+---
+definitions:
+  "tag::docstring":
+    kind: tag
+    has_doc: false
+  "tag::example":
+    kind: tag
+    has_doc: false
+  "tag::image":
+    kind: tag
+    has_doc: false
+  "tag::include_file":
+    kind: tag
+    has_doc: false
+  "tag::people":
+    kind: tag
+    has_doc: false
+  "tag::version":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
+tag_rules:
+  "docs_site.apps.docs.templatetags.docs_extras::tag::docstring":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters:
+          - name: path
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+  "docs_site.apps.docs.templatetags.docs_extras::tag::example":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters:
+          - name: name
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+  "docs_site.apps.docs.templatetags.docs_extras::tag::image":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters:
+          - name: src
+            requirement: required
+            kind: Variable
+          - name: alt
+            requirement: optional
+            kind: Variable
+          - name: width
+            requirement: optional
+            kind: Variable
+          - name: css_class
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+  "docs_site.apps.docs.templatetags.docs_extras::tag::include_file":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters:
+          - name: path
+            requirement: required
+            kind: Variable
+          - name: language
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+  "docs_site.apps.docs.templatetags.docs_extras::tag::people":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters:
+          - name: group
+            requirement: required
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+  "docs_site.apps.docs.templatetags.docs_extras::tag::version":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+filter_arities: {}
+block_specs: {}

@@ -1,0 +1,125 @@
+---
+source: crates/djls-project/tests/corpus.rs
+expression: sorted_snapshot(&bundle)?
+---
+definitions:
+  "tag::bird":
+    kind: tag
+    has_doc: false
+  "tag::bird:css":
+    kind: tag
+    has_doc: false
+  "tag::bird:js":
+    kind: tag
+    has_doc: false
+  "tag::bird:load":
+    kind: tag
+    has_doc: false
+  "tag::bird:prop":
+    kind: tag
+    has_doc: false
+  "tag::bird:slot":
+    kind: tag
+    has_doc: false
+  "tag::bird:var":
+    kind: tag
+    has_doc: false
+  "tag::endbird:var":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
+tag_rules:
+  "django_bird.templatetags.django_bird::tag::bird":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Parameters:
+        - name: arg1
+          requirement: required
+          kind: Variable
+    as_var: keep
+  "django_bird.templatetags.django_bird::tag::bird:css":
+    arg_constraints:
+      - Min: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax: Unknown
+    as_var: keep
+  "django_bird.templatetags.django_bird::tag::bird:js":
+    arg_constraints:
+      - Min: 1
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax: Unknown
+    as_var: keep
+  "django_bird.templatetags.django_bird::tag::bird:load":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Parameters:
+        - name: arg1
+          requirement: required
+          kind: Variable
+    as_var: keep
+  "django_bird.templatetags.django_bird::tag::bird:prop":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Parameters:
+        - name: prop
+          requirement: required
+          kind: Variable
+    as_var: keep
+  "django_bird.templatetags.django_bird::tag::bird:slot":
+    arg_constraints:
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Parameters:
+        - name: arg1
+          requirement: required
+          kind: Variable
+    as_var: keep
+  "django_bird.templatetags.django_bird::tag::bird:var":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Parameters:
+        - name: var_assignment
+          requirement: required
+          kind: Variable
+    as_var: keep
+  "django_bird.templatetags.django_bird::tag::endbird:var":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Parameters:
+        - name: var_name
+          requirement: required
+          kind: Variable
+    as_var: keep
+filter_arities: {}
+block_specs:
+  "django_bird.templatetags.django_bird::tag::bird:slot":
+    body_analysis_evidence: not_detected
+    end_tag: "endbird:slot"
+    intermediates: []

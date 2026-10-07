@@ -30,6 +30,11 @@ fn tags_mdtest(fixture_path: &Utf8Path, content: String) -> datatest_stable::Res
     run_validation_mdtest(fixture_path, &content)
 }
 
+#[expect(clippy::needless_pass_by_value)]
+fn libraries_mdtest(fixture_path: &Utf8Path, content: String) -> datatest_stable::Result<()> {
+    run_validation_mdtest(fixture_path, &content)
+}
+
 fn run_validation_mdtest(fixture_path: &Utf8Path, content: &str) -> datatest_stable::Result<()> {
     let absolute_path = Utf8Path::new(env!("CARGO_MANIFEST_DIR")).join(fixture_path);
     djls_testing::run_file(&absolute_path, content)?;
@@ -229,5 +234,6 @@ fn render_file(db: &TestDatabase, file: File) -> String {
 datatest_stable::harness! {
     { test = diagnostics_mdtest, root = "./resources/mdtest/diagnostics", pattern = r"\.md$" },
     { test = tags_mdtest, root = "./resources/mdtest/tags", pattern = r"\.md$" },
+    { test = libraries_mdtest, root = "./resources/mdtest/libraries", pattern = r"\.md$" },
     { test = inheritance_mdtest, root = "./resources/mdtest/inheritance", pattern = r"\.md$" },
 }

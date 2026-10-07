@@ -70,6 +70,37 @@ impl StaticBindings {
     }
 }
 
+impl StaticBindings {
+    /// Module constants that `function` reads by bare name without local shadowing.
+    ///
+    /// Syntactic readers such as block-spec stop tokens use this view instead of
+    /// running the abstract interpreter.
+    pub(crate) fn visible_in<'a>(&'a self, function: &StmtFunctionDef) -> VisibleConstants<'a> {
+        let function_bindings = FunctionBindings::collect(function);
+        VisibleConstants {
+            values: self
+                .values
+                .iter()
+                .filter(|(path, _)| {
+                    !path.contains('.') && !function_bindings.blocks_module_fallback(path)
+                })
+                .map(|(path, value)| (path.as_str(), value))
+                .collect(),
+        }
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct VisibleConstants<'a> {
+    values: HashMap<&'a str, &'a AbstractValue>,
+}
+
+impl VisibleConstants<'_> {
+    pub(crate) fn get(&self, name: &str) -> Option<&AbstractValue> {
+        self.values.get(name).copied()
+    }
+}
+
 /// Seed one function environment while applying Python's function-wide local
 /// shadowing rule.
 pub(crate) fn seed_static_bindings(
@@ -171,6 +202,9 @@ impl<'a> StaticResolver<'a> {
         }
         if let Some(value) = expr.string_literal() {
             return Some(AbstractValue::Str(value.to_string()));
+        }
+        if let Some(value) = expr.non_negative_integer() {
+            return i64::try_from(value).ok().map(AbstractValue::Int);
         }
         if let Some(name) = expr.name_target() {
             return self.resolve_name_inner(name, resolving, depth + 1);

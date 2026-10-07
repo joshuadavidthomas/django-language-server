@@ -14,6 +14,7 @@ use ruff_python_ast::StmtFunctionDef;
 use crate::ast::ExprExt;
 use crate::templates::tags::analysis::AbstractValue;
 use crate::templates::tags::analysis::constants::StaticBindings;
+use crate::templates::tags::analysis::constants::VisibleConstants;
 use crate::templates::tags::blocks::dynamic_end::FunctionEnv;
 use crate::templates::tags::types::BodyAnalysisEvidence;
 use crate::templates::tags::types::ClosingTagArguments;
@@ -73,6 +74,7 @@ fn extract_block_spec(func: &StmtFunctionDef) -> Option<ExtractedBlockSpec> {
 ///
 /// Detectors that interpret the function body need them to prove that names
 /// such as `len` are still Python builtins, as the Tag Rule interpreter does.
+/// Stop tokens may also name module string constants from them.
 #[must_use]
 pub(crate) fn extract_block_spec_in_module(
     func: &StmtFunctionDef,
@@ -93,14 +95,19 @@ pub(crate) fn extract_block_spec_in_module(
     let env = FunctionEnv::new(func, static_bindings, &parser_var, &token_var);
     let skip_past = opaque::detect(&func.body, &parser_var);
     let parse_detected = parse_calls::is_detected(&func.body, &parser_var);
+    let constants = match static_bindings {
+        Some(bindings) if names_stop_tokens(func) => bindings.visible_in(func),
+        _ => VisibleConstants::default(),
+    };
     // A dynamic end tag needs a `parser.parse()` call; without one, skip interpreting the body.
-    let parse_spec = parse_calls::detect(&func.body, &parser_var, &token_var).or_else(|| {
-        if parse_detected {
-            dynamic_end::detect(func, &env, &parser_var)
-        } else {
-            None
-        }
-    });
+    let parse_spec =
+        parse_calls::detect(&func.body, &parser_var, &token_var, &constants).or_else(|| {
+            if parse_detected {
+                dynamic_end::detect(func, &env, &parser_var)
+            } else {
+                None
+            }
+        });
     let body_analysis_evidence = match (skip_past.is_some(), parse_detected) {
         (false, _) => BodyAnalysisEvidence::NotDetected,
         (true, false) => BodyAnalysisEvidence::SkipPast,
@@ -119,6 +126,15 @@ pub(crate) fn extract_block_spec_in_module(
         spec.closing_arguments = closing_arguments::detect(func, &env, &parser_var, end_tag);
     }
     Some(spec)
+}
+
+/// Return whether a compile function names any `parser.parse(...)` stop tokens through a
+/// variable. Callers resolve module constants only for these functions.
+#[must_use]
+fn names_stop_tokens(func: &StmtFunctionDef) -> bool {
+    func.parameters.args.first().is_some_and(|parser| {
+        parse_calls::names_stop_tokens(&func.body, parser.parameter.name.as_str())
+    })
 }
 
 fn combine_mixed_structure(
@@ -166,18 +182,39 @@ pub(super) fn is_parser_receiver(expr: &Expr, parser_var: &str) -> bool {
     false
 }
 
-/// Extract literal string constants from a tuple/list/set expression.
+/// Extract string constants from a tuple/list/set expression.
 ///
 /// Handles:
 /// - `("endif", "else", "elif")`
 /// - `("endif",)`
-///
-/// Does not resolve variable references.
-pub(super) fn extract_string_sequence(expr: &Expr) -> Vec<String> {
-    let elements = match expr {
-        Expr::Tuple(t) => &t.elts,
-        Expr::List(l) => &l.elts,
-        Expr::Set(s) => &s.elts,
+/// - `(END_TAG,)` where `END_TAG = "endif"` is a visible module constant
+/// - `END_TAGS` where `END_TAGS = ("else", "endif")` is a visible module constant
+pub(super) fn extract_string_sequence(
+    expr: &Expr,
+    constants: &VisibleConstants<'_>,
+) -> Vec<String> {
+    let constant_word = |value: &AbstractValue| {
+        let AbstractValue::Str(value) = value else {
+            return None;
+        };
+        value.split_whitespace().next().map(str::to_string)
+    };
+    let element = |expr: &Expr| {
+        if let Expr::Name(name) = expr {
+            return constants.get(name.id.as_str()).and_then(constant_word);
+        }
+        stop_token_first_word(expr)
+    };
+    let words: Vec<String> = match expr {
+        Expr::Tuple(t) => t.elts.iter().filter_map(element).collect(),
+        Expr::List(l) => l.elts.iter().filter_map(element).collect(),
+        Expr::Set(s) => s.elts.iter().filter_map(element).collect(),
+        Expr::Name(name) => {
+            let Some(AbstractValue::Tuple(values)) = constants.get(name.id.as_str()) else {
+                return Vec::new();
+            };
+            values.iter().filter_map(constant_word).collect()
+        }
         Expr::BoolOp(_)
         | Expr::Named(_)
         | Expr::BinOp(_)
@@ -205,12 +242,11 @@ pub(super) fn extract_string_sequence(expr: &Expr) -> Vec<String> {
         | Expr::Attribute(_)
         | Expr::Subscript(_)
         | Expr::Starred(_)
-        | Expr::Name(_)
         | Expr::Slice(_)
         | Expr::IpyEscapeCommand(_) => return Vec::new(),
     };
     let mut tokens = Vec::new();
-    for word in elements.iter().filter_map(stop_token_first_word) {
+    for word in words {
         if !tokens.contains(&word) {
             tokens.push(word);
         }

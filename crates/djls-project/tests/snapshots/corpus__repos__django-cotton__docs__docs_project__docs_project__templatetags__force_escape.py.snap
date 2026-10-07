@@ -1,0 +1,17 @@
+---
+source: crates/djls-project/tests/corpus.rs
+expression: sorted_snapshot(&bundle)?
+---
+definitions:
+  "filter::force_escape":
+    kind: filter
+    has_doc: false
+  "filter::strip":
+    kind: filter
+    has_doc: false
+symbols_are_unobserved: false
+tag_rules: {}
+filter_arities:
+  "docs.docs_project.docs_project.templatetags.force_escape::filter::force_escape": no_argument
+  "docs.docs_project.docs_project.templatetags.force_escape::filter::strip": no_argument
+block_specs: {}

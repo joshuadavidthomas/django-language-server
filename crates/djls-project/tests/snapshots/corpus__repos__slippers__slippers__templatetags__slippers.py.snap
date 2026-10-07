@@ -1,0 +1,40 @@
+---
+source: crates/djls-project/tests/corpus.rs
+expression: sorted_snapshot(&bundle)?
+---
+definitions:
+  "filter::match":
+    kind: filter
+    has_doc: false
+  "tag::attrs":
+    kind: tag
+    has_doc: false
+  "tag::fragment":
+    kind: tag
+    has_doc: false
+  "tag::slippers_overlay":
+    kind: tag
+    has_doc: false
+  "tag::var":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: true
+tag_rules:
+  "slippers.templatetags.slippers::tag::slippers_overlay":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: keep
+filter_arities:
+  "slippers.templatetags.slippers::filter::match": required_argument
+block_specs:
+  "slippers.templatetags.slippers::tag::fragment":
+    body_analysis_evidence: not_detected
+    end_tag: endfragment
+    intermediates: []
