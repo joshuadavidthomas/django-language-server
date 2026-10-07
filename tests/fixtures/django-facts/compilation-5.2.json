@@ -316,6 +316,152 @@
       "error": "'exception_between_pops' requires one argument",
       "result": "failed"
     },
+    "expression_cache_invalid.html": {
+      "error": "Could not parse the remainder: '|' from '500|'",
+      "result": "failed"
+    },
+    "expression_cache_valid.html": {
+      "result": "compiled"
+    },
+    "expression_cycle_invalid.html": {
+      "error": "Variables and attributes may not begin with underscores: '_b'",
+      "result": "failed"
+    },
+    "expression_cycle_valid.html": {
+      "result": "compiled"
+    },
+    "expression_elif_operand_underscore.html": {
+      "error": "Variables and attributes may not begin with underscores: '_secret'",
+      "result": "failed"
+    },
+    "expression_extends_invalid.html": {
+      "error": "Variables and attributes may not begin with underscores: '_parent'",
+      "result": "failed"
+    },
+    "expression_extends_valid.html": {
+      "result": "compiled"
+    },
+    "expression_filter_escape.html": {
+      "error": "\"filter escape\" is not permitted.  Use the \"autoescape\" tag instead.",
+      "result": "failed"
+    },
+    "expression_filter_invalid.html": {
+      "error": "Could not parse the remainder: ':' from 'var|lower:'",
+      "result": "failed"
+    },
+    "expression_filter_valid.html": {
+      "result": "compiled"
+    },
+    "expression_firstof_invalid.html": {
+      "error": "Could not parse the remainder: '|' from 'a|'",
+      "result": "failed"
+    },
+    "expression_firstof_valid.html": {
+      "result": "compiled"
+    },
+    "expression_for_invalid.html": {
+      "error": "Could not parse the remainder: '|' from 'items|'",
+      "result": "failed"
+    },
+    "expression_for_valid.html": {
+      "result": "compiled"
+    },
+    "expression_i18n_context_invalid.html": {
+      "error": "\"context\" in 'blocktranslate' tag expected exactly one argument.",
+      "result": "failed"
+    },
+    "expression_i18n_invalid.html": {
+      "error": "Variables and attributes may not begin with underscores: '_msg'",
+      "result": "failed"
+    },
+    "expression_i18n_valid.html": {
+      "result": "compiled"
+    },
+    "expression_if_operand_invalid.html": {
+      "error": "Could not parse the remainder: '|' from 'user|'",
+      "result": "failed"
+    },
+    "expression_if_operators_valid.html": {
+      "result": "compiled"
+    },
+    "expression_ifchanged_invalid.html": {
+      "error": "Could not parse the remainder: '|' from 'd|'",
+      "result": "failed"
+    },
+    "expression_include_invalid.html": {
+      "error": "Could not parse the remainder: '|' from 'card|'",
+      "result": "failed"
+    },
+    "expression_include_valid.html": {
+      "result": "compiled"
+    },
+    "expression_lorem_invalid.html": {
+      "error": "Variables and attributes may not begin with underscores: '_n'",
+      "result": "failed"
+    },
+    "expression_lorem_valid.html": {
+      "result": "compiled"
+    },
+    "expression_numbers_valid.html": {
+      "result": "compiled"
+    },
+    "expression_querystring_invalid.html": {
+      "error": "Variables and attributes may not begin with underscores: '_page'",
+      "result": "failed"
+    },
+    "expression_querystring_valid.html": {
+      "result": "compiled"
+    },
+    "expression_regroup_invalid.html": {
+      "error": "Variables and attributes may not begin with underscores: 'groups._gender'",
+      "result": "failed"
+    },
+    "expression_regroup_valid.html": {
+      "result": "compiled"
+    },
+    "expression_static_invalid.html": {
+      "error": "Variables and attributes may not begin with underscores: '_path'",
+      "result": "failed"
+    },
+    "expression_static_valid.html": {
+      "result": "compiled"
+    },
+    "expression_tz_invalid.html": {
+      "error": "Could not parse the remainder: '|' from 'tz|'",
+      "result": "failed"
+    },
+    "expression_tz_valid.html": {
+      "result": "compiled"
+    },
+    "expression_url_invalid.html": {
+      "error": "Could not parse the remainder: '=' from 'page='",
+      "result": "failed"
+    },
+    "expression_url_valid.html": {
+      "result": "compiled"
+    },
+    "expression_version_dependent_sign.html": {
+      "error": "Could not parse the remainder: '-b' from 'a-b'",
+      "result": "failed"
+    },
+    "expression_widthratio_invalid.html": {
+      "error": "Could not parse the remainder: '|' from '100|'",
+      "result": "failed"
+    },
+    "expression_widthratio_valid.html": {
+      "result": "compiled"
+    },
+    "expression_with_invalid.html": {
+      "error": "Variables and attributes may not begin with underscores: '_count'",
+      "result": "failed"
+    },
+    "expression_with_legacy_invalid.html": {
+      "error": "Variables and attributes may not begin with underscores: '_count'",
+      "result": "failed"
+    },
+    "expression_with_valid.html": {
+      "result": "compiled"
+    },
     "finally_guard_invalid.html": {
       "error": "'finally_guard' requires one argument",
       "result": "failed"

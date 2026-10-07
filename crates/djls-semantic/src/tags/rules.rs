@@ -377,7 +377,7 @@ fn modern_assignment(bit: &str) -> Option<(&str, &str)> {
     (!value.is_empty() && is_python_word_key(key)).then_some((key, value))
 }
 
-fn is_python_word_key(value: &str) -> bool {
+pub(crate) fn is_python_word_key(value: &str) -> bool {
     static PYTHON_WORD_KEY: OnceLock<Result<Regex, regex::Error>> = OnceLock::new();
     PYTHON_WORD_KEY
         .get_or_init(|| Regex::new(r"\A[\p{Letter}\p{Number}_]+\z"))

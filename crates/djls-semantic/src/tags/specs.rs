@@ -22,6 +22,7 @@ use djls_project::TemplateSymbolKind;
 use rustc_hash::FxHashMap;
 
 use super::TagRole;
+use crate::expressions::TagExpressionGrammar;
 use crate::references::TemplateReferenceKind;
 
 pub(crate) type S<T = str> = Cow<'static, T>;
@@ -105,6 +106,8 @@ impl TagSpecs {
                         ),
                         role: None,
                         extracted_rules: None,
+                        expression_grammar: None,
+                        intermediate_expression_grammars: &[],
                     },
                 );
             }
@@ -340,6 +343,8 @@ impl TagSpecs {
                         body_analysis: BodyAnalysis::Analyze,
                         role: None,
                         extracted_rules,
+                        expression_grammar: None,
+                        intermediate_expression_grammars: &[],
                     },
                 );
             }
@@ -421,6 +426,11 @@ pub struct TagSpec {
     /// When present, provides argument validation (S117 diagnostics) and
     /// argument structure for completions/snippets via `argument_syntax`.
     extracted_rules: Option<Arc<TagRule>>,
+    /// Builtin knowledge of which arguments a hand-written compile function passes to
+    /// Django's expression compilers.
+    expression_grammar: Option<TagExpressionGrammar>,
+    /// Builtin expression grammars of intermediate tags captured by this block.
+    intermediate_expression_grammars: &'static [(&'static str, TagExpressionGrammar)],
 }
 
 impl TagSpec {
@@ -438,6 +448,8 @@ impl TagSpec {
             body_analysis,
             role: None,
             extracted_rules: None,
+            expression_grammar: None,
+            intermediate_expression_grammars: &[],
         }
     }
 
@@ -454,6 +466,21 @@ impl TagSpec {
     #[must_use]
     pub fn role(&self) -> Option<TagRole> {
         self.role
+    }
+
+    #[must_use]
+    pub(crate) fn expression_grammar(&self) -> Option<TagExpressionGrammar> {
+        self.expression_grammar
+    }
+
+    #[must_use]
+    pub(crate) fn intermediate_expression_grammar(
+        &self,
+        name: &str,
+    ) -> Option<TagExpressionGrammar> {
+        self.intermediate_expression_grammars
+            .iter()
+            .find_map(|(intermediate, grammar)| (*intermediate == name).then_some(*grammar))
     }
 
     #[must_use]
@@ -534,6 +561,8 @@ pub fn builtin_tag_specs() -> TagSpecs {
         body_analysis: BodyAnalysis::Analyze,
         role: None,
         extracted_rules: None,
+        expression_grammar: None,
+        intermediate_expression_grammars: &[],
     };
 
     let simple_role = |module: &'static str, role: TagRole| TagSpec {
@@ -543,6 +572,8 @@ pub fn builtin_tag_specs() -> TagSpecs {
         body_analysis: BodyAnalysis::Analyze,
         role: Some(role),
         extracted_rules: None,
+        expression_grammar: None,
+        intermediate_expression_grammars: &[],
     };
 
     let block = |module: &'static str,
@@ -559,6 +590,8 @@ pub fn builtin_tag_specs() -> TagSpecs {
         body_analysis,
         role: Some(role),
         extracted_rules: None,
+        expression_grammar: None,
+        intermediate_expression_grammars: &[],
     };
 
     let im = |name: &'static str| IntermediateTag { name: B(name) };
@@ -717,6 +750,18 @@ pub fn builtin_tag_specs() -> TagSpecs {
         ),
     );
     specs.insert("trans".into(), simple(i18n));
+    specs.insert("get_language_info".into(), simple(i18n));
+    specs.insert("get_language_info_list".into(), simple(i18n));
+    specs.insert(
+        "language".into(),
+        block(
+            i18n,
+            "endlanguage",
+            vec![],
+            BodyAnalysis::Analyze,
+            TagRole::ControlTag,
+        ),
+    );
     specs.insert("translate".into(), simple(i18n));
 
     // cache
@@ -771,6 +816,49 @@ pub fn builtin_tag_specs() -> TagSpecs {
         ),
     );
 
+    for (name, grammar) in [
+        ("if", TagExpressionGrammar::Condition),
+        (
+            "firstof",
+            TagExpressionGrammar::EachArgument {
+                strips_as_var: true,
+            },
+        ),
+        (
+            "ifchanged",
+            TagExpressionGrammar::EachArgument {
+                strips_as_var: false,
+            },
+        ),
+        ("with", TagExpressionGrammar::Assignments { legacy: true }),
+        ("cycle", TagExpressionGrammar::Cycle),
+        ("filter", TagExpressionGrammar::Filter),
+        ("for", TagExpressionGrammar::For),
+        ("lorem", TagExpressionGrammar::Lorem),
+        ("regroup", TagExpressionGrammar::Regroup),
+        ("url", TagExpressionGrammar::Url),
+        ("widthratio", TagExpressionGrammar::WidthRatio),
+        ("extends", TagExpressionGrammar::FirstArgument),
+        ("include", TagExpressionGrammar::Include),
+        ("blocktrans", TagExpressionGrammar::BlockTranslate),
+        ("blocktranslate", TagExpressionGrammar::BlockTranslate),
+        ("trans", TagExpressionGrammar::Translate),
+        ("translate", TagExpressionGrammar::Translate),
+        ("language", TagExpressionGrammar::FirstArgument),
+        ("get_language_info", TagExpressionGrammar::LanguageInfo),
+        ("get_language_info_list", TagExpressionGrammar::LanguageInfo),
+        ("cache", TagExpressionGrammar::Cache),
+        ("static", TagExpressionGrammar::FirstArgument),
+        ("timezone", TagExpressionGrammar::FirstArgument),
+    ] {
+        if let Some(spec) = specs.get_mut(name) {
+            spec.expression_grammar = Some(grammar);
+        }
+    }
+    if let Some(spec) = specs.get_mut("if") {
+        spec.intermediate_expression_grammars = &[("elif", TagExpressionGrammar::Condition)];
+    }
+
     TagSpecs::new(specs)
 }
 
@@ -799,6 +887,8 @@ mod tests {
                 body_analysis: BodyAnalysis::Analyze,
                 role: None,
                 extracted_rules: None,
+                expression_grammar: None,
+                intermediate_expression_grammars: &[],
             },
         );
 
@@ -822,6 +912,8 @@ mod tests {
                 body_analysis: BodyAnalysis::Analyze,
                 role: None,
                 extracted_rules: None,
+                expression_grammar: None,
+                intermediate_expression_grammars: &[],
             },
         );
 
@@ -845,6 +937,8 @@ mod tests {
                 body_analysis: BodyAnalysis::Analyze,
                 role: None,
                 extracted_rules: None,
+                expression_grammar: None,
+                intermediate_expression_grammars: &[],
             },
         );
 
@@ -861,6 +955,8 @@ mod tests {
                 body_analysis: BodyAnalysis::Analyze,
                 role: None,
                 extracted_rules: None,
+                expression_grammar: None,
+                intermediate_expression_grammars: &[],
             },
         );
 
@@ -917,6 +1013,8 @@ mod tests {
                 body_analysis: BodyAnalysis::Analyze,
                 role: None,
                 extracted_rules: None,
+                expression_grammar: None,
+                intermediate_expression_grammars: &[],
             },
         );
         specs2_map.insert(
@@ -931,6 +1029,8 @@ mod tests {
                 body_analysis: BodyAnalysis::Analyze,
                 role: None,
                 extracted_rules: None,
+                expression_grammar: None,
+                intermediate_expression_grammars: &[],
             },
         );
 
@@ -1024,6 +1124,8 @@ mod tests {
                 body_analysis: BodyAnalysis::Opaque,
                 role: None,
                 extracted_rules: None,
+                expression_grammar: None,
+                intermediate_expression_grammars: &[],
             },
         );
         let mut specs = TagSpecs::new(spec_map);

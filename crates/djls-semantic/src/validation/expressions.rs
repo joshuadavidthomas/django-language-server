@@ -6,17 +6,61 @@ use salsa::Accumulator;
 use crate::db::Db;
 use crate::db::ValidationErrorAccumulator;
 use crate::errors::ValidationError;
+use crate::expressions::TagExpressionGrammar;
+use crate::expressions::parse_filter_expression;
 
 /// Internal helper for [`TemplateValidator`](crate::validation::TemplateValidator).
-pub(crate) fn check_if_expression_rule(db: &dyn Db, name: &str, bits: &[TagBit], span: Span) {
-    if let Some(message) = validate_expression(bits) {
-        let full_span = span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32);
+pub(crate) fn check_tag_expressions_rule(
+    db: &dyn Db,
+    name: &str,
+    bits: &[TagBit],
+    span: Span,
+    grammar: TagExpressionGrammar,
+) {
+    let accumulate = |message: String, span: Span| {
         ValidationErrorAccumulator(ValidationError::ExpressionSyntaxError {
             tag: name.to_string(),
             message,
-            span: full_span,
+            span,
         })
         .accumulate(db);
+    };
+
+    let mut operands_valid = true;
+    for operand in grammar.operands(bits) {
+        match parse_filter_expression(&operand.text) {
+            Err(message) => {
+                operands_valid = false;
+                let message = operand
+                    .message
+                    .map_or(message, |message| message.replace("{tag}", name));
+                accumulate(message, operand.span);
+            }
+            Ok(filters) if grammar == TagExpressionGrammar::Filter => {
+                // `{% filter %}` refuses the filters that would bypass autoescaping.
+                for filter in filters {
+                    if matches!(filter.name.as_str(), "escape" | "safe") {
+                        accumulate(
+                            format!(
+                                "\"filter {}\" is not permitted. Use the \"autoescape\" tag instead.",
+                                filter.name
+                            ),
+                            operand.source_span(filter.range).unwrap_or(operand.span),
+                        );
+                    }
+                }
+            }
+            Ok(_) => {}
+        }
+    }
+
+    // Django compiles every condition operand before parsing the condition.
+    if grammar == TagExpressionGrammar::Condition
+        && operands_valid
+        && let Some(message) = validate_expression(bits)
+    {
+        let full_span = span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32);
+        accumulate(message, full_span);
     }
 }
 

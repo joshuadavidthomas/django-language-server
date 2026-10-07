@@ -1,0 +1,1 @@
+{% load i18n %}{% translate "Hello" context "greeting" as _hello %}{% blocktranslate count counter=items|length with name=user.name asvar _greeting %}one{% plural %}many{% endblocktranslate %}{% language "de" %}{% endlanguage %}{% get_language_info for "de" as lang %}{% get_language_info_list for languages as _langs %}

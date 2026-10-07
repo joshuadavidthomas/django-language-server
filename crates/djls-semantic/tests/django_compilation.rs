@@ -21,6 +21,8 @@ const MISSED_DIAGNOSTICS: &[&str] = &[
     "conjunction_guard_invalid",
     // helper raises are not propagated, so caught-exception fallback forgets the split state after the first pop
     "exception_between_pops_missing",
+    // Django versions reject `+` and `-` in variables with different messages, so expression checks stay silent
+    "expression_version_dependent_sign",
     // option extraction records names but not the assignments required after with
     "include_missing_assignment",
     // the static choice list is mutated after assignment, so its value becomes Unknown
