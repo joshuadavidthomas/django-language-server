@@ -1,6 +1,7 @@
 pub(crate) mod loads;
 pub(crate) mod symbols;
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 use djls_project::EffectiveDefinitionLibrary;
@@ -24,6 +25,8 @@ use salsa::Accumulator;
 use crate::ValidationErrorAccumulator;
 use crate::db::Db;
 use crate::db::scoped_template_libraries_for_file;
+use crate::expressions::tag_expression_filters;
+use crate::expressions::tag_expression_grammar;
 use crate::filters::effective_filter_arity_in_scope;
 use crate::scoping::loads::LoadArgument;
 pub(crate) use crate::scoping::loads::LoadKind;
@@ -352,22 +355,32 @@ pub(crate) fn scoped_filter_facts<'db>(
     let project = db.project();
     let scoped_libraries = scoped_template_libraries_for_file(db, projection.scope_file(db));
     let tree = projection.tree(db);
-    let mut variables = active_template_nodes(tree.regions(db), tree.root(db))
+    let tag_facts = projection.scoped_tag_facts(db);
+    let mut occurrences = active_template_nodes(tree.regions(db), tree.root(db))
         .into_iter()
-        .filter_map(|node| match node {
-            ActiveTemplateNode::Variable(variable) => Some(variable),
-            ActiveTemplateNode::Tag(_) => None,
+        .map(|node| match node {
+            ActiveTemplateNode::Variable(variable) => {
+                (variable.span.start(), Cow::Borrowed(variable.filters))
+            }
+            ActiveTemplateNode::Tag(tag) => (
+                tag.span.start(),
+                Cow::Owned(
+                    tag_expression_grammar(tag_facts, tag)
+                        .map(|grammar| tag_expression_filters(grammar, tag.bits))
+                        .unwrap_or_default(),
+                ),
+            ),
         })
         .collect::<Vec<_>>();
-    variables.sort_by_key(|variable| variable.span.start());
+    occurrences.sort_by_key(|(start, _)| *start);
 
     let mut facts = BTreeMap::new();
     let mut context_cache = ContextualFactCache::default();
     let loaded = projection.loaded_libraries(db);
     let mut load_cursor = loaded.cursor();
-    for variable in variables {
-        let load_state = load_cursor.advance_to(variable.span.start());
-        for filter in variable.filters {
+    for (start, filters) in &occurrences {
+        let load_state = load_cursor.advance_to(*start);
+        for filter in filters.iter() {
             let fact = context_cache.resolve(load_state, &filter.name, || {
                 let (availability, arity) = if project.is_none() {
                     let arity = db

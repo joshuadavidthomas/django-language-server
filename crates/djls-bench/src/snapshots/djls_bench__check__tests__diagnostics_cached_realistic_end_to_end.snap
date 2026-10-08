@@ -1,11 +1,12 @@
 ---
 source: crates/djls-bench/src/check.rs
+assertion_line: 926
 expression: "checked_workload_snapshot(&db, &files, WorkloadDetail::Small, false)"
 ---
 check_parser_count: 0
-check_validation_count: 20
+check_validation_count: 24
 check_code_counts:
-  S111: 20
+  S111: 24
 per_file_checks:
   - path: /templates/large/stress_test.html
     parser_count: 0
@@ -13,13 +14,14 @@ per_file_checks:
     codes: {}
   - path: /templates/large/views_technical_500.html
     parser_count: 0
-    validation_count: 19
+    validation_count: 22
     codes:
-      S111: 19
+      S111: 22
   - path: /templates/medium/admin_login.html
     parser_count: 0
-    validation_count: 0
-    codes: {}
+    validation_count: 1
+    codes:
+      S111: 1
   - path: /templates/medium/nested_blocks.html
     parser_count: 0
     validation_count: 0
@@ -33,11 +35,11 @@ per_file_checks:
     validation_count: 1
     codes:
       S111: 1
-per_file_checks_sha256: c8d32f3e5e6a083d222454ae5dd08179ff91f064c5b8d388286cb6051bef8712
+per_file_checks_sha256: 585d8ed6d5ff5abca2878caef9d237339d68134b13bbadb3973596972fcaf6d6
 ide_eligible_file_count: 6
-ide_diagnostic_count: 20
+ide_diagnostic_count: 24
 ide_code_counts:
-  S111: 20
+  S111: 24
 normalized_ide_diagnostics:
   - path: /templates/large/views_technical_500.html
     code: S111
@@ -95,6 +97,14 @@ normalized_ide_diagnostics:
     end_line: 251
     end_character: 50
     message: "Unknown filter 'add'"
+  - path: /templates/large/views_technical_500.html
+    code: S111
+    severity: error
+    start_line: 277
+    start_character: 41
+    end_line: 277
+    end_character: 51
+    message: "Unknown filter 'dictsort'"
   - path: /templates/large/views_technical_500.html
     code: S111
     severity: error
@@ -178,6 +188,14 @@ normalized_ide_diagnostics:
   - path: /templates/large/views_technical_500.html
     code: S111
     severity: error
+    start_line: 452
+    start_character: 40
+    end_line: 452
+    end_character: 50
+    message: "Unknown filter 'dictsort'"
+  - path: /templates/large/views_technical_500.html
+    code: S111
+    severity: error
     start_line: 455
     start_character: 37
     end_line: 455
@@ -186,11 +204,27 @@ normalized_ide_diagnostics:
   - path: /templates/large/views_technical_500.html
     code: S111
     severity: error
+    start_line: 474
+    start_character: 36
+    end_line: 474
+    end_character: 46
+    message: "Unknown filter 'dictsort'"
+  - path: /templates/large/views_technical_500.html
+    code: S111
+    severity: error
     start_line: 477
     start_character: 37
     end_line: 477
     end_character: 43
     message: "Unknown filter 'pprint'"
+  - path: /templates/medium/admin_login.html
+    code: S111
+    severity: error
+    start_line: 23
+    start_character: 50
+    end_line: 23
+    end_character: 56
+    message: "Unknown filter 'length'"
   - path: /templates/small/forms_widgets_input.html
     code: S111
     severity: error
@@ -199,9 +233,10 @@ normalized_ide_diagnostics:
     end_line: 0
     end_character: 125
     message: "Unknown filter 'stringformat'"
-normalized_ide_diagnostics_sha256: 8ffb9efc5200b128227ed9e6fb24472d4f96bfe355c5c61b4de9e4e192eb46ae
-files_with_diagnostics: 2
+normalized_ide_diagnostics_sha256: d42cb26fe35b4ede424a368314c5d4d5edcf6745021cef50a3ef00889d1bf101
+files_with_diagnostics: 3
 diagnostic_bearing_paths:
   - /templates/large/views_technical_500.html
+  - /templates/medium/admin_login.html
   - /templates/small/forms_widgets_input.html
-diagnostic_bearing_paths_sha256: bd7b47cce11fa40e4cca119ec72e044eedbbed0bcf6ffe55beb8a7e1dd0a0aa0
+diagnostic_bearing_paths_sha256: e2e41bb56fdcd727462b1c350b98ef4a36e4cf7ee5ac10fc48f3b38dc8acf106
