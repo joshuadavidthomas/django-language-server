@@ -3,7 +3,11 @@ use std::ops::ControlFlow;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprAttribute;
 use ruff_python_ast::ExprCall;
+use ruff_python_ast::ExprList;
+use ruff_python_ast::ExprSet;
+use ruff_python_ast::ExprTuple;
 use ruff_python_ast::Stmt;
+use ruff_python_ast::StmtAnnAssign;
 use ruff_python_ast::StmtAssign;
 use ruff_python_ast::StmtIf;
 use ruff_python_ast::visitor;
@@ -12,6 +16,7 @@ use ruff_python_ast::visitor::Visitor;
 use crate::ast::ExprExt;
 use crate::ast::Recurse;
 use crate::ast::walk_stmts;
+use crate::templates::tags::analysis::constants::VisibleConstants;
 use crate::templates::tags::blocks::EndTagEvidence;
 use crate::templates::tags::blocks::ExtractedBlockSpec;
 use crate::templates::tags::blocks::extract_string_sequence;
@@ -28,14 +33,15 @@ pub(super) fn detect(
     body: &[Stmt],
     parser_var: &str,
     token_var: &str,
+    constants: &VisibleConstants<'_>,
 ) -> Option<ExtractedBlockSpec> {
-    let parse_calls = collect_parser_parse_calls(body, parser_var);
+    let parse_calls = collect_parser_parse_calls(body, parser_var, constants);
 
     if parse_calls.is_empty() {
         return None;
     }
 
-    classify_stop_tokens(body, parser_var, token_var, &parse_calls)
+    classify_stop_tokens(body, parser_var, token_var, constants, &parse_calls)
 }
 
 /// Return whether the body contains an observed `parser.parse(...)` call.
@@ -51,6 +57,67 @@ pub(super) fn is_detected(body: &[Stmt], parser_var: &str) -> bool {
         }
     }
     visitor.detected
+}
+
+/// Return whether a `parser.parse(...)` call names its stop tokens through a variable,
+/// as in `parser.parse((END_TAG,))` or `parser.parse(END_TAGS)`.
+pub(super) fn names_stop_tokens(body: &[Stmt], parser_var: &str) -> bool {
+    let mut visitor = NamedStopTokenVisitor {
+        parser_var,
+        detected: false,
+    };
+    for statement in body {
+        visitor.visit_stmt(statement);
+        if visitor.detected {
+            break;
+        }
+    }
+    visitor.detected
+}
+
+struct NamedStopTokenVisitor<'parser> {
+    parser_var: &'parser str,
+    detected: bool,
+}
+
+impl<'ast> Visitor<'ast> for NamedStopTokenVisitor<'_> {
+    fn visit_stmt(&mut self, stmt: &'ast Stmt) {
+        if self.detected || matches!(stmt, Stmt::FunctionDef(_) | Stmt::ClassDef(_)) {
+            return;
+        }
+        visitor::walk_stmt(self, stmt);
+    }
+
+    fn visit_expr(&mut self, expr: &'ast Expr) {
+        if self.detected || matches!(expr, Expr::Lambda(_)) {
+            return;
+        }
+        if let Expr::Call(ExprCall { arguments, .. }) = expr
+            && is_parser_parse_call(expr, self.parser_var)
+            && let Some(stop_tokens) = arguments.args.first().or_else(|| {
+                arguments
+                    .find_keyword("parse_until")
+                    .map(|keyword| &keyword.value)
+            })
+        {
+            let elements = if let Expr::Tuple(ExprTuple { elts, .. })
+            | Expr::List(ExprList { elts, .. })
+            | Expr::Set(ExprSet { elts, .. }) = stop_tokens
+            {
+                elts.as_slice()
+            } else {
+                std::slice::from_ref(stop_tokens)
+            };
+            if elements
+                .iter()
+                .any(|element| matches!(element, Expr::Name(_)))
+            {
+                self.detected = true;
+                return;
+            }
+        }
+        visitor::walk_expr(self, expr);
+    }
 }
 
 struct ParseCallVisitor<'parser> {
@@ -85,17 +152,25 @@ struct ParseCallInfo {
 }
 
 /// Collect all `parser.parse((...))` calls in a statement body.
-fn collect_parser_parse_calls(body: &[Stmt], parser_var: &str) -> Vec<ParseCallInfo> {
+fn collect_parser_parse_calls(
+    body: &[Stmt],
+    parser_var: &str,
+    constants: &VisibleConstants<'_>,
+) -> Vec<ParseCallInfo> {
     let mut calls = Vec::new();
     walk_stmts(body, Recurse::ControlFlow, |stmt| {
         match stmt {
             Stmt::Expr(expr_stmt) => {
-                if let Some(info) = extract_parse_call_info(&expr_stmt.value, parser_var) {
+                if let Some(info) = extract_parse_call_info(&expr_stmt.value, parser_var, constants)
+                {
                     calls.push(info);
                 }
             }
-            Stmt::Assign(StmtAssign { value, .. }) => {
-                if let Some(info) = extract_parse_call_info(value, parser_var) {
+            Stmt::Assign(StmtAssign { value, .. })
+            | Stmt::AnnAssign(StmtAnnAssign {
+                value: Some(value), ..
+            }) => {
+                if let Some(info) = extract_parse_call_info(value, parser_var, constants) {
                     calls.push(info);
                 }
             }
@@ -129,18 +204,24 @@ fn collect_parser_parse_calls(body: &[Stmt], parser_var: &str) -> Vec<ParseCallI
 }
 
 /// Check if an expression is a `parser.parse((...))` call and extract stop-tokens.
-fn extract_parse_call_info(expr: &Expr, parser_var: &str) -> Option<ParseCallInfo> {
+fn extract_parse_call_info(
+    expr: &Expr,
+    parser_var: &str,
+    constants: &VisibleConstants<'_>,
+) -> Option<ParseCallInfo> {
     let Expr::Call(ExprCall { arguments, .. }) = expr else {
         return None;
     };
     if !is_parser_parse_call(expr, parser_var) {
         return None;
     }
-    if arguments.args.is_empty() {
-        return None;
-    }
+    let stop_tokens_arg = arguments.args.first().or_else(|| {
+        arguments
+            .find_keyword("parse_until")
+            .map(|keyword| &keyword.value)
+    })?;
 
-    let stop_tokens = extract_string_sequence(&arguments.args[0]);
+    let stop_tokens = extract_string_sequence(stop_tokens_arg, constants);
     if stop_tokens.is_empty() {
         return None;
     }
@@ -172,6 +253,7 @@ fn classify_stop_tokens(
     body: &[Stmt],
     parser_var: &str,
     token_var: &str,
+    constants: &VisibleConstants<'_>,
     parse_calls: &[ParseCallInfo],
 ) -> Option<ExtractedBlockSpec> {
     let mut all_tokens: Vec<String> = Vec::new();
@@ -190,7 +272,7 @@ fn classify_stop_tokens(
     let Classification {
         mut intermediates,
         mut end_tags,
-    } = classify_in_body(body, parser_var, token_var, &all_tokens);
+    } = classify_in_body(body, parser_var, token_var, constants, &all_tokens);
 
     // After flow analysis: any token that was found in stop-token lists but NOT
     // classified as intermediate is a candidate end-tag.
@@ -288,6 +370,7 @@ fn classify_in_body(
     body: &[Stmt],
     parser_var: &str,
     token_var: &str,
+    constants: &VisibleConstants<'_>,
     all_tokens: &[String],
 ) -> Classification {
     let mut result = Classification::default();
@@ -295,7 +378,7 @@ fn classify_in_body(
     for (i, stmt) in body.iter().enumerate() {
         if let Stmt::If(if_stmt) = stmt {
             result.merge(classify_from_if_chain(
-                if_stmt, parser_var, token_var, all_tokens,
+                if_stmt, parser_var, token_var, constants, all_tokens,
             ));
         }
 
@@ -303,8 +386,8 @@ fn classify_in_body(
             if let Some(token) = extract_token_check(&while_stmt.test, token_var, all_tokens)
                 .or_else(|| extract_startswith_check(&while_stmt.test, token_var, all_tokens))
             {
-                if body_has_parse_call(&while_stmt.body, parser_var)
-                    || body_has_parse_call(&while_stmt.orelse, parser_var)
+                if body_has_parse_call(&while_stmt.body, parser_var, constants)
+                    || body_has_parse_call(&while_stmt.orelse, parser_var, constants)
                 {
                     result.add_intermediate(token);
                 } else {
@@ -315,12 +398,14 @@ fn classify_in_body(
                 &while_stmt.body,
                 parser_var,
                 token_var,
+                constants,
                 all_tokens,
             ));
             result.merge(classify_in_body(
                 &while_stmt.orelse,
                 parser_var,
                 token_var,
+                constants,
                 all_tokens,
             ));
         }
@@ -330,12 +415,14 @@ fn classify_in_body(
                 &for_stmt.body,
                 parser_var,
                 token_var,
+                constants,
                 all_tokens,
             ));
             result.merge(classify_in_body(
                 &for_stmt.orelse,
                 parser_var,
                 token_var,
+                constants,
                 all_tokens,
             ));
         }
@@ -345,30 +432,39 @@ fn classify_in_body(
                 &try_stmt.body,
                 parser_var,
                 token_var,
+                constants,
                 all_tokens,
             ));
             for handler in &try_stmt.handlers {
                 let ruff_python_ast::ExceptHandler::ExceptHandler(h) = handler;
-                result.merge(classify_in_body(&h.body, parser_var, token_var, all_tokens));
+                result.merge(classify_in_body(
+                    &h.body, parser_var, token_var, constants, all_tokens,
+                ));
             }
             result.merge(classify_in_body(
                 &try_stmt.orelse,
                 parser_var,
                 token_var,
+                constants,
                 all_tokens,
             ));
             result.merge(classify_in_body(
                 &try_stmt.finalbody,
                 parser_var,
                 token_var,
+                constants,
                 all_tokens,
             ));
         }
 
         let has_parse_call = if let Stmt::Expr(expr_stmt) = stmt {
-            extract_parse_call_info(&expr_stmt.value, parser_var).is_some()
-        } else if let Stmt::Assign(StmtAssign { value, .. }) = stmt {
-            extract_parse_call_info(value, parser_var).is_some()
+            extract_parse_call_info(&expr_stmt.value, parser_var, constants).is_some()
+        } else if let Stmt::Assign(StmtAssign { value, .. })
+        | Stmt::AnnAssign(StmtAnnAssign {
+            value: Some(value), ..
+        }) = stmt
+        {
+            extract_parse_call_info(value, parser_var, constants).is_some()
         } else {
             false
         };
@@ -376,7 +472,7 @@ fn classify_in_body(
             && let Some(Stmt::If(if_stmt)) = body.get(i + 1).or_else(|| body.get(i + 2))
         {
             result.merge(classify_from_if_chain(
-                if_stmt, parser_var, token_var, all_tokens,
+                if_stmt, parser_var, token_var, constants, all_tokens,
             ));
         }
     }
@@ -389,12 +485,13 @@ fn classify_from_if_chain(
     if_stmt: &StmtIf,
     parser_var: &str,
     token_var: &str,
+    constants: &VisibleConstants<'_>,
     all_tokens: &[String],
 ) -> Classification {
     let mut result = Classification::default();
 
     if let Some(token) = extract_token_check(&if_stmt.test, token_var, all_tokens) {
-        if body_has_parse_call(&if_stmt.body, parser_var) {
+        if body_has_parse_call(&if_stmt.body, parser_var, constants) {
             result.add_intermediate(token);
         } else {
             result.add_end_tag(token);
@@ -405,7 +502,7 @@ fn classify_from_if_chain(
         if let Some(test) = &clause.test
             && let Some(token) = extract_token_check(test, token_var, all_tokens)
         {
-            if body_has_parse_call(&clause.body, parser_var) {
+            if body_has_parse_call(&clause.body, parser_var, constants) {
                 result.add_intermediate(token);
             } else {
                 result.add_end_tag(token);
@@ -417,6 +514,7 @@ fn classify_from_if_chain(
         &if_stmt.body,
         parser_var,
         token_var,
+        constants,
         all_tokens,
     ));
     for clause in &if_stmt.elif_else_clauses {
@@ -424,6 +522,7 @@ fn classify_from_if_chain(
             &clause.body,
             parser_var,
             token_var,
+            constants,
             all_tokens,
         ));
     }
@@ -497,16 +596,17 @@ fn extract_startswith_check(
 }
 
 /// Check if a statement body contains a `parser.parse(...)` call.
-fn body_has_parse_call(body: &[Stmt], parser_var: &str) -> bool {
+fn body_has_parse_call(body: &[Stmt], parser_var: &str, constants: &VisibleConstants<'_>) -> bool {
     let mut found = false;
     walk_stmts(body, Recurse::ControlFlow, |stmt| {
         let has_parse_call = match stmt {
             Stmt::Expr(expr_stmt) => {
-                extract_parse_call_info(&expr_stmt.value, parser_var).is_some()
+                extract_parse_call_info(&expr_stmt.value, parser_var, constants).is_some()
             }
-            Stmt::Assign(StmtAssign { value, .. }) => {
-                extract_parse_call_info(value, parser_var).is_some()
-            }
+            Stmt::Assign(StmtAssign { value, .. })
+            | Stmt::AnnAssign(StmtAnnAssign {
+                value: Some(value), ..
+            }) => extract_parse_call_info(value, parser_var, constants).is_some(),
             Stmt::FunctionDef(_)
             | Stmt::ClassDef(_)
             | Stmt::Return(_)

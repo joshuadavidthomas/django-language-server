@@ -1,0 +1,52 @@
+---
+source: crates/djls-project/tests/corpus.rs
+expression: sorted_snapshot(&bundle)?
+---
+definitions:
+  "filter::get_item":
+    kind: filter
+    has_doc: false
+  "filter::merge":
+    kind: filter
+    has_doc: false
+  "tag::cotton":
+    kind: tag
+    has_doc: false
+  "tag::cotton:slot":
+    kind: tag
+    has_doc: false
+  "tag::cotton:vars":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
+tag_rules:
+  "django_cotton.templatetags.cotton::tag::cotton:slot":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Min: 2
+        message:
+          Static: "cotton slot tag must include a 'name'"
+    argument_syntax:
+      Parameters:
+        - name: arg1
+          requirement: required
+          kind: Variable
+    as_var: keep
+filter_arities:
+  "django_cotton.templatetags.cotton::filter::get_item": required_argument
+  "django_cotton.templatetags.cotton::filter::merge": required_argument
+block_specs:
+  "django_cotton.templatetags.cotton::tag::cotton":
+    body_analysis_evidence: not_detected
+    end_tag: endcotton
+    intermediates: []
+  "django_cotton.templatetags.cotton::tag::cotton:slot":
+    body_analysis_evidence: not_detected
+    end_tag: "endcotton:slot"
+    intermediates: []

@@ -289,3 +289,58 @@ def beta():
 ```snapshot
 ✓ no diagnostics
 ```
+
+## a custom backend's templates keep unknown names inconclusive
+
+A `BACKEND` that Django does not ship may subclass `DjangoTemplates` and preload more builtins, as django-includecontents does. Its configured libraries and Django's builtins still apply.
+
+`settings.py`:
+
+```py
+INSTALLED_APPS = []
+TEMPLATES = [{'BACKEND': 'components.backends.ComponentTemplates', 'DIRS': ['/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'alpha_tags'}}}]
+```
+
+`alpha_tags.py`:
+
+```py
+from django import template
+register = template.Library()
+@register.simple_tag
+def alpha():
+    pass
+```
+
+```htmldjango
+{% load shared %}{% alpha %}{% if user %}{% component_tag %}{% endif %}{{ value|component_filter }}
+```
+
+```snapshot
+✓ no diagnostics
+```
+
+## a custom backend leaves a stock backend's templates exact
+
+`settings.py`:
+
+```py
+INSTALLED_APPS = []
+TEMPLATES = [
+    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/templates/stock'], 'APP_DIRS': False},
+    {'BACKEND': 'components.backends.ComponentTemplates', 'DIRS': ['/templates/custom'], 'APP_DIRS': False},
+]
+```
+
+`stock/test.html`:
+
+```htmldjango
+{% component_tag %}
+```
+
+```snapshot
+error[S108]: Unknown tag 'component_tag'
+ --> stock/test.html:1:1
+  |
+1 | {% component_tag %}
+  | ^^^^^^^^^^^^^^^^^^^
+```

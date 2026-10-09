@@ -1,0 +1,30 @@
+---
+source: crates/djls-project/tests/corpus.rs
+expression: sorted_snapshot(&bundle)?
+---
+definitions:
+  "tag::partial":
+    kind: tag
+    has_doc: false
+  "tag::partialdef":
+    kind: tag
+    has_doc: false
+  "tag::startpartial":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
+tag_rules:
+  "template_partials.templatetags.partials::tag::partial":
+    arg_constraints:
+      - Exact: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Parameters:
+        - name: partial_name
+          requirement: required
+          kind: Variable
+    as_var: keep
+filter_arities: {}
+block_specs: {}

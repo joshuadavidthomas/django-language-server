@@ -15,6 +15,23 @@ ref = "master"
 environment = { dependencies = { kind = "requirements", inputs = ["requirements.txt"] } }
 
 [[repo]]
+name = "citry"
+url = "https://github.com/citry-dev/citry.git"
+ref = "citry@0.5.1"
+# Public-beta successor to django-components with its own template language, not
+# Django templates. The monorepo's workspace sources build its Rust core, so the
+# environment follows the upstream Django starter, which installs released wheels.
+project_root = "examples/starters/django"
+django_settings_module = "config.settings"
+environment = { source_roots = ["examples/starters/django", "packages/py/citry", "."], dependencies = { kind = "requirements", inputs = ["examples/starters/django/pyproject.toml"] } }
+
+[[repo]]
+name = "dj-angles"
+url = "https://github.com/adamghill/dj-angles.git"
+ref = "0.27.0"
+environment = { source_roots = ["src", "."], dependencies = { kind = "uv_lock" } }
+
+[[repo]]
 name = "django-activity-stream"
 url = "https://github.com/justquick/django-activity-stream.git"
 ref = "2.0.0"
@@ -42,6 +59,12 @@ ref = "master"
 environment = { dependencies = { kind = "requirements", inputs = ["setup.py", "testapp/app/requirements.txt"] } }
 
 [[repo]]
+name = "django-bird"
+url = "https://github.com/joshuadavidthomas/django-bird.git"
+ref = "v0.19.0"
+environment = { source_roots = ["src", "."], dependencies = { kind = "requirements", inputs = ["pyproject.toml"] } }
+
+[[repo]]
 name = "django-bootstrap3"
 url = "https://github.com/zostera/django-bootstrap3.git"
 ref = "v26.1"
@@ -54,10 +77,22 @@ ref = "5.0.5"
 environment = { dependencies = { kind = "requirements", inputs = ["setup.py"] } }
 
 [[repo]]
+name = "django-components"
+url = "https://github.com/django-components/django-components.git"
+ref = "0.152.0"
+environment = { source_roots = ["src", "."], dependencies = { kind = "uv_lock" } }
+
+[[repo]]
 name = "django-compressor"
 url = "https://github.com/django-compressor/django-compressor.git"
 ref = "4.6"
 environment = { dependencies = { kind = "requirements", inputs = ["pyproject.toml"] } }
+
+[[repo]]
+name = "django-cotton"
+url = "https://github.com/wrabit/django-cotton.git"
+ref = "2.7.2"
+environment = { dependencies = { kind = "poetry_lock" } }
 
 [[repo]]
 name = "django-crispy-forms"
@@ -129,6 +164,12 @@ ref = "4.4.0"
 environment = { dependencies = { kind = "requirements", inputs = ["pyproject.toml"] } }
 
 [[repo]]
+name = "django-includecontents"
+url = "https://github.com/SmileyChris/django-includecontents.git"
+ref = "v4.0.2"
+environment = { dependencies = { kind = "requirements", inputs = ["pyproject.toml"] } }
+
+[[repo]]
 name = "django-jazzmin"
 url = "https://github.com/farridav/django-jazzmin.git"
 ref = "v3.0.2"
@@ -194,6 +235,12 @@ ref = "v2.8.0"
 environment = { dependencies = { kind = "requirements", inputs = ["pyproject.toml"] } }
 
 [[repo]]
+name = "django-template-partials"
+url = "https://github.com/carltongibson/django-template-partials.git"
+ref = "25.3"
+environment = { source_roots = ["src", "."], dependencies = { kind = "requirements", inputs = ["pyproject.toml"] } }
+
+[[repo]]
 name = "django-typogrify"
 url = "https://github.com/chrisdrackett/django-typogrify.git"
 ref = "master"
@@ -201,10 +248,29 @@ ref = "master"
 environment = { dependencies = { kind = "requirements", inputs = ["setup.py"], supplemental = ["Django>=5.2,<5.3"] } }
 
 [[repo]]
+name = "django-unicorn"
+url = "https://github.com/django-commons/django-unicorn.git"
+ref = "0.67.0"
+environment = { source_roots = ["src", "."], dependencies = { kind = "uv_lock" } }
+
+[[repo]]
 name = "django-unfold"
 url = "https://github.com/unfoldadmin/django-unfold.git"
 ref = "0.80.1"
 environment = { source_roots = ["src", "."], dependencies = { kind = "uv_lock" } }
+
+[[repo]]
+name = "django-viewcomponent"
+url = "https://github.com/rails-inspire-django/django-viewcomponent.git"
+ref = "v1.0.11"
+environment = { source_roots = ["src", "."], dependencies = { kind = "requirements", inputs = ["pyproject.toml"] } }
+
+[[repo]]
+name = "django-web-components"
+url = "https://github.com/Xzya/django-web-components.git"
+ref = "0.2.0"
+# The lock's PyYAML 6.0 has no Python 3.12 wheel; 3.11 is in upstream's tox matrix.
+environment = { python = "3.11", dependencies = { kind = "poetry_lock" } }
 
 [[repo]]
 name = "django-widget-tweaks"
@@ -280,6 +346,13 @@ django_settings_module = "InvenTree.settings"
 environment = { source_roots = ["src/backend/InvenTree", "src/backend", "."], dependencies = { kind = "requirements", inputs = ["src/backend/requirements.txt"] } }
 
 [[repo]]
+name = "labb"
+url = "https://github.com/labbhq/labb.git"
+ref = "v0.5.0"
+# Cotton-based UI kit: a large real-world set of loader-compiled component templates.
+environment = { dependencies = { kind = "poetry_lock" } }
+
+[[repo]]
 name = "linkding"
 url = "https://github.com/sissbruecker/linkding.git"
 ref = "master"
@@ -338,6 +411,12 @@ ref = "main"
 environment = { dependencies = { kind = "requirements", inputs = ["requirements.txt"] } }
 
 [[repo]]
+name = "slippers"
+url = "https://github.com/mixxorz/slippers.git"
+ref = "0.7.1"
+environment = { dependencies = { kind = "uv_lock" } }
+
+[[repo]]
 name = "sorl-thumbnail"
 url = "https://github.com/jazzband/sorl-thumbnail.git"
 ref = "13.0.0"
@@ -345,6 +424,12 @@ ref = "13.0.0"
 environment = { dependencies = { kind = "requirements", inputs = ["pyproject.toml"], supplemental = ["django>=5.2,<5.3", "pillow", "coverage[toml]"] } }
 
 # https://endoflife.date/wagtail
+[[repo]]
+name = "tetra"
+url = "https://github.com/tetra-framework/tetra.git"
+ref = "v0.9.2"
+environment = { source_roots = ["src", "."], dependencies = { kind = "uv_lock" } }
+
 [[repo]]
 name = "wagtail-6.3"
 url = "https://github.com/wagtail/wagtail.git"

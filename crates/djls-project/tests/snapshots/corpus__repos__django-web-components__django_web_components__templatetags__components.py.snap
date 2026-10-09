@@ -1,0 +1,101 @@
+---
+source: crates/djls-project/tests/corpus.rs
+expression: sorted_snapshot(&bundle)?
+---
+definitions:
+  "tag::merge_attrs":
+    kind: tag
+    has_doc: false
+  "tag::render_slot":
+    kind: tag
+    has_doc: false
+  "tag::slot":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
+tag_rules:
+  "django_web_components.templatetags.components::tag::merge_attrs":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Min: 2
+        message:
+          PercentFormat:
+            template: "'%s' tag takes at least one argument, the attributes"
+            args:
+              - SplitElement:
+                  Forward: 0
+    argument_syntax:
+      Parameters:
+        - name: arg1
+          requirement: required
+          kind: Variable
+    as_var: keep
+  "django_web_components.templatetags.components::tag::render_slot":
+    arg_constraints:
+      - Min: 2
+      - Max: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Min: 2
+        message:
+          PercentFormat:
+            template: "'%s' tag takes at least one argument, the slot"
+            args:
+              - SplitElement:
+                  Forward: 0
+      - constraint:
+          ArgumentCount:
+            Max: 3
+        message:
+          PercentFormat:
+            template: "'%s' tag takes at most two arguments, the slot and the argument"
+            args:
+              - SplitElement:
+                  Forward: 0
+    argument_syntax:
+      Parameters:
+        - name: arg1
+          requirement: required
+          kind: Variable
+        - name: arg2
+          requirement: optional
+          kind: Variable
+    as_var: keep
+  "django_web_components.templatetags.components::tag::slot":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Min: 2
+        message:
+          PercentFormat:
+            template: "'%s' tag takes at least one argument, the slot name"
+            args:
+              - SplitElement:
+                  Forward: 0
+    argument_syntax:
+      Parameters:
+        - name: arg1
+          requirement: required
+          kind: Variable
+    as_var: keep
+filter_arities: {}
+block_specs:
+  "django_web_components.templatetags.components::tag::slot":
+    body_analysis_evidence: not_detected
+    end_tag: endslot
+    intermediates: []

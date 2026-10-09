@@ -13,6 +13,18 @@ tag = "master"
 ref = "6ce518f3612ae1ee8d49de3434aacf48e15c0724"
 
 [[repo]]
+name = "citry"
+url = "https://github.com/citry-dev/citry.git"
+tag = "citry@0.5.1"
+ref = "7ede7d64497d88856863d9d9f7131fafc6043731"
+
+[[repo]]
+name = "dj-angles"
+url = "https://github.com/adamghill/dj-angles.git"
+tag = "0.27.0"
+ref = "dd2b184f70795e04b4663aa84ac800ae1cf42d90"
+
+[[repo]]
 name = "django-activity-stream"
 url = "https://github.com/justquick/django-activity-stream.git"
 tag = "2.0.0"
@@ -37,6 +49,12 @@ tag = "master"
 ref = "ef398761cff1a885f1c37799cd17186e54e4b081"
 
 [[repo]]
+name = "django-bird"
+url = "https://github.com/joshuadavidthomas/django-bird.git"
+tag = "v0.19.0"
+ref = "bbdbb7deaafd1610daa6ccf33237b39a4340386e"
+
+[[repo]]
 name = "django-bootstrap3"
 url = "https://github.com/zostera/django-bootstrap3.git"
 tag = "v26.1"
@@ -49,10 +67,22 @@ tag = "5.0.5"
 ref = "6e970e6c4894ecd1459fedc6f2c00617a923a740"
 
 [[repo]]
+name = "django-components"
+url = "https://github.com/django-components/django-components.git"
+tag = "0.152.0"
+ref = "abae5557050caaf713db09388fdd682751dc5cb0"
+
+[[repo]]
 name = "django-compressor"
 url = "https://github.com/django-compressor/django-compressor.git"
 tag = "4.6"
 ref = "3ada994897cf982f97fc4c934be42eb1e0b71b9a"
+
+[[repo]]
+name = "django-cotton"
+url = "https://github.com/wrabit/django-cotton.git"
+tag = "2.7.2"
+ref = "a2b2f16c5e273a9145b1961ed352319596af5417"
 
 [[repo]]
 name = "django-crispy-forms"
@@ -121,6 +151,12 @@ tag = "4.4.0"
 ref = "c8a10790bbb39c9bfc6f8e87d818a3aeee95d854"
 
 [[repo]]
+name = "django-includecontents"
+url = "https://github.com/SmileyChris/django-includecontents.git"
+tag = "v4.0.2"
+ref = "99ee25cc383594176ba5bc544a8cf9fd4a38ff01"
+
+[[repo]]
 name = "django-jazzmin"
 url = "https://github.com/farridav/django-jazzmin.git"
 tag = "v3.0.2"
@@ -181,16 +217,40 @@ tag = "v2.8.0"
 ref = "9bb1a06b46099ebec732bb0152209746fffe25ee"
 
 [[repo]]
+name = "django-template-partials"
+url = "https://github.com/carltongibson/django-template-partials.git"
+tag = "25.3"
+ref = "0a47af69483592c5843f3cd90ffca59136fdb81e"
+
+[[repo]]
 name = "django-typogrify"
 url = "https://github.com/chrisdrackett/django-typogrify.git"
 tag = "master"
 ref = "fb47a3bbbf7adfa524879cb3e61517f8c3cb73dc"
 
 [[repo]]
+name = "django-unicorn"
+url = "https://github.com/django-commons/django-unicorn.git"
+tag = "0.67.0"
+ref = "63043f40424455e189bd4d094beeeb1f3f2008bd"
+
+[[repo]]
 name = "django-unfold"
 url = "https://github.com/unfoldadmin/django-unfold.git"
 tag = "0.80.1"
 ref = "b662f1716c0589a526a3ff67a93cbe067e8dbbd7"
+
+[[repo]]
+name = "django-viewcomponent"
+url = "https://github.com/rails-inspire-django/django-viewcomponent.git"
+tag = "v1.0.11"
+ref = "eb0d8095f17633a5832b28d3e3b0e568831b4875"
+
+[[repo]]
+name = "django-web-components"
+url = "https://github.com/Xzya/django-web-components.git"
+tag = "0.2.0"
+ref = "af6e054d6f9400d470350de805be0ce40c607f78"
 
 [[repo]]
 name = "django-widget-tweaks"
@@ -259,6 +319,12 @@ tag = "master"
 ref = "f6206305d503da7af36843eab5b7cc17df652748"
 
 [[repo]]
+name = "labb"
+url = "https://github.com/labbhq/labb.git"
+tag = "v0.5.0"
+ref = "c685de1f3e2476178735f8bf4cf2b5e9ddcd00c5"
+
+[[repo]]
 name = "linkding"
 url = "https://github.com/sissbruecker/linkding.git"
 tag = "master"
@@ -313,10 +379,22 @@ tag = "main"
 ref = "c028760ea5bf043fdb57bf55211f81127c938094"
 
 [[repo]]
+name = "slippers"
+url = "https://github.com/mixxorz/slippers.git"
+tag = "0.7.1"
+ref = "1b3c0f6e14e6dee6a97f44262dce3ec1e0a8460a"
+
+[[repo]]
 name = "sorl-thumbnail"
 url = "https://github.com/jazzband/sorl-thumbnail.git"
 tag = "13.0.0"
 ref = "a115216ade073691aa6c20f29c673a548d336ca4"
+
+[[repo]]
+name = "tetra"
+url = "https://github.com/tetra-framework/tetra.git"
+tag = "v0.9.2"
+ref = "f759916f01d01d5c8d141d4ae818184ca788b74e"
 
 [[repo]]
 name = "wagtail-6.3"

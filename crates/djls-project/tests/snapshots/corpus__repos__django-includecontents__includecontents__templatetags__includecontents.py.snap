@@ -1,0 +1,64 @@
+---
+source: crates/djls-project/tests/corpus.rs
+expression: sorted_snapshot(&bundle)?
+---
+definitions:
+  "filter::not":
+    kind: filter
+    has_doc: false
+  "tag::attrs":
+    kind: tag
+    has_doc: false
+  "tag::contents":
+    kind: tag
+    has_doc: false
+  "tag::includecontents":
+    kind: tag
+    has_doc: false
+  "tag::wrapif":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
+tag_rules:
+  "includecontents.templatetags.includecontents::tag::contents":
+    arg_constraints:
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Parameters:
+        - name: arg1
+          requirement: required
+          kind: Variable
+    as_var: keep
+  "includecontents.templatetags.includecontents::tag::wrapif":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Min: 2
+        message:
+          Static: wrapif tag requires at least one argument
+    argument_syntax:
+      Parameters:
+        - name: arg1
+          requirement: required
+          kind: Variable
+    as_var: keep
+filter_arities:
+  "includecontents.templatetags.includecontents::filter::not": no_argument
+block_specs:
+  "includecontents.templatetags.includecontents::tag::contents":
+    body_analysis_evidence: not_detected
+    end_tag: endcontents
+    intermediates: []
+  "includecontents.templatetags.includecontents::tag::wrapif":
+    body_analysis_evidence: not_detected
+    end_tag: ~
+    intermediates:
+      - wrapelif

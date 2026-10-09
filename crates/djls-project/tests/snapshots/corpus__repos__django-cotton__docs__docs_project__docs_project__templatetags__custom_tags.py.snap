@@ -1,0 +1,17 @@
+---
+source: crates/djls-project/tests/corpus.rs
+expression: sorted_snapshot(&bundle)?
+---
+definitions:
+  "filter::env":
+    kind: filter
+    has_doc: false
+  "filter::to_template_tags":
+    kind: filter
+    has_doc: false
+symbols_are_unobserved: false
+tag_rules: {}
+filter_arities:
+  "docs.docs_project.docs_project.templatetags.custom_tags::filter::env": no_argument
+  "docs.docs_project.docs_project.templatetags.custom_tags::filter::to_template_tags": no_argument
+block_specs: {}

@@ -4384,7 +4384,7 @@ def do_asset(parser, token):
         )
         .file(
             "/test/project/app/templatetags/slot.py",
-            "TAG = 'bird:slot'\ndef do_slot(parser, token):\n    nodelist = parser.parse(('endbird:slot',))\n    parser.delete_first_token()\n",
+            "TAG = 'bird:slot'\nEND_TAG = 'endbird:slot'\ndef do_slot(parser, token):\n    nodelist = parser.parse((END_TAG,))\n    parser.delete_first_token()\n",
         )
         .file(
             "/test/project/app/templatetags/var.py",
@@ -5321,6 +5321,153 @@ def do_block(parser, token):
     let key = SymbolKey::tag("app.templatetags.custom", "mystery");
     let spec = &result.block_specs.as_map()[&key];
     assert_eq!(spec.end_tag.as_deref(), Some("endmystery"));
+}
+
+// django-bird and similar component libraries name closers through module constants.
+#[test]
+fn module_constant_stop_tokens_extract_closers() {
+    let source = r#"
+from django import template
+register = template.Library()
+
+END_TAG = "endbird:slot"
+BRANCHES = ("wrapelse", "endwrap")
+REBOUND = "endfirst"
+REBOUND = "endsecond"
+
+@register.tag("bird:slot")
+def do_slot(parser, token):
+    nodelist = parser.parse((END_TAG,))
+    parser.delete_first_token()
+    return SlotNode(nodelist)
+
+@register.tag("wrap")
+def do_wrap(parser, token):
+    nodelist = parser.parse(BRANCHES)
+    token = parser.next_token()
+    if token.contents == "wrapelse":
+        alternate = parser.parse(("endwrap",))
+        parser.delete_first_token()
+    return WrapNode(nodelist)
+
+@register.tag("shadowed")
+def do_shadowed(parser, token):
+    END_TAG = "end" + token.split_contents()[0]
+    nodelist = parser.parse((END_TAG,))
+    return Node(nodelist)
+
+@register.tag("rebound")
+def do_rebound(parser, token):
+    nodelist = parser.parse((REBOUND,))
+    return Node(nodelist)
+"#;
+    let result = extract_source(source, "app.templatetags.components")
+        .expect("module-constant closer fixture should build");
+    let specs = result.block_specs.as_map();
+
+    let slot = &specs[&SymbolKey::tag("app.templatetags.components", "bird:slot")];
+    assert_eq!(slot.end_tag.as_deref(), Some("endbird:slot"));
+
+    let wrap = &specs[&SymbolKey::tag("app.templatetags.components", "wrap")];
+    assert_eq!(wrap.end_tag.as_deref(), Some("endwrap"));
+    assert_eq!(wrap.intermediates, vec!["wrapelse".to_string()]);
+
+    for name in ["shadowed", "rebound"] {
+        assert!(
+            !specs.contains_key(&SymbolKey::tag("app.templatetags.components", name)),
+            "`{name}` must not read a local or rebound name as a closer"
+        );
+    }
+}
+
+// django-viewcomponent builds its library with `import django.template`, passes
+// closers as `parse_until=`, and annotates one parse result.
+#[test]
+fn viewcomponent_library_and_parse_until_shapes_extract_closers() {
+    let source = r#"
+import django.template
+from django.template.base import NodeList
+
+register = django.template.Library()
+
+@register.tag("call")
+def do_call(parser, token):
+    nodelist = parser.parse(parse_until=["endcall"])
+    parser.delete_first_token()
+    return CallNode(nodelist)
+
+@register.tag(name="component")
+def do_component(parser, token):
+    nodelist: NodeList = parser.parse(parse_until=["endcomponent"])
+    parser.delete_first_token()
+    return ComponentNode(nodelist)
+"#;
+    let db = TestDatabase::new();
+    let path = Utf8Path::new("/test/viewcomponent_tags.py");
+    db.add_file(path.as_str(), source)
+        .expect("viewcomponent fixture should be added");
+    let file = db.file(path).expect("viewcomponent fixture should exist");
+    let module = PythonModuleName::parse("viewcomponent_tags").expect("module name should parse");
+    let key = TemplateLibraryId::new(&db, Some(file), module);
+
+    assert!(
+        !template_library_definition_facts(&db, key).symbols_are_unobserved(),
+        "`django.template.Library()` should build a closed library"
+    );
+    let structure = template_library_structure_facts(&db, key);
+    for (tag, closer) in [("call", "endcall"), ("component", "endcomponent")] {
+        assert_eq!(
+            structure.block_specs().as_map()[&SymbolKey::tag("viewcomponent_tags", tag)]
+                .end_tag
+                .as_deref(),
+            Some(closer)
+        );
+    }
+}
+
+// django-unicorn bounds its argument count with a module constant.
+#[test]
+fn integer_module_constants_bound_argument_counts() {
+    let source = r#"
+from django import template
+register = template.Library()
+
+MINIMUM_ARGUMENT_COUNT = 2
+LIMIT = 2
+LIMIT = 3
+
+def unicorn(parser, token):
+    contents = token.split_contents()
+    if len(contents) < MINIMUM_ARGUMENT_COUNT:
+        raise template.TemplateSyntaxError("unicorn tag requires at least a single argument")
+    return UnicornNode(contents[1])
+
+def rebound(parser, token):
+    contents = token.split_contents()
+    if len(contents) > LIMIT:
+        raise template.TemplateSyntaxError("too many arguments")
+    return Node()
+
+register.tag("unicorn", unicorn)
+register.tag("rebound", rebound)
+"#;
+    let result = extract_source(source, "django_unicorn.templatetags.unicorn")
+        .expect("integer-constant fixture should build");
+    assert_eq!(
+        result.tag_rules[&SymbolKey::tag("django_unicorn.templatetags.unicorn", "unicorn")]
+            .arg_constraints,
+        vec![ArgumentCountConstraint::Min(2)]
+    );
+    assert!(
+        result
+            .tag_rules
+            .get(&SymbolKey::tag(
+                "django_unicorn.templatetags.unicorn",
+                "rebound"
+            ))
+            .is_none_or(|rule| rule.arg_constraints.is_empty()),
+        "a rebound constant must not bound the argument count"
+    );
 }
 
 // Corpus: `do_block` in loader_tags.py — simple block tag with endblock.

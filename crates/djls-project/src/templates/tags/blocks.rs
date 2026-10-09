@@ -10,6 +10,7 @@ use ruff_python_ast::StmtFunctionDef;
 
 use crate::ast::ExprExt;
 use crate::templates::tags::analysis::AbstractValue;
+use crate::templates::tags::analysis::constants::VisibleConstants;
 use crate::templates::tags::types::BodyAnalysisEvidence;
 use crate::templates::tags::types::SplitPosition;
 
@@ -55,9 +56,14 @@ pub(super) fn is_tag_name_value(value: &AbstractValue) -> bool {
 ///
 /// Also records body-consumption evidence from `parser.skip_past(...)` patterns.
 ///
+/// Stop tokens may name module string constants from `constants`.
+///
 /// Returns `None` when no block structure or body-consumption evidence is detected.
 #[must_use]
-pub(crate) fn extract_block_spec(func: &StmtFunctionDef) -> Option<ExtractedBlockSpec> {
+pub(crate) fn extract_block_spec(
+    func: &StmtFunctionDef,
+    constants: &VisibleConstants<'_>,
+) -> Option<ExtractedBlockSpec> {
     let parser_var = func
         .parameters
         .args
@@ -72,7 +78,7 @@ pub(crate) fn extract_block_spec(func: &StmtFunctionDef) -> Option<ExtractedBloc
 
     let skip_past = opaque::detect(&func.body, &parser_var);
     let parse_detected = parse_calls::is_detected(&func.body, &parser_var);
-    let parse_spec = parse_calls::detect(&func.body, &parser_var, &token_var)
+    let parse_spec = parse_calls::detect(&func.body, &parser_var, &token_var, constants)
         .or_else(|| dynamic_end::detect(&func.body, &parser_var, &token_var));
     let body_analysis_evidence = match (skip_past.is_some(), parse_detected) {
         (false, _) => BodyAnalysisEvidence::NotDetected,
@@ -89,6 +95,15 @@ pub(crate) fn extract_block_spec(func: &StmtFunctionDef) -> Option<ExtractedBloc
     };
     spec.body_analysis_evidence = body_analysis_evidence;
     Some(spec)
+}
+
+/// Return whether a compile function names any `parser.parse(...)` stop tokens through a
+/// variable. Callers resolve module constants only for these functions.
+#[must_use]
+pub(crate) fn names_stop_tokens(func: &StmtFunctionDef) -> bool {
+    func.parameters.args.first().is_some_and(|parser| {
+        parse_calls::names_stop_tokens(&func.body, parser.parameter.name.as_str())
+    })
 }
 
 fn combine_mixed_structure(
@@ -134,30 +149,39 @@ pub(super) fn is_parser_receiver(expr: &Expr, parser_var: &str) -> bool {
     false
 }
 
-/// Extract literal string constants from a tuple/list/set expression.
+/// Extract string constants from a tuple/list/set expression.
 ///
 /// Handles:
 /// - `("endif", "else", "elif")`
 /// - `("endif",)`
-///
-/// Does not resolve variable references.
-pub(super) fn extract_string_sequence(expr: &Expr) -> Vec<String> {
+/// - `(END_TAG,)` where `END_TAG = "endif"` is a visible module constant
+/// - `END_TAGS` where `END_TAGS = ("else", "endif")` is a visible module constant
+pub(super) fn extract_string_sequence(
+    expr: &Expr,
+    constants: &VisibleConstants<'_>,
+) -> Vec<String> {
+    let constant_word = |value: &AbstractValue| {
+        let AbstractValue::Str(value) = value else {
+            return None;
+        };
+        value.split_whitespace().next().map(str::to_string)
+    };
+    let element = |expr: &Expr| {
+        if let Expr::Name(name) = expr {
+            return constants.get(name.id.as_str()).and_then(constant_word);
+        }
+        expr.string_literal_first_word().map(str::to_string)
+    };
     match expr {
-        Expr::Tuple(t) => t
-            .elts
-            .iter()
-            .filter_map(|expr| expr.string_literal_first_word().map(str::to_string))
-            .collect(),
-        Expr::List(l) => l
-            .elts
-            .iter()
-            .filter_map(|expr| expr.string_literal_first_word().map(str::to_string))
-            .collect(),
-        Expr::Set(s) => s
-            .elts
-            .iter()
-            .filter_map(|expr| expr.string_literal_first_word().map(str::to_string))
-            .collect(),
+        Expr::Tuple(t) => t.elts.iter().filter_map(element).collect(),
+        Expr::List(l) => l.elts.iter().filter_map(element).collect(),
+        Expr::Set(s) => s.elts.iter().filter_map(element).collect(),
+        Expr::Name(name) => {
+            let Some(AbstractValue::Tuple(values)) = constants.get(name.id.as_str()) else {
+                return Vec::new();
+            };
+            values.iter().filter_map(constant_word).collect()
+        }
         Expr::BoolOp(_)
         | Expr::Named(_)
         | Expr::BinOp(_)
@@ -185,7 +209,6 @@ pub(super) fn extract_string_sequence(expr: &Expr) -> Vec<String> {
         | Expr::Attribute(_)
         | Expr::Subscript(_)
         | Expr::Starred(_)
-        | Expr::Name(_)
         | Expr::Slice(_)
         | Expr::IpyEscapeCommand(_) => Vec::new(),
     }
@@ -269,7 +292,8 @@ mod tests {
     fn simple_end_tag_single_parse() {
         let func = django_function("django/template/defaulttags.py", "verbatim")
             .expect("expected Django fixture function should exist");
-        let spec = extract_block_spec(&func).expect("should extract block spec");
+        let spec = extract_block_spec(&func, &VisibleConstants::default())
+            .expect("should extract block spec");
         assert_eq!(spec.end_tag.as_literal(), Some("endverbatim"));
         assert!(spec.intermediates.is_empty());
         assert_eq!(
@@ -283,7 +307,8 @@ mod tests {
     fn if_else_intermediates() {
         let func = django_function("django/template/defaulttags.py", "do_if")
             .expect("expected Django fixture function should exist");
-        let spec = extract_block_spec(&func).expect("should extract block spec");
+        let spec = extract_block_spec(&func, &VisibleConstants::default())
+            .expect("should extract block spec");
         assert_eq!(spec.end_tag.as_literal(), Some("endif"));
         assert!(spec.intermediates.contains(&"elif".to_string()));
         assert!(spec.intermediates.contains(&"else".to_string()));
@@ -298,7 +323,8 @@ mod tests {
     fn opaque_block_skip_past() {
         let func = django_function("django/template/defaulttags.py", "comment")
             .expect("expected Django fixture function should exist");
-        let spec = extract_block_spec(&func).expect("should extract block spec");
+        let spec = extract_block_spec(&func, &VisibleConstants::default())
+            .expect("should extract block spec");
         assert_eq!(spec.end_tag.as_literal(), Some("endcomment"));
         assert!(spec.intermediates.is_empty());
         assert_eq!(spec.body_analysis_evidence, BodyAnalysisEvidence::SkipPast);
@@ -315,7 +341,8 @@ def mixed(parser, token):
     return MixedNode()
 "#;
         let func = parse_function(source);
-        let spec = extract_block_spec(&func).expect("should retain mixed parser evidence");
+        let spec = extract_block_spec(&func, &VisibleConstants::default())
+            .expect("should retain mixed parser evidence");
 
         assert_eq!(spec.end_tag.as_literal(), Some("endmixed"));
         assert_eq!(spec.body_analysis_evidence, BodyAnalysisEvidence::Mixed);
@@ -332,7 +359,8 @@ def mixed(parser, token):
     return MixedNode()
 "#;
         let func = parse_function(source);
-        let spec = extract_block_spec(&func).expect("should retain mixed parser evidence");
+        let spec = extract_block_spec(&func, &VisibleConstants::default())
+            .expect("should retain mixed parser evidence");
 
         assert_eq!(spec.end_tag, EndTagEvidence::Unknown);
         assert_eq!(spec.body_analysis_evidence, BodyAnalysisEvidence::Mixed);
@@ -349,7 +377,8 @@ def mixed(parser, token):
     return MixedNode()
 "#;
         let func = parse_function(source);
-        let spec = extract_block_spec(&func).expect("should retain mixed parser evidence");
+        let spec = extract_block_spec(&func, &VisibleConstants::default())
+            .expect("should retain mixed parser evidence");
 
         assert_eq!(spec.end_tag, EndTagEvidence::Unknown);
         assert_eq!(spec.body_analysis_evidence, BodyAnalysisEvidence::Mixed);
@@ -368,7 +397,8 @@ def mixed(parser, token):
     return MixedNode(body, alternate)
 "#;
         let func = parse_function(source);
-        let spec = extract_block_spec(&func).expect("should retain mixed parser evidence");
+        let spec = extract_block_spec(&func, &VisibleConstants::default())
+            .expect("should retain mixed parser evidence");
 
         assert_eq!(spec.end_tag.as_literal(), Some("endmixed"));
         assert_eq!(spec.intermediates, vec!["otherwise".to_string()]);
@@ -385,7 +415,8 @@ def mixed(parser, token):
                 "def mixed(parser, token):\n    parser.skip_past(\"endmixed\")\n    {parse_statement}\n"
             );
             let func = parse_function(&source);
-            let spec = extract_block_spec(&func).expect("should retain mixed parser evidence");
+            let spec = extract_block_spec(&func, &VisibleConstants::default())
+                .expect("should retain mixed parser evidence");
 
             assert_eq!(spec.body_analysis_evidence, BodyAnalysisEvidence::Mixed);
         }
@@ -400,7 +431,8 @@ def mixed(parser, token):
     return MixedNode()
 "#;
         let func = parse_function(source);
-        let spec = extract_block_spec(&func).expect("should retain mixed parser evidence");
+        let spec = extract_block_spec(&func, &VisibleConstants::default())
+            .expect("should retain mixed parser evidence");
 
         assert_eq!(spec.end_tag, EndTagEvidence::Unknown);
         assert_eq!(spec.body_analysis_evidence, BodyAnalysisEvidence::Mixed);
@@ -416,7 +448,8 @@ def skipped(parser, token):
     return SkippedNode()
 "#;
         let func = parse_function(source);
-        let spec = extract_block_spec(&func).expect("should retain skip evidence");
+        let spec = extract_block_spec(&func, &VisibleConstants::default())
+            .expect("should retain skip evidence");
 
         assert_eq!(spec.end_tag.as_literal(), Some("endskipped"));
         assert_eq!(spec.body_analysis_evidence, BodyAnalysisEvidence::SkipPast);
@@ -431,7 +464,7 @@ def invalid(parser, token):
 ";
         let func = parse_function(source);
 
-        assert!(extract_block_spec(&func).is_none());
+        assert!(extract_block_spec(&func, &VisibleConstants::default()).is_none());
     }
 
     #[test]
@@ -442,7 +475,8 @@ def raw(parser, token):
     return RawNode()
 ";
         let func = parse_function(source);
-        let spec = extract_block_spec(&func).expect("should retain skip evidence");
+        let spec = extract_block_spec(&func, &VisibleConstants::default())
+            .expect("should retain skip evidence");
 
         assert_eq!(spec.end_tag, EndTagEvidence::Unknown);
         assert_eq!(spec.body_analysis_evidence, BodyAnalysisEvidence::SkipPast);
@@ -459,7 +493,8 @@ def do_repeat(parser, token):
     return RepeatNode(nodelist)
 "#;
         let func = parse_function(source);
-        let spec = extract_block_spec(&func).expect("should extract block spec");
+        let spec = extract_block_spec(&func, &VisibleConstants::default())
+            .expect("should extract block spec");
         assert_eq!(spec.end_tag.as_literal(), Some("done"));
         assert!(spec.intermediates.is_empty());
     }
@@ -475,7 +510,7 @@ def do_custom(parser, token):
     return CustomNode(nodelist)
 "#;
         let func = parse_function(source);
-        assert!(extract_block_spec(&func).is_none());
+        assert!(extract_block_spec(&func, &VisibleConstants::default()).is_none());
     }
 
     // Fabricated: tests f-string in parser.parse() producing dynamic (None) end-tag.
@@ -493,7 +528,8 @@ def do_block(parser, token):
     return BlockNode(tag_name, nodelist)
 "#;
         let func = parse_function(source);
-        let spec = extract_block_spec(&func).expect("should extract block spec");
+        let spec = extract_block_spec(&func, &VisibleConstants::default())
+            .expect("should extract block spec");
         assert_eq!(spec.end_tag, EndTagEvidence::SelfNamed);
         assert!(spec.intermediates.is_empty());
         assert_eq!(
@@ -508,7 +544,8 @@ def do_block(parser, token):
     fn multiple_parse_calls_classify_correctly() {
         let func = django_function("django/template/defaulttags.py", "do_for")
             .expect("expected Django fixture function should exist");
-        let spec = extract_block_spec(&func).expect("should extract block spec");
+        let spec = extract_block_spec(&func, &VisibleConstants::default())
+            .expect("should extract block spec");
         assert_eq!(spec.end_tag.as_literal(), Some("endfor"));
         assert_eq!(spec.intermediates, vec!["empty".to_string()]);
         assert_eq!(
@@ -522,7 +559,7 @@ def do_block(parser, token):
     fn no_parse_calls_returns_none() {
         let func = django_function("django/template/defaulttags.py", "now")
             .expect("expected Django fixture function should exist");
-        assert!(extract_block_spec(&func).is_none());
+        assert!(extract_block_spec(&func, &VisibleConstants::default()).is_none());
     }
 
     // Fabricated: tests classytags-style self.parser.parse() pattern.
@@ -537,7 +574,8 @@ def do_block(self, token):
     return BlockNode(nodelist)
 "#;
         let func = parse_function(source);
-        let spec = extract_block_spec(&func).expect("should extract block spec");
+        let spec = extract_block_spec(&func, &VisibleConstants::default())
+            .expect("should extract block spec");
         assert_eq!(spec.end_tag.as_literal(), Some("endblock"));
     }
 
@@ -552,7 +590,7 @@ def do_if(parser, token):
     return IfNode(nodelist)
 "#;
         let func = parse_function(source);
-        assert!(extract_block_spec(&func).is_none());
+        assert!(extract_block_spec(&func, &VisibleConstants::default()).is_none());
     }
 
     // Corpus: do_block in loader_tags.py — parse(("endblock",)) with next_token
@@ -561,7 +599,8 @@ def do_if(parser, token):
     fn simple_block_with_endblock_validation() {
         let func = django_function("django/template/loader_tags.py", "do_block")
             .expect("expected Django fixture function should exist");
-        let spec = extract_block_spec(&func).expect("should extract block spec");
+        let spec = extract_block_spec(&func, &VisibleConstants::default())
+            .expect("should extract block spec");
         assert_eq!(spec.end_tag.as_literal(), Some("endblock"));
         assert!(spec.intermediates.is_empty());
         assert_eq!(
@@ -576,7 +615,8 @@ def do_if(parser, token):
     fn sequential_parse_then_check() {
         let func = django_function("django/template/defaulttags.py", "spaceless")
             .expect("expected Django fixture function should exist");
-        let spec = extract_block_spec(&func).expect("should extract block spec");
+        let spec = extract_block_spec(&func, &VisibleConstants::default())
+            .expect("should extract block spec");
         assert_eq!(spec.end_tag.as_literal(), Some("endspaceless"));
         assert!(spec.intermediates.is_empty());
     }
@@ -587,7 +627,8 @@ def do_if(parser, token):
     fn next_token_loop_blocktrans_pattern() {
         let func = django_function("django/templatetags/i18n.py", "do_block_translate")
             .expect("expected Django fixture function should exist");
-        let spec = extract_block_spec(&func).expect("should extract block spec");
+        let spec = extract_block_spec(&func, &VisibleConstants::default())
+            .expect("should extract block spec");
         assert_eq!(spec.end_tag, EndTagEvidence::SelfNamed);
         assert_eq!(spec.intermediates, vec!["plural".to_string()]);
         assert_eq!(
@@ -615,7 +656,8 @@ def do_custom_block(parser, token):
     return CustomBlockNode(content)
 "#;
         let func = parse_function(source);
-        let spec = extract_block_spec(&func).expect("should extract block spec");
+        let spec = extract_block_spec(&func, &VisibleConstants::default())
+            .expect("should extract block spec");
         assert_eq!(spec.end_tag.as_literal(), Some("endcustom"));
         assert!(spec.intermediates.is_empty());
         assert_eq!(
@@ -651,7 +693,8 @@ def do_custom(parser, token):
     return CustomNode(nodes)
 "#;
         let func = parse_function(source);
-        let spec = extract_block_spec(&func).expect("should extract block spec");
+        let spec = extract_block_spec(&func, &VisibleConstants::default())
+            .expect("should extract block spec");
         assert_eq!(spec.end_tag.as_literal(), Some("endcustom"));
         assert_eq!(spec.intermediates, vec!["middle".to_string()]);
     }
@@ -666,7 +709,7 @@ def do_simple(parser, token):
     return SimpleNode(bits[1])
 ";
         let func = parse_function(source);
-        assert!(extract_block_spec(&func).is_none());
+        assert!(extract_block_spec(&func, &VisibleConstants::default()).is_none());
     }
 
     // Fabricated: function with no parameters at all returns None.
@@ -678,6 +721,6 @@ def helper():
     pass
 ";
         let func = parse_function(source);
-        assert!(extract_block_spec(&func).is_none());
+        assert!(extract_block_spec(&func, &VisibleConstants::default()).is_none());
     }
 }

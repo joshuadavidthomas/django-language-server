@@ -579,7 +579,7 @@ fn eval_compare(compare: &ExprCompare, env: &mut Env) -> ExtractedTagConstraints
 
     // len(split_result) vs integer
     if let AbstractValue::SplitLength(split) = &left_val {
-        if let Some(n) = comparator.non_negative_integer() {
+        if let Some(n) = guard_integer(comparator, &right_val) {
             let constraint = match op {
                 CmpOp::NotEq => Some(ArgumentCountConstraint::Exact(split.resolve_length(n))),
                 CmpOp::Lt => Some(ArgumentCountConstraint::Min(split.resolve_length(n))),
@@ -614,7 +614,7 @@ fn eval_compare(compare: &ExprCompare, env: &mut Env) -> ExtractedTagConstraints
 
     // Reversed: integer vs len(split_result), e.g. `4 < len(bits)`
     if let AbstractValue::SplitLength(split) = &right_val {
-        if let Some(n) = left.non_negative_integer() {
+        if let Some(n) = guard_integer(left, &left_val) {
             let constraint = match op {
                 CmpOp::Lt => Some(ArgumentCountConstraint::Max(split.resolve_length(n))),
                 CmpOp::LtE if n > 0 => {
@@ -715,7 +715,8 @@ fn eval_negated_compare(compare: &ExprCompare, env: &mut Env) -> ExtractedTagCon
                         .collect(),
                 ));
             }
-            let Some(n) = compare.comparators[0].non_negative_integer() else {
+            let comparator_val = eval_expr(&compare.comparators[0], env);
+            let Some(n) = guard_integer(&compare.comparators[0], &comparator_val) else {
                 return ExtractedTagConstraints::default();
             };
             let constraint = match &compare.ops[0] {
@@ -737,6 +738,16 @@ fn eval_negated_compare(compare: &ExprCompare, env: &mut Env) -> ExtractedTagCon
     }
 
     ExtractedTagConstraints::default()
+}
+
+/// A non-negative integer bound written literally or read from a closed module constant.
+fn guard_integer(expr: &Expr, value: &AbstractValue) -> Option<usize> {
+    expr.non_negative_integer().or_else(|| {
+        let AbstractValue::Int(value) = value else {
+            return None;
+        };
+        usize::try_from(*value).ok()
+    })
 }
 
 fn exact_integer_collection(value: &AbstractValue) -> Option<Vec<usize>> {

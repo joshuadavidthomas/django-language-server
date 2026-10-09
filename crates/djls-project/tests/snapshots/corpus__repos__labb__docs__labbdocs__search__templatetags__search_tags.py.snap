@@ -1,0 +1,23 @@
+---
+source: crates/djls-project/tests/corpus.rs
+expression: sorted_snapshot(&bundle)?
+---
+definitions:
+  "tag::category_shortcuts":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
+tag_rules:
+  "docs.labbdocs.search.templatetags.search_tags::tag::category_shortcuts":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters: []
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+filter_arities: {}
+block_specs: {}

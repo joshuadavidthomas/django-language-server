@@ -1,0 +1,23 @@
+---
+source: crates/djls-project/tests/corpus.rs
+expression: sorted_snapshot(&bundle)?
+---
+definitions:
+  "tag::call":
+    kind: tag
+    has_doc: false
+  "tag::component":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
+tag_rules: {}
+filter_arities: {}
+block_specs:
+  "django_viewcomponent.templatetags.viewcomponent_tags::tag::call":
+    body_analysis_evidence: not_detected
+    end_tag: endcall
+    intermediates: []
+  "django_viewcomponent.templatetags.viewcomponent_tags::tag::component":
+    body_analysis_evidence: not_detected
+    end_tag: endcomponent
+    intermediates: []
