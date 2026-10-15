@@ -41,7 +41,7 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: jdx/mise-action@7a4e45a543138629540c9a1616d08632b893e492 # v5.0.1
+        uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
         with:
           add_shims_to_path: false
           install_args: uv prek
@@ -72,7 +72,7 @@ jobs:
           persist-credentials: false
 
       - name: Install uv
-        uses: jdx/mise-action@7a4e45a543138629540c9a1616d08632b893e492 # v5.0.1
+        uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
         with:
           add_shims_to_path: false
           install_args: uv
@@ -140,7 +140,7 @@ jobs:
             ${{ runner.os }}-${{ runner.arch }}-cargo-registry-
             ${{ runner.os }}-cargo-registry-
 
-      - uses: jdx/mise-action@7a4e45a543138629540c9a1616d08632b893e492 # v5.0.1
+      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
         with:
           add_shims_to_path: false
           working_directory: tools/rustfmt
@@ -180,7 +180,7 @@ jobs:
             ${{ runner.os }}-${{ runner.arch }}-cargo-registry-
             ${{ runner.os }}-cargo-registry-
 
-      - uses: jdx/mise-action@7a4e45a543138629540c9a1616d08632b893e492 # v5.0.1
+      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
         with:
           add_shims_to_path: false
           install_args: rust
@@ -220,7 +220,7 @@ jobs:
             ${{ runner.os }}-${{ runner.arch }}-cargo-registry-
             ${{ runner.os }}-cargo-registry-
 
-      - uses: jdx/mise-action@7a4e45a543138629540c9a1616d08632b893e492 # v5.0.1
+      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
         with:
           add_shims_to_path: false
           working_directory: tools/hawk
@@ -262,7 +262,7 @@ jobs:
             ${{ runner.os }}-${{ runner.arch }}-cargo-registry-
             ${{ runner.os }}-cargo-registry-
 
-      - uses: jdx/mise-action@7a4e45a543138629540c9a1616d08632b893e492 # v5.0.1
+      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
         with:
           add_shims_to_path: false
           install_args: rust
