@@ -14,10 +14,12 @@ use crate::ast::Recurse;
 use crate::ast::walk_stmts;
 use crate::templates::tags::blocks::EndTagEvidence;
 use crate::templates::tags::blocks::ExtractedBlockSpec;
+use crate::templates::tags::blocks::dynamic_end;
 use crate::templates::tags::blocks::extract_string_sequence;
 use crate::templates::tags::blocks::is_parser_receiver;
 use crate::templates::tags::blocks::is_token_contents_expr;
 use crate::templates::tags::types::BodyAnalysisEvidence;
+use crate::templates::tags::types::ClosingTagArguments;
 
 /// Detect block structure from `parser.parse((...))` calls with control flow analysis.
 ///
@@ -86,16 +88,19 @@ struct ParseCallInfo {
 
 /// Collect all `parser.parse((...))` calls in a statement body.
 fn collect_parser_parse_calls(body: &[Stmt], parser_var: &str) -> Vec<ParseCallInfo> {
+    let assignments = dynamic_end::collect_simple_assignments(body);
     let mut calls = Vec::new();
     walk_stmts(body, Recurse::ControlFlow, |stmt| {
         match stmt {
             Stmt::Expr(expr_stmt) => {
-                if let Some(info) = extract_parse_call_info(&expr_stmt.value, parser_var) {
+                if let Some(info) =
+                    extract_parse_call_info(&expr_stmt.value, parser_var, &assignments)
+                {
                     calls.push(info);
                 }
             }
             Stmt::Assign(StmtAssign { value, .. }) => {
-                if let Some(info) = extract_parse_call_info(value, parser_var) {
+                if let Some(info) = extract_parse_call_info(value, parser_var, &assignments) {
                     calls.push(info);
                 }
             }
@@ -129,7 +134,14 @@ fn collect_parser_parse_calls(body: &[Stmt], parser_var: &str) -> Vec<ParseCallI
 }
 
 /// Check if an expression is a `parser.parse((...))` call and extract stop-tokens.
-fn extract_parse_call_info(expr: &Expr, parser_var: &str) -> Option<ParseCallInfo> {
+///
+/// A stop-token sequence bound once to a local name, as in `partialdef_func`'s
+/// `parser.parse(valid_endpartials)`, resolves to its assigned literal.
+fn extract_parse_call_info(
+    expr: &Expr,
+    parser_var: &str,
+    assignments: &[(String, &Expr)],
+) -> Option<ParseCallInfo> {
     let Expr::Call(ExprCall { arguments, .. }) = expr else {
         return None;
     };
@@ -140,7 +152,18 @@ fn extract_parse_call_info(expr: &Expr, parser_var: &str) -> Option<ParseCallInf
         return None;
     }
 
-    let stop_tokens = extract_string_sequence(&arguments.args[0]);
+    let mut sequence = &arguments.args[0];
+    if let Some(name) = sequence.name_target() {
+        let mut bound = assignments
+            .iter()
+            .filter(|(assigned, _)| assigned == name)
+            .map(|(_, value)| *value);
+        let (Some(value), None) = (bound.next(), bound.next()) else {
+            return None;
+        };
+        sequence = value;
+    }
+    let stop_tokens = extract_string_sequence(sequence);
     if stop_tokens.is_empty() {
         return None;
     }
@@ -246,6 +269,7 @@ fn classify_stop_tokens(
         end_tag,
         intermediates,
         body_analysis_evidence: BodyAnalysisEvidence::NotDetected,
+        closing_arguments: ClosingTagArguments::Unchecked,
     })
 }
 
@@ -366,9 +390,9 @@ fn classify_in_body(
         }
 
         let has_parse_call = if let Stmt::Expr(expr_stmt) = stmt {
-            extract_parse_call_info(&expr_stmt.value, parser_var).is_some()
+            extract_parse_call_info(&expr_stmt.value, parser_var, &[]).is_some()
         } else if let Stmt::Assign(StmtAssign { value, .. }) = stmt {
-            extract_parse_call_info(value, parser_var).is_some()
+            extract_parse_call_info(value, parser_var, &[]).is_some()
         } else {
             false
         };
@@ -502,10 +526,10 @@ fn body_has_parse_call(body: &[Stmt], parser_var: &str) -> bool {
     walk_stmts(body, Recurse::ControlFlow, |stmt| {
         let has_parse_call = match stmt {
             Stmt::Expr(expr_stmt) => {
-                extract_parse_call_info(&expr_stmt.value, parser_var).is_some()
+                extract_parse_call_info(&expr_stmt.value, parser_var, &[]).is_some()
             }
             Stmt::Assign(StmtAssign { value, .. }) => {
-                extract_parse_call_info(value, parser_var).is_some()
+                extract_parse_call_info(value, parser_var, &[]).is_some()
             }
             Stmt::FunctionDef(_)
             | Stmt::ClassDef(_)

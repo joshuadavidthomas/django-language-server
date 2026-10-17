@@ -122,11 +122,30 @@ impl<'db> TemplateValidator<'db> {
             scoping::check_load_libraries_rule(self.db, &facts.loader_arguments);
         }
 
-        if effective_role == Some(TagRole::ControlTag) && (name == "if" || name == "elif") {
+        if self.is_if_condition(tag, effective_role) {
             if_expressions::check_if_expression_rule(self.db, name, bits, span);
         }
 
         self.extends_position = self.extends_position.record_non_text();
+    }
+
+    /// Captured intermediates have no Tag Spec of their own, so `elif` is recognized
+    /// through the `if` opener whose block contract captured it.
+    fn is_if_condition(&self, tag: ActiveTemplateTag<'_>, role: Option<TagRole>) -> bool {
+        match tag.opener {
+            Some(opener) => {
+                opener.tag == "if"
+                    && tag.tag == "elif"
+                    && self
+                        .projection
+                        .scoped_tag_facts(self.db)
+                        .for_name_span(opener.name_span)
+                        .and_then(|fact| fact.spec.as_ref())
+                        .and_then(TagSpec::role)
+                        == Some(TagRole::ControlTag)
+            }
+            None => tag.tag == "if" && role == Some(TagRole::ControlTag),
+        }
     }
 
     fn validate_variable(&mut self, variable: ActiveTemplateVariable<'_>) {

@@ -13,6 +13,7 @@ use crate::templates::tags::blocks::EndTagEvidence;
 use crate::templates::tags::blocks::ExtractedBlockSpec;
 use crate::templates::tags::blocks::is_parser_receiver;
 use crate::templates::tags::types::BodyAnalysisEvidence;
+use crate::templates::tags::types::ClosingTagArguments;
 
 #[derive(Debug)]
 enum SkipPastCall {
@@ -47,6 +48,7 @@ pub(super) fn detect(body: &[Stmt], parser_var: &str) -> Option<ExtractedBlockSp
         end_tag,
         intermediates: Vec::new(),
         body_analysis_evidence: BodyAnalysisEvidence::SkipPast,
+        closing_arguments: ClosingTagArguments::Unchecked,
     })
 }
 

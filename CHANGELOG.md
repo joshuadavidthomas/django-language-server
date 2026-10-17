@@ -22,6 +22,12 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 - Changed `djls check` to print a summary when no errors are found, such as `No errors found in 12 files.`, or `No templates found to check.` when no templates match. Pass `--quiet` to suppress it.
 
+### Fixed
+
+- Fixed `{% elif %}` conditions never being checked for expression syntax errors (S114).
+- Fixed S103 reporting closing-tag arguments such as `{% endfor item %}` that Django ignores. Only tags whose Django source checks the closing name, such as `{% block %}`, report a mismatch.
+- Fixed `{% partialdef %}` having no block structure with Django 6.0+, so `{% endpartialdef %}` now closes it and a mismatched `{% endpartialdef name %}` reports S103.
+
 ## [6.1.1]
 
 ### Added

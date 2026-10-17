@@ -1,3 +1,4 @@
+mod closing_arguments;
 mod dynamic_end;
 mod next_token;
 mod opaque;
@@ -11,6 +12,7 @@ use ruff_python_ast::StmtFunctionDef;
 use crate::ast::ExprExt;
 use crate::templates::tags::analysis::AbstractValue;
 use crate::templates::tags::types::BodyAnalysisEvidence;
+use crate::templates::tags::types::ClosingTagArguments;
 use crate::templates::tags::types::SplitPosition;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -35,6 +37,7 @@ pub(crate) struct ExtractedBlockSpec {
     pub(crate) end_tag: EndTagEvidence,
     pub(crate) intermediates: Vec<String>,
     pub(crate) body_analysis_evidence: BodyAnalysisEvidence,
+    pub(crate) closing_arguments: ClosingTagArguments,
 }
 
 pub(super) fn is_tag_name_value(value: &AbstractValue) -> bool {
@@ -88,6 +91,10 @@ pub(crate) fn extract_block_spec(func: &StmtFunctionDef) -> Option<ExtractedBloc
         }
     };
     spec.body_analysis_evidence = body_analysis_evidence;
+    if let EndTagEvidence::Literal(end_tag) = &spec.end_tag {
+        spec.closing_arguments =
+            closing_arguments::detect(&func.body, &parser_var, &token_var, end_tag);
+    }
     Some(spec)
 }
 
@@ -100,6 +107,7 @@ fn combine_mixed_structure(
             end_tag: EndTagEvidence::Unknown,
             intermediates: Vec::new(),
             body_analysis_evidence: BodyAnalysisEvidence::Mixed,
+            closing_arguments: ClosingTagArguments::Unchecked,
         };
     };
 
@@ -113,6 +121,7 @@ fn combine_mixed_structure(
         end_tag,
         intermediates: parse_spec.intermediates,
         body_analysis_evidence: BodyAnalysisEvidence::Mixed,
+        closing_arguments: ClosingTagArguments::Unchecked,
     }
 }
 
@@ -500,6 +509,50 @@ def do_block(parser, token):
             spec.body_analysis_evidence,
             BodyAnalysisEvidence::NotDetected
         );
+    }
+
+    // Corpus: do_block in loader_tags.py — next_token() checked against
+    // ("endblock", "endblock %s" % block_name)
+    #[test]
+    fn block_closer_may_repeat_block_name() {
+        let func = django_function("django/template/loader_tags.py", "do_block")
+            .expect("expected Django fixture function should exist");
+        let spec = extract_block_spec(&func).expect("should extract block spec");
+        assert_eq!(spec.end_tag.as_literal(), Some("endblock"));
+        assert_eq!(
+            spec.closing_arguments,
+            ClosingTagArguments::RepeatsOpenerArgument { position: 1 }
+        );
+    }
+
+    // Corpus: partialdef_func in defaulttags.py (Django 6.0+) — match-bound name,
+    // stop tokens passed through a local tuple holding an f-string closer
+    #[test]
+    fn partialdef_stop_tokens_resolve_through_local_tuple() {
+        let func = django_function("django/template/defaulttags.py", "partialdef_func")
+            .expect("expected Django fixture function should exist");
+        let spec = extract_block_spec(&func).expect("should extract block spec");
+        assert_eq!(spec.end_tag.as_literal(), Some("endpartialdef"));
+        assert!(spec.intermediates.is_empty());
+        assert_eq!(
+            spec.closing_arguments,
+            ClosingTagArguments::RepeatsOpenerArgument { position: 1 }
+        );
+    }
+
+    #[test]
+    fn rebound_stop_token_name_is_not_resolved() {
+        let source = r#"
+def do_section(parser, token):
+    stops = ("endsection",)
+    if token.contents:
+        stops = ("endother",)
+    nodelist = parser.parse(stops)
+    parser.delete_first_token()
+    return SectionNode(nodelist)
+"#;
+        let func = parse_function(source);
+        assert!(extract_block_spec(&func).is_none());
     }
 
     // Corpus: do_for in defaulttags.py — parse(("empty", "endfor")) then

@@ -46,6 +46,14 @@ pub(crate) struct ActiveTemplateTag<'a> {
     pub span: Span,
     pub full_span: Span,
     pub structural_meaning: StructuralOccurrenceMeaning,
+    /// Opening tag whose block contract captured this intermediate.
+    pub opener: Option<CapturingOpener<'a>>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct CapturingOpener<'a> {
+    pub tag: &'a str,
+    pub name_span: Span,
 }
 
 impl<'a> ActiveTemplateTag<'a> {
@@ -70,6 +78,7 @@ impl<'a> ActiveTemplateTag<'a> {
             ),
             full_span,
             structural_meaning,
+            opener: None,
         }
     }
 }
@@ -145,13 +154,14 @@ fn collect_active_nodes_for_region<'a>(
     nodes: &mut Vec<ActiveTemplateNode<'a>>,
 ) {
     for node in regions.get(region).nodes() {
-        collect_active_nodes_for_node(regions, node, nodes);
+        collect_active_nodes_for_node(regions, node, None, nodes);
     }
 }
 
 fn collect_active_nodes_for_node<'a>(
     regions: &'a Regions,
     node: &'a TemplateNode,
+    opener: Option<CapturingOpener<'a>>,
     nodes: &mut Vec<ActiveTemplateNode<'a>>,
 ) {
     match node {
@@ -170,7 +180,11 @@ fn collect_active_nodes_for_node<'a>(
                 *full_span,
                 StructuralOccurrenceMeaning::Definition,
             ));
-            collect_active_nodes_for_block_body(regions, *body, *full_span, nodes);
+            let opener = CapturingOpener {
+                tag,
+                name_span: *name_span,
+            };
+            collect_active_nodes_for_block_body(regions, *body, opener, *full_span, nodes);
         }
         TemplateNode::Block {
             tag,
@@ -180,13 +194,15 @@ fn collect_active_nodes_for_node<'a>(
             body,
             role: BlockRole::Segment,
         } => {
-            nodes.push(ActiveTemplateNode::tag(
+            let mut intermediate = ActiveTemplateTag::new(
                 tag,
                 *name_span,
                 bits,
                 *full_span,
                 StructuralOccurrenceMeaning::CapturedIntermediate,
-            ));
+            );
+            intermediate.opener = opener;
+            nodes.push(ActiveTemplateNode::Tag(intermediate));
             collect_active_nodes_for_region(regions, *body, nodes);
         }
         TemplateNode::StandaloneTag {
@@ -234,6 +250,7 @@ fn collect_active_nodes_for_node<'a>(
 fn collect_active_nodes_for_block_body<'a>(
     regions: &'a Regions,
     body: RegionId,
+    opener: CapturingOpener<'a>,
     opener_span: Span,
     nodes: &mut Vec<ActiveTemplateNode<'a>>,
 ) {
@@ -254,7 +271,7 @@ fn collect_active_nodes_for_block_body<'a>(
             | TemplateNode::Comment { .. }
             | TemplateNode::Text { .. }
             | TemplateNode::Error { .. } => {
-                collect_active_nodes_for_node(regions, node, nodes);
+                collect_active_nodes_for_node(regions, node, Some(opener), nodes);
             }
         }
     }

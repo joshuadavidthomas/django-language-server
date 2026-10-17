@@ -1865,6 +1865,7 @@ pub fn template_library_structure_facts<'db>(
                     end_tag,
                     intermediates: block_spec.intermediates,
                     body_analysis_evidence: block_spec.body_analysis_evidence,
+                    closing_arguments: block_spec.closing_arguments,
                 },
             );
         }

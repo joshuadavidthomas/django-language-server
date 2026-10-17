@@ -12,6 +12,7 @@ use djls_conf::TagSpecDef;
 use djls_conf::TagTypeDef;
 use djls_project::BlockSpecs;
 use djls_project::BodyAnalysisEvidence;
+use djls_project::ClosingTagArguments;
 use djls_project::ParameterRequirement;
 use djls_project::TagArgument;
 use djls_project::TagArgumentKind;
@@ -61,6 +62,7 @@ impl TagSpecs {
                         name: end_tag_name.clone().into(),
                         required: true,
                     });
+                    spec.closing_arguments = block_spec.closing_arguments;
                     spec.intermediate_tags = if block_spec.intermediates.is_empty() {
                         Cow::Borrowed(&[])
                     } else {
@@ -105,6 +107,7 @@ impl TagSpecs {
                         ),
                         role: None,
                         extracted_rules: None,
+                        closing_arguments: block_spec.closing_arguments,
                     },
                 );
             }
@@ -340,6 +343,7 @@ impl TagSpecs {
                         body_analysis: BodyAnalysis::Analyze,
                         role: None,
                         extracted_rules,
+                        closing_arguments: ClosingTagArguments::Unchecked,
                     },
                 );
             }
@@ -421,6 +425,8 @@ pub struct TagSpec {
     /// When present, provides argument validation (S117 diagnostics) and
     /// argument structure for completions/snippets via `argument_syntax`.
     extracted_rules: Option<Arc<TagRule>>,
+    /// Whether the compile function constrains the closing tag's arguments.
+    closing_arguments: ClosingTagArguments,
 }
 
 impl TagSpec {
@@ -438,6 +444,7 @@ impl TagSpec {
             body_analysis,
             role: None,
             extracted_rules: None,
+            closing_arguments: ClosingTagArguments::Unchecked,
         }
     }
 
@@ -454,6 +461,11 @@ impl TagSpec {
     #[must_use]
     pub fn role(&self) -> Option<TagRole> {
         self.role
+    }
+
+    #[must_use]
+    pub(crate) fn closing_arguments(&self) -> ClosingTagArguments {
+        self.closing_arguments
     }
 
     #[must_use]
@@ -534,6 +546,7 @@ pub fn builtin_tag_specs() -> TagSpecs {
         body_analysis: BodyAnalysis::Analyze,
         role: None,
         extracted_rules: None,
+        closing_arguments: ClosingTagArguments::Unchecked,
     };
 
     let simple_role = |module: &'static str, role: TagRole| TagSpec {
@@ -543,6 +556,7 @@ pub fn builtin_tag_specs() -> TagSpecs {
         body_analysis: BodyAnalysis::Analyze,
         role: Some(role),
         extracted_rules: None,
+        closing_arguments: ClosingTagArguments::Unchecked,
     };
 
     let block = |module: &'static str,
@@ -559,6 +573,7 @@ pub fn builtin_tag_specs() -> TagSpecs {
         body_analysis,
         role: Some(role),
         extracted_rules: None,
+        closing_arguments: ClosingTagArguments::Unchecked,
     };
 
     let im = |name: &'static str| IntermediateTag { name: B(name) };
@@ -672,13 +687,19 @@ pub fn builtin_tag_specs() -> TagSpecs {
     // loader_tags
     specs.insert(
         "block".into(),
-        block(
-            lt,
-            "endblock",
-            vec![],
-            BodyAnalysis::Analyze,
-            TagRole::TemplateBlock,
-        ),
+        TagSpec {
+            // Projectless fallback for extracted evidence: `do_block` in
+            // django/template/loader_tags.py accepts only
+            // `("endblock", "endblock %s" % block_name)` as its closing token.
+            closing_arguments: ClosingTagArguments::RepeatsOpenerArgument { position: 1 },
+            ..block(
+                lt,
+                "endblock",
+                vec![],
+                BodyAnalysis::Analyze,
+                TagRole::TemplateBlock,
+            )
+        },
     );
     specs.insert(
         "extends".into(),
@@ -799,6 +820,7 @@ mod tests {
                 body_analysis: BodyAnalysis::Analyze,
                 role: None,
                 extracted_rules: None,
+                closing_arguments: ClosingTagArguments::Unchecked,
             },
         );
 
@@ -822,6 +844,7 @@ mod tests {
                 body_analysis: BodyAnalysis::Analyze,
                 role: None,
                 extracted_rules: None,
+                closing_arguments: ClosingTagArguments::Unchecked,
             },
         );
 
@@ -845,6 +868,7 @@ mod tests {
                 body_analysis: BodyAnalysis::Analyze,
                 role: None,
                 extracted_rules: None,
+                closing_arguments: ClosingTagArguments::Unchecked,
             },
         );
 
@@ -861,6 +885,7 @@ mod tests {
                 body_analysis: BodyAnalysis::Analyze,
                 role: None,
                 extracted_rules: None,
+                closing_arguments: ClosingTagArguments::Unchecked,
             },
         );
 
@@ -917,6 +942,7 @@ mod tests {
                 body_analysis: BodyAnalysis::Analyze,
                 role: None,
                 extracted_rules: None,
+                closing_arguments: ClosingTagArguments::Unchecked,
             },
         );
         specs2_map.insert(
@@ -931,6 +957,7 @@ mod tests {
                 body_analysis: BodyAnalysis::Analyze,
                 role: None,
                 extracted_rules: None,
+                closing_arguments: ClosingTagArguments::Unchecked,
             },
         );
 
@@ -981,6 +1008,7 @@ mod tests {
                 end_tag: Some("endif".to_string()),
                 intermediates: vec!["elif".to_string(), "else".to_string(), "elseif".to_string()],
                 body_analysis_evidence: BodyAnalysisEvidence::NotDetected,
+                closing_arguments: ClosingTagArguments::Unchecked,
             },
         );
 
@@ -1024,6 +1052,7 @@ mod tests {
                 body_analysis: BodyAnalysis::Opaque,
                 role: None,
                 extracted_rules: None,
+                closing_arguments: ClosingTagArguments::Unchecked,
             },
         );
         let mut specs = TagSpecs::new(spec_map);
@@ -1039,6 +1068,7 @@ mod tests {
                 end_tag: None,
                 intermediates: vec![],
                 body_analysis_evidence: BodyAnalysisEvidence::NotDetected,
+                closing_arguments: ClosingTagArguments::Unchecked,
             },
         );
 
@@ -1062,6 +1092,7 @@ mod tests {
                 end_tag: None,
                 intermediates: vec![],
                 body_analysis_evidence: BodyAnalysisEvidence::SkipPast,
+                closing_arguments: ClosingTagArguments::Unchecked,
             },
         );
 
@@ -1094,6 +1125,7 @@ mod tests {
                 end_tag: None,
                 intermediates: vec![],
                 body_analysis_evidence: BodyAnalysisEvidence::Mixed,
+                closing_arguments: ClosingTagArguments::Unchecked,
             },
         );
 
@@ -1118,6 +1150,7 @@ mod tests {
                 end_tag: Some("endmixed".to_string()),
                 intermediates: vec![],
                 body_analysis_evidence: BodyAnalysisEvidence::Mixed,
+                closing_arguments: ClosingTagArguments::Unchecked,
             },
         );
 
@@ -1144,6 +1177,7 @@ mod tests {
                 end_tag: None,
                 intermediates: vec![],
                 body_analysis_evidence: BodyAnalysisEvidence::NotDetected,
+                closing_arguments: ClosingTagArguments::Unchecked,
             },
         );
 
@@ -1175,6 +1209,7 @@ mod tests {
                 end_tag: None,
                 intermediates: vec!["otherwise".to_string()],
                 body_analysis_evidence: BodyAnalysisEvidence::Mixed,
+                closing_arguments: ClosingTagArguments::Unchecked,
             },
         );
 
@@ -1218,6 +1253,7 @@ mod tests {
                 end_tag: Some("endmyblock".to_string()),
                 intermediates: vec!["mymiddle".to_string()],
                 body_analysis_evidence: BodyAnalysisEvidence::NotDetected,
+                closing_arguments: ClosingTagArguments::Unchecked,
             },
         );
 
@@ -1254,6 +1290,7 @@ mod tests {
                 end_tag: Some("endlower".to_string()),
                 intermediates: vec![],
                 body_analysis_evidence: BodyAnalysisEvidence::NotDetected,
+                closing_arguments: ClosingTagArguments::Unchecked,
             },
         );
 

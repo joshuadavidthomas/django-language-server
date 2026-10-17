@@ -12,6 +12,7 @@ use crate::templates::tags::blocks;
 use crate::templates::tags::signature;
 use crate::templates::tags::types::AsVar;
 use crate::templates::tags::types::BodyAnalysisEvidence;
+use crate::templates::tags::types::ClosingTagArguments;
 use crate::templates::tags::types::TagRule;
 
 impl RegistrationKind {
@@ -93,6 +94,7 @@ impl RegistrationKind {
                 },
                 intermediates: Vec::new(),
                 body_analysis_evidence: BodyAnalysisEvidence::NotDetected,
+                closing_arguments: ClosingTagArguments::Unchecked,
             }),
             Self::Tag | Self::SimpleTag | Self::InclusionTag => blocks::extract_block_spec(func),
         }

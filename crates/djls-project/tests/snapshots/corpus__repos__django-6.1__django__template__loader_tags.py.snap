@@ -89,5 +89,8 @@ filter_arities: {}
 block_specs:
   "django.template.loader_tags::tag::block":
     body_analysis_evidence: not_detected
+    closing_arguments:
+      repeats_opener_argument:
+        position: 1
     end_tag: endblock
     intermediates: []
