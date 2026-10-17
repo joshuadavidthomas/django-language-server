@@ -1,0 +1,33 @@
+---
+source: crates/djls-project/tests/bundled_django.rs
+expression: "sorted_snapshot(&bundle).expect(\"extraction snapshot should serialize\")"
+---
+definitions:
+  "filter::apnumber":
+    kind: filter
+    has_doc: false
+  "filter::intcomma":
+    kind: filter
+    has_doc: false
+  "filter::intword":
+    kind: filter
+    has_doc: false
+  "filter::naturalday":
+    kind: filter
+    has_doc: false
+  "filter::naturaltime":
+    kind: filter
+    has_doc: false
+  "filter::ordinal":
+    kind: filter
+    has_doc: false
+symbols_are_unobserved: false
+tag_rules: {}
+filter_arities:
+  "django.contrib.humanize.templatetags.humanize::filter::apnumber": no_argument
+  "django.contrib.humanize.templatetags.humanize::filter::intcomma": optional_argument
+  "django.contrib.humanize.templatetags.humanize::filter::intword": no_argument
+  "django.contrib.humanize.templatetags.humanize::filter::naturalday": optional_argument
+  "django.contrib.humanize.templatetags.humanize::filter::naturaltime": no_argument
+  "django.contrib.humanize.templatetags.humanize::filter::ordinal": no_argument
+block_specs: {}
