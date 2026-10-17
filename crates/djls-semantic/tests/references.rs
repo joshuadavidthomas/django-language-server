@@ -8,7 +8,7 @@ use djls_semantic::TagRole;
 use djls_semantic::TagSpec;
 use djls_semantic::TagSpecs;
 use djls_semantic::TemplateReferenceKind;
-use djls_semantic::builtin_tag_specs;
+use djls_semantic::django_fallback_tag_specs;
 use djls_semantic::references_to_template_name;
 use djls_semantic::template_library_references_in_file;
 use djls_source::ChangeEvent;
@@ -458,7 +458,7 @@ fn shadowed_load_does_not_bootstrap_loaded_opaque_grammar() {
 
 #[test]
 fn captured_else_does_not_retain_a_colliding_loader_role() {
-    let mut specs = builtin_tag_specs();
+    let mut specs = django_fallback_tag_specs();
     specs.merge(TagSpecs::new(FxHashMap::from_iter([(
         "else".to_string(),
         TagSpec::new(

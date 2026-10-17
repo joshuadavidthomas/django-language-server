@@ -28,7 +28,7 @@ use djls_semantic::TagSpec;
 use djls_semantic::TagSpecs;
 use djls_semantic::ValidationError;
 use djls_semantic::ValidationErrorAccumulator;
-use djls_semantic::builtin_tag_specs;
+use djls_semantic::django_fallback_tag_specs;
 use djls_semantic::effective_symbol_candidate_at;
 use djls_semantic::library_tag_specs;
 use djls_semantic::semantic_grammar_vocabulary;
@@ -1091,7 +1091,7 @@ fn feasible_backend_builtin_if_collision_stays_semantically_inconclusive() {
 
 #[test]
 fn captured_closer_does_not_retain_a_colliding_standalone_spec() {
-    let mut specs = builtin_tag_specs();
+    let mut specs = django_fallback_tag_specs();
     specs.insert(
         "endif".to_string(),
         TagSpec::new(
@@ -1158,7 +1158,7 @@ fn captured_closer_does_not_retain_a_colliding_standalone_spec() {
 
 #[test]
 fn captured_intermediate_does_not_apply_a_colliding_standalone_contract() {
-    let mut specs = builtin_tag_specs();
+    let mut specs = django_fallback_tag_specs();
     specs.insert(
         "else".to_string(),
         TagSpec::new(

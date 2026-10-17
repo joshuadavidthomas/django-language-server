@@ -79,7 +79,7 @@ pub use tags::LibraryTagSpecs;
 pub use tags::TagRole;
 pub use tags::TagSpec;
 pub use tags::TagSpecs;
-pub use tags::builtin_tag_specs;
+pub use tags::django_fallback_tag_specs;
 pub use tags::library_tag_specs;
 pub use tags::tag_spec_at;
 pub use tags::tag_specs_at_prefix;

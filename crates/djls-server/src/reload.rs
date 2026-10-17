@@ -2386,6 +2386,7 @@ S100 = "off"
 
     #[tokio::test]
     async fn project_settings_load_error_skips_discovery_inputs() {
+        let _guard = crate::logging::capture::callsite_guard();
         let tempdir = tempdir().expect("temporary project directory should be created");
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf())
             .expect("temporary project path should be valid UTF-8");

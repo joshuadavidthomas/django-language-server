@@ -19,12 +19,13 @@ This gives djls an evidence-backed picture of your project's template tag ecosys
 
 ### Extraction
 
-The **extraction engine** analyzes Python source code (using static AST analysis) to derive validation rules from template tag and filter implementations:
+The **extraction engine** analyzes Python source code (using static AST analysis) to derive validation rules from template tag and filter implementations, including Django's own built-in tags and filters:
 
 - **Argument constraints** — how many arguments a tag expects, required keywords
 - **Block structure** — which tags need closing tags, what intermediate tags are allowed
 - **Filter arity** — whether a filter expects an argument (e.g., `{{ value|default:"nothing" }}`)
-- **Expression syntax** — valid operator usage in `{% if %}` / `{% elif %}` expressions
+
+A few checks are hand-written instead of extracted. `{% if %}` / `{% elif %}` expression syntax (S114) is a port of Django's `IfParser` (`django/template/smartif.py`), not an extracted rule.
 
 Together, static project discovery tells djls *what's active in your project*, and extraction tells djls *how to validate usage*.
 
@@ -164,8 +165,8 @@ When the template inventory is **incomplete or unavailable**:
 - **Known unloaded diagnostics can still appear with an incomplete inventory** — S109, S110, S112, and S113 are based on positive active-library evidence
 - **S115–S116 are suppressed when filter arity rules are unavailable** — Filter arity rules come from extraction, which depends on knowing source modules
 - **S117 is suppressed when tag argument rules are unavailable** — Tag argument rules come from extraction, which depends on discovering tag source modules
-- **S100–S103 still work** — Block structure validation uses built-in tag specs
-- **S114 still works** — Expression syntax validation is purely structural
+- **S100–S103 still work** — Block structure comes from extracted Block Specs for the libraries djls can see, with hand-written Django fallback rules for structure extraction cannot prove
+- **S114 still works** — `{% if %}` expression checking is a hand-written port of Django's `IfParser` and needs no library inventory
 - **Project-backed completions and `{% load %}` document links are unavailable** when the active inventory is unknown; syntax-only completions may still appear
 
 This design avoids false positives when djls cannot prove whether a tag, filter, or library is absent from the active project.

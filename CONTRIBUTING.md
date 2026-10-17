@@ -51,7 +51,7 @@ From the bottom up:
 | Crate | Answers |
 |---|---|
 | `djls-source` | Files, spans, line indexes, filesystem access. Nearly everything depends on it. |
-| `djls-project` | Project facts: Python environment discovery, settings extraction, template directories, template tag libraries, and the static extraction that derives validation rules (argument counts, block structure, filter arity) from the Python source of template tag libraries. |
+| `djls-project` | Project facts: Python environment discovery, settings extraction, template directories, template tag libraries, and the static extraction that derives Django template knowledge (registrations, block structure, accepted argument syntax, filter arity) from the Python source of template tag libraries, Django's own included. Extraction is the source of truth; hand-written Django facts are evidence-backed fallbacks only (see [AGENTS.md](AGENTS.md)). |
 | `djls-templates` | Template syntax. A hand-written recursive descent parser that knows nothing about Django semantics and never fails: parse errors become error nodes in its output, because the user is always mid-keystroke in something invalid and the rest of the pipeline has to keep working. |
 | `djls-semantic` | Project meaning. Parsed templates meet project facts here: which libraries are loaded at each position, whether a tag is valid where it appears, structural diagnostics. |
 | `djls-ide` | Translation. Turns analysis into LSP-shaped answers: completions, diagnostics, definitions, references. Everything below it is LSP-unaware. |

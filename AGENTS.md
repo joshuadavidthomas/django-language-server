@@ -36,12 +36,17 @@ When a change slows a benchmark, first check for an accidental regression in the
 ## Generated Content
 - Do not edit text inside cog-generated blocks by hand. Update the source of truth, then run `just cog` to regenerate the block.
 
+## Extraction First
+Django template knowledge (which tags and filters exist, their structure, argument syntax, and how arguments are consumed) must be an Extracted Fact: derived from Python source by static extraction in `djls-project`. This includes Django's own builtins, which are Python source in the bundled `crates/djls-project/vendor/django-*.zip`. When a fact is missing, extend extraction.
+
+A hand-written Django fact is allowed only as a Fallback Rule that names its Extraction Gap and cites evidence: a bundled Django source `path:line`, or a corpus or extraction snapshot showing what extraction produces today. Before proposing one, run `cargo test -p djls-project --test corpus` (after `just corpus sync`) and check the extraction snapshots (`crates/djls-project/tests/snapshots/corpus__repos__django-*`, `extraction__*`). Without that evidence, do not add entries to `django_fallback_tag_specs` or tag-name checks in `djls-semantic`/`djls-ide` that encode Django behavior.
+
 ## Crate Responsibilities
 - `djls-conf`: config schema/loading.
 - `djls-format`: formatter backend adapter boundary.
 - `djls-ide`: IDE feature behavior and LSP-shaped outputs.
-- `djls-project`: project model, Python environment discovery, module resolution, template discovery/resolution, derived Django facts, static source recognizers, and Python spec extraction (tag rules, block specs, filter arities, model graph).
-- `djls-semantic`: Django project meaning: template validation, scoping, structure, tag specs, and template-reference relationships.
+- `djls-project`: project model, Python environment discovery, module resolution, template discovery/resolution, derived Django facts, static source recognizers, and Python spec extraction (tag rules, block specs, filter arities, model graph). This is where Django template knowledge comes from.
+- `djls-semantic`: Django project meaning: template validation, scoping, structure, fusion of extracted tag facts into tag specs, and template-reference relationships.
 - `djls-server`: LSP/session glue, open document buffers, overlay filesystem adapter. Resolve documents, check file kind, call `djls-ide`.
 - `djls-source`: files, filesystem access/discovery, spans, line indexes, diagnostics primitives.
 - `djls-templates`: template syntax only.
