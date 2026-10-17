@@ -128,7 +128,7 @@ fn encode_model_module_segment(segment: &str) -> String {
     encoded
 }
 
-pub(crate) fn crate_root() -> Utf8PathBuf {
+fn crate_root() -> Utf8PathBuf {
     Utf8PathBuf::from(env!("CARGO_WORKSPACE_DIR")).join("crates/djls-bench")
 }
 

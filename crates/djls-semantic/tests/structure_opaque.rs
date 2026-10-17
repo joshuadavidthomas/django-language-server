@@ -6,7 +6,7 @@ use djls_semantic::TagSpec;
 use djls_semantic::ValidationError;
 use djls_semantic::ValidationErrorAccumulator;
 use djls_semantic::build_template_tree_for_file;
-use djls_semantic::builtin_tag_specs;
+use djls_semantic::bundled_django_tag_specs;
 use djls_semantic::compute_opaque_regions;
 use djls_source::Span;
 use djls_templates::parse_template;
@@ -28,7 +28,7 @@ fn compute_regions(db: &TestDatabase, source: &str) -> anyhow::Result<OpaqueRegi
 
 #[test]
 fn opaque_opener_treats_intermediate_as_raw_content() {
-    let mut specs = builtin_tag_specs();
+    let mut specs = bundled_django_tag_specs().clone();
     specs.insert(
         "opaque_if".to_string(),
         TagSpec::new(

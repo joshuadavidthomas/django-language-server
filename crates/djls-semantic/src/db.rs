@@ -11,8 +11,9 @@ use crate::tags::TagSpecs;
 
 #[salsa::db]
 pub trait Db: ProjectDb {
-    /// Explicit fixture seam for structural analysis without a Project.
+    /// Tag specs for analysis without a Project.
     ///
+    /// Production returns [`crate::bundled_django_tag_specs`]; fixtures may substitute their own.
     /// Project-backed paths must derive meaning through per-library products.
     fn projectless_tag_specs(&self) -> &TagSpecs;
 

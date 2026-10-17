@@ -39,7 +39,7 @@ impl FilterAritySpecs {
 
     /// Insert a filter arity spec. If the filter name already exists,
     /// it is overwritten (last-wins semantics for builtins).
-    pub fn insert(&mut self, key: SymbolKey, arity: FilterArity) {
+    fn insert(&mut self, key: SymbolKey, arity: FilterArity) {
         self.specs.insert(key.name.clone(), (key, arity));
     }
 

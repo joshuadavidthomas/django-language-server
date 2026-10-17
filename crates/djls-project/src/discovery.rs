@@ -93,7 +93,11 @@ impl EnvironmentPhase {
                     project.python_environment(db),
                     project.pythonpath(db),
                 );
-                search_paths.add_bundled_django(db, project);
+                search_paths.add_bundled_django(
+                    db.file_system(),
+                    project.root(db),
+                    project.django_version(db),
+                );
                 EnvironmentPart {
                     phase: self,
                     count: search_paths.iter().count(),

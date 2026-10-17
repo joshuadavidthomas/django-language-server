@@ -164,7 +164,7 @@ When the template inventory is **incomplete or unavailable**:
 - **Known unloaded diagnostics can still appear with an incomplete inventory** — S109, S110, S112, and S113 are based on positive active-library evidence
 - **S115–S116 are suppressed when filter arity rules are unavailable** — Filter arity rules come from extraction, which depends on knowing source modules
 - **S117 is suppressed when tag argument rules are unavailable** — Tag argument rules come from extraction, which depends on discovering tag source modules
-- **S100–S103 still work** — Block structure validation uses built-in tag specs
+- **S100–S103 still work** — Block structure for Django's standard tags comes from the oldest bundled Django when Django's own source is unavailable
 - **S114 still works** — Expression syntax validation is purely structural
 - **Project-backed completions and `{% load %}` document links are unavailable** when the active inventory is unknown; syntax-only completions may still appear
 

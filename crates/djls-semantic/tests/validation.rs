@@ -28,7 +28,7 @@ use djls_semantic::TagSpec;
 use djls_semantic::TagSpecs;
 use djls_semantic::ValidationError;
 use djls_semantic::ValidationErrorAccumulator;
-use djls_semantic::builtin_tag_specs;
+use djls_semantic::bundled_django_tag_specs;
 use djls_semantic::effective_symbol_candidate_at;
 use djls_semantic::library_tag_specs;
 use djls_semantic::semantic_grammar_vocabulary;
@@ -285,10 +285,17 @@ fn source_less_configured_library_preserves_block_structure() {
     )));
 }
 
+// Django declared at a release with no bundle (say 4.2) and not installed leaves the default
+// builtins without source. The oldest bundled release stands in for their Tag inventory, roles,
+// and block structure, which have been stable across releases, but its argument rules do not:
+// they are release-specific, and borrowing them could report valid 4.2 syntax.
 #[test]
-fn source_less_default_builtins_keep_django_grammar_and_load_configured_library() {
+#[allow(clippy::too_many_lines)]
+fn source_less_default_builtins_borrow_bundled_structure_but_not_rules() {
     let mut db = TestDatabase::new();
+    let source = "{% load panels %}{% panel %}{% if condition %}{% for item in items %}{% comment %}{% endfor %}{% endif %}{% endcomment %}{% empty %}empty{% endfor %}{% else %}fallback{% endif %}{% language 'de' %}{% for %}{% endfor %}{% endlanguage %}{% querystring %}";
     let project = ProjectFixture::new("/proj")
+        .without_bundled_django()
         .tag_specs(configured_tag_specs(&[(
             "missing.panel_tags",
             "panel",
@@ -299,10 +306,7 @@ fn source_less_default_builtins_keep_django_grammar_and_load_configured_library(
             libraries: BTreeMap::from([("panels".to_string(), "missing.panel_tags".to_string())]),
             ..ProjectSettings::default()
         })
-        .file(
-            "/proj/templates/page.html",
-            "{% load panels %}{% panel %}{% if condition %}{% for item in items %}{% comment %}{% endfor %}{% endif %}{% endcomment %}{% empty %}empty{% endfor %}{% else %}fallback{% endif %}",
-        )
+        .file("/proj/templates/page.html", source)
         .build(&db)
         .expect("project fixture should build in the test database");
     db.set_project(project);
@@ -335,38 +339,59 @@ fn source_less_default_builtins_keep_django_grammar_and_load_configured_library(
         .find(|library| library.module_name_str() == "django.template.defaulttags")
         .expect("defaulttags identity should remain present");
     let specs = library_tag_specs(&db, project, defaulttags.id());
-    for name in ["if", "for", "load", "comment", "verbatim"] {
-        assert!(
-            specs.get(name).is_some(),
-            "missing hardcoded spec for {name}"
-        );
-    }
+    let structure = |name: &str| {
+        let spec = specs
+            .get(name)
+            .unwrap_or_else(|| panic!("missing bundled fallback spec for {name}"));
+        (
+            spec.end_tag.as_ref().map(|end| end.name.to_string()),
+            spec.argument_syntax().clone(),
+        )
+    };
+    assert_eq!(
+        structure("if"),
+        (Some("endif".to_string()), TagArgumentSyntax::Unknown)
+    );
+    assert_eq!(
+        structure("for"),
+        (Some("endfor".to_string()), TagArgumentSyntax::Unknown)
+    );
+    assert_eq!(structure("querystring"), (None, TagArgumentSyntax::Unknown));
+    assert_eq!(
+        specs.get("load").and_then(TagSpec::role),
+        Some(TagRole::TemplateLibraryLoader)
+    );
 
     let errors = collect_file_errors(&db, "/proj/templates/page.html")
         .expect("fixture file validation errors should be collected");
     assert!(
-        !errors.iter().any(|error| matches!(
-            error,
-            ValidationError::UnknownLibrary { name, .. }
-                | ValidationError::UnknownTag { tag: name, .. }
-                | ValidationError::UnloadedTag { tag: name, .. }
-                | ValidationError::UnclosedTag { tag: name, .. }
-                | ValidationError::OrphanedTag { tag: name, .. }
-                if matches!(
-                    name.as_str(),
-                    "panels"
-                        | "panel"
-                        | "if"
-                        | "for"
-                        | "comment"
-                        | "endcomment"
-                        | "empty"
-                        | "else"
-                        | "endfor"
-                        | "endif"
-                )
-        )),
-        "source-less canonical grammar and configured load should stay effective: {errors:?}"
+        errors.is_empty(),
+        "source-less Django grammar and configured load should stay effective without borrowed \
+         argument rules: {errors:?}"
+    );
+
+    db.add_file(
+        "/proj/templates/page.html",
+        "{% if x %}{% endfor %}{% unknown_tag %}",
+    )
+    .expect("fixture file should be replaced");
+    SourceChanges::new([ChangeEvent::ContentChanged(
+        "/proj/templates/page.html".into(),
+    )])
+    .apply(&mut db);
+    let errors = collect_file_errors(&db, "/proj/templates/page.html")
+        .expect("fixture file validation errors should be collected");
+    assert!(
+        errors
+            .iter()
+            .any(|error| matches!(error, ValidationError::UnclosedTag { tag, .. } if tag == "if")),
+        "borrowed structure should still report unbalanced blocks: {errors:?}"
+    );
+    assert!(
+        !errors
+            .iter()
+            .any(|error| matches!(error, ValidationError::UnknownTag { .. })),
+        "availability of names in unobserved builtins stays inconclusive: {errors:?}"
     );
 }
 
@@ -711,10 +736,6 @@ fn loaded_imported_signature_rebinds_after_source_invalidation() {
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "keep multiline Python fixtures inline"
-)]
 fn recovered_rule_helper_does_not_open_exact_registration_inventory() {
     let mut db = TestDatabase::new();
     let template_source = "{% load nested %}{% nested %}{% missing %}";
@@ -724,26 +745,6 @@ fn recovered_rule_helper_does_not_open_exact_registration_inventory() {
             libraries: BTreeMap::from([("nested".to_string(), "pkg.tags".to_string())]),
             ..ProjectSettings::default()
         })
-        .file("/proj/django/__init__.py", "")
-        .file("/proj/django/template/__init__.py", "")
-        .file(
-            "/proj/django/template/defaulttags.py",
-            r"from django import template
-register = template.Library()
-",
-        )
-        .file(
-            "/proj/django/template/defaultfilters.py",
-            r"from django import template
-register = template.Library()
-",
-        )
-        .file(
-            "/proj/django/template/loader_tags.py",
-            r"from django import template
-register = template.Library()
-",
-        )
         .file("/proj/pkg/__init__.py", "")
         .file(
             "/proj/pkg/tags.py",
@@ -1091,7 +1092,7 @@ fn feasible_backend_builtin_if_collision_stays_semantically_inconclusive() {
 
 #[test]
 fn captured_closer_does_not_retain_a_colliding_standalone_spec() {
-    let mut specs = builtin_tag_specs();
+    let mut specs = bundled_django_tag_specs().clone();
     specs.insert(
         "endif".to_string(),
         TagSpec::new(
@@ -1158,7 +1159,7 @@ fn captured_closer_does_not_retain_a_colliding_standalone_spec() {
 
 #[test]
 fn captured_intermediate_does_not_apply_a_colliding_standalone_contract() {
-    let mut specs = builtin_tag_specs();
+    let mut specs = bundled_django_tag_specs().clone();
     specs.insert(
         "else".to_string(),
         TagSpec::new(

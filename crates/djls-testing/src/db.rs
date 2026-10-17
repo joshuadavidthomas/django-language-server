@@ -6,12 +6,13 @@ use std::sync::atomic::Ordering;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+use djls_project::BundledFileSystem;
 use djls_project::Db as ProjectDb;
 use djls_project::Project;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::FilterAritySpecs;
 use djls_semantic::TagSpecs;
-use djls_semantic::builtin_tag_specs;
+use djls_semantic::bundled_django_tag_specs;
 use djls_source::CaseSensitivity;
 use djls_source::ChangeEvent;
 use djls_source::File;
@@ -110,6 +111,8 @@ impl SalsaEventLog {
 #[derive(Clone)]
 pub struct TestDatabase {
     fs: Arc<Mutex<InMemoryFileSystem>>,
+    // Bundled Django sources are mounted above fixture files, as in production.
+    file_system: Arc<dyn FileSystem>,
     files: SourceFiles,
     projectless_tag_specs: TagSpecs,
     projectless_filter_arity_specs: FilterAritySpecs,
@@ -132,9 +135,10 @@ impl TestDatabase {
 
     #[must_use]
     pub fn case_insensitive() -> Self {
-        let mut db = Self::with_storage(salsa::Storage::default());
-        db.fs = Arc::new(Mutex::new(InMemoryFileSystem::case_insensitive()));
-        db
+        Self::with_file_system_and_storage(
+            InMemoryFileSystem::case_insensitive(),
+            salsa::Storage::default(),
+        )
     }
 
     #[must_use]
@@ -145,10 +149,21 @@ impl TestDatabase {
     }
 
     fn with_storage(storage: salsa::Storage<Self>) -> Self {
+        Self::with_file_system_and_storage(InMemoryFileSystem::new(), storage)
+    }
+
+    fn with_file_system_and_storage(
+        memory: InMemoryFileSystem,
+        storage: salsa::Storage<Self>,
+    ) -> Self {
+        let fs = Arc::new(Mutex::new(memory));
         Self {
-            fs: Arc::new(Mutex::new(InMemoryFileSystem::new())),
+            file_system: Arc::new(BundledFileSystem::new(
+                Arc::clone(&fs) as Arc<dyn FileSystem>
+            )),
+            fs,
             files: SourceFiles::default(),
-            projectless_tag_specs: builtin_tag_specs(),
+            projectless_tag_specs: bundled_django_tag_specs().clone(),
             projectless_filter_arity_specs: FilterAritySpecs::new(),
             diagnostics_config: djls_conf::DiagnosticsConfig::default(),
             project: None,
@@ -402,11 +417,11 @@ impl OsTestDatabase {
         storage: salsa::Storage<Self>,
     ) -> Self {
         let memory = Arc::new(Mutex::new(InMemoryFileSystem::new()));
-        let fs = Arc::new(LayeredFileSystem::new(
+        let fs = Arc::new(BundledFileSystem::new(Arc::new(LayeredFileSystem::new(
             Arc::clone(&memory),
             disk,
             disk_roots,
-        ));
+        ))));
         Self {
             storage,
             fs,
@@ -490,7 +505,7 @@ impl djls_source::Db for TestDatabase {
     }
 
     fn file_system(&self) -> &dyn FileSystem {
-        self.fs.as_ref()
+        self.file_system.as_ref()
     }
 }
 

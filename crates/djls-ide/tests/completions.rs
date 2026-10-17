@@ -19,7 +19,7 @@ use djls_semantic::TagArgument;
 use djls_semantic::TagArgumentKind;
 use djls_semantic::TagArgumentSyntax;
 use djls_semantic::TagSpec;
-use djls_semantic::builtin_tag_specs;
+use djls_semantic::bundled_django_tag_specs;
 use djls_source::Offset;
 use djls_source::PositionEncoding;
 use djls_testing::Corpus;
@@ -293,7 +293,7 @@ fn exact_existing_filter_name_completion_does_not_demand_arity() {
 
 #[test]
 fn captured_closer_does_not_offer_colliding_standalone_arguments() {
-    let mut specs = builtin_tag_specs();
+    let mut specs = bundled_django_tag_specs().clone();
     specs.insert(
         "endif".to_string(),
         TagSpec::new(
@@ -449,7 +449,10 @@ fn project_tag_completions_do_not_leak_conflicting_backend_libraries() {
 fn multi_backend_effective_symbols_disagree_when_implementations_differ() {
     let mut db = TestDatabase::new();
     let settings = "INSTALLED_APPS = []\nif FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/shared'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'alpha_tags'}}}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/shared'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'beta_tags'}}}]\n";
+    // With observed builtins, completion falls back to scoped candidates when the effective
+    // definition disagrees and offers both backends' `common`; this pins the unobserved case.
     ProjectFixture::new("/test/project")
+        .without_bundled_django()
         .django_settings_module("testproject.settings")
         .file("/test/project/testproject/settings.py", settings)
         .file(

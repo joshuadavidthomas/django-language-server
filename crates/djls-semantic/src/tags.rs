@@ -1,14 +1,17 @@
 mod rules;
 mod specs;
 
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::sync::LazyLock;
 
+use djls_conf::DjangoVersion;
 use djls_project::Project;
 use djls_project::ScopedTemplateLibraries;
 use djls_project::TemplateLibraryChainStep;
 use djls_project::TemplateLibraryId;
 use djls_project::TemplateSymbolKind;
+use djls_project::bundled_django_libraries;
 use djls_project::scoped_template_libraries;
 use djls_project::template_library_structure_facts;
 use djls_project::template_library_tag_facts;
@@ -74,6 +77,71 @@ fn module_builtin_tag_specs(module: &str) -> TagSpecs {
     )
 }
 
+/// Tag specs for Django's builtin and standard loadable libraries without a Project.
+///
+/// Facts are extracted from the oldest bundled Django, the same release a project gets when no
+/// Django installation or version evidence is found, and fused in production order with the
+/// fallback roles from [`builtin_tag_specs`].
+#[must_use]
+pub fn bundled_django_tag_specs() -> &'static TagSpecs {
+    static SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
+        let mut specs = TagSpecs::default();
+        for library in bundled_django_libraries(DjangoVersion::default()) {
+            let module = library.module().as_str();
+            let mut library_specs = module_builtin_tag_specs(module);
+            library_specs
+                .merge_tag_rules(library.tag_rules())
+                .merge_block_specs(library.block_specs());
+            for name in library.tag_names() {
+                library_specs.entry(name.clone()).or_insert_with(|| {
+                    TagSpec::new(
+                        module.to_string().into(),
+                        None,
+                        Cow::Borrowed(&[]),
+                        BodyAnalysis::Analyze,
+                    )
+                });
+            }
+            specs.merge(library_specs);
+        }
+        specs
+    });
+    &SPECS
+}
+
+/// Fallback meaning for a Django library whose source is unavailable.
+///
+/// This happens when the declared Django release has no bundle and is not installed. The oldest
+/// bundle stands in for its Tag inventory and block structure, which have been stable across
+/// Django releases; argument rules are release-specific and are not borrowed. Returns `None` for
+/// modules that are not one of Django's standard Template Libraries.
+fn sourceless_django_tag_specs(module: &str) -> Option<TagSpecs> {
+    is_bundled_django_module(module).then(|| {
+        TagSpecs::new(
+            bundled_django_tag_specs()
+                .iter()
+                .filter(|(_, spec)| spec.module() == module)
+                .map(|(name, spec)| (name.clone(), spec.clone().without_extracted_rules()))
+                .collect(),
+        )
+    })
+}
+
+fn is_bundled_django_module(module: &str) -> bool {
+    bundled_django_libraries(DjangoVersion::default())
+        .iter()
+        .any(|library| library.module().as_str() == module)
+}
+
+fn library_fallback_tag_specs(db: &dyn Db, key: TemplateLibraryId<'_>) -> TagSpecs {
+    let module = key.module(db).as_str();
+    if key.file(db).is_none() {
+        sourceless_django_tag_specs(module).unwrap_or_default()
+    } else {
+        module_builtin_tag_specs(module)
+    }
+}
+
 /// Fuse builtin/manual fallback meaning with one library's extracted Tag facts.
 #[salsa::tracked(returns(ref))]
 #[allow(clippy::needless_pass_by_value)]
@@ -82,7 +150,7 @@ pub fn library_tag_specs<'db>(
     project: Project,
     key: TemplateLibraryId<'db>,
 ) -> LibraryTagSpecs {
-    let mut specs = module_builtin_tag_specs(key.module(db).as_str());
+    let mut specs = library_fallback_tag_specs(db, key);
 
     let facts = template_library_tag_facts(db, key);
     if !facts.tag_rules().is_empty() {
@@ -107,7 +175,7 @@ pub(crate) fn library_tag_structure_specs<'db>(
     project: Project,
     key: TemplateLibraryId<'db>,
 ) -> LibraryTagSpecs {
-    let mut specs = module_builtin_tag_specs(key.module(db).as_str());
+    let mut specs = library_fallback_tag_specs(db, key);
     let structure = template_library_structure_facts(db, key);
     let configured = configured_library_tag_specs(db, project, key);
     let requires_full_merge = structure
@@ -151,18 +219,21 @@ fn configured_library_tag_specs<'db>(
         })
 }
 
+/// Tag names a library defines without observed source: configured names, plus Django's
+/// standard names when a Django library's source is unavailable.
 #[salsa::tracked(returns(ref))]
 fn library_fallback_tag_names<'db>(
     db: &'db dyn Db,
     project: Project,
     key: TemplateLibraryId<'db>,
 ) -> Vec<String> {
-    let module = key.module(db);
-    let mut names = BUILTIN_TAG_SPECS
-        .iter()
-        .filter(|(_, spec)| spec.module() == module.as_str())
-        .map(|(name, _)| name.clone())
-        .collect::<Vec<_>>();
+    let mut names = key
+        .file(db)
+        .is_none()
+        .then(|| sourceless_django_tag_specs(key.module(db).as_str()))
+        .flatten()
+        .map(|specs| specs.into_iter().map(|(name, _)| name).collect::<Vec<_>>())
+        .unwrap_or_default();
     names.extend(
         configured_library_tag_specs(db, project, key)
             .keys()
@@ -267,7 +338,8 @@ pub(crate) fn effective_tag_spec_in_scope(
                 alternative.effective = library_tag_specs(db, project, library.id()).get(name);
                 alternative.unknown = false;
             } else if library.symbols_are_unobserved()
-                && !hardcoded_tag_inventory_is_complete(library.module_name_str())
+                && !(library.source_file().is_none()
+                    && is_bundled_django_module(library.module_name_str()))
             {
                 alternative.unknown = true;
             }
@@ -399,15 +471,6 @@ fn completion_tag_specs_for_load_state(
         }
     }
     specs
-}
-
-fn hardcoded_tag_inventory_is_complete(module: &str) -> bool {
-    matches!(
-        module,
-        "django.template.defaulttags"
-            | "django.template.defaultfilters"
-            | "django.template.loader_tags"
-    )
 }
 
 fn completion_tag_candidate_names(

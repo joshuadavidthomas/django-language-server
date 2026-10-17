@@ -351,3 +351,39 @@ fn inferred_bundled_version_changes_on_project_reload() {
         );
     }
 }
+
+#[test]
+fn projectless_sessions_use_bundled_django_tag_facts() {
+    let mut fs = InMemoryFileSystem::new();
+    let valid = "{% language 'de' %}{% for item in items %}{% empty %}{% endfor %}{% endlanguage %}{% querystring page=2 %}{% verbatim %}{% if %}{% endverbatim %}";
+    let invalid = "{% language 'de' %}{% for %}{% endfor %}";
+    fs.add_file("/valid.html".into(), valid.to_string());
+    fs.add_file("/invalid.html".into(), invalid.to_string());
+    let db = DjangoDatabase::new(
+        Arc::new(djls_project::BundledFileSystem::new(Arc::new(fs))),
+        &Settings::default(),
+        None,
+    );
+    let errors = |path: &str| {
+        let file = djls_source::path_to_file(&db, camino::Utf8Path::new(path))
+            .expect("projectless Template should exist");
+        djls_testing::collect_errors(&db, file)
+    };
+
+    assert_eq!(errors("/valid.html"), []);
+    let invalid = errors("/invalid.html");
+    assert!(
+        invalid.iter().any(|error| matches!(
+            error,
+            djls_semantic::ValidationError::UnclosedTag { tag, .. } if tag == "language"
+        )),
+        "{invalid:?}"
+    );
+    assert!(
+        invalid.iter().any(|error| matches!(
+            error,
+            djls_semantic::ValidationError::ExtractedRuleViolation { tag, .. } if tag == "for"
+        )),
+        "{invalid:?}"
+    );
+}

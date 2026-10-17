@@ -4,16 +4,16 @@ expression: "SemanticWorkloadSnapshot\n{ files: snapshots, total_template_tree_r
 ---
 files:
   - path: /templates/large/stress_test.html
-    template_tree_regions: 67
+    template_tree_regions: 77
     has_opaque_regions: true
   - path: /templates/large/views_technical_500.html
     template_tree_regions: 170
     has_opaque_regions: false
   - path: /templates/medium/admin_login.html
-    template_tree_regions: 18
+    template_tree_regions: 36
     has_opaque_regions: false
   - path: /templates/medium/nested_blocks.html
-    template_tree_regions: 16
+    template_tree_regions: 24
     has_opaque_regions: false
   - path: /templates/small/dense_tags.html
     template_tree_regions: 5
@@ -21,6 +21,6 @@ files:
   - path: /templates/small/forms_widgets_input.html
     template_tree_regions: 3
     has_opaque_regions: false
-total_template_tree_regions: 279
+total_template_tree_regions: 315
 opaque_region_paths:
   - /templates/large/stress_test.html

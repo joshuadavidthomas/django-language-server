@@ -109,7 +109,7 @@ It lexes and parses template source into a flat `NodeList` — the same represen
 
 Project meaning. This is where observed Project Facts meet the parsed template, and where most of the interesting template analysis happens.
 
-Each Template Library contributes two independently backdatable semantic products: `LibraryTagSpecs`, which fuses extracted Tag Rules and Block Specs with builtin and configured fallback meaning, and `LibraryFilterSpecs`, which carries extracted Filter Arity. The products are keyed by Template Library identity, so changing one library or one fact category does not rebuild project-global semantic inventories.
+Each Template Library contributes two independently backdatable semantic products: `LibraryTagSpecs`, which fuses extracted Tag Rules and Block Specs with builtin and configured fallback meaning, and `LibraryFilterSpecs`, which carries extracted Filter Arity. A Django standard library without source, as when the declared Django release has no bundle and is not installed, borrows the oldest bundle's Tag inventory and block structure but not its argument rules. The products are keyed by Template Library identity, so changing one library or one fact category does not rebuild project-global semantic inventories.
 
 These full products are demand-driven. A separate structural query fuses builtins, Block Specs, and configured fallback for eager topology. It retains full fusion for the exceptional case where an unknown extracted closer with intermediates gains a configured closer and Tag Rule presence affects the merge. Occurrence and completion detail still use the original builtin → rules → blocks → configured order and full-spec agreement across feasible backends.
 
@@ -232,7 +232,7 @@ Instead, `djls-project` parses templatetag Python source files with the Ruff par
 - **Block Specs** — intermediate and end tags, and whether a body is opaque
 - **Filter arity** — whether a filter requires an argument, accepts one optionally, or takes none
 
-This works well for `simple_tag` and `inclusion_tag` registrations where the function signature maps directly to template arguments. Hand-written compilation functions (like Django's built-in `do_if` or `do_for`) are harder — those have custom argument parsing that doesn't follow a signature — but extraction still tries, using abstract interpretation to track variables like `bits = token.split_contents()` through the function body and infer constraints from the raise guards. Hardcoded specs provide baseline structure (end tags, intermediates) for builtins, and extraction results merge on top to add argument validation. When extraction can't figure something out, it falls back gracefully.
+This works well for `simple_tag` and `inclusion_tag` registrations where the function signature maps directly to template arguments. Hand-written compilation functions (like Django's built-in `do_if` or `do_for`) are harder — those have custom argument parsing that doesn't follow a signature — but extraction still tries, using abstract interpretation to track variables like `bits = token.split_contents()` through the function body and infer constraints from the raise guards. Block structure (end tags, intermediates, skipped bodies) for builtins is extracted too; a small hand-written table only supplies what compile functions cannot show, such as Tag roles and `verbatim`'s Lexer-level opaque body. Without a Project, the same facts come from extracting the oldest bundled Django once per process. When extraction can't figure something out, it falls back gracefully.
 
 Both workspace and search-path extraction now flow through Salsa:
 
@@ -312,7 +312,7 @@ In general, we prefer snapshot tests over hand-written assertions. Nobody wants 
 
 ### Semantic Validation Tests
 
-Validation tests use test databases that implement only the Salsa traits they need. `TestDatabase` provides an in-memory filesystem and fallback semantic specs for source-only unit tests — no Python process, Django runtime, or disk I/O. Project-scoped tests use `ProjectFixture` to install settings and Python source into that filesystem. Normal discovery then derives backend membership, builtins, and available Template Libraries for each template origin; the database does not carry a global Template Library inventory.
+Validation tests use test databases that implement only the Salsa traits they need. `TestDatabase` provides an in-memory filesystem with the bundled Django sources mounted above it, and the production projectless Tag specs for source-only unit tests — no Python process, Django runtime, or disk I/O. Project-scoped tests use `ProjectFixture` to install settings and Python source into that filesystem; like Django Discovery, it mounts the bundled Django when the fixture has none, unless the test opts out to exercise source-less Django. Normal discovery then derives backend membership, builtins, and available Template Libraries for each template origin; the database does not carry a global Template Library inventory.
 
 The typical source-only pattern is: build a database with the specs you care about, parse a template, validate it, and check the accumulated errors:
 

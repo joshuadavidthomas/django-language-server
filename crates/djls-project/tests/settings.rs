@@ -1802,7 +1802,9 @@ fn project_with_settings(
     settings_module: &str,
     files: &[(&str, &str)],
 ) -> Result<Project, Box<dyn std::error::Error>> {
-    let mut fixture = ProjectFixture::new("/proj").django_settings_module(settings_module);
+    let mut fixture = ProjectFixture::new("/proj")
+        .without_bundled_django()
+        .django_settings_module(settings_module);
     for (path, source) in files {
         fixture = fixture.file(*path, *source);
     }
@@ -1975,13 +1977,22 @@ fn django_discovery_run_applies_environment_before_computing_facts() {
         .expect("all Django environment phases should assemble")
         .expect("project should be configured");
 
+    let search_paths = project.search_paths(&db).iter().collect::<Vec<_>>();
     assert_eq!(
-        project
-            .search_paths(&db)
+        search_paths[..2]
             .iter()
-            .map(SearchPath::path)
+            .map(|search_path| search_path.path())
             .collect::<Vec<_>>(),
         [Utf8Path::new("/proj"), Utf8Path::new("/vendor")]
+    );
+    // Without a Django package on those paths, discovery mounts the bundled release.
+    assert!(
+        matches!(
+            search_paths[2..],
+            [SearchPath::SitePackages(bundle)]
+                if db.file_system().is_file(&bundle.join("django/__init__.py"))
+        ),
+        "{search_paths:?}"
     );
     assert!(
         facts
@@ -2302,6 +2313,7 @@ fn django_discovery_includes_deduped_unreadable_settings_source() {
         [Utf8PathBuf::from("/proj")],
     );
     let project = ProjectFixture::new("/proj")
+        .without_bundled_django()
         .django_settings_module("myproject.settings")
         .python_environment(PythonEnvironment::Auto)
         .install(&mut db)
