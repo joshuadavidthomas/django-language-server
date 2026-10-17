@@ -10,6 +10,7 @@ use djls_conf::TagSpecDef;
 use djls_conf::TagTypeDef;
 use djls_ide::completion;
 use djls_ide::prime_template_library_products;
+use djls_project::ArgumentConsumption;
 use djls_project::ScopedTemplateLibraries;
 use djls_project::SymbolDefinition;
 use djls_project::TemplateSymbolKind;
@@ -306,6 +307,7 @@ fn captured_closer_does_not_offer_colliding_standalone_arguments() {
             name: "collision".to_string(),
             kind: TagArgumentKind::Choice(vec!["standalone-choice".to_string()]),
             requirement: ParameterRequirement::Required,
+            consumption: ArgumentConsumption::Unknown,
         }])),
     );
     let db = TestDatabase::new().with_projectless_tag_specs(specs);

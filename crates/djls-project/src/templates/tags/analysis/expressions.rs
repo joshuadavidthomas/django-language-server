@@ -12,12 +12,16 @@ use ruff_python_ast::Number;
 
 use crate::ast::ExprExt;
 use crate::templates::tags::analysis::CallContext;
+use crate::templates::tags::analysis::TagSourceContext;
 use crate::templates::tags::analysis::calls::evaluate_source_call;
 use crate::templates::tags::analysis::mutations::PopPosition;
+use crate::templates::tags::analysis::native;
 use crate::templates::tags::analysis::state::AbstractValue;
 use crate::templates::tags::analysis::state::Env;
 use crate::templates::tags::analysis::state::SplitPredicate;
+use crate::templates::tags::analysis::state::TagBitRead;
 use crate::templates::tags::analysis::state::TokenSplit;
+use crate::templates::tags::types::ArgumentConsumption;
 use crate::templates::tags::types::SplitPosition;
 
 /// Evaluate a Python expression against the abstract environment.
@@ -81,6 +85,7 @@ pub(super) fn eval_expr_with_ctx(
                 | AbstractValue::Parser
                 | AbstractValue::SplitResult(_)
                 | AbstractValue::SplitElement { .. }
+                | AbstractValue::TagBits { .. }
                 | AbstractValue::SplitLength(_)
                 | AbstractValue::Str(_)
                 | AbstractValue::SplitPredicate(_)
@@ -99,6 +104,13 @@ pub(super) fn eval_expr_with_ctx(
             }
         }
 
+        Expr::ListComp(comprehension) => {
+            eval_split_comprehension(&comprehension.elt, &comprehension.generators, env, ctx)
+        }
+        Expr::Generator(generator) => {
+            eval_split_comprehension(&generator.elt, &generator.generators, env, ctx)
+        }
+
         Expr::List(_)
         | Expr::Set(_)
         | Expr::BoolOp(_)
@@ -108,10 +120,8 @@ pub(super) fn eval_expr_with_ctx(
         | Expr::Lambda(_)
         | Expr::If(_)
         | Expr::Dict(_)
-        | Expr::ListComp(_)
         | Expr::SetComp(_)
         | Expr::DictComp(_)
-        | Expr::Generator(_)
         | Expr::Await(_)
         | Expr::Yield(_)
         | Expr::YieldFrom(_)
@@ -126,6 +136,61 @@ pub(super) fn eval_expr_with_ctx(
         | Expr::Name(_)
         | Expr::Slice(_)
         | Expr::IpyEscapeCommand(_) => AbstractValue::Unknown,
+    }
+}
+
+/// Record the per-bit consumption of `[elt for bit in bits[...]]`.
+///
+/// The element expression runs once for every bit of the slice, so a use of
+/// the loop variable holds for the whole slice, vacuously when it is empty.
+/// Other facts depend on at least one iteration and are not kept.
+fn eval_split_comprehension(
+    element: &Expr,
+    generators: &[ruff_python_ast::Comprehension],
+    env: &mut Env,
+    ctx: Option<&mut CallContext<'_, '_>>,
+) -> AbstractValue {
+    let [generator] = generators else {
+        return AbstractValue::Unknown;
+    };
+    if generator.is_async || !generator.ifs.is_empty() {
+        return AbstractValue::Unknown;
+    }
+    let Some(target) = generator.target.name_target() else {
+        return AbstractValue::Unknown;
+    };
+    let AbstractValue::SplitResult(split) = eval_expr(&generator.iter, &mut env.clone()) else {
+        return AbstractValue::Unknown;
+    };
+    let bits = split.span();
+    let mut iteration = env.clone();
+    iteration.set(
+        target.to_string(),
+        AbstractValue::TagBits {
+            bits,
+            read: TagBitRead::Bit,
+        },
+    );
+    eval_expr_with_ctx(element, &mut iteration, ctx);
+    if !iteration.bindings_match_except(env, target) {
+        env.forget_split_results();
+    }
+    for consumed in iteration.consumed() {
+        if consumed.bits == bits {
+            env.consume(consumed.bits, consumed.consumption);
+        }
+    }
+    AbstractValue::Unknown
+}
+
+/// Record that `value` is compiled as a filter expression.
+fn consume_as_expression(value: &AbstractValue, env: &mut Env) {
+    match value.read_bits() {
+        Some((bits, TagBitRead::Bit)) => env.consume(bits, ArgumentConsumption::Expression),
+        Some((bits, TagBitRead::KwargValue)) => {
+            env.consume(bits, ArgumentConsumption::OptionalKeywordExpression);
+        }
+        Some((_, TagBitRead::KwargMatch)) | None => {}
     }
 }
 
@@ -258,19 +323,15 @@ fn eval_call_with_ctx(
             }
         }
 
-        // Hardcoded external summaries for parser methods
-        if matches!(obj, AbstractValue::Parser) {
-            match method {
-                "compile_filter" | "parse" | "delete_first_token" => {
-                    return AbstractValue::Unknown;
-                }
-                _ => {}
-            }
+        if let Some(value) = eval_method_summary(obj, method, &args, &keywords, env) {
+            return value;
         }
+    }
 
-        if matches!(obj, AbstractValue::Str(_)) && method == "join" {
-            return AbstractValue::Unknown;
-        }
+    if let Some(source) = ctx.as_deref_mut().and_then(|ctx| ctx.source.as_deref_mut())
+        && let Some(value) = eval_django_filter_call(call, &args, &keywords, env, source)
+    {
+        return value;
     }
 
     if let Some(name @ ("len" | "list")) = call.func.name_target()
@@ -286,6 +347,94 @@ fn eval_call_with_ctx(
     }
 
     evaluate_source_call(call, &args, &keywords, receiver.as_ref(), env, ctx)
+}
+
+/// Hardcoded summaries for methods whose receiver the evaluator recognizes.
+fn eval_method_summary(
+    obj: &AbstractValue,
+    method: &str,
+    args: &[AbstractValue],
+    keywords: &[AbstractValue],
+    env: &mut Env,
+) -> Option<AbstractValue> {
+    match obj {
+        AbstractValue::Parser => match method {
+            "compile_filter" => {
+                if let ([value], []) = (args, keywords) {
+                    consume_as_expression(value, env);
+                }
+                Some(AbstractValue::Unknown)
+            }
+            "parse" | "delete_first_token" => Some(AbstractValue::Unknown),
+            _ => None,
+        },
+        // The groups of a `kwarg_re` match: `(name, value)`.
+        AbstractValue::TagBits {
+            bits,
+            read: TagBitRead::KwargMatch,
+        } => {
+            let value = AbstractValue::TagBits {
+                bits: *bits,
+                read: TagBitRead::KwargValue,
+            };
+            match (method, args, keywords) {
+                ("groups", [], []) => {
+                    Some(AbstractValue::Tuple(vec![AbstractValue::Unknown, value]))
+                }
+                ("group", [AbstractValue::Int(2)], []) => Some(value),
+                _ => None,
+            }
+        }
+        AbstractValue::Str(_) if method == "join" => Some(AbstractValue::Unknown),
+        AbstractValue::Unknown
+        | AbstractValue::Token
+        | AbstractValue::SplitResult(_)
+        | AbstractValue::SplitElement { .. }
+        | AbstractValue::SplitLength(_)
+        | AbstractValue::Int(_)
+        | AbstractValue::Str(_)
+        | AbstractValue::SplitPredicate(_)
+        | AbstractValue::AssignmentMap(_)
+        | AbstractValue::AssignmentRemainder(_)
+        | AbstractValue::TagBits { .. }
+        | AbstractValue::Tuple(_) => None,
+    }
+}
+
+/// Calls to `django.template.base` members that read a Tag Bit like
+/// `parser.compile_filter` does.
+fn eval_django_filter_call(
+    call: &ExprCall,
+    args: &[AbstractValue],
+    keywords: &[AbstractValue],
+    env: &mut Env,
+    source: &mut TagSourceContext<'_>,
+) -> Option<AbstractValue> {
+    // `kwarg_re.match(bit)` splits an optional `name=` prefix off the bit.
+    if let Expr::Attribute(ExprAttribute { value, attr, .. }) = call.func.as_ref()
+        && attr.as_str() == "match"
+        && let ([argument], []) = (args, keywords)
+        && let Some((bits, TagBitRead::Bit)) = argument.read_bits()
+        && native::names_django_template_base_member(value, "kwarg_re", source)
+    {
+        return Some(AbstractValue::TagBits {
+            bits,
+            read: TagBitRead::KwargMatch,
+        });
+    }
+    // `FilterExpression(bit, parser)` is what `parser.compile_filter` returns.
+    // The name check only avoids resolving every call; identity decides.
+    if let Some(token) = args.first()
+        && call
+            .func
+            .path_segments()
+            .is_some_and(|path| path.last().is_some_and(|name| name == "FilterExpression"))
+        && native::names_django_template_base_member(&call.func, "FilterExpression", source)
+    {
+        consume_as_expression(token, env);
+        return Some(AbstractValue::Unknown);
+    }
+    None
 }
 
 fn eval_split_equality(compare: &ruff_python_ast::ExprCompare, env: &mut Env) -> AbstractValue {

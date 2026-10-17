@@ -1,5 +1,6 @@
 use djls_source::File;
 use djls_source::Span;
+use ruff_python_ast::Expr;
 use ruff_python_ast::ExprCall;
 
 use crate::ast::ExprExt;
@@ -10,6 +11,28 @@ use crate::templates::tags::analysis::state::AbstractValue;
 use crate::templates::tags::analysis::state::AssignmentCall;
 use crate::templates::tags::analysis::state::Env;
 use crate::templates::tags::types::AssignmentMode;
+
+/// Whether `expression` names `member` of Django's own `django.template.base`
+/// in the function under analysis, such as `FilterExpression` or `kwarg_re`.
+pub(super) fn names_django_template_base_member(
+    expression: &Expr,
+    member: &str,
+    source: &mut TagSourceContext<'_>,
+) -> bool {
+    let db = source.lookup.db();
+    let Some(function) = source.function.statement(db) else {
+        return false;
+    };
+    source
+        .lookup
+        .module_binding_in_function(function, expression)
+        .is_some_and(|binding| {
+            let module = binding.module();
+            !module.search_path().is_project_code()
+                && module.name().as_str() == "django.template.base"
+                && binding.name() == member
+        })
+}
 
 pub(super) struct ResolvedNativeCall<'call> {
     call: &'call ExprCall,

@@ -51,6 +51,20 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: strip
+  "docs.templatetags.docs::tag::pygment":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax: Unknown
+    argument_consumption:
+      - bits:
+          first:
+            Forward: 1
+          last:
+            Forward: 1
+        consumption: expression
+    as_var: keep
   "docs.templatetags.docs::tag::search_form":
     arg_constraints: []
     required_keywords: []

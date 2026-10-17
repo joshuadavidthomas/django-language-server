@@ -1016,6 +1016,7 @@ mod tests {
     use std::io;
 
     use camino::Utf8Path;
+    use djls_project::ArgumentConsumption;
     use djls_project::PythonModuleName;
     use djls_project::SymbolDefinition;
     use djls_project::TemplateLibraryCatalog;
@@ -1171,6 +1172,7 @@ mod tests {
                     "sidebar".to_string(),
                     "site_header".to_string(),
                 ]),
+                consumption: ArgumentConsumption::Unknown,
             }])),
         );
         specs
@@ -1190,6 +1192,7 @@ mod tests {
             name: "name".to_string(),
             requirement: ParameterRequirement::Required,
             kind: TagArgumentKind::Variable,
+            consumption: ArgumentConsumption::Unknown,
         }]))
     }
 

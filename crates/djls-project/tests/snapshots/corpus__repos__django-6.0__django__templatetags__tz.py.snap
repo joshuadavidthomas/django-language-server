@@ -103,6 +103,14 @@ tag_rules:
         - name: arg1
           requirement: required
           kind: Variable
+          consumption: expression
+    argument_consumption:
+      - bits:
+          first:
+            Forward: 1
+          last:
+            Forward: 1
+        consumption: expression
     as_var: keep
 filter_arities:
   "django.templatetags.tz::filter::localtime": no_argument

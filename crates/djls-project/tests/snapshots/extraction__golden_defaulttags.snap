@@ -105,6 +105,7 @@ tag_rules:
                 kind:
                   VariableWidth:
                     minimum: 1
+                consumption: expression
               - name: as
                 kind:
                   Literal: as
@@ -124,9 +125,11 @@ tag_rules:
                 kind:
                   VariableWidth:
                     minimum: 1
+                consumption: expression
               - name: arg_from_end_3
                 kind:
                   VariableExcept: as
+                consumption: expression
               - name: as
                 kind:
                   Literal: as
@@ -137,9 +140,11 @@ tag_rules:
                 kind:
                   VariableWidth:
                     minimum: 1
+                consumption: expression
               - name: arg_from_end_3
                 kind:
                   VariableExcept: as
+                consumption: expression
               - name: arg_from_end_2
                 kind:
                   VariableExcept: as
@@ -170,6 +175,7 @@ tag_rules:
                       - TokenContents
               - name: arg_from_end_2
                 kind: Variable
+                consumption: expression
               - name: reversed
                 kind:
                   Literal: reversed
@@ -189,6 +195,7 @@ tag_rules:
               - name: arg_from_end_1
                 kind:
                   VariableExcept: reversed
+                consumption: expression
         coverage: complete
         length_mismatch_message:
           PercentFormat:
@@ -304,6 +311,7 @@ tag_rules:
         - name: arg1
           requirement: required
           kind: Variable
+          consumption: expression
         - name: by
           requirement: required
           kind:
@@ -318,6 +326,13 @@ tag_rules:
         - name: var_name
           requirement: required
           kind: Variable
+    argument_consumption:
+      - bits:
+          first:
+            Forward: 1
+          last:
+            Forward: 1
+        consumption: expression
     as_var: keep
   "django.template.defaulttags::tag::templatetag":
     arg_constraints:
@@ -358,6 +373,14 @@ tag_rules:
         - name: arg1
           requirement: required
           kind: Variable
+          consumption: expression
+    argument_consumption:
+      - bits:
+          first:
+            Forward: 1
+          last:
+            Forward: 1
+        consumption: expression
     as_var: strip
   "django.template.defaulttags::tag::widthratio":
     arg_constraints: []
@@ -370,17 +393,23 @@ tag_rules:
           - pattern:
               - name: this_value_expr
                 kind: Variable
+                consumption: expression
               - name: max_value_expr
                 kind: Variable
+                consumption: expression
               - name: max_width
                 kind: Variable
+                consumption: expression
           - pattern:
               - name: this_value_expr
                 kind: Variable
+                consumption: expression
               - name: max_value_expr
                 kind: Variable
+                consumption: expression
               - name: max_width
                 kind: Variable
+                consumption: expression
               - name: as
                 kind:
                   Literal: as
@@ -389,6 +418,25 @@ tag_rules:
               - name: asvar
                 kind: Variable
         coverage: complete
+    argument_consumption:
+      - bits:
+          first:
+            Forward: 1
+          last:
+            Forward: 1
+        consumption: expression
+      - bits:
+          first:
+            Forward: 2
+          last:
+            Forward: 2
+        consumption: expression
+      - bits:
+          first:
+            Forward: 3
+          last:
+            Forward: 3
+        consumption: expression
     as_var: keep
 filter_arities: {}
 block_specs:

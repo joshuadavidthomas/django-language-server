@@ -1,10 +1,15 @@
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use djls_source::Span;
 
+use crate::templates::tags::analysis::consumption::join_consumed;
+use crate::templates::tags::types::ArgumentConsumption;
 use crate::templates::tags::types::AssignmentMode;
+use crate::templates::tags::types::ConsumedTagBits;
 use crate::templates::tags::types::SplitPosition;
+use crate::templates::tags::types::TagBitSpan;
 
 /// Tracks how a `token.split_contents()` result has been mutated.
 ///
@@ -89,6 +94,15 @@ impl TokenSplit {
         local_length + self.front_offset + self.back_offset
     }
 
+    /// The original bits this list still holds.
+    #[must_use]
+    pub(crate) fn span(&self) -> TagBitSpan {
+        TagBitSpan {
+            first: SplitPosition::Forward(self.front_offset),
+            last: SplitPosition::Backward(self.back_offset + 1),
+        }
+    }
+
     /// The number of elements removed from the front.
     #[must_use]
     pub(crate) fn front_offset(&self) -> usize {
@@ -150,8 +164,44 @@ pub(crate) enum AbstractValue {
     SplitPredicate(SplitPredicate),
     AssignmentMap(AssignmentCall),
     AssignmentRemainder(AssignmentCall),
+    /// Any one Tag Bit in `bits`, such as a loop variable over a split slice,
+    /// read whole or through Django's `kwarg_re`.
+    TagBits {
+        bits: TagBitSpan,
+        read: TagBitRead,
+    },
     /// Tuple of tracked values (for function return/destructuring)
     Tuple(Vec<AbstractValue>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum TagBitRead {
+    Bit,
+    /// `kwarg_re.match(bit)`.
+    KwargMatch,
+    /// The value group of a `kwarg_re` match: the bit without a `name=` prefix.
+    KwargValue,
+}
+
+impl AbstractValue {
+    /// The Tag Bits a value reads, if it reads them whole.
+    pub(crate) fn read_bits(&self) -> Option<(TagBitSpan, TagBitRead)> {
+        match self {
+            Self::SplitElement { index } => Some((TagBitSpan::single(*index), TagBitRead::Bit)),
+            Self::TagBits { bits, read } => Some((*bits, *read)),
+            Self::Unknown
+            | Self::Token
+            | Self::Parser
+            | Self::SplitResult(_)
+            | Self::SplitLength(_)
+            | Self::Int(_)
+            | Self::Str(_)
+            | Self::SplitPredicate(_)
+            | Self::AssignmentMap(_)
+            | Self::AssignmentRemainder(_)
+            | Self::Tuple(_) => None,
+        }
+    }
 }
 
 impl AbstractValue {
@@ -169,6 +219,7 @@ impl AbstractValue {
             | Self::Token
             | Self::Parser
             | Self::SplitElement { .. }
+            | Self::TagBits { .. }
             | Self::SplitLength(_)
             | Self::Int(_)
             | Self::Str(_)
@@ -195,6 +246,9 @@ pub(crate) struct Env {
     /// `None` means module name resolution is open. A closed set records names
     /// that shadow their Python builtins in this function.
     shadowed_builtin_names: Option<Arc<std::collections::HashSet<String>>>,
+    /// Tag Bits this path has consumed. Unlike bindings, these facts outlive
+    /// the values that produced them.
+    consumption: Arc<BTreeMap<TagBitSpan, ArgumentConsumption>>,
 }
 
 impl Env {
@@ -210,6 +264,7 @@ impl Env {
             bindings: Arc::new(bindings),
             static_bindings: Arc::new(HashMap::new()),
             shadowed_builtin_names: None,
+            consumption: Arc::default(),
         }
     }
 
@@ -287,7 +342,65 @@ impl Env {
         true
     }
 
-    /// Keep only bindings that have the same exact value on every branch.
+    /// Record that this path uses `bits` this way. Uses of the same bits on one
+    /// path all apply.
+    pub(crate) fn consume(&mut self, bits: TagBitSpan, consumption: ArgumentConsumption) {
+        if consumption.is_unknown() {
+            return;
+        }
+        let consumed = Arc::make_mut(&mut self.consumption);
+        let entry = consumed.entry(bits).or_insert(consumption);
+        *entry = entry.meet(consumption);
+    }
+
+    pub(crate) fn consumed(&self) -> impl Iterator<Item = ConsumedTagBits> + '_ {
+        self.consumption
+            .iter()
+            .filter(|(_, consumption)| !consumption.is_unknown())
+            .map(|(bits, consumption)| ConsumedTagBits {
+                bits: *bits,
+                consumption: *consumption,
+            })
+    }
+
+    /// Whether every binding except `name` has the same value in both.
+    #[must_use]
+    pub(crate) fn bindings_match_except(&self, other: &Self, name: &str) -> bool {
+        let differs = |left: &Self, right: &Self| {
+            left.bindings
+                .iter()
+                .any(|(key, value)| key != name && right.bindings.get(key) != Some(value))
+        };
+        !differs(self, other) && !differs(other, self)
+    }
+
+    /// Restore what `previous` recorded for `bits`, undoing later records.
+    pub(crate) fn restore_consumption(&mut self, bits: TagBitSpan, previous: &Self) {
+        if self.consumption.get(&bits) == previous.consumption.get(&bits) {
+            return;
+        }
+        let consumed = Arc::make_mut(&mut self.consumption);
+        match previous.consumption.get(&bits) {
+            Some(consumption) => {
+                consumed.insert(bits, *consumption);
+            }
+            None => {
+                consumed.remove(&bits);
+            }
+        }
+    }
+
+    /// Keep the consumption facts of `other` while discarding every binding.
+    #[must_use]
+    pub(crate) fn without_bindings(&self) -> Self {
+        Self {
+            consumption: Arc::clone(&self.consumption),
+            ..Self::default()
+        }
+    }
+
+    /// Keep only bindings that have the same exact value on every branch, and
+    /// bits that every branch consumed.
     #[must_use]
     pub(crate) fn join_exact<'a>(branches: impl IntoIterator<Item = &'a Self>) -> Self {
         let mut branches = branches.into_iter();
@@ -309,6 +422,12 @@ impl Env {
                 && branch.static_bindings != joined.static_bindings
             {
                 joined.static_bindings = Arc::new(HashMap::new());
+            }
+            if !Arc::ptr_eq(&joined.consumption, &branch.consumption)
+                && joined.consumption != branch.consumption
+            {
+                joined.consumption =
+                    Arc::new(join_consumed(&joined.consumption, &branch.consumption));
             }
         }
         joined
@@ -372,6 +491,7 @@ impl Env {
             | AbstractValue::Token
             | AbstractValue::Parser
             | AbstractValue::SplitElement { .. }
+            | AbstractValue::TagBits { .. }
             | AbstractValue::SplitLength(_)
             | AbstractValue::Int(_)
             | AbstractValue::Str(_)
@@ -398,6 +518,7 @@ impl Env {
                 | AbstractValue::Token
                 | AbstractValue::Parser
                 | AbstractValue::SplitElement { .. }
+                | AbstractValue::TagBits { .. }
                 | AbstractValue::SplitLength(_)
                 | AbstractValue::Int(_)
                 | AbstractValue::Str(_)

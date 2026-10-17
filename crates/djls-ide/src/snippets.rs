@@ -312,6 +312,7 @@ fn arguments_match_prefix(arguments: &[TagArgument], completed: &[&str]) -> bool
 
 #[cfg(test)]
 mod tests {
+    use djls_project::ArgumentConsumption;
     use djls_semantic::EndTag;
     use djls_semantic::ParameterRequirement;
     use djls_semantic::TagArgument;
@@ -334,6 +335,7 @@ mod tests {
                         TagArgumentKind::Choice(values) => TagArgumentPatternKind::Choice(values),
                     },
                     mismatch_message: None,
+                    consumption: ArgumentConsumption::Unknown,
                 })
                 .collect(),
         )
@@ -353,6 +355,7 @@ mod tests {
             name: name.to_string(),
             requirement: requirement(required),
             kind: TagArgumentKind::Variable,
+            consumption: ArgumentConsumption::Unknown,
         }
     }
 
@@ -361,6 +364,7 @@ mod tests {
             name: value.to_string(),
             requirement: requirement(required),
             kind: TagArgumentKind::Literal(value.to_string()),
+            consumption: ArgumentConsumption::Unknown,
         }
     }
 
@@ -369,6 +373,7 @@ mod tests {
             name: name.to_string(),
             requirement: requirement(required),
             kind: TagArgumentKind::Choice(choices.into_iter().map(String::from).collect()),
+            consumption: ArgumentConsumption::Unknown,
         }
     }
 
@@ -377,6 +382,7 @@ mod tests {
             name: name.to_string(),
             requirement: requirement(required),
             kind: TagArgumentKind::VarArgs,
+            consumption: ArgumentConsumption::Unknown,
         }
     }
 
