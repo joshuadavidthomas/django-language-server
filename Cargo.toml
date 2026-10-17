@@ -48,6 +48,7 @@ notify = "8.2"
 pep440_rs = "0.7.3"
 pep508_rs = "0.9.2"
 percent-encoding = "2.3"
+proc-macro2 = { version = "1.0", features = ["span-locations"] }
 pulldown-cmark = "0.13.4"
 rayon = "1.12"
 reqwest = { version = "0.13", features = ["blocking", "json"] }
@@ -56,6 +57,7 @@ rustc-hash = "2.1"
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 sha2 = "0.11"
+syn = { version = "2.0", features = ["full", "visit"] }
 tar = "0.4"
 tempfile = "3.26"
 thiserror = "2.0"

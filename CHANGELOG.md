@@ -32,6 +32,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - **Internal**: Removed hand-written end tags and intermediates for Django's builtin tags; test fixtures now mount the bundled Django by default.
 - **Internal**: Moved the remaining hand-written Django tag facts into Fallback Rules in `djls-project`, keyed by compile function and citing bundled Django source; `djls-semantic` no longer defines Django tag knowledge.
 - **Internal**: Renamed outline kind `ControlTag` to `BlockTag`.
+- **Internal**: Added a `djls-testing` guard test that fails when production code in `djls-semantic`, `djls-ide`, or `djls-server` compares against a Django tag or filter name taken from bundled-Django extraction, or a `django.` module path, unless an allowlist entry explains why.
 
 ### Fixed
 

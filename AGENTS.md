@@ -48,6 +48,9 @@ When a change slows a benchmark, first check for an accidental regression in the
 
 Run `just hawk` when changing public APIs, moving code across crates, or cleaning up visibility. It is compile-intensive and may run multiple Cargo analysis passes. Review visibility findings against crate responsibilities before using `--fix`; run normal lint/test checks afterward for dead-code cleanup.
 
+## Extraction First
+Django knowledge (tag and filter names, roles, structure, argument rules, `django.` module paths) comes from extracting Django source in `djls-project`. When extraction cannot prove a fact, add a Fallback Rule to `crates/djls-project/src/templates/tags/fallback.rs` that names the Extraction Gap and cites bundled Django source; prefer extending extraction when the fact is visible in a compile function. `djls-semantic`, `djls-ide`, and `djls-server` key behavior on Tag Roles and extracted facts, never on Django names. The `django_knowledge_guard` test in `djls-testing` enforces this for production code; a literal that matches a Django name without being Django knowledge goes in `crates/djls-testing/tests/django_knowledge_allowlist.toml` with a one-line reason.
+
 ## Code Style
 - Use `tower-lsp-server`, not `tower-lsp`; import LSP types via `tower_lsp_server::ls_types`.
 - Use `camino::Utf8Path`/`Utf8PathBuf` as canonical path types. Convert from `std::path` only at API boundaries.
