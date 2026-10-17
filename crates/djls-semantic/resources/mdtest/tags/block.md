@@ -44,6 +44,28 @@ error[S103]: Closing block 'footer' does not match opening block 'header'
   | ^^^^^^^^^^^^^^^^^^^^^
 ```
 
+### rejects extra arguments after the closing name
+
+Django's `do_block` accepts only `endblock` or `endblock <name>` as the whole closing contents.
+
+```htmldjango
+{% block header %}{% endblock header extra %}
+{% block footer %}{% endblock sidebar extra %}
+```
+
+```snapshot
+error[S103]: Closing block 'header extra' does not match opening block 'header'
+ --> test.html:1:19
+  |
+1 | {% block header %}{% endblock header extra %}
+  |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+error[S103]: Closing block 'sidebar extra' does not match opening block 'footer'
+ --> test.html:2:19
+  |
+2 | {% block footer %}{% endblock sidebar extra %}
+  |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+```
+
 ### reports unclosed block
 
 ```htmldjango

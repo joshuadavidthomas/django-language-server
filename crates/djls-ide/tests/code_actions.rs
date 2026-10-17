@@ -296,25 +296,33 @@ fn ambiguous_unloaded_filter_actions_offer_each_library_in_order() {
 
 #[test]
 fn unmatched_block_name_action_renames_closing_block() {
-    let source = "{% block content %}\n{% endblock wrong %}\n";
-    let db = db_with_source(source).expect("validation fixture should build");
-    let actions = collect_actions(&db, request_at(source, "wrong"))
-        .expect("unmatched block should produce a code action response");
-    let action = only_action(actions).expect("unmatched block should produce one action");
-    let edit = only_edit(&action).expect("block rename action should contain one edit");
-    let edited_db =
-        db_with_source(&apply_edit(source, edit)).expect("edited validation fixture should build");
+    for (source, cursor, end_column) in [
+        ("{% block content %}\n{% endblock wrong %}\n", "wrong", 17),
+        (
+            "{% block content %}\n{% endblock content extra %}\n",
+            "extra",
+            25,
+        ),
+    ] {
+        let db = db_with_source(source).expect("validation fixture should build");
+        let actions = collect_actions(&db, request_at(source, cursor))
+            .expect("unmatched block should produce a code action response");
+        let action = only_action(actions).expect("unmatched block should produce one action");
+        let edit = only_edit(&action).expect("block rename action should contain one edit");
+        let edited_db = db_with_source(&apply_edit(source, edit))
+            .expect("edited validation fixture should build");
 
-    assert_eq!(action.title, "Rename closing block to 'content'");
-    assert_eq!(action.kind, Some(ls_types::CodeActionKind::QUICKFIX));
-    assert_eq!(action.is_preferred, Some(true));
-    assert_eq!(edit.range.start, ls_types::Position::new(1, 12));
-    assert_eq!(edit.range.end, ls_types::Position::new(1, 17));
-    assert_eq!(edit.new_text, "content");
-    assert_eq!(
-        diagnostic_codes(&edited_db).expect("edited template diagnostics should be collected"),
-        Vec::<String>::new()
-    );
+        assert_eq!(action.title, "Rename closing block to 'content'");
+        assert_eq!(action.kind, Some(ls_types::CodeActionKind::QUICKFIX));
+        assert_eq!(action.is_preferred, Some(true));
+        assert_eq!(edit.range.start, ls_types::Position::new(1, 12));
+        assert_eq!(edit.range.end, ls_types::Position::new(1, end_column));
+        assert_eq!(edit.new_text, "content");
+        assert_eq!(
+            diagnostic_codes(&edited_db).expect("edited template diagnostics should be collected"),
+            Vec::<String>::new()
+        );
+    }
 }
 
 #[test]

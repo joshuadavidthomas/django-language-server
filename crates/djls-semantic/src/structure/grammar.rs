@@ -183,7 +183,9 @@ impl OpeningContract {
     }
 
     /// Django's `Parser.parse` matches a closing tag by its first word, so closing-tag
-    /// arguments only matter when the opener's compile function checks them.
+    /// arguments only matter when the opener's compile function checks them. Such a
+    /// check compares the whole closing contents, so the closing tag must be bare or
+    /// carry exactly the opener's argument.
     pub(crate) fn validate_close(
         &self,
         opener_bits: &[TagBit],
@@ -192,19 +194,28 @@ impl OpeningContract {
         let ClosingTagArguments::RepeatsOpenerArgument { position } = self.closing_arguments else {
             return CloseValidation::Valid;
         };
-        if let Some(closer_arg) = closer_bits.first()
-            && let Some(opener_arg) = position
-                .checked_sub(1)
-                .and_then(|index| opener_bits.get(index))
-            && closer_arg.as_str() != opener_arg.as_str()
-        {
-            return CloseValidation::ArgumentMismatch {
+        let Some(opener_arg) = position
+            .checked_sub(1)
+            .and_then(|index| opener_bits.get(index))
+        else {
+            return CloseValidation::Valid;
+        };
+        match closer_bits {
+            [] => CloseValidation::Valid,
+            [closer_arg] if closer_arg.as_str() == opener_arg.as_str() => CloseValidation::Valid,
+            [first, .., last] | [first @ last] => CloseValidation::ArgumentMismatch {
                 expected: opener_arg.as_str().to_string(),
-                got: closer_arg.as_str().to_string(),
-                got_span: closer_arg.span,
-            };
+                got: closer_bits
+                    .iter()
+                    .map(TagBit::as_str)
+                    .collect::<Vec<_>>()
+                    .join(" "),
+                got_span: Span::saturating_from_bounds_usize(
+                    first.span.start_usize(),
+                    last.span.end_usize(),
+                ),
+            },
         }
-        CloseValidation::Valid
     }
 }
 

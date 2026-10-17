@@ -93,6 +93,7 @@ def section(parser, token):
 {% section intro %}{% endsection intro %}
 {% section body %}{% endsection %}
 {% section footer %}{% endsection sidebar %}
+{% section aside %}{% endsection aside extra %}
 ```
 
 ```snapshot
@@ -101,6 +102,11 @@ error[S103]: Closing block 'sidebar' does not match opening block 'footer'
   |
 3 | {% section footer %}{% endsection sidebar %}
   |                     ^^^^^^^^^^^^^^^^^^^^^^^^
+error[S103]: Closing block 'aside extra' does not match opening block 'aside'
+ --> test.html:4:20
+  |
+4 | {% section aside %}{% endsection aside extra %}
+  |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 ```
 
 ### ignored when the compile function deletes the closing token
