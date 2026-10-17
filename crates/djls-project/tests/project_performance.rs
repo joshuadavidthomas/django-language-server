@@ -128,6 +128,7 @@ fn candidate_membership_is_reused_until_membership_changes() {
     let mut db =
         OsTestDatabase::with_file_system(Arc::clone(&fs) as Arc<dyn FileSystem>, ["/proj".into()]);
     let project = ProjectFixture::new("/proj")
+        .without_bundled_django()
         .django_settings_module("settings")
         .install(&mut db)
         .expect("project fixture");

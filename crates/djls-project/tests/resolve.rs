@@ -1206,6 +1206,7 @@ fn project_facts_enumerate_new_empty_templatetag_candidate_before_root_bump() {
 fn model_modules_finds_models_py_without_inspecting_contents() {
     let db = TestDatabase::new();
     let project = ProjectFixture::new("/project")
+        .without_bundled_django()
         .file("/project/emptyapp/models.py", "# no models here\n")
         .build(&db)
         .expect("empty-app project fixture should build");
@@ -1220,6 +1221,7 @@ fn model_modules_finds_models_py_without_inspecting_contents() {
 fn model_modules_finds_nested_apps() {
     let db = TestDatabase::new();
     let project = ProjectFixture::new("/project")
+        .without_bundled_django()
         .file(
             "/project/blog/models.py",
             "from django.db import models\nclass BlogModel(models.Model):\n    pass\n",
@@ -1244,7 +1246,7 @@ fn model_modules_finds_nested_apps() {
 #[test]
 fn model_modules_finds_models_package_files() {
     let db = TestDatabase::new();
-    let project = ProjectFixture::new("/project")
+    let project = ProjectFixture::new("/project").without_bundled_django()
         .file(
             "/project/myapp/models/__init__.py",
             "from .user import User\nfrom .order import Order\n",

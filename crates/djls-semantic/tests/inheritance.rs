@@ -13,7 +13,7 @@ use djls_semantic::TagSpecs;
 use djls_semantic::TemplateReferenceKind;
 use djls_semantic::TemplateSymbols;
 use djls_semantic::block_overrides;
-use djls_semantic::django_fallback_tag_specs;
+use djls_semantic::bundled_django_tag_specs;
 use djls_semantic::inherited_blocks;
 use djls_semantic::parent_block;
 use djls_semantic::template_inheritance;
@@ -37,17 +37,7 @@ fn project_with_templates(
         dirs: template_dirs.into_iter().map(str::to_string).collect(),
         ..ProjectSettings::default()
     };
-    let fixture = ProjectFixture::new("/test/project").settings(&settings)
-        .file("/test/project/django/__init__.py", "")
-        .file("/test/project/django/template/__init__.py", "")
-        .file(
-            "/test/project/django/template/defaulttags.py",
-            "from django import template\nregister = template.Library()\n@register.tag\ndef load(parser, token): pass\n",
-        )
-        .file(
-            "/test/project/django/template/loader_tags.py",
-            "from django import template\nregister = template.Library()\n@register.tag\ndef block(parser, token): pass\n@register.tag\ndef extends(parser, token): pass\n@register.tag\ndef include(parser, token): pass\n",
-        );
+    let fixture = ProjectFixture::new("/test/project").settings(&settings);
 
     templates
         .into_iter()
@@ -86,7 +76,7 @@ fn inheritance_summary(db: &TestDatabase, project: Project, file: File) -> (Vec<
 
 #[test]
 fn extracts_partial_defs_from_partial_role_specs() {
-    let mut specs = django_fallback_tag_specs();
+    let mut specs = bundled_django_tag_specs().clone();
     specs.merge(TagSpecs::new(FxHashMap::from_iter([(
         "partialdef".to_string(),
         TagSpec::new(
@@ -122,7 +112,7 @@ fn extracts_partial_defs_from_partial_role_specs() {
 
 #[test]
 fn absent_effective_tag_does_not_fall_back_to_project_global_specs() {
-    let mut specs = django_fallback_tag_specs();
+    let mut specs = bundled_django_tag_specs().clone();
     specs.insert(
         "overextends".to_string(),
         TagSpec::new(
@@ -642,7 +632,7 @@ fn originless_inheritance_keeps_the_exact_resolved_origin_for_relative_parents()
 
 #[test]
 fn template_inheritance_follows_extends_role_not_builtin_name() {
-    let mut specs = django_fallback_tag_specs();
+    let mut specs = bundled_django_tag_specs().clone();
     specs.merge(TagSpecs::new(FxHashMap::from_iter([(
         "overextends".to_string(),
         TagSpec::new(
@@ -1023,7 +1013,7 @@ fn template_inheritance_detects_a_cycle_through_a_template_name_alias() {
 
 #[test]
 fn extracts_blocks_and_extends_by_role_not_builtin_names() {
-    let mut specs = django_fallback_tag_specs();
+    let mut specs = bundled_django_tag_specs().clone();
     specs.merge(TagSpecs::new(FxHashMap::from_iter([
         (
             "section".to_string(),

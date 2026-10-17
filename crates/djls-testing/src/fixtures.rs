@@ -30,6 +30,7 @@ use djls_semantic::FilterAritySpecs;
 use djls_semantic::TagSpecs;
 use djls_semantic::ValidationError;
 use djls_semantic::ValidationErrorAccumulator;
+use djls_semantic::bundled_django_tag_specs;
 use djls_semantic::django_fallback_tag_specs;
 use djls_semantic::validate_template_file;
 use djls_source::Diagnostic;
@@ -292,6 +293,7 @@ pub struct ProjectFixture {
     python_environment: PythonEnvironment,
     django_version: Option<DjangoVersion>,
     search_paths: Option<SearchPaths>,
+    bundled_django: bool,
     register_roots: bool,
     tag_specs: TagSpecDef,
 }
@@ -309,6 +311,7 @@ impl ProjectFixture {
             python_environment: PythonEnvironment::discover(settings.venv_path()),
             django_version: None,
             search_paths: None,
+            bundled_django: true,
             register_roots: true,
             tag_specs: settings.tagspecs().clone(),
         }
@@ -368,6 +371,16 @@ impl ProjectFixture {
         self
     }
 
+    /// Leave Django absent unless the fixture provides it.
+    ///
+    /// By default, derived search paths mount the bundled Django release when the fixture has no
+    /// Django package, as Django Discovery does. Explicit [`Self::search_paths`] are used as given.
+    #[must_use]
+    pub fn without_bundled_django(mut self) -> Self {
+        self.bundled_django = false;
+        self
+    }
+
     #[must_use]
     pub fn register_roots(mut self, register_roots: bool) -> Self {
         self.register_roots = register_roots;
@@ -389,12 +402,16 @@ impl ProjectFixture {
         }
 
         let search_paths = self.search_paths.unwrap_or_else(|| {
-            SearchPaths::from_project_settings(
+            let mut search_paths = SearchPaths::from_project_settings(
                 db.file_system(),
                 &self.root,
                 &self.python_environment,
                 &self.pythonpath,
-            )
+            );
+            if self.bundled_django {
+                search_paths.add_bundled_django(db.file_system(), &self.root, self.django_version);
+            }
+            search_paths
         });
         if self.register_roots {
             search_paths.register_roots(db);
@@ -474,17 +491,18 @@ fn extract_and_merge(
 
         arities.merge_filter_arities(&bundle.filter_arities);
         specs
-            .merge_block_specs(&bundle.block_specs)
-            .merge_tag_rules(&bundle.tag_rules);
+            .merge_tag_rules(&bundle.tag_rules)
+            .merge_block_specs(&bundle.block_specs);
     }
     Ok(())
 }
 
+/// Projectless specs for Django's bundled libraries, with `entry_dir`'s libraries merged on top.
 pub fn build_specs_from_extraction(
     corpus: &Corpus,
     entry_dir: &Utf8Path,
 ) -> anyhow::Result<(TagSpecs, FilterAritySpecs)> {
-    let mut specs = django_fallback_tag_specs();
+    let mut specs = bundled_django_tag_specs().clone();
     let mut arities = FilterAritySpecs::new();
     extract_and_merge(corpus, entry_dir, &mut specs, &mut arities)?;
     Ok((specs, arities))
@@ -520,8 +538,8 @@ pub fn build_entry_specs(
         let bundle = extract_bundle(&db, module.file(), module.name().clone());
         arities.merge_filter_arities(&bundle.filter_arities);
         specs
-            .merge_block_specs(&bundle.block_specs)
-            .merge_tag_rules(&bundle.tag_rules);
+            .merge_tag_rules(&bundle.tag_rules)
+            .merge_block_specs(&bundle.block_specs);
     }
 
     Ok((specs, arities))
@@ -640,7 +658,7 @@ const BUNDLED_DJANGO_TEMPLATE_APPS: [&str; 4] = [
 /// Discovery appends the archive as a site-packages search path, so Django is not project
 /// code and canonical-identity summaries (such as `token_kwargs`) apply to it.
 pub fn bundled_django_database(version: DjangoVersion) -> anyhow::Result<OsTestDatabase> {
-    let mut db = OsTestDatabase::with_bundled_django();
+    let mut db = OsTestDatabase::with_disk_roots([]);
     let settings = ProjectSettings {
         installed_apps: BUNDLED_DJANGO_TEMPLATE_APPS.map(String::from).to_vec(),
         app_dirs: true,

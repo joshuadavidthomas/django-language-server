@@ -168,7 +168,8 @@ def gamma_filter(value): pass
     events.take().expect("fixture setup events should clear");
 
     let primed = prime_template_library_products(&db).expect("fixture has a Project");
-    assert_eq!(primed.library_count(), 6);
+    // Three custom libraries, Django's three default builtins, and its five standard loadables.
+    assert_eq!(primed.library_count(), 11);
     assert!(
         primed
             .covered_files()

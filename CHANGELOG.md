@@ -21,6 +21,9 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 ### Changed
 
 - Changed `djls check` to print a summary when no errors are found, such as `No errors found in 12 files.`, or `No templates found to check.` when no templates match. Pass `--quiet` to suppress it.
+- Changed sessions without a project to read Django's standard tags from the bundled Django 5.2 sources, adding tags such as `language`, `querystring`, and `get_current_language`, and tag argument validation.
+- Changed projects whose declared Django release has no bundle and is not installed to take Django's tag names and block structure from the bundled Django 5.2 sources. Block tags such as `{% language %}` are now matched with their closing tags.
+- **Internal**: Removed hand-written end tags and intermediates for Django's builtin tags; test fixtures now mount the bundled Django by default.
 
 ## [6.1.1]
 

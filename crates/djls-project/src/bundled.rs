@@ -1,5 +1,7 @@
 //! Immutable archive-backed Django sources; disk copies are navigation targets only.
 
+mod facts;
+
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::io;
@@ -23,6 +25,9 @@ use ignore::overrides::OverrideBuilder;
 use sha2::Digest;
 use sha2::Sha256;
 use zip::ZipArchive;
+
+pub use self::facts::BundledDjangoLibrary;
+pub use self::facts::bundled_django_libraries;
 
 struct Bundle {
     root: Utf8PathBuf,

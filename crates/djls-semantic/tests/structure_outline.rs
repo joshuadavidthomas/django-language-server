@@ -9,7 +9,7 @@ use djls_semantic::TagRole;
 use djls_semantic::TagSpec;
 use djls_semantic::TagSpecs;
 use djls_semantic::build_template_outline_for_file;
-use djls_semantic::django_fallback_tag_specs;
+use djls_semantic::bundled_django_tag_specs;
 use djls_source::Span;
 use djls_templates::parse_template;
 use djls_testing::ProjectFixture;
@@ -119,7 +119,7 @@ fn outline_roles_follow_load_position() {
 
 #[test]
 fn loader_role_outline_does_not_depend_on_load_spelling() {
-    let mut specs = django_fallback_tag_specs();
+    let mut specs = bundled_django_tag_specs().clone();
     specs.merge(TagSpecs::new(FxHashMap::from_iter([(
         "use_library".to_string(),
         TagSpec::new(
@@ -197,7 +197,7 @@ fn standalone_tag_items_inside_blocks_are_nested() {
 
 #[test]
 fn custom_callable_block_tags_produce_callable_outline_items() {
-    let mut specs = django_fallback_tag_specs();
+    let mut specs = bundled_django_tag_specs().clone();
     specs.merge(TagSpecs::new(FxHashMap::from_iter([(
         "partialdef".to_string(),
         TagSpec::new(
@@ -221,7 +221,7 @@ fn custom_callable_block_tags_produce_callable_outline_items() {
 
 #[test]
 fn tags_without_role_hide_standalone_tags_but_keep_blocks() {
-    let mut specs = django_fallback_tag_specs();
+    let mut specs = bundled_django_tag_specs().clone();
     specs.merge(TagSpecs::new(FxHashMap::from_iter([
         (
             "myblock".to_string(),

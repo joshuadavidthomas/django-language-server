@@ -573,10 +573,10 @@ mod tests {
 
     #[test]
     fn semantic_incremental_validation_executes_after_each_edit() {
-        let fixture = template_fixtures()
+        let fixture = validation_error_fixtures()
             .iter()
-            .find(|fixture| fixture.label == "large/views_technical_500.html")
-            .expect("benchmark fixtures should include large/views_technical_500.html");
+            .find(|fixture| fixture.label == "large/sparse_validation_errors.html")
+            .expect("benchmark fixtures should include large/sparse_validation_errors.html");
         let events = Arc::new(Mutex::new(Vec::new()));
         let mut db = Db::realistic_with_event_log(Arc::clone(&events));
         let file = db
@@ -630,10 +630,10 @@ mod tests {
 
     #[test]
     fn diagnostics_incremental_collection_executes_after_each_edit() {
-        let fixture = template_fixtures()
+        let fixture = validation_error_fixtures()
             .iter()
-            .find(|fixture| fixture.label == "large/views_technical_500.html")
-            .expect("benchmark fixtures should include large/views_technical_500.html");
+            .find(|fixture| fixture.label == "large/sparse_validation_errors.html")
+            .expect("benchmark fixtures should include large/sparse_validation_errors.html");
         let events = Arc::new(Mutex::new(Vec::new()));
         let mut db = Db::realistic_with_event_log(Arc::clone(&events));
         prime_template_library_products(&db)

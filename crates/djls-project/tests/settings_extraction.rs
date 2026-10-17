@@ -61,6 +61,7 @@ fn extract_project(
     modules: &[(&str, &str)],
 ) -> Result<(TestDatabase, Project, Value), Box<dyn std::error::Error>> {
     let mut fixture = ProjectFixture::new("/project/settings")
+        .without_bundled_django()
         .django_settings_module("config.settings")
         .file("/project/settings/config/__init__.py", "")
         .file("/project/settings/config/settings.py", source);

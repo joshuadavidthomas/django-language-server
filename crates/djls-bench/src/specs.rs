@@ -1,41 +1,23 @@
 use std::collections::BTreeMap;
-use std::io;
-use std::sync::Arc;
-use std::sync::OnceLock;
 
 use camino::Utf8Path;
-use camino::Utf8PathBuf;
+use djls_conf::DjangoVersion;
 use djls_conf::TagSpecDef;
 use djls_ide::prime_template_library_products;
-use djls_project::FilterArity;
-use djls_project::FilterArityMap;
 use djls_project::InvalidModuleName;
 use djls_project::Project;
 use djls_project::PythonEnvironment;
 use djls_project::PythonModuleName;
 use djls_project::SearchPaths;
-use djls_project::SymbolKey;
-use djls_semantic::FilterAritySpecs;
-use djls_semantic::TagSpecs;
+use djls_semantic::bundled_django_tag_specs;
 use djls_source::Db as SourceDb;
 use djls_source::FileError;
 use djls_testing::ProjectSettings;
-use djls_testing::extract_bundle;
 
 use crate::Db;
 
-const DEFAULTTAGS: &str = "django.template.defaulttags";
-const DEFAULTFILTERS: &str = "django.template.defaultfilters";
-const I18N: &str = "django.templatetags.i18n";
-
 #[derive(Clone, Debug, thiserror::Error)]
 pub enum BenchmarkSetupError {
-    #[error("failed to read benchmark fixture {path}: {source}")]
-    ReadFixture {
-        path: Utf8PathBuf,
-        #[source]
-        source: Arc<io::Error>,
-    },
     #[error("invalid benchmark Python module name {value:?}: {source}")]
     InvalidModuleName {
         value: &'static str,
@@ -48,137 +30,7 @@ pub enum BenchmarkSetupError {
     MissingProject,
 }
 
-struct RealisticSpecs {
-    tag_specs: TagSpecs,
-    filter_arity_specs: FilterAritySpecs,
-    defaulttags_source: String,
-    i18n_source: String,
-}
-
-fn build_filter_arities(
-    defaultfilters: &str,
-    extracted_arities: &[&FilterArityMap],
-) -> FilterAritySpecs {
-    let mut specs = FilterAritySpecs::new();
-    for filter_arities in extracted_arities {
-        specs.merge_filter_arities(filter_arities);
-    }
-
-    let known = [
-        ("title", FilterArity::NoArgument),
-        ("lower", FilterArity::NoArgument),
-        ("upper", FilterArity::NoArgument),
-        ("default", FilterArity::RequiredArgument),
-        ("date", FilterArity::OptionalArgument),
-        ("truncatewords", FilterArity::RequiredArgument),
-        ("floatformat", FilterArity::OptionalArgument),
-        ("join", FilterArity::RequiredArgument),
-        ("cut", FilterArity::RequiredArgument),
-        ("yesno", FilterArity::OptionalArgument),
-        ("pluralize", FilterArity::OptionalArgument),
-        ("center", FilterArity::RequiredArgument),
-    ];
-
-    for (name, arity) in known {
-        specs.insert(SymbolKey::filter(defaultfilters, name), arity);
-    }
-
-    specs
-}
-
-fn build_realistic_specs() -> Result<RealisticSpecs, BenchmarkSetupError> {
-    let mut tag_specs = TagSpecs::default();
-
-    let fixture_root = crate::fixtures::crate_root().join("fixtures/python");
-    let defaulttags_path = fixture_root.join("large/defaulttags.py");
-    let defaulttags_source = std::fs::read_to_string(&defaulttags_path).map_err(|source| {
-        BenchmarkSetupError::ReadFixture {
-            path: defaulttags_path.clone(),
-            source: Arc::new(source),
-        }
-    })?;
-    let i18n_path = fixture_root.join("medium/i18n.py");
-    let i18n_source =
-        std::fs::read_to_string(&i18n_path).map_err(|source| BenchmarkSetupError::ReadFixture {
-            path: i18n_path.clone(),
-            source: Arc::new(source),
-        })?;
-
-    let mut extraction_db = Db::new();
-    let defaulttags_file =
-        extraction_db.file_with_contents(defaulttags_path, &defaulttags_source)?;
-    let i18n_file = extraction_db.file_with_contents(i18n_path, &i18n_source)?;
-    let defaulttags_module = PythonModuleName::parse(DEFAULTTAGS).map_err(|source| {
-        BenchmarkSetupError::InvalidModuleName {
-            value: DEFAULTTAGS,
-            source,
-        }
-    })?;
-    let i18n_module =
-        PythonModuleName::parse(I18N).map_err(|source| BenchmarkSetupError::InvalidModuleName {
-            value: I18N,
-            source,
-        })?;
-
-    let defaulttags = extract_bundle(&extraction_db, defaulttags_file, defaulttags_module);
-    tag_specs
-        .merge_block_specs(&defaulttags.block_specs)
-        .merge_tag_rules(&defaulttags.tag_rules);
-
-    let i18n = extract_bundle(&extraction_db, i18n_file, i18n_module);
-    tag_specs
-        .merge_block_specs(&i18n.block_specs)
-        .merge_tag_rules(&i18n.tag_rules);
-
-    let filter_arity_specs = build_filter_arities(
-        DEFAULTFILTERS,
-        &[&defaulttags.filter_arities, &i18n.filter_arities],
-    );
-
-    Ok(RealisticSpecs {
-        tag_specs,
-        filter_arity_specs,
-        defaulttags_source,
-        i18n_source,
-    })
-}
-
-fn realistic_specs() -> Result<&'static RealisticSpecs, BenchmarkSetupError> {
-    static SPECS: OnceLock<Result<RealisticSpecs, BenchmarkSetupError>> = OnceLock::new();
-    match SPECS.get_or_init(build_realistic_specs) {
-        Ok(specs) => Ok(specs),
-        Err(error) => Err(error.clone()),
-    }
-}
-
-fn install_template_library_fixture(
-    db: &mut Db,
-    specs: &RealisticSpecs,
-) -> Result<(), BenchmarkSetupError> {
-    // Canonical builtin identities make extracted source facts fuse with semantic's hardcoded
-    // Django roles and fallback grammar, matching production project analysis.
-    const DEFAULTFILTERS: &str = concat!(
-        "from django import template\nregister = template.Library()\n",
-        "@register.filter\ndef title(value): pass\n",
-        "@register.filter\ndef lower(value): pass\n",
-        "@register.filter\ndef upper(value): pass\n",
-        "@register.filter\ndef default(value, arg): pass\n",
-        "@register.filter\ndef date(value, arg=None): pass\n",
-        "@register.filter\ndef truncatewords(value, arg): pass\n",
-        "@register.filter\ndef floatformat(value, arg=None): pass\n",
-        "@register.filter\ndef join(value, arg): pass\n",
-        "@register.filter\ndef cut(value, arg): pass\n",
-        "@register.filter\ndef yesno(value, arg=None): pass\n",
-        "@register.filter\ndef pluralize(value, arg=None): pass\n",
-        "@register.filter\ndef center(value, arg): pass\n",
-    );
-    const LOADER_TAGS: &str = concat!(
-        "from django import template\nregister = template.Library()\n",
-        "@register.tag\ndef block(parser, token): pass\n",
-        "@register.tag\ndef extends(parser, token): pass\n",
-        "@register.tag\ndef include(parser, token): pass\n",
-    );
-
+fn install_template_library_fixture(db: &mut Db) -> Result<(), BenchmarkSetupError> {
     db.add_fixture_source("/project/__init__.py", "");
     db.add_fixture_source(
         "/project/settings.py",
@@ -195,29 +47,14 @@ fn install_template_library_fixture(
         .settings_py(),
     );
 
-    for (path, source) in [
-        ("/django/__init__.py", ""),
-        ("/django/template/__init__.py", ""),
-        ("/django/template/defaultfilters.py", DEFAULTFILTERS),
-        ("/django/template/loader_tags.py", LOADER_TAGS),
-        ("/django/templatetags/__init__.py", ""),
-        (
-            "/django/templatetags/static.py",
-            "from django import template\nregister = template.Library()\n@register.tag\ndef static(parser, token): pass\n",
-        ),
-    ] {
-        db.add_fixture_source(path, source);
-    }
-    db.add_fixture_source(
-        "/django/template/defaulttags.py",
-        specs.defaulttags_source.clone(),
-    );
-    db.add_fixture_source("/django/templatetags/i18n.py", specs.i18n_source.clone());
-
+    // Django comes from a bundled release, as Django Discovery mounts it when Django is not
+    // installed. The newest line matches the Django corpus templates checked by benchmarks.
     let root = Utf8Path::new("/");
     let python_environment = PythonEnvironment::Auto;
-    let search_paths =
+    let django_version = DjangoVersion::Django61;
+    let mut search_paths =
         SearchPaths::from_project_settings(db.file_system(), root, &python_environment, &[]);
+    search_paths.add_bundled_django(db.file_system(), root, Some(django_version));
     search_paths.register_roots(db);
     let settings_module = PythonModuleName::parse("project.settings").map_err(|source| {
         BenchmarkSetupError::InvalidModuleName {
@@ -231,7 +68,7 @@ fn install_template_library_fixture(
         search_paths,
         python_environment,
         Some(settings_module),
-        None,
+        Some(django_version),
         Vec::new(),
         Vec::new(),
         TagSpecDef::default(),
@@ -242,23 +79,17 @@ fn install_template_library_fixture(
 
 /// Create a benchmark `Db` configured for semantic structure projections.
 pub fn structure_db() -> Result<Db, BenchmarkSetupError> {
-    let specs = realistic_specs()?;
-    Ok(Db::new().with_projectless_tag_specs(specs.tag_specs.clone()))
+    Ok(Db::new().with_projectless_tag_specs(bundled_django_tag_specs().clone()))
 }
 
-/// Create a benchmark `Db` configured with realistic Django tag specs,
-/// template libraries, and filter arity data extracted from real Django
-/// source files.
+/// Create a benchmark `Db` with a Project whose Django Template Libraries come
+/// from the bundled Django sources.
 pub fn realistic_db() -> Result<Db, BenchmarkSetupError> {
     configure_realistic_db(Db::new())
 }
 
-fn configure_realistic_db(db: Db) -> Result<Db, BenchmarkSetupError> {
-    let specs = realistic_specs()?;
-    let mut db = db
-        .with_projectless_tag_specs(specs.tag_specs.clone())
-        .with_projectless_filter_arity_specs(specs.filter_arity_specs.clone());
-    install_template_library_fixture(&mut db, specs)?;
+fn configure_realistic_db(mut db: Db) -> Result<Db, BenchmarkSetupError> {
+    install_template_library_fixture(&mut db)?;
     Ok(db)
 }
 
