@@ -3,9 +3,9 @@ source: crates/djls-bench/src/check.rs
 expression: "checked_workload_snapshot(&db, &files, WorkloadDetail::Small, false)"
 ---
 check_parser_count: 0
-check_validation_count: 20
+check_validation_count: 23
 check_code_counts:
-  S111: 20
+  S111: 23
 per_file_checks:
   - path: /templates/large/stress_test.html
     parser_count: 0
@@ -13,9 +13,9 @@ per_file_checks:
     codes: {}
   - path: /templates/large/views_technical_500.html
     parser_count: 0
-    validation_count: 19
+    validation_count: 22
     codes:
-      S111: 19
+      S111: 22
   - path: /templates/medium/admin_login.html
     parser_count: 0
     validation_count: 0
@@ -33,11 +33,11 @@ per_file_checks:
     validation_count: 1
     codes:
       S111: 1
-per_file_checks_sha256: c8d32f3e5e6a083d222454ae5dd08179ff91f064c5b8d388286cb6051bef8712
+per_file_checks_sha256: 13b7dc0b1b04a8da8d95fed525f87dcce16eac1a272229dba2cce4234a080f9d
 ide_eligible_file_count: 6
-ide_diagnostic_count: 20
+ide_diagnostic_count: 23
 ide_code_counts:
-  S111: 20
+  S111: 23
 normalized_ide_diagnostics:
   - path: /templates/large/views_technical_500.html
     code: S111
@@ -95,6 +95,14 @@ normalized_ide_diagnostics:
     end_line: 251
     end_character: 50
     message: "Unknown filter 'add'"
+  - path: /templates/large/views_technical_500.html
+    code: S111
+    severity: error
+    start_line: 277
+    start_character: 41
+    end_line: 277
+    end_character: 51
+    message: "Unknown filter 'dictsort'"
   - path: /templates/large/views_technical_500.html
     code: S111
     severity: error
@@ -178,11 +186,27 @@ normalized_ide_diagnostics:
   - path: /templates/large/views_technical_500.html
     code: S111
     severity: error
+    start_line: 452
+    start_character: 40
+    end_line: 452
+    end_character: 50
+    message: "Unknown filter 'dictsort'"
+  - path: /templates/large/views_technical_500.html
+    code: S111
+    severity: error
     start_line: 455
     start_character: 37
     end_line: 455
     end_character: 43
     message: "Unknown filter 'pprint'"
+  - path: /templates/large/views_technical_500.html
+    code: S111
+    severity: error
+    start_line: 474
+    start_character: 36
+    end_line: 474
+    end_character: 46
+    message: "Unknown filter 'dictsort'"
   - path: /templates/large/views_technical_500.html
     code: S111
     severity: error
@@ -199,7 +223,7 @@ normalized_ide_diagnostics:
     end_line: 0
     end_character: 125
     message: "Unknown filter 'stringformat'"
-normalized_ide_diagnostics_sha256: 8ffb9efc5200b128227ed9e6fb24472d4f96bfe355c5c61b4de9e4e192eb46ae
+normalized_ide_diagnostics_sha256: 5ad1e30d1a41c98243188bed53ae719af4da911fc3c1e6f90141ff9add391552
 files_with_diagnostics: 2
 diagnostic_bearing_paths:
   - /templates/large/views_technical_500.html

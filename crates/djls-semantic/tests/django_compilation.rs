@@ -21,6 +21,30 @@ const MISSED_DIAGNOSTICS: &[&str] = &[
     "conjunction_guard_invalid",
     // helper raises are not propagated, so caught-exception fallback forgets the split state after the first pop
     "exception_between_pops_missing",
+    // the two- and three-value cycle path is bounded on both sides, so no argument form records its consumption
+    "expression_cycle_invalid",
+    // captured elif intermediates do not reach the condition check, which does not check operands as expressions
+    "expression_elif_operand_underscore",
+    // construct_relative_path() rewrites the parent bit before Django compiles it
+    "expression_extends_invalid",
+    // filter compiles a string built from the tag contents, and its escape/safe refusal is not extracted
+    "expression_filter_escape",
+    // filter compiles a string built from the tag contents, so no bit is consumed as written
+    "expression_filter_invalid",
+    // blocktranslate reads context in an option loop, which has no fixed positions to record consumption at
+    "expression_i18n_context_invalid",
+    // the condition check does not check if operands as filter expressions
+    "expression_if_operand_invalid",
+    // include compiles a rewritten template name and reads with assignments in an option loop
+    "expression_include_invalid",
+    // the lorem count position depends on conditionally popped trailing words
+    "expression_lorem_invalid",
+    // regroup compiles name.grouper, a string built from two bits
+    "expression_regroup_invalid",
+    // static delegates to the StaticNode.handle_token classmethod, which extraction does not follow
+    "expression_static_invalid",
+    // Django versions reject `+` and `-` in variables with different messages, so expression checks stay silent
+    "expression_version_dependent_sign",
     // option extraction records names but not the assignments required after with
     "include_missing_assignment",
     // the static choice list is mutated after assignment, so its value becomes Unknown

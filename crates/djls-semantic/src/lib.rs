@@ -1,6 +1,7 @@
 mod db;
 mod diagnostics;
 mod errors;
+mod expressions;
 mod filters;
 mod inheritance;
 mod offset;

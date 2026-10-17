@@ -1,10 +1,14 @@
 mod arguments;
+mod expressions;
 mod filters;
 mod if_expressions;
 mod scoping;
 
+use djls_templates::Filter;
+
 use crate::TagSpec;
 use crate::db::Db;
+use crate::expressions::consumed_arguments;
 use crate::references::TemplateReferenceKind;
 use crate::scoping::TemplateAnalysisProjection;
 use crate::scoping::scoped_filter_facts;
@@ -122,7 +126,20 @@ impl<'db> TemplateValidator<'db> {
             scoping::check_load_libraries_rule(self.db, &facts.loader_arguments);
         }
 
-        if effective_role == Some(TagRole::ControlTag) && (name == "if" || name == "elif") {
+        let consumed = consumed_arguments(self.projection.scoped_tag_facts(self.db), tag);
+        expressions::check_consumed_expressions_rule(self.db, name, &consumed);
+        for condition in &consumed.conditions {
+            if_expressions::check_if_expression_rule(self.db, name, condition, span);
+        }
+        for filter in consumed.filters() {
+            self.validate_filter(&filter);
+        }
+        // `if` and `elif` keep their name-keyed check until extraction records their
+        // Condition consumption; a recorded condition replaces it.
+        if consumed.conditions.is_empty()
+            && effective_role == Some(TagRole::ControlTag)
+            && (name == "if" || name == "elif")
+        {
             if_expressions::check_if_expression_rule(self.db, name, bits, span);
         }
 
@@ -131,23 +148,26 @@ impl<'db> TemplateValidator<'db> {
 
     fn validate_variable(&mut self, variable: ActiveTemplateVariable<'_>) {
         for filter in variable.filters {
-            let Some(facts) = scoped_filter_facts(self.db, self.projection).for_filter(filter)
-            else {
-                continue;
-            };
-            scoping::check_filter_scoping_rule(
-                self.db,
-                filter,
-                &facts.availability,
-                facts.unknown_load_can_shadow,
-            );
-            if !facts.unknown_load_can_shadow
-                && let Some(arity) = facts.arity
-            {
-                filters::check_filter_arity_rule(self.db, filter, arity);
-            }
+            self.validate_filter(filter);
         }
 
         self.extends_position = self.extends_position.record_non_text();
+    }
+
+    fn validate_filter(&self, filter: &Filter) {
+        let Some(facts) = scoped_filter_facts(self.db, self.projection).for_filter(filter) else {
+            return;
+        };
+        scoping::check_filter_scoping_rule(
+            self.db,
+            filter,
+            &facts.availability,
+            facts.unknown_load_can_shadow,
+        );
+        if !facts.unknown_load_can_shadow
+            && let Some(arity) = facts.arity
+        {
+            filters::check_filter_arity_rule(self.db, filter, arity);
+        }
     }
 }
