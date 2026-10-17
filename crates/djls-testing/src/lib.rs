@@ -42,6 +42,7 @@ pub use fixtures::build_entry_specs;
 pub use fixtures::build_specs_from_extraction;
 pub use fixtures::builtin_filter;
 pub use fixtures::builtin_tag;
+pub use fixtures::bundled_django_database;
 pub use fixtures::collect_argument_validation_errors_with_revision;
 pub use fixtures::collect_errors;
 pub use fixtures::corpus_project_database;

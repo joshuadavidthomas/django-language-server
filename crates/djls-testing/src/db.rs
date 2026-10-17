@@ -396,6 +396,17 @@ impl OsTestDatabase {
         )
     }
 
+    /// Create a memory-only database with the bundled Django archives mounted above it.
+    ///
+    /// Production mounts bundles over the editor overlay filesystem, so archive paths
+    /// resolve regardless of which disk roots the layered filesystem allows.
+    #[must_use]
+    pub(crate) fn with_bundled_django() -> Self {
+        let mut db = Self::new();
+        db.fs = Arc::new(djls_project::BundledFileSystem::new(db.fs));
+        db
+    }
+
     fn with_file_system_and_storage(
         disk: Arc<dyn FileSystem>,
         disk_roots: impl IntoIterator<Item = Utf8PathBuf>,

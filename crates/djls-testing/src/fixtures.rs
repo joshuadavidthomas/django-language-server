@@ -7,6 +7,7 @@ use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::DiagnosticSeverity;
 use djls_conf::DiagnosticsConfig;
+use djls_conf::DjangoVersion;
 use djls_conf::Settings;
 use djls_conf::TagSpecDef;
 use djls_project::Db as ProjectDb;
@@ -289,6 +290,7 @@ pub struct ProjectFixture {
     pythonpath: Vec<Utf8PathBuf>,
     env_vars: Vec<(String, String)>,
     python_environment: PythonEnvironment,
+    django_version: Option<DjangoVersion>,
     search_paths: Option<SearchPaths>,
     register_roots: bool,
     tag_specs: TagSpecDef,
@@ -305,6 +307,7 @@ impl ProjectFixture {
             pythonpath: Vec::new(),
             env_vars: Vec::new(),
             python_environment: PythonEnvironment::discover(settings.venv_path()),
+            django_version: None,
             search_paths: None,
             register_roots: true,
             tag_specs: settings.tagspecs().clone(),
@@ -352,6 +355,13 @@ impl ProjectFixture {
         self
     }
 
+    /// Select the bundled Django feature line, as the `django_version` setting does.
+    #[must_use]
+    fn django_version(mut self, django_version: DjangoVersion) -> Self {
+        self.django_version = Some(django_version);
+        self
+    }
+
     #[must_use]
     pub fn search_paths(mut self, search_paths: SearchPaths) -> Self {
         self.search_paths = Some(search_paths);
@@ -396,7 +406,7 @@ impl ProjectFixture {
             search_paths,
             self.python_environment,
             django_settings_module,
-            None,
+            self.django_version,
             self.pythonpath,
             self.env_vars,
             self.tag_specs,
@@ -615,6 +625,43 @@ pub fn corpus_project_database(
     db.set_project(project);
 
     Ok((db, project, django_source_root))
+}
+
+/// Django apps whose bundled sources define template libraries.
+const BUNDLED_DJANGO_TEMPLATE_APPS: [&str; 4] = [
+    "django.contrib.admin",
+    "django.contrib.auth",
+    "django.contrib.flatpages",
+    "django.contrib.humanize",
+];
+
+/// Project whose Django is the bundled archive for `version`, mounted as production does.
+///
+/// Discovery appends the archive as a site-packages search path, so Django is not project
+/// code and canonical-identity summaries (such as `token_kwargs`) apply to it.
+pub fn bundled_django_database(version: DjangoVersion) -> anyhow::Result<OsTestDatabase> {
+    let mut db = OsTestDatabase::with_bundled_django();
+    let settings = ProjectSettings {
+        installed_apps: BUNDLED_DJANGO_TEMPLATE_APPS.map(String::from).to_vec(),
+        app_dirs: true,
+        ..ProjectSettings::default()
+    };
+    ProjectFixture::new("/project")
+        .python_environment(PythonEnvironment::Path("/project/.venv".into()))
+        .django_version(version)
+        .settings(&settings)
+        .install(&mut db)?;
+    djls_project::run_django_discovery(&mut db)?;
+    let project = db.project().context("bundled Django project")?;
+    anyhow::ensure!(
+        project
+            .search_paths(&db)
+            .iter()
+            .any(|path| matches!(path, SearchPath::SitePackages(_))),
+        "bundled Django {} was not mounted",
+        version.as_str()
+    );
+    Ok(db)
 }
 
 pub fn validation_db(settings_py: &str) -> anyhow::Result<OsTestDatabase> {

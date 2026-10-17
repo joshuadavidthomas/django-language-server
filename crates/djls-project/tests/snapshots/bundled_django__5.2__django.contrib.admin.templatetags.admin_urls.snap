@@ -1,0 +1,40 @@
+---
+source: crates/djls-project/tests/bundled_django.rs
+expression: "sorted_snapshot(&bundle).expect(\"extraction snapshot should serialize\")"
+---
+definitions:
+  "filter::admin_urlname":
+    kind: filter
+    has_doc: false
+  "filter::admin_urlquote":
+    kind: filter
+    has_doc: false
+  "tag::add_preserved_filters":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
+tag_rules:
+  "django.contrib.admin.templatetags.admin_urls::tag::add_preserved_filters":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters:
+          - name: url
+            requirement: required
+            kind: Variable
+          - name: popup
+            requirement: optional
+            kind: Variable
+          - name: to_field
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: strip
+filter_arities:
+  "django.contrib.admin.templatetags.admin_urls::filter::admin_urlname": required_argument
+  "django.contrib.admin.templatetags.admin_urls::filter::admin_urlquote": no_argument
+block_specs: {}
