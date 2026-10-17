@@ -36,6 +36,8 @@ tracing-subscriber = { workspace = true }
 
 [dev-dependencies]
 insta = { workspace = true }
+proc-macro2 = { workspace = true }
+syn = { workspace = true }
 
 [lints]
 workspace = true

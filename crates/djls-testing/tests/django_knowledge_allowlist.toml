@@ -1,0 +1,18 @@
+# Production literals in djls-semantic, djls-ide, and djls-server that equal a Django Tag or Filter
+# name (or start with "django.") but are not Django knowledge. Each entry needs a one-line reason.
+# See Extraction First in AGENTS.md.
+
+[[allow]]
+path = "crates/djls-ide/src/hover.rs"
+literal = "filter"
+reason = "Hover labels a symbol's TemplateSymbolKind as \"(filter)\"; it is not the `filter` tag."
+
+[[allow]]
+path = "crates/djls-server/src/reload.rs"
+literal = "partial"
+reason = "Name of the Partial reload outcome in logs; it is not the `partial` tag."
+
+[[allow]]
+path = "crates/djls-server/src/server.rs"
+literal = "empty"
+reason = "Request timer outcome for an empty LSP result; it is not the `empty` intermediate tag."
