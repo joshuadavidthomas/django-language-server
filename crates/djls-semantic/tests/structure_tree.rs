@@ -78,6 +78,7 @@ enum NodeSnapshot {
         bits: Vec<TagBit>,
         full_span: Span,
         body_span: Span,
+        body_analysis: String,
     },
     StandaloneTag {
         tag: String,
@@ -127,12 +128,14 @@ impl From<&TemplateNode> for NodeSnapshot {
                 bits,
                 full_span,
                 body_span,
+                body_analysis,
             } => Self::Opaque {
                 tag: tag.clone(),
                 name_span: *name_span,
                 bits: bits.clone(),
                 full_span: *full_span,
                 body_span: *body_span,
+                body_analysis: format!("{body_analysis:?}"),
             },
             TemplateNode::StandaloneTag {
                 tag,

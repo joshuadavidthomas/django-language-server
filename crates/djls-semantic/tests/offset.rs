@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 
 use camino::Utf8Path;
 use djls_project::TemplateName;
+use djls_project::TemplateReferenceKind;
 use djls_semantic::SemanticOffsetContext;
-use djls_semantic::TemplateReferenceKind;
 use djls_source::Offset;
 use djls_source::Span;
 use djls_testing::ProjectFixture;

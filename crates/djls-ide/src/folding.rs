@@ -25,8 +25,14 @@ pub fn collect_folding_ranges(
     };
     let template_tree = build_template_tree_for_file(db, file, nodelist);
     let semantic_folds = djls_semantic::build_template_folds(db, template_tree);
-    let folds =
-        FoldSpans::collect(semantic_folds, nodelist.nodelist(db), source.as_str()).into_vec();
+    let role_at = |node: &Node| imports::tag_role_at(db, file, nodelist, node);
+    let folds = FoldSpans::collect(
+        semantic_folds,
+        nodelist.nodelist(db),
+        source.as_str(),
+        &role_at,
+    )
+    .into_vec();
 
     let line_index = file.line_index(db);
     folds
@@ -39,7 +45,12 @@ pub fn collect_folding_ranges(
 struct FoldSpans(Vec<FoldSpan>);
 
 impl FoldSpans {
-    fn collect(semantic_folds: &[TemplateFold], nodes: &[Node], source: &str) -> Self {
+    fn collect(
+        semantic_folds: &[TemplateFold],
+        nodes: &[Node],
+        source: &str,
+        role_at: imports::TagRoleAt,
+    ) -> Self {
         let mut folds = Self::default();
         for fold in semantic_folds {
             folds.push((*fold).into());
@@ -50,7 +61,7 @@ impl FoldSpans {
                 folds.push(FoldSpan::comment(node.full_span()));
             }
         }
-        for span in imports::fold_spans(nodes, source) {
+        for span in imports::fold_spans(nodes, source, role_at) {
             folds.push_imports(FoldSpan::imports(span.start(), span.end()));
         }
 

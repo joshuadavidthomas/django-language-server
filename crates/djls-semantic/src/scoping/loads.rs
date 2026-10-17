@@ -96,7 +96,7 @@ impl LoadStatement {
     }
 }
 
-/// Parse the bits from a `Node::Tag` where `name == "load"` into a `LoadKind`.
+/// Parse the bits of a Template Library loader tag into a `LoadKind`.
 ///
 /// The bit slice contains only the bits after the load tag name — the tag name
 /// itself is NOT included (the parser separates it into `Node::Tag::name`).

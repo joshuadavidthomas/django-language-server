@@ -31,7 +31,6 @@ use djls_semantic::TagSpecs;
 use djls_semantic::ValidationError;
 use djls_semantic::ValidationErrorAccumulator;
 use djls_semantic::bundled_django_tag_specs;
-use djls_semantic::django_fallback_tag_specs;
 use djls_semantic::validate_template_file;
 use djls_source::Diagnostic;
 use djls_source::DiagnosticRenderer;
@@ -492,7 +491,8 @@ fn extract_and_merge(
         arities.merge_filter_arities(&bundle.filter_arities);
         specs
             .merge_tag_rules(&bundle.tag_rules)
-            .merge_block_specs(&bundle.block_specs);
+            .merge_block_specs(&bundle.block_specs)
+            .merge_tag_meanings(&bundle.tag_meanings);
     }
     Ok(())
 }
@@ -512,7 +512,7 @@ pub fn build_entry_specs(
     corpus: &Corpus,
     entry_dir: &Utf8Path,
 ) -> anyhow::Result<(TagSpecs, FilterAritySpecs)> {
-    let mut specs = django_fallback_tag_specs();
+    let mut specs = TagSpecs::default();
     let mut arities = FilterAritySpecs::new();
     let name = entry_dir.file_name().context("missing corpus entry name")?;
     let db = corpus.environment_database(name)?;
@@ -539,7 +539,8 @@ pub fn build_entry_specs(
         arities.merge_filter_arities(&bundle.filter_arities);
         specs
             .merge_tag_rules(&bundle.tag_rules)
-            .merge_block_specs(&bundle.block_specs);
+            .merge_block_specs(&bundle.block_specs)
+            .merge_tag_meanings(&bundle.tag_meanings);
     }
 
     Ok((specs, arities))

@@ -19,6 +19,7 @@ use crate::python::SearchPath;
 use crate::python::SearchPaths;
 use crate::python::python_module_name;
 use crate::templates::BlockSpecs;
+use crate::templates::TagMeaningMap;
 use crate::templates::TagRuleMap;
 use crate::templates::TemplateLibraryId;
 use crate::templates::TemplateSymbolKind;
@@ -32,6 +33,7 @@ pub struct BundledDjangoLibrary {
     tag_names: Vec<String>,
     tag_rules: TagRuleMap,
     block_specs: BlockSpecs,
+    tag_meanings: TagMeaningMap,
 }
 
 impl BundledDjangoLibrary {
@@ -54,6 +56,11 @@ impl BundledDjangoLibrary {
     #[must_use]
     pub fn block_specs(&self) -> &BlockSpecs {
         &self.block_specs
+    }
+
+    #[must_use]
+    pub fn tag_meanings(&self) -> &TagMeaningMap {
+        &self.tag_meanings
     }
 }
 
@@ -154,6 +161,7 @@ impl ExtractionDb {
             tag_names,
             tag_rules: facts.tag_rules().clone(),
             block_specs: facts.block_specs().clone(),
+            tag_meanings: facts.tag_meanings().clone(),
         })
     }
 }

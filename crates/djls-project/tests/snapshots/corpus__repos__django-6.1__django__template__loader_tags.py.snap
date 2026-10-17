@@ -91,3 +91,28 @@ block_specs:
     body_analysis_evidence: not_detected
     end_tag: endblock
     intermediates: []
+tag_meanings:
+  "django.template.loader_tags::tag::block":
+    role:
+      - template_block
+      - fallback
+    fallbacks:
+      - gap: Inheritance Blocks exist only through BlockNode and ExtendsNode at render time; the compile function calls no parser API that marks the definition.
+        path: django/template/loader_tags.py
+        line: 242
+  "django.template.loader_tags::tag::extends":
+    role:
+      - template_reference: extends
+      - fallback
+    fallbacks:
+      - gap: The parent template is loaded by ExtendsNode at render time; extraction does not follow node classes into the loader.
+        path: django/template/loader_tags.py
+        line: 304
+  "django.template.loader_tags::tag::include":
+    role:
+      - template_reference: include
+      - fallback
+    fallbacks:
+      - gap: The included template is loaded by IncludeNode at render time; extraction does not follow node classes into the loader.
+        path: django/template/loader_tags.py
+        line: 358

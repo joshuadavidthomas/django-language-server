@@ -2,73 +2,72 @@
 source: crates/djls-semantic/tests/bundled_django_provenance.rs
 expression: table
 ---
-Extracted  = derived from Django source by djls-project
-Extracted* = derived from Django source; django_fallback_tag_specs duplicates it
-Extracted! = derived from Django source; overrides a different django_fallback_tag_specs value
-Fallback   = supplied only by the hand-written django_fallback_tag_specs table in djls-semantic
-Other      = supplied by neither (update this test to attribute the new source)
--          = no fact
+Extracted = derived from Django source by djls-project
+Fallback  = supplied by a Fallback Rule in djls-project's templates/tags/fallback.rs
+Other     = supplied by neither (update this test to attribute the new source)
+-         = no fact
 
-library       tag                        structure                             body              rule                   role
-admin_list    admin_actions              -                                     -                 -                      -
-admin_list    admin_list_filter          -                                     -                 Extracted Signature    -
-admin_list    change_list_object_tools   -                                     -                 -                      -
-admin_list    date_hierarchy             -                                     -                 -                      -
-admin_list    pagination                 -                                     -                 -                      -
-admin_list    paginator_number           -                                     -                 Extracted Signature    -
-admin_list    result_list                -                                     -                 -                      -
-admin_list    search_form                -                                     -                 -                      -
-admin_modify  change_form_object_tools   -                                     -                 -                      -
-admin_modify  prepopulated_fields_js     -                                     -                 -                      -
-admin_modify  submit_row                 -                                     -                 -                      -
-admin_urls    add_preserved_filters      -                                     -                 Extracted Signature    -
-log           get_admin_log              -                                     -                 Extracted Parameters   -
-flatpages     get_flatpages              -                                     -                 Extracted Forms        -
-defaulttags   autoescape                 Extracted endautoescape               -                 Extracted Parameters   Fallback ControlTag
-defaulttags   comment                    Extracted endcomment                  Extracted opaque  -                      Fallback ControlTag
-defaulttags   csrf_token                 -                                     -                 -                      -
-defaulttags   cycle                      -                                     -                 Extracted Forms        -
-defaulttags   debug                      -                                     -                 -                      -
-defaulttags   filter                     Extracted endfilter                   -                 -                      Fallback ControlTag
-defaulttags   firstof                    -                                     -                 Extracted Parameters   -
-defaulttags   for                        Extracted endfor [empty]              -                 Extracted Forms        Fallback ControlTag
-defaulttags   if                         Extracted endif [elif, else]          -                 -                      Fallback ControlTag
-defaulttags   ifchanged                  Extracted endifchanged [else]         -                 -                      Fallback ControlTag
-defaulttags   load                       -                                     -                 -                      Fallback TemplateLibraryLoader
-defaulttags   lorem                      -                                     -                 Extracted Parameters   -
-defaulttags   now                        -                                     -                 Extracted Parameters   -
-defaulttags   querystring                -                                     -                 Extracted Signature    -
-defaulttags   regroup                    -                                     -                 Extracted Parameters   -
-defaulttags   resetcycle                 -                                     -                 Extracted Forms        -
-defaulttags   spaceless                  Extracted endspaceless                -                 -                      Fallback ControlTag
-defaulttags   templatetag                -                                     -                 Extracted Parameters   -
-defaulttags   url                        -                                     -                 Extracted Parameters   Fallback RouteReference
-defaulttags   verbatim                   Extracted endverbatim                 Fallback opaque   -                      Fallback ControlTag
-defaulttags   widthratio                 -                                     -                 Extracted Forms        -
-defaulttags   with                       Extracted endwith                     -                 Extracted Assignments  Fallback ControlTag
-loader_tags   block                      Extracted endblock                    -                 Extracted Parameters   Fallback TemplateBlock
-loader_tags   extends                    -                                     -                 Extracted Parameters   Fallback TemplateReference(Extends)
-loader_tags   include                    -                                     -                 Extracted Parameters   Fallback TemplateReference(Include)
-cache         cache                      Extracted endcache                    -                 Extracted Parameters   Fallback ControlTag
-i18n          blocktrans                 Extracted endblocktrans [plural]      -                 Extracted Unknown      Fallback ControlTag
-i18n          blocktranslate             Extracted endblocktranslate [plural]  -                 Extracted Unknown      Fallback ControlTag
-i18n          get_available_languages    -                                     -                 Extracted Parameters   -
-i18n          get_current_language       -                                     -                 Extracted Parameters   -
-i18n          get_current_language_bidi  -                                     -                 Extracted Parameters   -
-i18n          get_language_info          -                                     -                 Extracted Parameters   -
-i18n          get_language_info_list     -                                     -                 Extracted Parameters   -
-i18n          language                   Extracted endlanguage                 -                 Extracted Parameters   -
-i18n          trans                      -                                     -                 Extracted Parameters   -
-i18n          translate                  -                                     -                 Extracted Parameters   -
-l10n          localize                   Extracted endlocalize                 -                 Extracted Parameters   Fallback ControlTag
-static        get_media_prefix           -                                     -                 -                      -
-static        get_static_prefix          -                                     -                 -                      -
-static        static                     -                                     -                 -                      Fallback StaticAssetReference
-tz            get_current_timezone       -                                     -                 Extracted Parameters   -
-tz            localtime                  Extracted endlocaltime                -                 Extracted Parameters   Fallback ControlTag
-tz            timezone                   Extracted endtimezone                 -                 Extracted Parameters   Fallback ControlTag
+library       tag                        structure                             body               rule                   role                                 condition
+admin_list    admin_actions              -                                     -                  -                      -                                    -
+admin_list    admin_list_filter          -                                     -                  Extracted Signature    -                                    -
+admin_list    change_list_object_tools   -                                     -                  -                      -                                    -
+admin_list    date_hierarchy             -                                     -                  -                      -                                    -
+admin_list    pagination                 -                                     -                  -                      -                                    -
+admin_list    paginator_number           -                                     -                  Extracted Signature    -                                    -
+admin_list    result_list                -                                     -                  -                      -                                    -
+admin_list    search_form                -                                     -                  -                      -                                    -
+admin_modify  change_form_object_tools   -                                     -                  -                      -                                    -
+admin_modify  prepopulated_fields_js     -                                     -                  -                      -                                    -
+admin_modify  submit_row                 -                                     -                  -                      -                                    -
+admin_urls    add_preserved_filters      -                                     -                  Extracted Signature    -                                    -
+log           get_admin_log              -                                     -                  Extracted Parameters   -                                    -
+flatpages     get_flatpages              -                                     -                  Extracted Forms        -                                    -
+defaulttags   autoescape                 Extracted endautoescape               -                  Extracted Parameters   -                                    -
+defaulttags   comment                    Extracted endcomment                  Extracted opaque   -                      -                                    -
+defaulttags   csrf_token                 -                                     -                  -                      -                                    -
+defaulttags   cycle                      -                                     -                  Extracted Forms        -                                    -
+defaulttags   debug                      -                                     -                  -                      -                                    -
+defaulttags   filter                     Extracted endfilter                   -                  -                      -                                    -
+defaulttags   firstof                    -                                     -                  Extracted Parameters   -                                    -
+defaulttags   for                        Extracted endfor [empty]              -                  Extracted Forms        -                                    -
+defaulttags   if                         Extracted endif [elif, else]          -                  -                      -                                    Fallback if, elif
+defaulttags   ifchanged                  Extracted endifchanged [else]         -                  -                      -                                    -
+defaulttags   load                       -                                     -                  -                      Extracted TemplateLibraryLoader      -
+defaulttags   lorem                      -                                     -                  Extracted Parameters   -                                    -
+defaulttags   now                        -                                     -                  Extracted Parameters   -                                    -
+defaulttags   querystring                -                                     -                  Extracted Signature    -                                    -
+defaulttags   regroup                    -                                     -                  Extracted Parameters   -                                    -
+defaulttags   resetcycle                 -                                     -                  Extracted Forms        -                                    -
+defaulttags   spaceless                  Extracted endspaceless                -                  -                      -                                    -
+defaulttags   templatetag                -                                     -                  Extracted Parameters   -                                    -
+defaulttags   url                        -                                     -                  Extracted Parameters   Fallback RouteReference              -
+defaulttags   verbatim                   Extracted endverbatim                 Fallback verbatim  -                      -                                    -
+defaulttags   widthratio                 -                                     -                  Extracted Forms        -                                    -
+defaulttags   with                       Extracted endwith                     -                  Extracted Assignments  -                                    -
+loader_tags   block                      Extracted endblock                    -                  Extracted Parameters   Fallback TemplateBlock               -
+loader_tags   extends                    -                                     -                  Extracted Parameters   Fallback TemplateReference(Extends)  -
+loader_tags   include                    -                                     -                  Extracted Parameters   Fallback TemplateReference(Include)  -
+cache         cache                      Extracted endcache                    -                  Extracted Parameters   -                                    -
+i18n          blocktrans                 Extracted endblocktrans [plural]      -                  Extracted Unknown      -                                    -
+i18n          blocktranslate             Extracted endblocktranslate [plural]  -                  Extracted Unknown      -                                    -
+i18n          get_available_languages    -                                     -                  Extracted Parameters   -                                    -
+i18n          get_current_language       -                                     -                  Extracted Parameters   -                                    -
+i18n          get_current_language_bidi  -                                     -                  Extracted Parameters   -                                    -
+i18n          get_language_info          -                                     -                  Extracted Parameters   -                                    -
+i18n          get_language_info_list     -                                     -                  Extracted Parameters   -                                    -
+i18n          language                   Extracted endlanguage                 -                  Extracted Parameters   -                                    -
+i18n          trans                      -                                     -                  Extracted Parameters   -                                    -
+i18n          translate                  -                                     -                  Extracted Parameters   -                                    -
+l10n          localize                   Extracted endlocalize                 -                  Extracted Parameters   -                                    -
+static        get_media_prefix           -                                     -                  -                      -                                    -
+static        get_static_prefix          -                                     -                  -                      -                                    -
+static        static                     -                                     -                  -                      Fallback StaticAssetReference        -
+tz            get_current_timezone       -                                     -                  Extracted Parameters   -                                    -
+tz            localtime                  Extracted endlocaltime                -                  Extracted Parameters   -                                    -
+tz            timezone                   Extracted endtimezone                 -                  Extracted Parameters   -                                    -
 
 structure: 17 Extracted
 body: 1 Extracted, 1 Fallback
 rule: 36 Extracted
-role: 21 Fallback
+role: 1 Extracted, 5 Fallback
+condition: 1 Fallback

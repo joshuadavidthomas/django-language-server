@@ -16,6 +16,7 @@ use crate::structure::tree::RegionId;
 use crate::structure::tree::Regions;
 use crate::structure::tree::TemplateNode;
 use crate::structure::tree::TemplateTree;
+use crate::tags::BodyAnalysis;
 
 pub(crate) struct TemplateTreeData {
     pub(crate) root: RegionId,
@@ -234,6 +235,22 @@ impl<'grammar> TemplateTreeBuilder<'grammar> {
         full_span: Span,
     ) -> bool {
         let frame = match self.stack.pop() {
+            Some(TreeFrame::Opaque(frame))
+                if frame.contract.body_analysis == BodyAnalysis::Verbatim
+                    && frame.contract.closer == closer_name
+                    && !OpeningContract::verbatim_closes(
+                        &frame.opener_name,
+                        frame.name_span,
+                        &frame.bits,
+                        closer_name,
+                        name_span,
+                        closer_bits,
+                    ) =>
+            {
+                // Django's Lexer keeps any other spelling of the closer as body text.
+                self.stack.push(TreeFrame::Opaque(frame));
+                return true;
+            }
             Some(TreeFrame::Opaque(frame)) if frame.contract.closer == closer_name => frame,
             Some(frame) => {
                 // Returning false promises the caller that this tag did not change frame state.
@@ -378,6 +395,7 @@ impl<'grammar> TemplateTreeBuilder<'grammar> {
                         bits: frame.bits,
                         full_span,
                         body_span,
+                        body_analysis: frame.contract.body_analysis,
                     },
                 );
             }

@@ -13,6 +13,7 @@ use djls_project::ArgumentCountConstraint;
 use djls_project::Project;
 use djls_project::ScopedTemplateLibraries;
 use djls_project::SymbolDefinition;
+use djls_project::TagRole;
 use djls_project::TagRule;
 use djls_project::TemplateSymbolKind;
 use djls_project::UnreadRegistration;
@@ -23,7 +24,6 @@ use djls_project::template_symbol_source;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::TagArgumentKind;
 use djls_semantic::TagArgumentSyntax;
-use djls_semantic::TagRole;
 use djls_semantic::TagSpec;
 use djls_semantic::TagSpecs;
 use djls_semantic::ValidationError;
@@ -1160,16 +1160,13 @@ fn captured_closer_does_not_retain_a_colliding_standalone_spec() {
 #[test]
 fn captured_intermediate_does_not_apply_a_colliding_standalone_contract() {
     let mut specs = bundled_django_tag_specs().clone();
+    let loader = specs
+        .get("load")
+        .cloned()
+        .expect("bundled Django defines load");
     specs.insert(
         "else".to_string(),
-        TagSpec::new(
-            "test.loader".into(),
-            None,
-            Cow::Borrowed(&[]),
-            djls_semantic::BodyAnalysis::Analyze,
-        )
-        .with_role(TagRole::TemplateLibraryLoader)
-        .with_extracted_rules(
+        loader.with_extracted_rules(
             TagRule {
                 arg_constraints: vec![ArgumentCountConstraint::Exact(3)],
                 ..TagRule::default()

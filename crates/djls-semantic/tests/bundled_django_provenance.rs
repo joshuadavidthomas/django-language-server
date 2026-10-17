@@ -1,15 +1,17 @@
 //! Fact provenance for every tag in the bundled Django archives.
 //!
-//! Each row shows a fused Tag Spec fact and where it came from: extraction from Django source,
-//! the hand-written fallback table (`django_fallback_tag_specs`), or nowhere. A new hand-written Django
-//! fact appears here as a `Fallback` cell; deleting a duplicated one removes a `*` marker.
+//! Each row shows a fused Tag Spec fact and where it came from: extraction from Django source, a
+//! Fallback Rule in `djls-project`'s `templates/tags/fallback.rs`, or nowhere. A new Fallback Rule
+//! appears here as a `Fallback` cell; replacing one with extraction turns it into `Extracted`.
 
 use std::fmt::Write as _;
 
 use djls_conf::DjangoVersion;
 use djls_project::BlockSpec;
 use djls_project::BodyAnalysisEvidence;
+use djls_project::BodyLexing;
 use djls_project::Db as _;
+use djls_project::FactProvenance;
 use djls_project::Project;
 use djls_project::ScopedTemplateLibraries;
 use djls_project::SymbolKey;
@@ -20,47 +22,45 @@ use djls_project::template_library_catalog;
 use djls_project::template_library_tag_facts;
 use djls_semantic::BodyAnalysis;
 use djls_semantic::TagSpec;
-use djls_semantic::TagSpecs;
-use djls_semantic::django_fallback_tag_specs;
 use djls_semantic::library_tag_specs;
 use djls_testing::bundled_django_database;
 
 const LEGEND: &str = "\
-Extracted  = derived from Django source by djls-project
-Extracted* = derived from Django source; django_fallback_tag_specs duplicates it
-Extracted! = derived from Django source; overrides a different django_fallback_tag_specs value
-Fallback   = supplied only by the hand-written django_fallback_tag_specs table in djls-semantic
-Other      = supplied by neither (update this test to attribute the new source)
--          = no fact
+Extracted = derived from Django source by djls-project
+Fallback  = supplied by a Fallback Rule in djls-project's templates/tags/fallback.rs
+Other     = supplied by neither (update this test to attribute the new source)
+-         = no fact
 ";
 
 #[derive(Clone, Copy)]
 enum Source {
     Extracted,
-    ExtractedDuplicated,
-    ExtractedOverriding,
     Fallback,
     Other,
 }
 
 impl Source {
     fn attribute<T: PartialEq>(fused: &T, extracted: Option<&T>, fallback: Option<&T>) -> Self {
-        match (extracted, fallback) {
-            (Some(extracted), Some(fallback)) if extracted == fused && fallback == fused => {
-                Self::ExtractedDuplicated
-            }
-            (Some(extracted), Some(_)) if extracted == fused => Self::ExtractedOverriding,
-            (Some(extracted), None) if extracted == fused => Self::Extracted,
-            (_, Some(fallback)) if fallback == fused => Self::Fallback,
-            _ => Self::Other,
+        if extracted == Some(fused) {
+            Self::Extracted
+        } else if fallback == Some(fused) {
+            Self::Fallback
+        } else {
+            Self::Other
+        }
+    }
+
+    fn from_provenance(provenance: Option<FactProvenance>) -> Self {
+        match provenance {
+            Some(FactProvenance::Extracted) => Self::Extracted,
+            Some(FactProvenance::Fallback) => Self::Fallback,
+            None => Self::Other,
         }
     }
 
     fn label(self) -> &'static str {
         match self {
             Self::Extracted => "Extracted",
-            Self::ExtractedDuplicated => "Extracted*",
-            Self::ExtractedOverriding => "Extracted!",
             Self::Fallback => "Fallback",
             Self::Other => "Other",
         }
@@ -118,12 +118,12 @@ fn library_label(library: &TemplateLibrary<'_>) -> String {
     )
 }
 
+#[allow(clippy::too_many_lines)]
 fn provenance_rows(
     db: &dyn djls_semantic::Db,
     project: Project,
     library: &TemplateLibrary<'_>,
-    fallback: &TagSpecs,
-) -> Vec<[String; 6]> {
+) -> Vec<[String; 7]> {
     let module = library.module_name_str();
     let facts = template_library_tag_facts(db, library.id());
     let fused = library_tag_specs(db, project, library.id());
@@ -134,12 +134,6 @@ fn provenance_rows(
         .filter(|symbol| symbol.kind == TemplateSymbolKind::Tag)
         .map(|symbol| symbol.name().to_string())
         .collect::<Vec<_>>();
-    names.extend(
-        fallback
-            .iter()
-            .filter(|(_, spec)| spec.module() == module)
-            .map(|(name, _)| name.clone()),
-    );
     names.sort();
     names.dedup();
 
@@ -147,84 +141,98 @@ fn provenance_rows(
         .into_iter()
         .map(|name| {
             let key = SymbolKey::tag(module, name.as_str());
-            let registered = if library.symbol(TemplateSymbolKind::Tag, &name).is_some() {
-                name.clone()
-            } else {
-                format!("{name} (unregistered)")
-            };
             let Some(spec) = fused.get(&name) else {
                 return [
                     library_label(library),
-                    registered,
+                    name,
+                    "-".into(),
                     "-".into(),
                     "-".into(),
                     "-".into(),
                     "-".into(),
                 ];
             };
-            let hand = fallback.get(&name).filter(|spec| spec.module() == module);
             let block = facts.block_specs().as_map().get(&key);
             let rule = facts.tag_rules().get(&key);
+            let meaning = facts.tag_meanings().get(&key);
+            let verbatim =
+                meaning.is_some_and(|meaning| meaning.body_lexing() == BodyLexing::Verbatim);
 
+            // A verbatim Fallback Rule supplies `end<name>` when extraction found no closer.
             let structure_cell = structure(spec).map_or_else(
                 || "-".to_string(),
                 |fused| {
                     let source = Source::attribute(
                         &fused,
                         block.and_then(block_structure).as_ref(),
-                        hand.and_then(structure).as_ref(),
+                        verbatim.then(|| format!("end{name}")).as_ref(),
                     );
                     cell(source, &fused)
                 },
             );
 
-            let opaque = |body: BodyAnalysis| body == BodyAnalysis::Opaque;
-            let body_cell = if opaque(spec.body_analysis()) {
-                let source = Source::attribute(
-                    &BodyAnalysis::Opaque,
-                    block
-                        .filter(|block| {
-                            block.body_analysis_evidence == BodyAnalysisEvidence::SkipPast
-                        })
-                        .map(|_| &BodyAnalysis::Opaque),
-                    hand.map(TagSpec::body_analysis)
-                        .filter(|body| opaque(*body))
-                        .as_ref(),
-                );
-                cell(source, "opaque")
-            } else {
-                "-".to_string()
+            let body_cell = match spec.body_analysis() {
+                BodyAnalysis::Analyze => "-".to_string(),
+                BodyAnalysis::Opaque => {
+                    let skip_past = block.is_some_and(|block| {
+                        block.body_analysis_evidence == BodyAnalysisEvidence::SkipPast
+                    });
+                    let source = if skip_past {
+                        Source::Extracted
+                    } else {
+                        Source::Other
+                    };
+                    cell(source, "opaque")
+                }
+                BodyAnalysis::Verbatim => {
+                    let source = if verbatim {
+                        Source::Fallback
+                    } else {
+                        Source::Other
+                    };
+                    cell(source, "verbatim")
+                }
             };
 
             let syntax = spec.argument_syntax();
             let syntax_cell = if rule.is_none() && *syntax == TagArgumentSyntax::Unknown {
                 "-".to_string()
             } else {
-                let source = Source::attribute(
-                    syntax,
-                    rule.map(|rule| &rule.argument_syntax),
-                    hand.map(TagSpec::argument_syntax)
-                        .filter(|syntax| **syntax != TagArgumentSyntax::Unknown),
-                );
+                let source =
+                    Source::attribute(syntax, rule.map(|rule| &rule.argument_syntax), None);
                 cell(source, syntax_kind(syntax))
             };
 
             let role_cell = spec.role().map_or_else(
                 || "-".to_string(),
                 |role| {
-                    let source =
-                        Source::attribute(&role, None, hand.and_then(TagSpec::role).as_ref());
+                    let source = Source::from_provenance(
+                        meaning
+                            .filter(|meaning| meaning.role() == Some(role))
+                            .and_then(djls_project::TagMeaning::role_provenance),
+                    );
                     cell(source, &format!("{role:?}"))
+                },
+            );
+
+            // Condition arguments come only from Fallback Rules until extraction records them.
+            let condition_cell = meaning.and_then(|meaning| meaning.condition()).map_or_else(
+                || "-".to_string(),
+                |condition| {
+                    let mut tags = vec![name.clone()];
+                    tags.extend(condition.intermediates().iter().cloned());
+                    cell(Source::Fallback, &tags.join(", "))
                 },
             );
 
             [
                 library_label(library),
-                registered,
+                name,
                 structure_cell,
                 body_cell,
                 syntax_cell,
                 role_cell,
+                condition_cell,
             ]
         })
         .collect()
@@ -232,7 +240,6 @@ fn provenance_rows(
 
 #[test]
 fn bundled_django_tag_fact_provenance() {
-    let fallback = django_fallback_tag_specs();
     for version in [
         DjangoVersion::Django52,
         DjangoVersion::Django60,
@@ -248,13 +255,23 @@ fn bundled_django_tag_fact_provenance() {
             .collect::<Vec<_>>();
         libraries.sort_by_key(|library| library.module_name_str().to_string());
 
-        let mut rows =
-            vec![["library", "tag", "structure", "body", "rule", "role"].map(String::from)];
+        let mut rows = vec![
+            [
+                "library",
+                "tag",
+                "structure",
+                "body",
+                "rule",
+                "role",
+                "condition",
+            ]
+            .map(String::from),
+        ];
         for library in libraries {
-            rows.extend(provenance_rows(&db, project, library, &fallback));
+            rows.extend(provenance_rows(&db, project, library));
         }
 
-        let mut widths = [0; 6];
+        let mut widths = [0; 7];
         for row in &rows {
             for (width, value) in widths.iter_mut().zip(row) {
                 *width = (*width).max(value.len());

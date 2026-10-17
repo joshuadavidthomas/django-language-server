@@ -571,6 +571,10 @@ block_specs:
     end_tag: endifchanged
     intermediates:
       - else
+  "django.template.defaulttags::tag::partialdef":
+    body_analysis_evidence: not_detected
+    end_tag: endpartialdef
+    intermediates: []
   "django.template.defaulttags::tag::spaceless":
     body_analysis_evidence: not_detected
     end_tag: endspaceless
@@ -583,3 +587,38 @@ block_specs:
     body_analysis_evidence: not_detected
     end_tag: endwith
     intermediates: []
+tag_meanings:
+  "django.template.defaulttags::tag::if":
+    condition:
+      intermediates:
+        - elif
+    fallbacks:
+      - gap: "Extraction does not record Argument Consumption; the opener's and each elif's bits go to TemplateIfParser."
+        path: django/template/defaulttags.py
+        line: 969
+  "django.template.defaulttags::tag::load":
+    role:
+      - template_library_loader
+      - extracted
+  "django.template.defaulttags::tag::partial":
+    role:
+      - template_partial_reference
+      - extracted
+  "django.template.defaulttags::tag::partialdef":
+    role:
+      - template_partial
+      - extracted
+  "django.template.defaulttags::tag::url":
+    role:
+      - route_reference
+      - fallback
+    fallbacks:
+      - gap: URLNode reverses the route at render time; extraction does not model URL resolution.
+        path: django/template/defaulttags.py
+        line: 1440
+  "django.template.defaulttags::tag::verbatim":
+    body_lexing: verbatim
+    fallbacks:
+      - gap: "The Lexer, not do_verbatim, emits the body as text until a tag whose contents are 'end' plus the opener's contents."
+        path: django/template/base.py
+        line: 390

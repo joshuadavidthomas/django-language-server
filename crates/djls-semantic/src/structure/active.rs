@@ -46,6 +46,8 @@ pub(crate) struct ActiveTemplateTag<'a> {
     pub span: Span,
     pub full_span: Span,
     pub structural_meaning: StructuralOccurrenceMeaning,
+    /// For a captured intermediate, the name span of the opener whose contract captured it.
+    pub opener_name_span: Option<Span>,
 }
 
 impl<'a> ActiveTemplateTag<'a> {
@@ -70,6 +72,7 @@ impl<'a> ActiveTemplateTag<'a> {
             ),
             full_span,
             structural_meaning,
+            opener_name_span: None,
         }
     }
 }
@@ -170,7 +173,7 @@ fn collect_active_nodes_for_node<'a>(
                 *full_span,
                 StructuralOccurrenceMeaning::Definition,
             ));
-            collect_active_nodes_for_block_body(regions, *body, *full_span, nodes);
+            collect_active_nodes_for_block_body(regions, *body, *full_span, *name_span, nodes);
         }
         TemplateNode::Block {
             tag,
@@ -235,6 +238,7 @@ fn collect_active_nodes_for_block_body<'a>(
     regions: &'a Regions,
     body: RegionId,
     opener_span: Span,
+    opener_name_span: Span,
     nodes: &mut Vec<ActiveTemplateNode<'a>>,
 ) {
     for node in regions.get(body).nodes() {
@@ -245,6 +249,25 @@ fn collect_active_nodes_for_block_body<'a>(
                 role: BlockRole::Segment,
                 ..
             } if *full_span == opener_span => {
+                collect_active_nodes_for_region(regions, *segment_body, nodes);
+            }
+            TemplateNode::Block {
+                tag,
+                name_span,
+                bits,
+                full_span,
+                body: segment_body,
+                role: BlockRole::Segment,
+            } => {
+                let mut intermediate = ActiveTemplateTag::new(
+                    tag,
+                    *name_span,
+                    bits,
+                    *full_span,
+                    StructuralOccurrenceMeaning::CapturedIntermediate,
+                );
+                intermediate.opener_name_span = Some(opener_name_span);
+                nodes.push(ActiveTemplateNode::Tag(intermediate));
                 collect_active_nodes_for_region(regions, *segment_body, nodes);
             }
             TemplateNode::Block { .. }
@@ -354,6 +377,7 @@ mod tests {
                 bits,
                 full_span: Span::new(0, 54),
                 body_span: Span::new(14, 24),
+                body_analysis: crate::tags::BodyAnalysis::Verbatim,
             },
         );
         regions.push_node(

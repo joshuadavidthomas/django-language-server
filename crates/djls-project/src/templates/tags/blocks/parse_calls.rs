@@ -3,8 +3,13 @@ use std::ops::ControlFlow;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprAttribute;
 use ruff_python_ast::ExprCall;
+use ruff_python_ast::ExprList;
+use ruff_python_ast::ExprTuple;
 use ruff_python_ast::Stmt;
+use ruff_python_ast::StmtAnnAssign;
 use ruff_python_ast::StmtAssign;
+use ruff_python_ast::StmtAugAssign;
+use ruff_python_ast::StmtFor;
 use ruff_python_ast::StmtIf;
 use ruff_python_ast::visitor;
 use ruff_python_ast::visitor::Visitor;
@@ -90,12 +95,12 @@ fn collect_parser_parse_calls(body: &[Stmt], parser_var: &str) -> Vec<ParseCallI
     walk_stmts(body, Recurse::ControlFlow, |stmt| {
         match stmt {
             Stmt::Expr(expr_stmt) => {
-                if let Some(info) = extract_parse_call_info(&expr_stmt.value, parser_var) {
+                if let Some(info) = extract_parse_call_info(&expr_stmt.value, parser_var, body) {
                     calls.push(info);
                 }
             }
             Stmt::Assign(StmtAssign { value, .. }) => {
-                if let Some(info) = extract_parse_call_info(value, parser_var) {
+                if let Some(info) = extract_parse_call_info(value, parser_var, body) {
                     calls.push(info);
                 }
             }
@@ -129,23 +134,65 @@ fn collect_parser_parse_calls(body: &[Stmt], parser_var: &str) -> Vec<ParseCallI
 }
 
 /// Check if an expression is a `parser.parse((...))` call and extract stop-tokens.
-fn extract_parse_call_info(expr: &Expr, parser_var: &str) -> Option<ParseCallInfo> {
+fn extract_parse_call_info(expr: &Expr, parser_var: &str, body: &[Stmt]) -> Option<ParseCallInfo> {
     let Expr::Call(ExprCall { arguments, .. }) = expr else {
         return None;
     };
     if !is_parser_parse_call(expr, parser_var) {
         return None;
     }
-    if arguments.args.is_empty() {
-        return None;
-    }
+    let argument = arguments.args.first()?;
+    let argument = argument
+        .name_target()
+        .map_or(Some(argument), |name| single_local_assignment(body, name))?;
 
-    let stop_tokens = extract_string_sequence(&arguments.args[0]);
+    let stop_tokens = extract_string_sequence(argument);
     if stop_tokens.is_empty() {
         return None;
     }
 
     Some(ParseCallInfo { stop_tokens })
+}
+
+/// The value of a name bound exactly once in the function, outside nested scopes.
+fn single_local_assignment<'a>(body: &'a [Stmt], name: &str) -> Option<&'a Expr> {
+    let mut value = None;
+    let mut bindings = 0usize;
+    walk_stmts(body, Recurse::WithinScope, |stmt| {
+        if let Stmt::Assign(StmtAssign {
+            targets,
+            value: assigned,
+            ..
+        }) = stmt
+        {
+            for target in targets {
+                if target.name_target() == Some(name) {
+                    bindings += 1;
+                    value = (targets.len() == 1).then_some(assigned.as_ref());
+                } else if target_binds(target, name) {
+                    bindings += 1;
+                }
+            }
+        } else if let Stmt::AugAssign(StmtAugAssign { target, .. })
+        | Stmt::AnnAssign(StmtAnnAssign { target, .. })
+        | Stmt::For(StmtFor { target, .. }) = stmt
+            && target_binds(target, name)
+        {
+            bindings += 1;
+        }
+        ControlFlow::Continue(())
+    });
+    if bindings == 1 { value } else { None }
+}
+
+fn target_binds(target: &Expr, name: &str) -> bool {
+    if let Expr::Tuple(ExprTuple { elts, .. }) | Expr::List(ExprList { elts, .. }) = target {
+        elts.iter().any(|element| target_binds(element, name))
+    } else if let Expr::Starred(starred) = target {
+        target_binds(&starred.value, name)
+    } else {
+        target.name_target() == Some(name)
+    }
 }
 
 fn is_parser_parse_call(expr: &Expr, parser_var: &str) -> bool {
@@ -366,9 +413,9 @@ fn classify_in_body(
         }
 
         let has_parse_call = if let Stmt::Expr(expr_stmt) = stmt {
-            extract_parse_call_info(&expr_stmt.value, parser_var).is_some()
+            extract_parse_call_info(&expr_stmt.value, parser_var, &[]).is_some()
         } else if let Stmt::Assign(StmtAssign { value, .. }) = stmt {
-            extract_parse_call_info(value, parser_var).is_some()
+            extract_parse_call_info(value, parser_var, &[]).is_some()
         } else {
             false
         };
@@ -502,10 +549,10 @@ fn body_has_parse_call(body: &[Stmt], parser_var: &str) -> bool {
     walk_stmts(body, Recurse::ControlFlow, |stmt| {
         let has_parse_call = match stmt {
             Stmt::Expr(expr_stmt) => {
-                extract_parse_call_info(&expr_stmt.value, parser_var).is_some()
+                extract_parse_call_info(&expr_stmt.value, parser_var, &[]).is_some()
             }
             Stmt::Assign(StmtAssign { value, .. }) => {
-                extract_parse_call_info(value, parser_var).is_some()
+                extract_parse_call_info(value, parser_var, &[]).is_some()
             }
             Stmt::FunctionDef(_)
             | Stmt::ClassDef(_)
