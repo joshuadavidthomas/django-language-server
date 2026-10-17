@@ -14,8 +14,8 @@ use djls_semantic::TemplateTree;
 use djls_semantic::ValidationError;
 use djls_semantic::ValidationErrorAccumulator;
 use djls_semantic::build_template_tree_for_file;
+use djls_semantic::bundled_django_tag_specs;
 use djls_semantic::compute_opaque_regions;
-use djls_semantic::django_fallback_tag_specs;
 use djls_source::Span;
 use djls_templates::Filter;
 use djls_templates::Node;
@@ -543,7 +543,7 @@ fn nonmatching_tag_keeps_the_active_opaque_frame() {
 
 #[test]
 fn shared_intermediate_inside_opaque_block_has_no_structure() {
-    let mut specs = django_fallback_tag_specs();
+    let mut specs = bundled_django_tag_specs().clone();
     specs.merge(TagSpecs::new(FxHashMap::from_iter([(
         "opaque_if".to_string(),
         TagSpec::new(
@@ -597,7 +597,7 @@ fn shared_intermediate_inside_opaque_block_has_no_structure() {
 
 #[test]
 fn opaque_closer_name_can_also_be_structured_opener() {
-    let mut specs = django_fallback_tag_specs();
+    let mut specs = bundled_django_tag_specs().clone();
     specs.merge(TagSpecs::new(FxHashMap::from_iter([
         (
             "raw".to_string(),
@@ -680,7 +680,7 @@ fn opaque_closer_name_can_also_be_structured_opener() {
 }
 
 fn specs_with_standalone_structural_spellings() -> TagSpecs {
-    let mut specs = django_fallback_tag_specs();
+    let mut specs = bundled_django_tag_specs().clone();
     specs.merge(TagSpecs::new(FxHashMap::from_iter(
         ["endif", "else", "empty"].map(|name| {
             (
@@ -782,7 +782,7 @@ fn matching_branch_context_wins_but_other_collisions_stay_standalone_in_blocks()
 
 #[test]
 fn unclosed_optional_opaque_block_reports_unclosed_without_node() {
-    let mut specs = django_fallback_tag_specs();
+    let mut specs = bundled_django_tag_specs().clone();
     specs.merge(TagSpecs::new(FxHashMap::from_iter([(
         "raw".to_string(),
         TagSpec::new(
@@ -1068,7 +1068,7 @@ fn malformed_recovery_is_best_effort() {
 
 #[test]
 fn custom_block_tags_from_specs_are_blocks() {
-    let mut specs = django_fallback_tag_specs();
+    let mut specs = bundled_django_tag_specs().clone();
     specs.merge(TagSpecs::new(FxHashMap::from_iter([(
         "partialdef".to_string(),
         TagSpec::new(

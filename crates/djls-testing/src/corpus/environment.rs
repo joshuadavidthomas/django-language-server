@@ -428,8 +428,9 @@ impl Corpus {
             .as_ref()
             .and_then(|project| project.relative_root)
             .map_or_else(|| checkout.clone(), |relative| checkout.join(relative));
-        let mut fixture =
-            ProjectFixture::new(project_root).python_environment(PythonEnvironment::Path(root));
+        let mut fixture = ProjectFixture::new(project_root)
+            .python_environment(PythonEnvironment::Path(root))
+            .without_bundled_django();
         if let Some(declaration) = declaration {
             ensure!(
                 declaration.django_settings_modules.len() == 1,

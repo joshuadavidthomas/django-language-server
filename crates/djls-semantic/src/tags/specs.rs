@@ -46,8 +46,9 @@ impl TagSpecs {
     ///
     /// Extracted Block Specs are authoritative: a proven end tag replaces any
     /// fallback end tag and intermediates, and a `SkipPast` body makes the body
-    /// opaque. Fallback structure from [`django_fallback_tag_specs`] survives only
-    /// where extraction found no closer or no body evidence.
+    /// opaque. Fallback roles from [`django_fallback_tag_specs`] and configured
+    /// meaning survive; fallback structure survives only where extraction found
+    /// no closer or no body evidence.
     pub fn merge_block_specs(&mut self, block_specs: &BlockSpecs) -> &mut Self {
         for (key, block_spec) in block_specs.as_map() {
             if key.kind != TemplateSymbolKind::Tag {
@@ -467,6 +468,13 @@ impl TagSpec {
         self.extracted_rules.as_deref()
     }
 
+    /// Keep structure and role, but drop argument rules that belong to another Django release.
+    #[must_use]
+    pub(crate) fn without_extracted_rules(mut self) -> Self {
+        self.extracted_rules = None;
+        self
+    }
+
     fn set_extracted_rules(&mut self, rules: Arc<TagRule>) {
         self.extracted_rules = Some(rules);
     }
@@ -514,17 +522,17 @@ pub struct IntermediateTag {
 
 /// Hand-written Fallback Rules for Django's bundled template tag modules.
 ///
-/// Extraction from Django's Python source is the source of truth. This table
-/// only seeds what extraction does not yet provide: Tag Roles, structure for
-/// projectless sessions with no Django source (see `Db::projectless_tag_specs`),
-/// and `BodyAnalysis::Opaque` where no `SkipPast` evidence is extracted. Per
-/// library, [`TagSpecs::merge_block_specs`] and [`TagSpecs::merge_tag_rules`]
-/// override it with extracted facts. It carries no Tag Rules.
+/// Extraction from Django's Python source is the source of truth. Block structure (closers,
+/// intermediates, `comment`'s skipped body) is extracted and merged on top of these entries per
+/// library by [`TagSpecs::merge_block_specs`] and [`TagSpecs::merge_tag_rules`], so they carry
+/// only what the compile functions cannot show: each tag's [`TagRole`], and `verbatim`'s opaque
+/// body, which Django implements in its Lexer rather than in `do_verbatim`. It carries no Tag
+/// Rules.
 ///
-/// Do not add Django facts here that extraction could prove; see the
-/// extraction-first rule in `AGENTS.md`.
+/// Do not add Django facts here that extraction could prove; see the extraction-first rule in
+/// `AGENTS.md`.
 #[must_use]
-#[allow(clippy::similar_names, clippy::too_many_lines)]
+#[allow(clippy::similar_names)]
 pub fn django_fallback_tag_specs() -> TagSpecs {
     use std::borrow::Cow::Borrowed as B;
 
@@ -536,251 +544,60 @@ pub fn django_fallback_tag_specs() -> TagSpecs {
     let tz = "django.templatetags.tz";
     let st = "django.templatetags.static";
 
+    let role = |module: &'static str, role: TagRole| TagSpec {
+        module: B(module),
+        end_tag: None,
+        intermediate_tags: B(&[]),
+        body_analysis: BodyAnalysis::Analyze,
+        role: Some(role),
+        extracted_rules: None,
+    };
+    let control = |module: &'static str| role(module, TagRole::ControlTag);
+
     let mut specs = FxHashMap::default();
-
-    let simple = |module: &'static str| TagSpec {
-        module: B(module),
-        end_tag: None,
-        intermediate_tags: B(&[]),
-        body_analysis: BodyAnalysis::Analyze,
-        role: None,
-        extracted_rules: None,
-    };
-
-    let simple_role = |module: &'static str, role: TagRole| TagSpec {
-        module: B(module),
-        end_tag: None,
-        intermediate_tags: B(&[]),
-        body_analysis: BodyAnalysis::Analyze,
-        role: Some(role),
-        extracted_rules: None,
-    };
-
-    let block = |module: &'static str,
-                 end: &'static str,
-                 intermediates: Vec<IntermediateTag>,
-                 body_analysis: BodyAnalysis,
-                 role: TagRole| TagSpec {
-        module: B(module),
-        end_tag: Some(EndTag {
-            name: B(end),
-            required: true,
-        }),
-        intermediate_tags: Cow::Owned(intermediates),
-        body_analysis,
-        role: Some(role),
-        extracted_rules: None,
-    };
-
-    let im = |name: &'static str| IntermediateTag { name: B(name) };
-
-    // defaulttags
-    specs.insert(
-        "autoescape".into(),
-        block(
-            dt,
-            "endautoescape",
-            vec![],
-            BodyAnalysis::Analyze,
-            TagRole::ControlTag,
+    for (name, spec) in [
+        ("autoescape", control(dt)),
+        ("comment", control(dt)),
+        ("filter", control(dt)),
+        ("for", control(dt)),
+        ("if", control(dt)),
+        ("ifchanged", control(dt)),
+        ("load", role(dt, TagRole::TemplateLibraryLoader)),
+        ("spaceless", control(dt)),
+        ("url", role(dt, TagRole::RouteReference)),
+        (
+            "verbatim",
+            TagSpec {
+                body_analysis: BodyAnalysis::Opaque,
+                ..control(dt)
+            },
         ),
-    );
-    specs.insert(
-        "comment".into(),
-        block(
-            dt,
-            "endcomment",
-            vec![],
-            BodyAnalysis::Opaque,
-            TagRole::ControlTag,
+        ("with", control(dt)),
+        ("block", role(lt, TagRole::TemplateBlock)),
+        (
+            "extends",
+            role(
+                lt,
+                TagRole::TemplateReference(TemplateReferenceKind::Extends),
+            ),
         ),
-    );
-    specs.insert("csrf_token".into(), simple(dt));
-    specs.insert("cycle".into(), simple(dt));
-    specs.insert("debug".into(), simple(dt));
-    specs.insert(
-        "filter".into(),
-        block(
-            dt,
-            "endfilter",
-            vec![],
-            BodyAnalysis::Analyze,
-            TagRole::ControlTag,
+        (
+            "include",
+            role(
+                lt,
+                TagRole::TemplateReference(TemplateReferenceKind::Include),
+            ),
         ),
-    );
-    specs.insert("firstof".into(), simple(dt));
-    specs.insert(
-        "for".into(),
-        block(
-            dt,
-            "endfor",
-            vec![im("empty")],
-            BodyAnalysis::Analyze,
-            TagRole::ControlTag,
-        ),
-    );
-    specs.insert(
-        "if".into(),
-        block(
-            dt,
-            "endif",
-            vec![im("elif"), im("else")],
-            BodyAnalysis::Analyze,
-            TagRole::ControlTag,
-        ),
-    );
-    specs.insert(
-        "ifchanged".into(),
-        block(
-            dt,
-            "endifchanged",
-            vec![im("else")],
-            BodyAnalysis::Analyze,
-            TagRole::ControlTag,
-        ),
-    );
-    specs.insert(
-        "load".into(),
-        simple_role(dt, TagRole::TemplateLibraryLoader),
-    );
-    specs.insert("lorem".into(), simple(dt));
-    specs.insert("now".into(), simple(dt));
-    specs.insert("regroup".into(), simple(dt));
-    specs.insert(
-        "spaceless".into(),
-        block(
-            dt,
-            "endspaceless",
-            vec![],
-            BodyAnalysis::Analyze,
-            TagRole::ControlTag,
-        ),
-    );
-    specs.insert("templatetag".into(), simple(dt));
-    specs.insert("url".into(), simple_role(dt, TagRole::RouteReference));
-    specs.insert(
-        "verbatim".into(),
-        block(
-            dt,
-            "endverbatim",
-            vec![],
-            BodyAnalysis::Opaque,
-            TagRole::ControlTag,
-        ),
-    );
-    specs.insert("widthratio".into(), simple(dt));
-    specs.insert(
-        "with".into(),
-        block(
-            dt,
-            "endwith",
-            vec![],
-            BodyAnalysis::Analyze,
-            TagRole::ControlTag,
-        ),
-    );
-
-    // loader_tags
-    specs.insert(
-        "block".into(),
-        block(
-            lt,
-            "endblock",
-            vec![],
-            BodyAnalysis::Analyze,
-            TagRole::TemplateBlock,
-        ),
-    );
-    specs.insert(
-        "extends".into(),
-        simple_role(
-            lt,
-            TagRole::TemplateReference(TemplateReferenceKind::Extends),
-        ),
-    );
-    specs.insert(
-        "include".into(),
-        simple_role(
-            lt,
-            TagRole::TemplateReference(TemplateReferenceKind::Include),
-        ),
-    );
-
-    // i18n
-    specs.insert(
-        "blocktrans".into(),
-        block(
-            i18n,
-            "endblocktrans",
-            vec![im("plural")],
-            BodyAnalysis::Analyze,
-            TagRole::ControlTag,
-        ),
-    );
-    specs.insert(
-        "blocktranslate".into(),
-        block(
-            i18n,
-            "endblocktranslate",
-            vec![im("plural")],
-            BodyAnalysis::Analyze,
-            TagRole::ControlTag,
-        ),
-    );
-    specs.insert("trans".into(), simple(i18n));
-    specs.insert("translate".into(), simple(i18n));
-
-    // cache
-    specs.insert(
-        "cache".into(),
-        block(
-            cache,
-            "endcache",
-            vec![],
-            BodyAnalysis::Analyze,
-            TagRole::ControlTag,
-        ),
-    );
-
-    // l10n
-    specs.insert(
-        "localize".into(),
-        block(
-            l10n,
-            "endlocalize",
-            vec![],
-            BodyAnalysis::Analyze,
-            TagRole::ControlTag,
-        ),
-    );
-
-    // static
-    specs.insert(
-        "static".into(),
-        simple_role(st, TagRole::StaticAssetReference),
-    );
-
-    // tz
-    specs.insert(
-        "localtime".into(),
-        block(
-            tz,
-            "endlocaltime",
-            vec![],
-            BodyAnalysis::Analyze,
-            TagRole::ControlTag,
-        ),
-    );
-    specs.insert(
-        "timezone".into(),
-        block(
-            tz,
-            "endtimezone",
-            vec![],
-            BodyAnalysis::Analyze,
-            TagRole::ControlTag,
-        ),
-    );
+        ("blocktrans", control(i18n)),
+        ("blocktranslate", control(i18n)),
+        ("cache", control(cache)),
+        ("localize", control(l10n)),
+        ("static", role(st, TagRole::StaticAssetReference)),
+        ("localtime", control(tz)),
+        ("timezone", control(tz)),
+    ] {
+        specs.insert(name.to_string(), spec);
+    }
 
     TagSpecs::new(specs)
 }
@@ -845,14 +662,9 @@ mod tests {
                     name: "endfor".into(),
                     required: true,
                 }),
-                intermediate_tags: Cow::Owned(vec![
-                    IntermediateTag {
-                        name: "empty".into(),
-                    },
-                    IntermediateTag {
-                        name: "else".into(),
-                    }, // Note: else is shared
-                ]),
+                intermediate_tags: Cow::Owned(vec![IntermediateTag {
+                    name: "empty".into(),
+                }]),
                 body_analysis: BodyAnalysis::Analyze,
                 role: None,
                 extracted_rules: None,

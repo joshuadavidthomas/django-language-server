@@ -2347,6 +2347,9 @@ fn insert_backend_library_values<'db>(
             .insert(load_name, TemplateLibraryIndexEntry::Resolved(index));
     }
 
+    // Mirrors `Engine.default_builtins` in django/template/engine.py. Reading it from source
+    // would make every catalog depend on engine.py and still need this list when Django's
+    // source is unavailable.
     let builtins = [
         python_module_name!(django.template.defaulttags),
         python_module_name!(django.template.defaultfilters),

@@ -5,7 +5,6 @@
 //! Ruff's architecture pattern where the concrete database lives at the top level.
 
 use std::sync::Arc;
-use std::sync::LazyLock;
 #[cfg(test)]
 use std::sync::Mutex;
 
@@ -17,7 +16,7 @@ use djls_project::Project;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::FilterAritySpecs;
 use djls_semantic::TagSpecs;
-use djls_semantic::django_fallback_tag_specs;
+use djls_semantic::bundled_django_tag_specs;
 use djls_source::Db as SourceDb;
 use djls_source::FileSystem;
 #[cfg(test)]
@@ -144,12 +143,11 @@ impl SourceDb for DjangoDatabase {
 #[salsa::db]
 impl SemanticDb for DjangoDatabase {
     fn projectless_tag_specs(&self) -> &TagSpecs {
-        static DEFAULT: LazyLock<TagSpecs> = LazyLock::new(django_fallback_tag_specs);
         assert!(
             self.project.is_none(),
             "project-backed analysis must derive tag specs from keyed Template Libraries"
         );
-        &DEFAULT
+        bundled_django_tag_specs()
     }
 
     fn diagnostics_config(&self) -> DiagnosticsConfig {
@@ -380,7 +378,7 @@ mod invalidation_tests {
         );
         fs.add_file(
             template.join("loader_tags.py"),
-            "from django import template\nregister = template.Library()\n@register.tag\ndef block(parser, token): pass\n@register.tag\ndef extends(parser, token): pass\n"
+            "from django import template\nregister = template.Library()\n@register.tag\ndef block(parser, token):\n    nodelist = parser.parse(('endblock',))\n    return template.Node()\n@register.tag\ndef extends(parser, token): pass\n"
                 .to_string(),
         );
     }
