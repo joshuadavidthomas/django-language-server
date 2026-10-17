@@ -12,17 +12,19 @@ use djls_conf::TagSpecDef;
 use djls_conf::TagTypeDef;
 use djls_project::BlockSpecs;
 use djls_project::BodyAnalysisEvidence;
+use djls_project::BodyLexing;
+use djls_project::ConditionArguments;
 use djls_project::ParameterRequirement;
 use djls_project::TagArgument;
 use djls_project::TagArgumentKind;
 use djls_project::TagArgumentSyntax;
+use djls_project::TagMeaning;
+use djls_project::TagMeaningMap;
+use djls_project::TagRole;
 use djls_project::TagRule;
 use djls_project::TagRuleMap;
 use djls_project::TemplateSymbolKind;
 use rustc_hash::FxHashMap;
-
-use super::TagRole;
-use crate::references::TemplateReferenceKind;
 
 pub(crate) type S<T = str> = Cow<'static, T>;
 pub(crate) type L<T> = Cow<'static, [T]>;
@@ -102,7 +104,7 @@ impl TagSpecs {
                         body_analysis: BodyAnalysis::from_evidence(
                             block_spec.body_analysis_evidence,
                         ),
-                        role: None,
+                        meaning: TagMeaning::default(),
                         extracted_rules: None,
                     },
                 );
@@ -133,6 +135,35 @@ impl TagSpecs {
                     .with_extracted_rules(Arc::clone(tag_rule)),
                 );
             }
+        }
+        self
+    }
+
+    /// Attach Tag meaning from extraction and Fallback Rules.
+    ///
+    /// A Lexer-level verbatim body overrides compile-function body evidence, and its closer
+    /// follows the Lexer's `end` + opener-name spelling when extraction found none.
+    pub fn merge_tag_meanings(&mut self, meanings: &TagMeaningMap) -> &mut Self {
+        for (key, meaning) in meanings {
+            if key.kind != TemplateSymbolKind::Tag {
+                continue;
+            }
+            let spec = self.0.entry(key.name.clone()).or_insert_with(|| {
+                TagSpec::new(
+                    key.registration_module.clone().into(),
+                    None,
+                    Cow::Borrowed(&[]),
+                    BodyAnalysis::Analyze,
+                )
+            });
+            if meaning.body_lexing() == BodyLexing::Verbatim {
+                spec.body_analysis = BodyAnalysis::Verbatim;
+                spec.end_tag.get_or_insert_with(|| EndTag {
+                    name: format!("end{}", key.name).into(),
+                    required: true,
+                });
+            }
+            spec.meaning = meaning.clone();
         }
         self
     }
@@ -337,7 +368,7 @@ impl TagSpecs {
                         end_tag,
                         intermediate_tags: Cow::Owned(intermediate_tags),
                         body_analysis: BodyAnalysis::Analyze,
-                        role: None,
+                        meaning: TagMeaning::default(),
                         extracted_rules,
                     },
                 );
@@ -381,11 +412,15 @@ impl IntoIterator for TagSpecs {
 }
 
 /// Whether semantic features should analyze a tag body.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, serde::Serialize)]
 pub enum BodyAnalysis {
     #[default]
     Analyze,
+    /// The compile function skips the body without parsing it.
     Opaque,
+    /// Django's Lexer emits the body as text, and only a closer whose contents are `end`
+    /// followed by the opener's contents ends it.
+    Verbatim,
 }
 
 impl BodyAnalysis {
@@ -398,7 +433,7 @@ impl BodyAnalysis {
 
     #[must_use]
     pub(crate) const fn is_opaque(self) -> bool {
-        matches!(self, Self::Opaque)
+        matches!(self, Self::Opaque | Self::Verbatim)
     }
 }
 
@@ -406,15 +441,16 @@ impl BodyAnalysis {
 ///
 /// Argument validation is handled by `extracted_rules` (derived from Python AST
 /// extraction). Argument structure for completions/snippets is accessed via
-/// `extracted_rules.argument_syntax`. `role` records durable tag meaning
-/// that downstream features can use without matching on tag names.
+/// `extracted_rules.argument_syntax`. `meaning` carries the role and other Django facts that
+/// downstream features use instead of matching on tag names.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TagSpec {
     module: S,
     pub end_tag: Option<EndTag>,
     pub(crate) intermediate_tags: L<IntermediateTag>,
     body_analysis: BodyAnalysis,
-    role: Option<TagRole>,
+    /// Meaning from extraction and Fallback Rules; only djls-project can author it.
+    meaning: TagMeaning,
     /// Extraction-derived validation rules from Python AST analysis.
     ///
     /// When present, provides argument validation (S117 diagnostics) and
@@ -435,7 +471,7 @@ impl TagSpec {
             end_tag,
             intermediate_tags,
             body_analysis,
-            role: None,
+            meaning: TagMeaning::default(),
             extracted_rules: None,
         }
     }
@@ -452,7 +488,13 @@ impl TagSpec {
 
     #[must_use]
     pub fn role(&self) -> Option<TagRole> {
-        self.role
+        self.meaning.role()
+    }
+
+    /// Tag Bits Django parses as an `if` condition, for the opener and the listed intermediates.
+    #[must_use]
+    pub(crate) fn condition(&self) -> Option<&ConditionArguments> {
+        self.meaning.condition()
     }
 
     #[must_use]
@@ -474,12 +516,6 @@ impl TagSpec {
     #[must_use]
     pub fn with_extracted_rules(mut self, rules: Arc<TagRule>) -> Self {
         self.set_extracted_rules(rules);
-        self
-    }
-
-    #[must_use]
-    pub fn with_role(mut self, role: TagRole) -> Self {
-        self.role = Some(role);
         self
     }
 
@@ -512,83 +548,6 @@ pub struct IntermediateTag {
     pub name: S,
 }
 
-/// Fallback meaning for Django's standard tags that extraction cannot provide.
-///
-/// Block structure (closers, intermediates, `comment`'s skipped body) is extracted from Django
-/// source and merged on top of these entries, so they carry only what the compile functions
-/// cannot show: each tag's [`TagRole`], and `verbatim`'s opaque body, which Django implements in
-/// its Lexer rather than in `do_verbatim`.
-#[must_use]
-#[allow(clippy::similar_names)]
-pub fn builtin_tag_specs() -> TagSpecs {
-    use std::borrow::Cow::Borrowed as B;
-
-    let dt = "django.template.defaulttags";
-    let lt = "django.template.loader_tags";
-    let i18n = "django.templatetags.i18n";
-    let cache = "django.templatetags.cache";
-    let l10n = "django.templatetags.l10n";
-    let tz = "django.templatetags.tz";
-    let st = "django.templatetags.static";
-
-    let role = |module: &'static str, role: TagRole| TagSpec {
-        module: B(module),
-        end_tag: None,
-        intermediate_tags: B(&[]),
-        body_analysis: BodyAnalysis::Analyze,
-        role: Some(role),
-        extracted_rules: None,
-    };
-    let control = |module: &'static str| role(module, TagRole::ControlTag);
-
-    let mut specs = FxHashMap::default();
-    for (name, spec) in [
-        ("autoescape", control(dt)),
-        ("comment", control(dt)),
-        ("filter", control(dt)),
-        ("for", control(dt)),
-        ("if", control(dt)),
-        ("ifchanged", control(dt)),
-        ("load", role(dt, TagRole::TemplateLibraryLoader)),
-        ("spaceless", control(dt)),
-        ("url", role(dt, TagRole::RouteReference)),
-        (
-            "verbatim",
-            TagSpec {
-                body_analysis: BodyAnalysis::Opaque,
-                ..control(dt)
-            },
-        ),
-        ("with", control(dt)),
-        ("block", role(lt, TagRole::TemplateBlock)),
-        (
-            "extends",
-            role(
-                lt,
-                TagRole::TemplateReference(TemplateReferenceKind::Extends),
-            ),
-        ),
-        (
-            "include",
-            role(
-                lt,
-                TagRole::TemplateReference(TemplateReferenceKind::Include),
-            ),
-        ),
-        ("blocktrans", control(i18n)),
-        ("blocktranslate", control(i18n)),
-        ("cache", control(cache)),
-        ("localize", control(l10n)),
-        ("static", role(st, TagRole::StaticAssetReference)),
-        ("localtime", control(tz)),
-        ("timezone", control(tz)),
-    ] {
-        specs.insert(name.to_string(), spec);
-    }
-
-    TagSpecs::new(specs)
-}
-
 #[cfg(test)]
 mod tests {
     use std::ptr;
@@ -612,7 +571,7 @@ mod tests {
                 end_tag: None,
                 intermediate_tags: Cow::Borrowed(&[]),
                 body_analysis: BodyAnalysis::Analyze,
-                role: None,
+                meaning: TagMeaning::default(),
                 extracted_rules: None,
             },
         );
@@ -635,7 +594,7 @@ mod tests {
                     },
                 ]),
                 body_analysis: BodyAnalysis::Analyze,
-                role: None,
+                meaning: TagMeaning::default(),
                 extracted_rules: None,
             },
         );
@@ -653,7 +612,7 @@ mod tests {
                     name: "empty".into(),
                 }]),
                 body_analysis: BodyAnalysis::Analyze,
-                role: None,
+                meaning: TagMeaning::default(),
                 extracted_rules: None,
             },
         );
@@ -669,7 +628,7 @@ mod tests {
                 }),
                 intermediate_tags: Cow::Borrowed(&[]),
                 body_analysis: BodyAnalysis::Analyze,
-                role: None,
+                meaning: TagMeaning::default(),
                 extracted_rules: None,
             },
         );
@@ -725,7 +684,7 @@ mod tests {
                 end_tag: None,
                 intermediate_tags: Cow::Borrowed(&[]),
                 body_analysis: BodyAnalysis::Analyze,
-                role: None,
+                meaning: TagMeaning::default(),
                 extracted_rules: None,
             },
         );
@@ -739,7 +698,7 @@ mod tests {
                 }),
                 intermediate_tags: Cow::Borrowed(&[]),
                 body_analysis: BodyAnalysis::Analyze,
-                role: None,
+                meaning: TagMeaning::default(),
                 extracted_rules: None,
             },
         );
@@ -832,7 +791,7 @@ mod tests {
                     name: "middle".into(),
                 }]),
                 body_analysis: BodyAnalysis::Opaque,
-                role: None,
+                meaning: TagMeaning::default(),
                 extracted_rules: None,
             },
         );
@@ -1049,7 +1008,7 @@ mod tests {
         assert_eq!(myblock.intermediate_tags.len(), 1);
         assert_eq!(myblock.intermediate_tags[0].name.as_ref(), "mymiddle");
         assert_eq!(myblock.module.as_ref(), "myapp.templatetags.custom");
-        assert_eq!(myblock.role, None);
+        assert_eq!(myblock.role(), None);
     }
 
     #[test]

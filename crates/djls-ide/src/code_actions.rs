@@ -16,6 +16,7 @@ use crate::ext::QuickFixActionExt;
 use crate::ext::SpanExt;
 use crate::ext::Utf8PathExt;
 use crate::imports::leading_imports;
+use crate::imports::tag_role_at;
 
 #[must_use]
 #[expect(
@@ -53,6 +54,7 @@ pub fn code_actions(
     let config = db.diagnostics_config();
     let uri = file.path(db).to_lsp_uri()?;
     let nodelist = parsed.nodelist(db);
+    let role_at = |node: &djls_templates::Node| tag_role_at(db, file, parsed, node);
 
     let mut actions = Vec::new();
     for error_acc in errors {
@@ -78,8 +80,8 @@ pub fn code_actions(
                 else {
                     continue;
                 };
-                let insertion_offset =
-                    leading_imports(nodelist, source_text).load_insertion_offset(source_text);
+                let insertion_offset = leading_imports(nodelist, source_text, &role_at)
+                    .load_insertion_offset(source_text);
                 let edit =
                     load_tag_edit(source_text, line_index, encoding, insertion_offset, library);
                 actions.push(vec![edit].to_quick_fix_action(
@@ -96,8 +98,8 @@ pub fn code_actions(
                 else {
                     continue;
                 };
-                let insertion_offset =
-                    leading_imports(nodelist, source_text).load_insertion_offset(source_text);
+                let insertion_offset = leading_imports(nodelist, source_text, &role_at)
+                    .load_insertion_offset(source_text);
                 let mut libraries = libraries.iter().map(String::as_str).collect::<Vec<_>>();
                 libraries.sort_unstable();
                 libraries.dedup();

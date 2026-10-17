@@ -46,6 +46,14 @@ _Avoid_: Django Discovery, refresh, indexing mode
 Source-based **Django Discovery** that derives **Project Facts** from source files without executing project code.
 _Avoid_: introspection, runtime analysis, import-time analysis
 
+**Extraction Gap**:
+A Django fact that **Static Extraction** cannot prove from a compile function, such as behavior that lives in a render-time node class or in Django's Lexer.
+_Avoid_: missing extraction, unsupported tag, builtin
+
+**Fallback Rule**:
+A hand-written Django fact in the Django knowledge crate that fills one **Extraction Gap**, targets a Django compile function by canonical module and name (or a tag name when Django's Lexer keys on it), and cites bundled Django source as evidence.
+_Avoid_: builtin spec, hand table, override
+
 **Django/Template Semantic Boundary**:
 Observed Django facts — including Python source facts and **Template Resolution** — belong to the Django knowledge crate (`djls-django-semantic`; today `djls-project`); template meaning — fusion, validity, availability, diagnostics, and template-domain relationships — belongs to the template analysis crate (`djls-template-semantic`; today `djls-semantic`). Facts flow into template meaning, never back. Only the python **Subject Crates** parse Python source. What **Template Context** a view provides is a Django fact; checking **Template Variables** against it is template meaning. Inside the Django knowledge crate, code is organized by **Fact Family** rather than by generic fact/extraction buckets.
 _Avoid_: Project/Semantic Boundary, classifying ownership by whether a type's name sounds semantic
@@ -304,6 +312,7 @@ _Avoid_: retrofitting subject-layer names onto infrastructure
 - A **Django Environment** is rooted at a directory and configured by a **Django Settings Module**.
 - **Django Discovery** builds **Project Facts**.
 - **Static Extraction** contributes source-derived **Project Facts** without executing project code.
+- A **Fallback Rule** fills an **Extraction Gap** and never replaces an extracted fact; template meaning consumes both without adding Django facts of its own.
 - **Project Introspection** is historical terminology for the removed runtime-backed discovery path.
 - A **Model Graph** describes relationships between **Django Models**.
 - A **Template Directory** may contain **Templates** directly or under nested directories.
@@ -370,7 +379,7 @@ _Avoid_: retrofitting subject-layer names onto infrastructure
 - "Intermediate Tag" is DJLS glossary language for tags such as `elif`, `else`, `empty`, and `plural`; Django often describes these as clauses or parser stop tokens instead.
 - "Loader Tag" is source-derived and overloaded by Django's `loader_tags.py`; resolved: use **Reference Tag** roles such as **Template Reference Tag** and **Library Reference Tag**.
 - "Standalone Tag" is DJLS glossary language rather than Django's public terminology; resolved: use it for **Tag Definitions** with no body or closing tag.
-- "Control Tag" exists in current implementation language but is not canonical domain vocabulary until DJLS has behavior that depends on that semantic distinction.
+- "Control Tag" was implementation language for a **Block Tag** without a **Tag Role**; resolved: not canonical, and the code no longer uses it.
 - **Tag and Filter Availability** follows Django's builtin and `{% load %}` rules; DJLS classifies availability only to explain those rules at a template position.
 - **Template Context** is a Django runtime concept; DJLS has limited knowledge of it because the language server does not render templates and does not yet infer template variable types.
 - Specific named tags use the `<Name> Template Tag` pattern when the name matters; resolved: define only names with domain significance or ambiguity, such as **Block Template Tag**.
@@ -383,7 +392,6 @@ _Avoid_: retrofitting subject-layer names onto infrastructure
 - Some code and docs use "block tag" for any paired tag with contents; this glossary uses **Block Tag** for the structural category and **Block Template Tag** for the specific `{% block %}` tag.
 - Current code uses symbol language for tag/filter inventory; this glossary calls those known library and builtin facts **Tag Definitions** and **Filter Definitions**.
 - Current code and docs may describe intermediate and closing tags as tag names in a **Tag Spec**; this glossary treats them as contextual **Template Tags** rather than independent **Tag Definitions**.
-- Current code and outline snapshots may use `ControlTag`; this glossary does not make **Control Tag** canonical yet.
 - Django groups `block`, `extends`, and `include` in `django.template.loader_tags`, but this glossary uses role terms instead of **Loader Tag** for user-facing domain language.
 - Current crates `djls-project`, `djls-semantic`, and `djls-templates` carry pre-scheme names; this glossary uses the target subject-layer names `djls-django-semantic`, `djls-template-semantic`, and `djls-template-parser`. Renames ride mechanical changes that already touch the affected imports rather than landing standalone.
 - Python parsing, module resolution, and evaluation currently live inside `djls-project`; this glossary assigns them to the python **Subject Crates** (`djls-python-resolution`, `djls-python-semantic`), which do not exist yet.

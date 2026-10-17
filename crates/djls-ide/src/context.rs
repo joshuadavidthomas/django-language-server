@@ -11,15 +11,21 @@ pub(crate) enum CompletionOffsetContext<'source> {
 }
 
 impl<'source> CompletionOffsetContext<'source> {
+    /// `loads_libraries` reports whether a tag name means `TemplateLibraryLoader` at the cursor,
+    /// whose arguments are library names and symbols rather than ordinary Tag Bits.
     pub(crate) fn new(
         kind: FileKind,
         source: &'source str,
         tokens: &[Token],
         offset: Offset,
+        loads_libraries: &dyn Fn(&str) -> bool,
     ) -> Self {
         match kind {
             FileKind::Template => Self::Template(TemplateCompletionContext::from_tokens(
-                source, tokens, offset,
+                source,
+                tokens,
+                offset,
+                loads_libraries,
             )),
             FileKind::Python | FileKind::Other => Self::None,
         }
@@ -67,7 +73,12 @@ pub(crate) enum TemplateCompletionContext<'source> {
 }
 
 impl<'source> TemplateCompletionContext<'source> {
-    fn from_tokens(source: &'source str, tokens: &[Token], offset: Offset) -> Self {
+    fn from_tokens(
+        source: &'source str,
+        tokens: &[Token],
+        offset: Offset,
+        loads_libraries: &dyn Fn(&str) -> bool,
+    ) -> Self {
         let Some(token) = token_at_offset(tokens, offset) else {
             return Self::Text;
         };
@@ -78,7 +89,7 @@ impl<'source> TemplateCompletionContext<'source> {
                 span,
                 delimiter: TagDelimiter::Block,
                 ..
-            } => Self::from_tag(source, *span, offset),
+            } => Self::from_tag(source, *span, offset, loads_libraries),
             Token::Variable { span, .. }
             | Token::Error {
                 span,
@@ -97,7 +108,12 @@ impl<'source> TemplateCompletionContext<'source> {
         }
     }
 
-    fn from_tag(source: &'source str, content_span: Span, offset: Offset) -> Self {
+    fn from_tag(
+        source: &'source str,
+        content_span: Span,
+        offset: Offset,
+        loads_libraries: &dyn Fn(&str) -> bool,
+    ) -> Self {
         let content = content_before_offset(source, content_span, offset);
         let close = TagClose::after_offset(source, offset, content_span);
         let needs_leading_space = content.is_empty() || !content.starts_with(' ');
@@ -121,7 +137,7 @@ impl<'source> TemplateCompletionContext<'source> {
         }
 
         let tag = tokens[0];
-        if tag == "load" {
+        if loads_libraries(tag) {
             return Self::from_load_tag(source, content_span, offset, trimmed, &tokens);
         }
 
@@ -567,8 +583,13 @@ mod tests {
     ) -> R {
         let (source, offset) = source_with_offset_marker(input);
         let tokens = djls_templates::lex_template_impl(source.as_str());
-        let context =
-            CompletionOffsetContext::new(FileKind::Template, source.as_str(), &tokens, offset);
+        let context = CompletionOffsetContext::new(
+            FileKind::Template,
+            source.as_str(),
+            &tokens,
+            offset,
+            &|tag| tag == "load",
+        );
         assert(source.as_str(), context)
     }
 
@@ -577,7 +598,7 @@ mod tests {
         let source = "print('hello')";
 
         assert_eq!(
-            CompletionOffsetContext::new(FileKind::Python, source, &[], Offset::new(0),),
+            CompletionOffsetContext::new(FileKind::Python, source, &[], Offset::new(0), &|_| false),
             CompletionOffsetContext::None,
         );
     }

@@ -9,6 +9,7 @@
 use djls_project::LoadableLibraryLookup;
 use djls_project::ScopedTemplateLibraries;
 use djls_project::ScopedTemplateSymbolLookup;
+use djls_project::TagRole;
 use djls_project::TemplateLibrary;
 use djls_project::TemplateSymbol;
 use djls_project::TemplateSymbolAvailability;
@@ -16,7 +17,6 @@ use djls_project::TemplateSymbolCandidate;
 use djls_project::TemplateSymbolKind;
 use djls_project::template_resolution;
 use djls_semantic::Db as SemanticDb;
-use djls_semantic::TagRole;
 use djls_semantic::TagSpec;
 use djls_semantic::TagSpecs;
 use djls_semantic::effective_symbol_candidate_at;
@@ -505,7 +505,10 @@ pub fn completion(
     let Ok(tokens) = djls_templates::lex_template(db, file) else {
         return None;
     };
-    let context = CompletionOffsetContext::new(*source.kind(), source.as_str(), tokens, offset);
+    let context =
+        CompletionOffsetContext::new(*source.kind(), source.as_str(), tokens, offset, &|tag| {
+            effective_tag_role_at(db, file, offset, tag) == Some(TagRole::TemplateLibraryLoader)
+        });
 
     // Dispatch on the syntax-only cursor context before requesting semantic products. Most
     // completion contexts need either no tag meaning or one occurrence lookup; only tag-name
@@ -587,40 +590,24 @@ pub fn completion(
             prefix,
             suffix,
             close,
-        }) => {
-            if effective_tag_role_at(db, file, offset, "load")
-                == Some(TagRole::TemplateLibraryLoader)
-            {
-                generate_library_name_candidates(
-                    scoped_template_libraries_for_file(db, file),
-                    prefix,
-                    suffix,
-                    *close,
-                )
-            } else {
-                Vec::new()
-            }
-        }
+        }) => generate_library_name_candidates(
+            scoped_template_libraries_for_file(db, file),
+            prefix,
+            suffix,
+            *close,
+        ),
         CompletionOffsetContext::Template(TemplateCompletionContext::LoadSymbol {
             prefix,
             suffix,
             library,
             needs_trailing_space,
-        }) => {
-            if effective_tag_role_at(db, file, offset, "load")
-                == Some(TagRole::TemplateLibraryLoader)
-            {
-                generate_load_symbol_candidates(
-                    prefix,
-                    suffix,
-                    *library,
-                    *needs_trailing_space,
-                    scoped_template_libraries_for_file(db, file),
-                )
-            } else {
-                Vec::new()
-            }
-        }
+        }) => generate_load_symbol_candidates(
+            prefix,
+            suffix,
+            *library,
+            *needs_trailing_space,
+            scoped_template_libraries_for_file(db, file),
+        ),
         CompletionOffsetContext::Template(TemplateCompletionContext::Filter { prefix }) => {
             generate_filter_candidates(
                 db,
@@ -1021,7 +1008,6 @@ mod tests {
     use djls_project::TemplateLibraryCatalog;
     use djls_project::TemplateSymbol;
     use djls_project::TemplateSymbolName;
-    use djls_semantic::EndTag;
     use djls_semantic::ParameterRequirement;
     use djls_semantic::TagArgument;
     use djls_semantic::TagArgumentKind;
@@ -1177,20 +1163,10 @@ mod tests {
     }
 
     fn block_tag_spec() -> TagSpec {
-        TagSpec::new(
-            Cow::Borrowed("test.tags"),
-            Some(EndTag {
-                name: Cow::Borrowed("endblock"),
-                required: true,
-            }),
-            Cow::Borrowed(&[]),
-            djls_semantic::BodyAnalysis::Analyze,
-        )
-        .with_argument_syntax(TagArgumentSyntax::Parameters(vec![TagArgument {
-            name: "name".to_string(),
-            requirement: ParameterRequirement::Required,
-            kind: TagArgumentKind::Variable,
-        }]))
+        djls_semantic::bundled_django_tag_specs()
+            .get("block")
+            .cloned()
+            .expect("bundled Django defines block")
     }
 
     #[test]
@@ -1410,7 +1386,7 @@ mod tests {
     #[test]
     fn template_name_candidates_are_role_and_position_gated() {
         let db = TestDatabase::new();
-        let tag_specs = djls_semantic::builtin_tag_specs();
+        let tag_specs = djls_semantic::bundled_django_tag_specs();
 
         let prefix = prefix("");
         let suffix = suffix("", 0);

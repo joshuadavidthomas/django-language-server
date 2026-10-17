@@ -2,8 +2,42 @@
 source: crates/djls-project/tests/corpus.rs
 expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
 ---
-definitions: {}
-symbols_are_unobserved: true
-tag_rules: {}
+definitions:
+  "tag::url":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
+tag_rules:
+  "simple_history.templatetags.simple_history_compat::tag::url":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Min: 2
+        message:
+          PercentFormat:
+            template: "'%s' takes at least one argument, a URL pattern name."
+            args:
+              - SplitElement:
+                  Forward: 0
+    argument_syntax:
+      Parameters:
+        - name: arg1
+          requirement: required
+          kind: Variable
+    as_var: strip
 filter_arities: {}
 block_specs: {}
+tag_meanings:
+  "simple_history.templatetags.simple_history_compat::tag::url":
+    role:
+      - route_reference
+      - fallback
+    fallbacks:
+      - gap: URLNode reverses the route at render time; extraction does not model URL resolution.
+        path: django/template/defaulttags.py
+        line: 1440

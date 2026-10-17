@@ -1,5 +1,6 @@
 use djls_project::TagArgumentPattern;
 use djls_project::TagArgumentPatternKind;
+use djls_project::TagRole;
 use djls_semantic::ArgumentFormCoverage;
 use djls_semantic::TagArgument;
 use djls_semantic::TagArgumentKind;
@@ -178,10 +179,14 @@ pub(crate) fn has_full_argument_snippet(spec: &TagSpec) -> bool {
 /// Generate a complete LSP snippet for a tag including the tag name and closing tag if needed
 #[must_use]
 pub(crate) fn generate_snippet_for_tag_with_end(tag_name: &str, spec: &TagSpec) -> String {
-    // Special handling for block tag to mirror the name in endblock
-    if tag_name == "block" {
-        let snippet = String::from("block ${1:name} %}\n$0\n{% endblock ${1} %}");
-        return snippet;
+    // An Inheritance Block's closer may repeat its name, so mirror it.
+    if spec.role() == Some(TagRole::TemplateBlock)
+        && let Some(end_tag) = &spec.end_tag
+    {
+        return format!(
+            "{tag_name} ${{1:name}} %}}\n$0\n{{% {} ${{1}} %}}",
+            end_tag.name
+        );
     }
 
     let mut snippet = generate_snippet_for_tag(tag_name, spec);
@@ -431,21 +436,15 @@ mod tests {
 
     #[test]
     fn test_snippet_for_block_tag() {
-        use std::borrow::Cow;
+        let spec = djls_semantic::bundled_django_tag_specs()
+            .get("block")
+            .expect("bundled Django defines block");
 
-        let spec = TagSpec::new(
-            "django.template.loader_tags".into(),
-            Some(EndTag {
-                name: "endblock".into(),
-                required: true,
-            }),
-            Cow::Borrowed(&[]),
-            djls_semantic::BodyAnalysis::Analyze,
-        )
-        .with_argument_syntax(TagArgumentSyntax::Parameters(vec![make_var("name", true)]));
-
-        let snippet = generate_snippet_for_tag_with_end("block", &spec);
+        let snippet = generate_snippet_for_tag_with_end("block", spec);
         assert_eq!(snippet, "block ${1:name} %}\n$0\n{% endblock ${1} %}");
+        // The role, not the spelling, mirrors the name into the closer.
+        let renamed = generate_snippet_for_tag_with_end("section", spec);
+        assert_eq!(renamed, "section ${1:name} %}\n$0\n{% endblock ${1} %}");
     }
 
     #[test]

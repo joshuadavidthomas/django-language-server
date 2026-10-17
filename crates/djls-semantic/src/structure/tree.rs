@@ -3,6 +3,8 @@ use djls_templates::Filter;
 use djls_templates::TagBit;
 use serde::Serialize;
 
+use crate::tags::BodyAnalysis;
+
 #[salsa::tracked]
 pub struct TemplateTree<'db> {
     #[returns(copy)]
@@ -168,6 +170,7 @@ pub enum TemplateNode {
         bits: Vec<TagBit>,
         full_span: Span,
         body_span: Span,
+        body_analysis: BodyAnalysis,
     },
     StandaloneTag {
         tag: String,

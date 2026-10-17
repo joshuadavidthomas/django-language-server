@@ -27,6 +27,23 @@
 ✓ no diagnostics
 ```
 
+### a named verbatim block ends only at its matching closer
+
+```htmldjango
+{% verbatim myblock %}
+  {% endverbatim %}{% if and hidden %}
+{% endverbatim myblock %}
+{% if and shown %}{% endif %}
+```
+
+```snapshot
+error[S114]: Not expecting 'and' in this position in if tag.
+ --> test.html:4:1
+  |
+4 | {% if and shown %}{% endif %}
+  | ^^^^^^^^^^^^^^^^^^
+```
+
 ## extracted verbatim stays opaque while custom bodies stay active
 
 `settings.py`:

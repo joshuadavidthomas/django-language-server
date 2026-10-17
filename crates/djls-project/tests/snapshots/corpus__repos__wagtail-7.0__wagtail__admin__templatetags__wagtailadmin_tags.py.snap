@@ -962,6 +962,8 @@ filter_arities:
   "wagtail.admin.templatetags.wagtailadmin_tags::filter::fieldtype": no_argument
   "wagtail.admin.templatetags.wagtailadmin_tags::filter::format_content_type": no_argument
   "wagtail.admin.templatetags.wagtailadmin_tags::filter::has_unrendered_errors": no_argument
+  "wagtail.admin.templatetags.wagtailadmin_tags::filter::intcomma": optional_argument
+  "wagtail.admin.templatetags.wagtailadmin_tags::filter::naturaltime": no_argument
   "wagtail.admin.templatetags.wagtailadmin_tags::filter::render_with_errors": no_argument
   "wagtail.admin.templatetags.wagtailadmin_tags::filter::timesince_simple": no_argument
   "wagtail.admin.templatetags.wagtailadmin_tags::filter::user_display_name": no_argument
