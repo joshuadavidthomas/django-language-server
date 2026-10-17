@@ -350,7 +350,7 @@ fn eval_pop(receiver: &Expr, split: TokenSplit, args: &Arguments, env: &mut Env)
         ),
         PopPosition::Back => (
             AbstractValue::SplitElement {
-                index: SplitPosition::Backward(split.back_offset() + 1),
+                index: split.resolve_backward_index(1),
             },
             AbstractValue::SplitResult(split.after_pop_back()),
         ),
@@ -372,24 +372,18 @@ fn eval_pop(receiver: &Expr, split: TokenSplit, args: &Arguments, env: &mut Env)
 
 /// Convert an i64 to an `AbstractValue` index element based on sign.
 ///
-/// Positive indices use `TokenSplit::resolve_index` to account for front offset.
-/// Negative indices map directly to `SplitPosition::Backward`.
+/// Both directions resolve through the split so earlier front and back
+/// removals keep pointing at the original token position.
 fn i64_to_index_element(n: i64, split: &TokenSplit) -> AbstractValue {
-    if n >= 0 {
-        let Ok(index) = usize::try_from(n) else {
-            return AbstractValue::Unknown;
-        };
-        AbstractValue::SplitElement {
-            index: split.resolve_index(index),
-        }
+    let Ok(index) = usize::try_from(n.unsigned_abs()) else {
+        return AbstractValue::Unknown;
+    };
+    let index = if n >= 0 {
+        split.resolve_index(index)
     } else {
-        let Ok(index) = usize::try_from(n.unsigned_abs()) else {
-            return AbstractValue::Unknown;
-        };
-        AbstractValue::SplitElement {
-            index: SplitPosition::Backward(index),
-        }
-    }
+        split.resolve_backward_index(index)
+    };
+    AbstractValue::SplitElement { index }
 }
 
 /// Evaluate subscript access on an abstract value.
@@ -415,38 +409,7 @@ fn eval_subscript(base: &AbstractValue, slice: &Expr, env: &mut Env) -> Abstract
         return AbstractValue::Unknown;
     };
 
-    // bits[N] or bits[-N]
-    if let Expr::NumberLiteral(ExprNumberLiteral {
-        value: Number::Int(int_val),
-        ..
-    }) = slice
-    {
-        return int_val
-            .as_i64()
-            .map_or(AbstractValue::Unknown, |n| i64_to_index_element(n, split));
-    }
-
-    // bits[unary -N]
-    if let Expr::UnaryOp(unary) = slice
-        && matches!(unary.op, ruff_python_ast::UnaryOp::USub)
-    {
-        if let Expr::NumberLiteral(ExprNumberLiteral {
-            value: Number::Int(int_val),
-            ..
-        }) = unary.operand.as_ref()
-            && let Some(n) = int_val.as_i64()
-        {
-            let Ok(index) = usize::try_from(n.unsigned_abs()) else {
-                return AbstractValue::Unknown;
-            };
-            return AbstractValue::SplitElement {
-                index: SplitPosition::Backward(index),
-            };
-        }
-        return AbstractValue::Unknown;
-    }
-
-    // bits[N:], bits[:N], bits[:-N]
+    // bits[N:], bits[:-M], bits[N:-M], or bits[:]
     if let Expr::Slice(ExprSlice {
         lower, upper, step, ..
     }) = slice
@@ -454,37 +417,29 @@ fn eval_subscript(base: &AbstractValue, slice: &Expr, env: &mut Env) -> Abstract
         if step.is_some() {
             return AbstractValue::Unknown;
         }
-
-        return match (lower.as_deref(), upper.as_deref()) {
-            // bits[N:] — slice from N onwards
-            (Some(lower_expr), None) => lower_expr
-                .non_negative_integer()
-                .map_or(AbstractValue::Unknown, |n| {
-                    AbstractValue::SplitResult(split.after_slice_from(n))
-                }),
-            // bits[N:-M] — retain the bounded middle of the original split.
-            (Some(lower_expr), Some(upper_expr)) => {
-                let Some(lower) = lower_expr.non_negative_integer() else {
-                    return AbstractValue::Unknown;
-                };
-                let AbstractValue::Int(upper) = eval_expr(upper_expr, env) else {
-                    return AbstractValue::Unknown;
-                };
-                if upper >= 0 {
-                    return AbstractValue::Unknown;
-                }
-                let Ok(back) = usize::try_from(upper.unsigned_abs()) else {
-                    return AbstractValue::Unknown;
-                };
-                let mut middle = split.after_slice_from(lower);
-                for _ in 0..back {
-                    middle = middle.after_pop_back();
-                }
-                AbstractValue::SplitResult(middle)
-            }
-            // bits[:N], bits[:-N], or bits[:] — truncation, preserve offset
-            (None, _) => AbstractValue::SplitResult(*split),
+        let lower = match lower.as_deref() {
+            Some(lower) => lower.non_negative_integer(),
+            None => Some(0),
         };
+        let Some(lower) = lower else {
+            return AbstractValue::Unknown;
+        };
+        let mut sliced = split.after_slice_from(lower);
+        if let Some(upper) = upper.as_deref() {
+            // A non-negative stop keeps a prefix whose length depends on the
+            // invocation, so neither `len()` nor negative indexes stay exact.
+            let AbstractValue::Int(upper) = eval_expr(upper, env) else {
+                return AbstractValue::Unknown;
+            };
+            if upper >= 0 {
+                return AbstractValue::Unknown;
+            }
+            let Ok(back) = usize::try_from(upper.unsigned_abs()) else {
+                return AbstractValue::Unknown;
+            };
+            sliced = sliced.after_slice_back(back);
+        }
+        return AbstractValue::SplitResult(sliced);
     }
 
     // bits[variable] or bits[tracked integer expression]

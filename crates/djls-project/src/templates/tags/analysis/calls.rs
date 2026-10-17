@@ -174,6 +174,7 @@ mod tests {
         let mut source = crate::templates::tags::analysis::TagSourceContext::new(&db, definition);
         let mut ctx = CallContext {
             source: Some(&mut source),
+            manual_as_var_strips: &[],
         };
 
         process_statements(&main_func.body, &mut env, &mut ctx);
@@ -209,6 +210,7 @@ mod tests {
         let mut source = crate::templates::tags::analysis::TagSourceContext::new(&db, definition);
         let mut ctx = CallContext {
             source: Some(&mut source),
+            manual_as_var_strips: &[],
         };
 
         process_statements(&main_func.body, &mut env, &mut ctx);
