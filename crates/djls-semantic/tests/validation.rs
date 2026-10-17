@@ -583,6 +583,63 @@ fn configured_arguments_fill_a_kwargs_only_simple_tag() {
 }
 
 #[test]
+fn configured_arguments_fill_a_rule_that_only_records_consumption() {
+    let mut db = TestDatabase::new();
+    let tag_specs: TagSpecDef = serde_json::from_value(serde_json::json!({
+        "libraries": [{
+            "module": "manual_tags",
+            "tags": [{
+                "name": "pick",
+                "type": "standalone",
+                "args": [{
+                    "name": "size",
+                    "kind": "choice",
+                    "extra": {"choices": ["small", "large"]}
+                }]
+            }]
+        }]
+    }))
+    .expect("configured argument fixture should deserialize");
+    let project = ProjectFixture::new("/proj")
+        .tag_specs(tag_specs)
+        .settings(&ProjectSettings {
+            dirs: vec!["/proj/templates".to_string()],
+            libraries: BTreeMap::from([("manual".to_string(), "manual_tags".to_string())]),
+            ..ProjectSettings::default()
+        })
+        .file(
+            "/proj/manual_tags.py",
+            "from django import template\nregister = template.Library()\n@register.tag\ndef pick(parser, token):\n    bits = token.split_contents()\n    return template.Node(parser.compile_filter(bits[1]))\n",
+        )
+        .file("/proj/templates/page.html", "{% load manual %}{% pick small %}")
+        .install(&mut db)
+        .expect("manual tag project fixture should install");
+
+    let library =
+        ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
+            .resolved_libraries()
+            .into_iter()
+            .find(|library| library.module_name_str() == "manual_tags")
+            .expect("manual Template Library should resolve");
+    let spec = library_tag_specs(&db, project, library.id())
+        .get("pick")
+        .cloned()
+        .expect("manual tag should have an effective spec");
+
+    assert!(
+        matches!(
+            spec.argument_syntax(),
+            TagArgumentSyntax::Parameters(parameters)
+                if parameters.len() == 1
+                    && parameters[0].kind
+                        == TagArgumentKind::Choice(vec!["small".to_string(), "large".to_string()])
+        ),
+        "{:?}",
+        spec.argument_syntax()
+    );
+}
+
+#[test]
 fn configured_fallback_does_not_weaken_empty_trusted_signatures() {
     let mut db = TestDatabase::new();
     let tag_specs: TagSpecDef = serde_json::from_value(serde_json::json!({

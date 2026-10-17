@@ -14,6 +14,20 @@ definitions:
     has_doc: false
 symbols_are_unobserved: false
 tag_rules:
+  "allauth.templatetags.allauth::tag::element":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax: Unknown
+    argument_consumption:
+      - bits:
+          first:
+            Forward: 1
+          last:
+            Backward: 1
+        consumption: optional_keyword_expression
+    as_var: keep
   "allauth.templatetags.allauth::tag::setvar":
     arg_constraints:
       - Exact: 2

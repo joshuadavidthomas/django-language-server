@@ -41,6 +41,7 @@ use crate::python::RecoveredPythonModule;
 use crate::python::import::DirectImportClause;
 use crate::python::import::FromImportSyntax;
 use crate::templates::tags::TagSourceContext;
+use crate::templates::tags::module_static_bindings;
 
 /// Information about a single tag or filter registration found in source code.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1871,16 +1872,18 @@ pub fn template_library_structure_facts<'db>(
         {
             continue;
         }
-        let Some(func) = descriptor
+        let Some((definition, func)) = descriptor
             .function
             .as_ref()
-            .and_then(|definition| definition.statement(db))
+            .and_then(|definition| Some((definition, definition.statement(db)?)))
         else {
             continue;
         };
-        if let Some(block_spec) = descriptor
-            .kind
-            .extract_block_spec(func, &descriptor.options)
+        let static_bindings = module_static_bindings(db, definition.file());
+        if let Some(block_spec) =
+            descriptor
+                .kind
+                .extract_block_spec(func, Some(static_bindings), &descriptor.options)
         {
             let end_tag = match block_spec.end_tag {
                 EndTagEvidence::Literal(end_tag) => Some(end_tag),

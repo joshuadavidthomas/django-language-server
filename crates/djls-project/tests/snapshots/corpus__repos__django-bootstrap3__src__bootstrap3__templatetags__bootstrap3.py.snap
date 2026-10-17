@@ -317,6 +317,20 @@ tag_rules:
         positional_only: 0
         variadic_keyword: ~
     as_var: strip
+  "bootstrap3.templatetags.bootstrap3::tag::buttons":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax: Unknown
+    argument_consumption:
+      - bits:
+          first:
+            Forward: 1
+          last:
+            Backward: 3
+        consumption: optional_keyword_expression
+    as_var: keep
 filter_arities:
   "bootstrap3.templatetags.bootstrap3::filter::bootstrap_message_classes": no_argument
   "bootstrap3.templatetags.bootstrap3::filter::bootstrap_setting": no_argument

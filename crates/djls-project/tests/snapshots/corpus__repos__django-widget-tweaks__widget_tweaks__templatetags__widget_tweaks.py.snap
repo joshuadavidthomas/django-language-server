@@ -40,7 +40,21 @@ definitions:
     kind: tag
     has_doc: false
 symbols_are_unobserved: false
-tag_rules: {}
+tag_rules:
+  "widget_tweaks.templatetags.widget_tweaks::tag::render_field":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax: Unknown
+    argument_consumption:
+      - bits:
+          first:
+            Forward: 1
+          last:
+            Forward: 1
+        consumption: expression
+    as_var: keep
 filter_arities:
   "widget_tweaks.templatetags.widget_tweaks::filter::field_type": no_argument
   "widget_tweaks.templatetags.widget_tweaks::filter::widget_type": no_argument

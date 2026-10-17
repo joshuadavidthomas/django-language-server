@@ -29,9 +29,23 @@ tag_rules:
         - name: arg1
           requirement: required
           kind: Variable
+          consumption: expression
         - name: arg2
           requirement: required
           kind: Variable
+    argument_consumption:
+      - bits:
+          first:
+            Forward: 1
+          last:
+            Forward: 1
+        consumption: expression
+      - bits:
+          first:
+            Forward: 3
+          last:
+            Backward: 2
+        consumption: expression
     as_var: keep
 filter_arities: {}
 block_specs:
