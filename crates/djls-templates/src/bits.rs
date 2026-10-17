@@ -40,7 +40,7 @@ pub struct FilterArgument {
 
 impl FilterArgument {
     #[must_use]
-    pub(crate) fn new(text: String, span: Span) -> Self {
+    pub fn new(text: String, span: Span) -> Self {
         Self { text, span }
     }
 

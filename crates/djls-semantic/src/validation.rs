@@ -1,13 +1,16 @@
 mod arguments;
+mod expressions;
 mod filters;
 mod if_expressions;
 mod scoping;
 
 use djls_project::TagRole;
 use djls_project::TemplateReferenceKind;
+use djls_templates::Filter;
 
 use crate::TagSpec;
 use crate::db::Db;
+use crate::expressions::consumed_arguments;
 use crate::scoping::TemplateAnalysisProjection;
 use crate::scoping::scoped_filter_facts;
 use crate::structure::ActiveTemplateNode;
@@ -68,21 +71,11 @@ impl<'db> TemplateValidator<'db> {
         let name = tag.tag;
         let bits = tag.bits;
         let span = tag.span;
-        if let Some(opener_name_span) = tag.opener_name_span {
-            let condition = self
-                .projection
-                .scoped_tag_facts(self.db)
-                .for_name_span(opener_name_span)
-                .and_then(|facts| facts.spec.as_ref())
-                .and_then(TagSpec::condition);
-            if condition.is_some_and(|condition| {
-                condition
-                    .intermediates()
-                    .iter()
-                    .any(|intermediate| intermediate == name)
-            }) {
-                if_expressions::check_if_expression_rule(self.db, name, bits, span);
-            }
+        // A captured intermediate has no Tag Spec of its own; its opener's facts say how Django
+        // consumes its bits.
+        let intermediate = tag.opener_name_span.is_some();
+        if intermediate {
+            self.validate_consumed_arguments(tag);
         }
         let Some(facts) = self.projection.scoped_tag_facts(self.db).for_tag(tag) else {
             return;
@@ -139,32 +132,46 @@ impl<'db> TemplateValidator<'db> {
             scoping::check_load_libraries_rule(self.db, &facts.loader_arguments);
         }
 
-        if effective_spec.and_then(TagSpec::condition).is_some() {
-            if_expressions::check_if_expression_rule(self.db, name, bits, span);
+        if !intermediate {
+            self.validate_consumed_arguments(tag);
         }
 
         self.extends_position = self.extends_position.record_non_text();
     }
 
+    fn validate_consumed_arguments(&self, tag: ActiveTemplateTag<'_>) {
+        let consumed = consumed_arguments(self.projection.scoped_tag_facts(self.db), tag);
+        expressions::check_consumed_expressions_rule(self.db, tag.tag, &consumed);
+        for condition in &consumed.conditions {
+            if_expressions::check_if_expression_rule(self.db, tag.tag, condition, tag.span);
+        }
+        for filter in consumed.filters() {
+            self.validate_filter(&filter);
+        }
+    }
+
     fn validate_variable(&mut self, variable: ActiveTemplateVariable<'_>) {
         for filter in variable.filters {
-            let Some(facts) = scoped_filter_facts(self.db, self.projection).for_filter(filter)
-            else {
-                continue;
-            };
-            scoping::check_filter_scoping_rule(
-                self.db,
-                filter,
-                &facts.availability,
-                facts.unknown_load_can_shadow,
-            );
-            if !facts.unknown_load_can_shadow
-                && let Some(arity) = facts.arity
-            {
-                filters::check_filter_arity_rule(self.db, filter, arity);
-            }
+            self.validate_filter(filter);
         }
 
         self.extends_position = self.extends_position.record_non_text();
+    }
+
+    fn validate_filter(&self, filter: &Filter) {
+        let Some(facts) = scoped_filter_facts(self.db, self.projection).for_filter(filter) else {
+            return;
+        };
+        scoping::check_filter_scoping_rule(
+            self.db,
+            filter,
+            &facts.availability,
+            facts.unknown_load_can_shadow,
+        );
+        if !facts.unknown_load_can_shadow
+            && let Some(arity) = facts.arity
+        {
+            filters::check_filter_arity_rule(self.db, filter, arity);
+        }
     }
 }
