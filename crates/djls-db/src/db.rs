@@ -17,7 +17,7 @@ use djls_project::Project;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::FilterAritySpecs;
 use djls_semantic::TagSpecs;
-use djls_semantic::builtin_tag_specs;
+use djls_semantic::django_fallback_tag_specs;
 use djls_source::Db as SourceDb;
 use djls_source::FileSystem;
 #[cfg(test)]
@@ -144,7 +144,7 @@ impl SourceDb for DjangoDatabase {
 #[salsa::db]
 impl SemanticDb for DjangoDatabase {
     fn projectless_tag_specs(&self) -> &TagSpecs {
-        static DEFAULT: LazyLock<TagSpecs> = LazyLock::new(builtin_tag_specs);
+        static DEFAULT: LazyLock<TagSpecs> = LazyLock::new(django_fallback_tag_specs);
         assert!(
             self.project.is_none(),
             "project-backed analysis must derive tag specs from keyed Template Libraries"

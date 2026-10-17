@@ -19,7 +19,7 @@ use djls_semantic::TagArgument;
 use djls_semantic::TagArgumentKind;
 use djls_semantic::TagArgumentSyntax;
 use djls_semantic::TagSpec;
-use djls_semantic::builtin_tag_specs;
+use djls_semantic::django_fallback_tag_specs;
 use djls_source::Offset;
 use djls_source::PositionEncoding;
 use djls_testing::Corpus;
@@ -293,7 +293,7 @@ fn exact_existing_filter_name_completion_does_not_demand_arity() {
 
 #[test]
 fn captured_closer_does_not_offer_colliding_standalone_arguments() {
-    let mut specs = builtin_tag_specs();
+    let mut specs = django_fallback_tag_specs();
     specs.insert(
         "endif".to_string(),
         TagSpec::new(
