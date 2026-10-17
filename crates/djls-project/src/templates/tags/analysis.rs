@@ -19,6 +19,8 @@ use ruff_python_ast::ExprSubscript;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtAssign;
 use ruff_python_ast::StmtFunctionDef;
+use ruff_text_size::Ranged;
+use ruff_text_size::TextRange;
 
 pub(crate) use self::calls::AbstractValueKey;
 pub(crate) use self::state::AbstractValue;
@@ -74,6 +76,20 @@ impl<'db> TagSourceContext<'db> {
 
 pub(crate) struct CallContext<'ctx, 'db> {
     pub source: Option<&'ctx mut TagSourceContext<'db>>,
+    /// Top-level `as varname` strips that make the rule [`AsVar::Strip`].
+    pub manual_as_var_strips: &'ctx [ManualAsVarStrip],
+}
+
+/// A top-level `if ... bits[-2] == "as": ... bits = bits[:-2]` statement.
+///
+/// [`AsVar::Strip`] rules describe the bits left after the semantic layer
+/// removes a trailing `as varname`. The strip slice is therefore the identity
+/// in rule coordinates, and its condition describes the unstripped bits, so
+/// neither may move positions or add facts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ManualAsVarStrip {
+    pub condition: TextRange,
+    pub assignment: TextRange,
 }
 
 /// Results accumulated during statement processing.
@@ -239,7 +255,11 @@ fn analyze_compile_function_with_context(
     if let Some(static_bindings) = static_bindings {
         constants::seed_static_bindings(static_bindings, func, &mut env);
     }
-    let mut ctx = CallContext { source };
+    let manual_as_var_strips = manual_as_var_strips(compile_fn.body);
+    let mut ctx = CallContext {
+        source,
+        manual_as_var_strips: &manual_as_var_strips,
+    };
 
     let (result, _) = statements::process_statements(compile_fn.body, &mut env, &mut ctx);
 
@@ -269,7 +289,7 @@ fn analyze_compile_function_with_context(
     };
 
     let as_var = if !matches!(&argument_syntax, TagArgumentSyntax::Assignments { .. })
-        && supports_manual_as_var_strip(compile_fn.body)
+        && !manual_as_var_strips.is_empty()
     {
         AsVar::Strip
     } else {
@@ -290,22 +310,33 @@ fn analyze_compile_function_with_context(
     }
 }
 
-fn supports_manual_as_var_strip(stmts: &[Stmt]) -> bool {
-    stmts.iter().any(|stmt| {
-        let Stmt::If(stmt_if) = stmt else {
-            return false;
-        };
-        let Some(name) = body_strips_trailing_as_var(&stmt_if.body) else {
-            return false;
-        };
-
-        condition_checks_manual_as_var(stmt_if.test.as_ref(), &name)
-    })
+fn manual_as_var_strips(stmts: &[Stmt]) -> Vec<ManualAsVarStrip> {
+    stmts
+        .iter()
+        .filter_map(|stmt| {
+            let Stmt::If(stmt_if) = stmt else {
+                return None;
+            };
+            let (name, assignment) = body_strips_trailing_as_var(&stmt_if.body)?;
+            condition_checks_manual_as_var(stmt_if.test.as_ref(), name).then_some(
+                ManualAsVarStrip {
+                    condition: stmt_if.range(),
+                    assignment,
+                },
+            )
+        })
+        .collect()
 }
 
-fn body_strips_trailing_as_var(stmts: &[Stmt]) -> Option<String> {
+fn body_strips_trailing_as_var(stmts: &[Stmt]) -> Option<(&str, TextRange)> {
     stmts.iter().find_map(|stmt| {
-        let Stmt::Assign(StmtAssign { targets, value, .. }) = stmt else {
+        let Stmt::Assign(StmtAssign {
+            targets,
+            value,
+            range,
+            ..
+        }) = stmt
+        else {
             return None;
         };
         let [target] = targets.as_slice() else {
@@ -330,7 +361,7 @@ fn body_strips_trailing_as_var(stmts: &[Stmt]) -> Option<String> {
         else {
             return None;
         };
-        (upper.negative_integer() == Some(2)).then(|| target_name.to_string())
+        (upper.negative_integer() == Some(2)).then_some((target_name, *range))
     })
 }
 
@@ -806,6 +837,54 @@ def now(parser, token):
         assert_eq!(
             rule.arg_constraints,
             vec![ArgumentCountConstraint::Exact(2)]
+        );
+    }
+
+    #[test]
+    fn manual_as_var_strip_keeps_later_positions_in_stripped_coordinates() {
+        let rule = analyze_source(
+            r#"
+def pick(parser, token):
+    bits = token.split_contents()
+    if len(bits) >= 4 and bits[-2] == "as":
+        asvar = bits[-1]
+        bits = bits[:-2]
+    if len(bits) != 3 or bits[-1] != "now":
+        raise TemplateSyntaxError("'pick' takes an argument and 'now'")
+"#,
+        );
+
+        assert_eq!(rule.as_var, AsVar::Strip);
+        assert_eq!(
+            rule.arg_constraints,
+            vec![ArgumentCountConstraint::Exact(3)]
+        );
+        assert_eq!(
+            rule.required_keywords,
+            vec![RequiredKeyword {
+                position: SplitPosition::Backward(1),
+                value: "now".to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn and_condition_refines_the_taken_branch() {
+        let rule = analyze_source(
+            r#"
+def move(parser, token):
+    bits = token.split_contents()
+    if len(bits) == 4 and bits[2] == "to":
+        return MoveNode(bits[1], bits[3])
+    if len(bits) != 2:
+        raise TemplateSyntaxError("'move' takes one argument or 'x to y'")
+    return MoveNode(bits[1], None)
+"#,
+        );
+
+        assert_eq!(
+            rule.arg_constraints,
+            vec![ArgumentCountConstraint::OneOf(vec![2, 4])]
         );
     }
 

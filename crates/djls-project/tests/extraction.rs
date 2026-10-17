@@ -12,6 +12,8 @@ use djls_project::FilterArity;
 use djls_project::ParameterRequirement;
 use djls_project::PythonModuleName;
 use djls_project::RemainderPolicy;
+use djls_project::RequiredKeyword;
+use djls_project::SplitPosition;
 use djls_project::SymbolKey;
 use djls_project::TagArgumentKind;
 use djls_project::TagArgumentPatternKind;
@@ -3967,6 +3969,41 @@ def popped(parser, token):
             .arg_constraints
             .contains(&ArgumentCountConstraint::Exact(2))
     }));
+}
+
+#[test]
+fn back_removals_shift_later_negative_indexes() {
+    let source = r#"
+from django import template
+register = template.Library()
+
+@register.tag
+def sliced(parser, token):
+    bits = token.split_contents()
+    bits = bits[:-1]
+    if bits[-1] != "as":
+        raise template.TemplateSyntaxError("expected 'as' before the last argument")
+    return template.Node()
+
+@register.tag
+def popped(parser, token):
+    bits = token.split_contents()
+    bits.pop()
+    if bits[-2] != "as":
+        raise template.TemplateSyntaxError("expected 'as' two before the last argument")
+    return template.Node()
+"#;
+    let result = extract_source(source, "back_removals").expect("fixture should extract");
+    for (tag, distance) in [("sliced", 2), ("popped", 3)] {
+        assert_eq!(
+            result.tag_rules[&SymbolKey::tag("back_removals", tag)].required_keywords,
+            vec![RequiredKeyword {
+                position: SplitPosition::Backward(distance),
+                value: "as".to_string(),
+            }],
+            "{tag}"
+        );
+    }
 }
 
 #[test]

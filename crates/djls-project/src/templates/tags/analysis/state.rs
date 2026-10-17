@@ -57,11 +57,27 @@ impl TokenSplit {
         }
     }
 
+    /// The split after `bits = bits[:-count]` — removes elements from the back.
+    #[must_use]
+    pub(crate) fn after_slice_back(&self, count: usize) -> Self {
+        Self {
+            front_offset: self.front_offset,
+            back_offset: self.back_offset + count,
+        }
+    }
+
     /// Convert a local index (into the current mutated list) to an original
     /// `SplitPosition` by adding the front offset.
     #[must_use]
     pub(crate) fn resolve_index(&self, local: usize) -> SplitPosition {
         SplitPosition::Forward(self.front_offset + local)
+    }
+
+    /// Convert a local negative index (`bits[-distance]`) to an original
+    /// `SplitPosition` by adding the elements already removed from the back.
+    #[must_use]
+    pub(crate) fn resolve_backward_index(&self, distance: usize) -> SplitPosition {
+        SplitPosition::Backward(self.back_offset + distance)
     }
 
     /// Convert a local `len()` measurement to the original argument count.

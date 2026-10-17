@@ -112,6 +112,7 @@ pub(crate) fn analyze_helper(db: &dyn crate::db::Db, call: HelperCall<'_>) -> He
     let mut source = analysis::TagSourceContext::new(db, definition.clone());
     let mut ctx = CallContext {
         source: Some(&mut source),
+        manual_as_var_strips: &[],
     };
 
     let (_, value) = process_statements(&callee.body, &mut callee_env, &mut ctx);
