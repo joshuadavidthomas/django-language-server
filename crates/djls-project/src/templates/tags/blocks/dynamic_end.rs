@@ -24,6 +24,7 @@ use crate::templates::tags::blocks::ExtractedBlockSpec;
 use crate::templates::tags::blocks::is_parser_receiver;
 use crate::templates::tags::blocks::is_tag_name_value;
 use crate::templates::tags::types::BodyAnalysisEvidence;
+use crate::templates::tags::types::ClosingTagArguments;
 
 /// Detect dynamic end-tag patterns: `parser.parse((f"end{tag_name}",))`.
 ///
@@ -42,17 +43,18 @@ pub(super) fn detect(
         end_tag,
         intermediates: Vec::new(),
         body_analysis_evidence: BodyAnalysisEvidence::NotDetected,
+        closing_arguments: ClosingTagArguments::Unchecked,
     })
 }
 
-fn analyze_env(body: &[Stmt], parser_var: &str, token_var: &str) -> Env {
+pub(super) fn analyze_env(body: &[Stmt], parser_var: &str, token_var: &str) -> Env {
     let mut env = Env::for_compile_function(parser_var, token_var);
     let mut ctx = CallContext { source: None };
     let _result = process_statements(body, &mut env, &mut ctx);
     env
 }
 
-fn collect_simple_assignments(body: &[Stmt]) -> Vec<(String, &Expr)> {
+pub(super) fn collect_simple_assignments(body: &[Stmt]) -> Vec<(String, &Expr)> {
     let mut assignments = Vec::new();
     walk_stmts(body, Recurse::ControlFlow, |stmt| {
         if let Stmt::Assign(StmtAssign { targets, value, .. }) = stmt

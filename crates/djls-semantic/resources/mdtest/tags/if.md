@@ -153,6 +153,16 @@
 ✓ no diagnostics
 ```
 
+### ignores arguments on the closing tag
+
+```htmldjango
+{% if user %}{% elif staff %}{% else %}{% endif user %}
+```
+
+```snapshot
+✓ no diagnostics
+```
+
 ## Invalid
 
 ### rejects expression starting with and

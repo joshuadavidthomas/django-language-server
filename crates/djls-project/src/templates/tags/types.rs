@@ -297,6 +297,34 @@ pub struct BlockSpec {
     pub intermediates: Vec<String>,
     /// Source evidence about whether the compile function skips or parses its body.
     pub body_analysis_evidence: BodyAnalysisEvidence,
+    /// Source evidence about how the compile function checks its closing tag's arguments.
+    #[serde(default, skip_serializing_if = "ClosingTagArguments::is_unchecked")]
+    pub closing_arguments: ClosingTagArguments,
+}
+
+/// How a compile function constrains the arguments of its closing tag.
+///
+/// Django's `Parser.parse` stops at a closing tag by comparing only the first
+/// word of its contents, so closing-tag arguments are accepted and ignored
+/// unless the compile function inspects the closing token itself.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ClosingTagArguments {
+    /// No check on the closing token was found.
+    #[default]
+    Unchecked,
+    /// The closing tag may repeat the opener's argument at `position`, as in
+    /// `do_block`'s `("endblock", "endblock %s" % block_name)`.
+    ///
+    /// `position` counts split contents, so the first argument is `1`.
+    RepeatsOpenerArgument { position: usize },
+}
+
+impl ClosingTagArguments {
+    #[must_use]
+    fn is_unchecked(&self) -> bool {
+        matches!(self, Self::Unchecked)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

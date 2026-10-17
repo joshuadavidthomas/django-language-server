@@ -260,7 +260,7 @@ impl<'grammar> TemplateTreeBuilder<'grammar> {
             None => return false,
         };
         self.capture_closer(closer_name, name_span, closer_bits, full_span);
-        match OpeningContract::validate_close(&frame.bits, closer_bits) {
+        match frame.contract.validate_close(&frame.bits, closer_bits) {
             CloseValidation::Valid => {
                 self.finalize_frame(TreeFrame::Opaque(frame), span, full_span);
             }
@@ -336,7 +336,10 @@ impl<'grammar> TemplateTreeBuilder<'grammar> {
             return;
         };
         self.capture_closer(closer_name, name_span, closer_bits, full_span);
-        match OpeningContract::validate_close(frame.opener_bits(), closer_bits) {
+        match frame
+            .contract()
+            .validate_close(frame.opener_bits(), closer_bits)
+        {
             CloseValidation::Valid => {
                 self.finalize_frame(frame, span, full_span);
             }
