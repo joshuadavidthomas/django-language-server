@@ -50,6 +50,22 @@ _Avoid_: introspection, runtime analysis, import-time analysis
 Observed Django facts — including Python source facts and **Template Resolution** — belong to the Django knowledge crate (`djls-django-semantic`; today `djls-project`); template meaning — fusion, validity, availability, diagnostics, and template-domain relationships — belongs to the template analysis crate (`djls-template-semantic`; today `djls-semantic`). Facts flow into template meaning, never back. Only the python **Subject Crates** parse Python source. What **Template Context** a view provides is a Django fact; checking **Template Variables** against it is template meaning. Inside the Django knowledge crate, code is organized by **Fact Family** rather than by generic fact/extraction buckets.
 _Avoid_: Project/Semantic Boundary, classifying ownership by whether a type's name sounds semantic
 
+**Extracted Fact**:
+A Django template fact that **Static Extraction** derives from Python source, such as a tag registration, **Tag Spec** structure, accepted arguments, **Argument Consumption**, or filter arity. Django's own builtin libraries are Python source and yield Extracted Facts like any other **Template Library**.
+_Avoid_: enrichment, extracted override, discovered spec
+
+**Fallback Rule**:
+A hand-written Django fact used only where an **Extraction Gap** prevents an **Extracted Fact**. A Fallback Rule names its gap and cites evidence: a bundled Django source location or a corpus or extraction snapshot.
+_Avoid_: builtin spec, baseline spec, hardcoded default, manual tag config
+
+**Extraction Gap**:
+A Django template fact that **Static Extraction** cannot yet prove from source, demonstrated by evidence of what extraction currently produces.
+_Avoid_: missing spec, unsupported tag, extraction failure
+
+**Fact Provenance**:
+Where one fact in DJLS's model came from: extracted from source, a **Fallback Rule**, or user configuration. Fact Provenance is per fact; **Definition Source** is per **Tag Definition** or **Filter Definition**.
+_Avoid_: Definition Source, origin, Template Origin
+
 **Project Introspection**:
 Historical runtime-backed **Django Discovery** that asked Django or Python about the configured **Project**. Runtime-backed discovery has been removed from the server; keep this term for older issues, PRs, and release notes.
 _Avoid_: Static Extraction, runtime validation, rendering
@@ -192,6 +208,10 @@ _Avoid_: Tag Bit, Tag Parameter, token
 A semantic input accepted by a **Tag Definition** according to its **Tag Spec**.
 _Avoid_: Tag Argument, Tag Bit, token
 
+**Argument Consumption**:
+How a tag's compile function uses a **Tag Bit**: as an expression compiled with filters, a condition parsed as an `{% if %}`-style expression, a binding that names a new **Template Context** value, or raw text used as-is.
+_Avoid_: argument kind, variable, Tag Bit type
+
 #### Tag roles
 
 Tag roles are independent of tag structure: a **Tag Definition** may be both a **Block Tag** and a **Reference Tag** or **Definition Tag**.
@@ -304,6 +324,9 @@ _Avoid_: retrofitting subject-layer names onto infrastructure
 - A **Django Environment** is rooted at a directory and configured by a **Django Settings Module**.
 - **Django Discovery** builds **Project Facts**.
 - **Static Extraction** contributes source-derived **Project Facts** without executing project code.
+- **Static Extraction** produces **Extracted Facts**; a **Fallback Rule** fills only a proven **Extraction Gap** and never overrides an **Extracted Fact**.
+- Every fact about a **Tag Definition** or **Filter Definition** has a **Fact Provenance**.
+- **Argument Consumption** is an **Extracted Fact** about how a **Tag Bit** becomes a **Tag Argument**.
 - **Project Introspection** is historical terminology for the removed runtime-backed discovery path.
 - A **Model Graph** describes relationships between **Django Models**.
 - A **Template Directory** may contain **Templates** directly or under nested directories.
@@ -312,7 +335,7 @@ _Avoid_: retrofitting subject-layer names onto infrastructure
 - **Template Inheritance** uses **Block Template Tags** to define **Inheritance Blocks**.
 - A **Template Library** provides Django template tags and filters.
 - DJLS represents known template tags as **Tag Definitions** and known template filters as **Filter Definitions**.
-- A **Tag Definition** or **Filter Definition** may have a **Definition Source**, such as a Python implementation, Django builtin, configuration entry, or unknown location.
+- A **Tag Definition** or **Filter Definition** may have a **Definition Source**, such as a Python implementation (including Django's own builtin libraries), a configuration entry, or an unknown location.
 - A **Tag Definition** has a **Tag Spec** and may have a **Tag Role**.
 - A **Filter Definition** has validation facts such as arity, but no role vocabulary yet.
 - **Tag and Filter Availability** may be available, unloaded, ambiguously unloaded, or unknown.
@@ -376,6 +399,7 @@ _Avoid_: retrofitting subject-layer names onto infrastructure
 - Specific named tags use the `<Name> Template Tag` pattern when the name matters; resolved: define only names with domain significance or ambiguity, such as **Block Template Tag**.
 - "Partial Tag" is too ambiguous between tags that define, render, or include partials; resolved: use **Template Partial** for the reusable fragment and existing tag-role terms for tags that interact with it.
 - "Semantic" can mean template analysis (the current `djls-semantic` crate), Python evaluation, or Django fact extraction; resolved: a **Semantic Crate**'s `-semantic` layer means derived knowledge about its named subject, so the subject prefix disambiguates.
+- "Builtin" can mean a Django library preloaded without `{% load %}` or a hand-written DJLS table; resolved: use builtin only for Django's preloaded libraries, which are Python source and yield **Extracted Facts**, and use **Fallback Rule** for hand-written Django facts.
 - **Template Partial** is the canonical term for partials, while "template fragment" may be used in definitions because partials are reusable fragments.
 
 ## Known terminology drift
@@ -386,4 +410,6 @@ _Avoid_: retrofitting subject-layer names onto infrastructure
 - Current code and outline snapshots may use `ControlTag`; this glossary does not make **Control Tag** canonical yet.
 - Django groups `block`, `extends`, and `include` in `django.template.loader_tags`, but this glossary uses role terms instead of **Loader Tag** for user-facing domain language.
 - Current crates `djls-project`, `djls-semantic`, and `djls-templates` carry pre-scheme names; this glossary uses the target subject-layer names `djls-django-semantic`, `djls-template-semantic`, and `djls-template-parser`. Renames ride mechanical changes that already touch the affected imports rather than landing standalone.
+- Hand-written Django tag facts currently live in `djls-semantic` as `django_fallback_tag_specs`, keyed by tag name, and do not yet record the **Extraction Gap** or evidence for each **Fallback Rule**. Merged **Tag Specs** do not record **Fact Provenance**.
+- **Argument Consumption** is not modeled yet: extracted argument kinds named `Variable` are lexical wildcards that match any **Tag Bit**, not proof that the bit is a **Template Variable**.
 - Python parsing, module resolution, and evaluation currently live inside `djls-project`; this glossary assigns them to the python **Subject Crates** (`djls-python-resolution`, `djls-python-semantic`), which do not exist yet.

@@ -1410,7 +1410,7 @@ mod tests {
     #[test]
     fn template_name_candidates_are_role_and_position_gated() {
         let db = TestDatabase::new();
-        let tag_specs = djls_semantic::builtin_tag_specs();
+        let tag_specs = djls_semantic::django_fallback_tag_specs();
 
         let prefix = prefix("");
         let suffix = suffix("", 0);

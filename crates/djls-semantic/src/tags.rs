@@ -21,7 +21,7 @@ pub use specs::EndTag;
 pub use specs::IntermediateTag;
 pub use specs::TagSpec;
 pub use specs::TagSpecs;
-pub use specs::builtin_tag_specs;
+pub use specs::django_fallback_tag_specs;
 
 use crate::db::Db;
 use crate::references::TemplateReferenceKind;
@@ -62,11 +62,11 @@ impl LibraryTagSpecs {
     }
 }
 
-static BUILTIN_TAG_SPECS: LazyLock<TagSpecs> = LazyLock::new(builtin_tag_specs);
+static DJANGO_FALLBACK_TAG_SPECS: LazyLock<TagSpecs> = LazyLock::new(django_fallback_tag_specs);
 
-fn module_builtin_tag_specs(module: &str) -> TagSpecs {
+fn django_fallback_tag_specs_for_module(module: &str) -> TagSpecs {
     TagSpecs::new(
-        BUILTIN_TAG_SPECS
+        DJANGO_FALLBACK_TAG_SPECS
             .iter()
             .filter(|(_, spec)| spec.module() == module)
             .map(|(name, spec)| (name.clone(), spec.clone()))
@@ -74,7 +74,7 @@ fn module_builtin_tag_specs(module: &str) -> TagSpecs {
     )
 }
 
-/// Fuse builtin/manual fallback meaning with one library's extracted Tag facts.
+/// Fuse one library's extracted Tag facts with Django fallback and configured fallback specs.
 #[salsa::tracked(returns(ref))]
 #[allow(clippy::needless_pass_by_value)]
 pub fn library_tag_specs<'db>(
@@ -82,7 +82,7 @@ pub fn library_tag_specs<'db>(
     project: Project,
     key: TemplateLibraryId<'db>,
 ) -> LibraryTagSpecs {
-    let mut specs = module_builtin_tag_specs(key.module(db).as_str());
+    let mut specs = django_fallback_tag_specs_for_module(key.module(db).as_str());
 
     let facts = template_library_tag_facts(db, key);
     if !facts.tag_rules().is_empty() {
@@ -98,16 +98,16 @@ pub fn library_tag_specs<'db>(
 
 /// Structural Tag meaning needed before occurrence-specific detail is demanded.
 ///
-/// Most libraries can derive topology from builtins, Block Specs, and configured fallback without
-/// evaluating Tag Rules. The exceptional merge shape below uses the full product because a Tag
-/// Rule pre-entry changes how an unknown extracted closer combines with configured structure.
+/// Most libraries can derive topology from Block Specs, Django fallback, and configured fallback
+/// without evaluating Tag Rules. The exceptional merge shape below uses the full product because a
+/// Tag Rule pre-entry changes how an unknown extracted closer combines with configured structure.
 #[salsa::tracked(returns(ref))]
 pub(crate) fn library_tag_structure_specs<'db>(
     db: &'db dyn Db,
     project: Project,
     key: TemplateLibraryId<'db>,
 ) -> LibraryTagSpecs {
-    let mut specs = module_builtin_tag_specs(key.module(db).as_str());
+    let mut specs = django_fallback_tag_specs_for_module(key.module(db).as_str());
     let structure = template_library_structure_facts(db, key);
     let configured = configured_library_tag_specs(db, project, key);
     let requires_full_merge = structure
@@ -158,7 +158,7 @@ fn library_fallback_tag_names<'db>(
     key: TemplateLibraryId<'db>,
 ) -> Vec<String> {
     let module = key.module(db);
-    let mut names = BUILTIN_TAG_SPECS
+    let mut names = DJANGO_FALLBACK_TAG_SPECS
         .iter()
         .filter(|(_, spec)| spec.module() == module.as_str())
         .map(|(name, _)| name.clone())
@@ -176,11 +176,11 @@ fn library_fallback_tag_names<'db>(
 #[cfg(test)]
 mod tests {
     use super::TagSpecs;
-    use super::builtin_tag_specs;
-    use super::module_builtin_tag_specs;
+    use super::django_fallback_tag_specs;
+    use super::django_fallback_tag_specs_for_module;
 
     #[test]
-    fn builtin_modules_are_disjoint_and_do_not_share_mutable_specs() {
+    fn django_fallback_modules_are_disjoint_and_do_not_share_mutable_specs() {
         let mut combined = TagSpecs::default();
         for module in [
             "django.template.defaulttags",
@@ -191,18 +191,24 @@ mod tests {
             "django.templatetags.tz",
             "django.templatetags.static",
         ] {
-            let specs = module_builtin_tag_specs(module);
+            let specs = django_fallback_tag_specs_for_module(module);
             assert!(!specs.is_empty());
             assert!(specs.values().all(|spec| spec.module() == module));
             assert!(specs.keys().all(|name| !combined.contains_key(name)));
             combined.merge(specs);
         }
-        assert_eq!(combined, builtin_tag_specs());
-        assert!(module_builtin_tag_specs("custom.templatetags.extras").is_empty());
-        let mut loader = module_builtin_tag_specs("django.template.loader_tags");
+        assert_eq!(combined, django_fallback_tag_specs());
+        assert!(django_fallback_tag_specs_for_module("custom.templatetags.extras").is_empty());
+        let mut loader = django_fallback_tag_specs_for_module("django.template.loader_tags");
         assert!(loader.remove("extends").is_some());
-        assert!(module_builtin_tag_specs("django.template.loader_tags").contains_key("extends"));
-        assert!(!module_builtin_tag_specs("django.template.defaulttags").contains_key("extends"));
+        assert!(
+            django_fallback_tag_specs_for_module("django.template.loader_tags")
+                .contains_key("extends")
+        );
+        assert!(
+            !django_fallback_tag_specs_for_module("django.template.defaulttags")
+                .contains_key("extends")
+        );
     }
 }
 
