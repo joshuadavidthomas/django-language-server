@@ -57,6 +57,20 @@ tag_rules:
         positional_only: 0
         variadic_keyword: kwargs
     as_var: strip
+  "django_tables2.templatetags.django_tables2::tag::render_table":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax: Unknown
+    argument_consumption:
+      - bits:
+          first:
+            Forward: 1
+          last:
+            Forward: 1
+        consumption: expression
+    as_var: keep
 filter_arities:
   "django_tables2.templatetags.django_tables2::filter::table_page_range": required_argument
 block_specs: {}

@@ -65,6 +65,14 @@ tag_rules:
         - name: block_var_token
           requirement: required
           kind: Variable
+          consumption: expression
+    argument_consumption:
+      - bits:
+          first:
+            Forward: 1
+          last:
+            Forward: 1
+        consumption: expression
     as_var: keep
   "wagtail.templatetags.wagtailcore_tags::tag::pageurl":
     arg_constraints: []

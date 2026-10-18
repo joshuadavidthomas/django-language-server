@@ -15,6 +15,7 @@ use ruff_python_ast::InterpolatedStringElement;
 use ruff_python_ast::Operator;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtAssign;
+use ruff_python_ast::StmtFunctionDef;
 use ruff_python_ast::StmtIf;
 
 use crate::ast::ExprExt;
@@ -24,6 +25,7 @@ use crate::templates::tags::analysis::AbstractValue;
 use crate::templates::tags::analysis::Env;
 use crate::templates::tags::analysis::expressions::eval_expr;
 use crate::templates::tags::blocks::dynamic_end;
+use crate::templates::tags::blocks::dynamic_end::FunctionEnv;
 use crate::templates::tags::blocks::is_parser_receiver;
 use crate::templates::tags::blocks::is_token_contents_expr;
 use crate::templates::tags::blocks::next_token::is_next_token_call;
@@ -44,23 +46,24 @@ use crate::templates::tags::types::SplitPosition;
 /// The accepted contents must be exactly the bare closing tag and the closing tag
 /// followed by one opener argument; anything else stays `Unchecked`.
 pub(super) fn detect(
-    body: &[Stmt],
+    func: &StmtFunctionDef,
+    env: &FunctionEnv<'_>,
     parser_var: &str,
-    token_var: &str,
     end_tag: &str,
 ) -> ClosingTagArguments {
+    let body = &func.body;
     let closing_tokens = collect_next_token_targets(body, parser_var);
     if closing_tokens.is_empty() {
         return ClosingTagArguments::Unchecked;
     }
-    let env = dynamic_end::analyze_env(body, parser_var, token_var);
+    let env = env.get();
     let assignments = dynamic_end::collect_simple_assignments(body);
 
     let mut found = ClosingTagArguments::Unchecked;
     walk_stmts(body, Recurse::ControlFlow, |stmt| {
         if let Stmt::If(if_stmt) = stmt
             && let Some(accepted) = rejected_closing_contents(if_stmt, &closing_tokens, parser_var)
-            && let Some(position) = repeated_opener_argument(accepted, &assignments, &env, end_tag)
+            && let Some(position) = repeated_opener_argument(accepted, &assignments, env, end_tag)
         {
             found = ClosingTagArguments::RepeatsOpenerArgument { position };
             return ControlFlow::Break(());
@@ -223,15 +226,18 @@ mod tests {
     use ruff_python_parser::parse_module;
 
     use super::*;
+    use crate::templates::tags::analysis::constants::StaticBindings;
     use crate::templates::tags::testing::django_function;
 
     fn detect_in(source: &str, end_tag: &str) -> ClosingTagArguments {
         let parsed = parse_module(source).expect("valid Python");
         let module = parsed.into_syntax();
-        let Some(Stmt::FunctionDef(func)) = module.body.into_iter().next() else {
+        let bindings = StaticBindings::from_module(&module.body);
+        let Some(Stmt::FunctionDef(func)) = module.body.first() else {
             panic!("expected a function definition");
         };
-        detect(&func.body, "parser", "token", end_tag)
+        let env = FunctionEnv::new(func, Some(&bindings), "parser", "token");
+        detect(func, &env, "parser", end_tag)
     }
 
     #[test]
@@ -239,7 +245,12 @@ mod tests {
         let func = django_function("django/template/defaulttags.py", "do_for")
             .expect("expected Django fixture function should exist");
         assert_eq!(
-            detect(&func.body, "parser", "token", "endfor"),
+            detect(
+                &func,
+                &FunctionEnv::new(&func, None, "parser", "token"),
+                "parser",
+                "endfor"
+            ),
             ClosingTagArguments::Unchecked
         );
     }

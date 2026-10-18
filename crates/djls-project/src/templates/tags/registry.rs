@@ -8,6 +8,7 @@ use crate::templates::registrations::RegisteredEnd;
 use crate::templates::registrations::RegistrationOptions;
 use crate::templates::tags::analysis;
 use crate::templates::tags::analysis::TagSourceContext;
+use crate::templates::tags::analysis::constants::StaticBindings;
 use crate::templates::tags::blocks;
 use crate::templates::tags::signature;
 use crate::templates::tags::types::AsVar;
@@ -82,6 +83,7 @@ impl RegistrationKind {
     pub(crate) fn extract_block_spec(
         self,
         func: &StmtFunctionDef,
+        static_bindings: Option<&StaticBindings>,
         options: &RegistrationOptions,
     ) -> Option<blocks::ExtractedBlockSpec> {
         match self {
@@ -96,7 +98,9 @@ impl RegistrationKind {
                 body_analysis_evidence: BodyAnalysisEvidence::NotDetected,
                 closing_arguments: ClosingTagArguments::Unchecked,
             }),
-            Self::Tag | Self::SimpleTag | Self::InclusionTag => blocks::extract_block_spec(func),
+            Self::Tag | Self::SimpleTag | Self::InclusionTag => {
+                blocks::extract_block_spec_in_module(func, static_bindings)
+            }
         }
     }
 }

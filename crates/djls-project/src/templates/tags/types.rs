@@ -89,6 +89,13 @@ pub struct TagRule {
     /// Accepted argument syntax in template source order.
     #[serde(default)]
     pub argument_syntax: TagArgumentSyntax,
+    /// Tag Bits that every accepting path consumes the same way.
+    ///
+    /// Positions use the rule's coordinates, after any [`AsVar::Strip`].
+    /// Path-correlated consumption lives on [`TagArgumentForm`] atoms instead.
+    /// Bits outside these spans have [`ArgumentConsumption::Unknown`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub argument_consumption: Vec<ConsumedTagBits>,
     /// Support for Django's `{% tag args... as varname %}` form.
     ///
     /// When supported, the evaluator strips trailing `as <varname>` from the
@@ -102,6 +109,13 @@ impl TagRule {
     /// Returns `true` if this rule contains any meaningful constraints or arguments.
     #[must_use]
     pub(crate) fn has_content(&self) -> bool {
+        self.has_argument_rules() || !self.argument_consumption.is_empty()
+    }
+
+    /// Whether the rule constrains which arguments the tag accepts. Argument
+    /// Consumption alone describes accepted bits without constraining them.
+    #[must_use]
+    pub fn has_argument_rules(&self) -> bool {
         !self.arg_constraints.is_empty()
             || !self.required_keywords.is_empty()
             || !self.choice_at_constraints.is_empty()
@@ -184,7 +198,7 @@ pub enum ArgumentCountConstraint {
 /// The evaluator in `djls-semantic` works with `bits` (arguments only, tag name
 /// excluded). Use `to_bits_index(bits_len)` to convert to a 0-based argument
 /// index and resolve backward positions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum SplitPosition {
     /// Absolute position from start (0 = tag name, 1 = first arg, ...)
     Forward(usize),
@@ -225,6 +239,91 @@ impl std::fmt::Display for SplitPosition {
             Self::Backward(n) => write!(f, "-{n}"),
         }
     }
+}
+
+/// Tag Bits from `first` through `last`, inclusive, in `split_contents()`
+/// coordinates. The span is empty when `last` resolves before `first`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct TagBitSpan {
+    pub first: SplitPosition,
+    pub last: SplitPosition,
+}
+
+impl TagBitSpan {
+    #[must_use]
+    pub(crate) const fn single(position: SplitPosition) -> Self {
+        Self {
+            first: position,
+            last: position,
+        }
+    }
+}
+
+/// How a compile function uses a Tag Bit: its Argument Consumption.
+///
+/// `Unknown` means extraction did not prove a use, so the bit gets no
+/// validation.
+/// The interpreter extracts `Expression` and `OptionalKeywordExpression`;
+/// the other kinds name uses that fallback rules may describe.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ArgumentConsumption {
+    #[default]
+    Unknown,
+    /// Compiled as a filter expression, as `parser.compile_filter()` does.
+    Expression,
+    /// Split by Django's `kwarg_re` into an optional `name=` prefix and an
+    /// expression compiled like [`Self::Expression`].
+    OptionalKeywordExpression,
+    /// Parsed as an `{% if %}`-style condition.
+    Condition,
+    /// Names a new template context value.
+    Binding,
+    /// Used as plain text.
+    Raw,
+}
+
+impl ArgumentConsumption {
+    // `skip_serializing_if` passes the field by reference.
+    #[allow(clippy::trivially_copy_pass_by_ref)]
+    #[must_use]
+    pub(crate) const fn is_unknown(&self) -> bool {
+        matches!(self, Self::Unknown)
+    }
+
+    /// The consumption that holds on either of two alternative paths: the
+    /// stricter validation is dropped where the paths disagree.
+    #[must_use]
+    pub(crate) fn join(self, other: Self) -> Self {
+        match (self, other) {
+            (left, right) if left == right => left,
+            (Self::Expression, Self::OptionalKeywordExpression)
+            | (Self::OptionalKeywordExpression, Self::Expression) => {
+                Self::OptionalKeywordExpression
+            }
+            _ => Self::Unknown,
+        }
+    }
+
+    /// The consumption that holds when one path applies both uses to a bit.
+    #[must_use]
+    pub(crate) fn meet(self, other: Self) -> Self {
+        match (self, other) {
+            (left, right) if left == right => left,
+            (Self::Unknown, known) | (known, Self::Unknown) => known,
+            (Self::Expression, Self::OptionalKeywordExpression)
+            | (Self::OptionalKeywordExpression, Self::Expression) => Self::Expression,
+            // Uses the model cannot combine get no validation.
+            _ => Self::Unknown,
+        }
+    }
+}
+
+/// Tag Bits that a compile function consumes the same way.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ConsumedTagBits {
+    pub bits: TagBitSpan,
+    pub consumption: ArgumentConsumption,
 }
 
 /// A keyword that must appear at a specific position in the argument list.
@@ -375,7 +474,8 @@ pub enum TagArgumentSyntax {
     /// binding. Positional parameters come first, followed by an optional
     /// `VarArgs` parameter and keyword-only parameters. `positional_only`
     /// preserves the Python source distinction even though `parse_bits()`
-    /// accepts those names as template keywords.
+    /// accepts those names as template keywords. `parse_bits()` compiles every
+    /// bound value, so each parameter implies [`ArgumentConsumption::Expression`].
     Signature {
         parameters: Vec<TagArgument>,
         positional_only: usize,
@@ -391,6 +491,8 @@ pub enum TagArgumentSyntax {
         length_mismatch_message: Option<ExtractedMessageTemplate>,
     },
     /// A maximal sequence consumed by Django's canonical `token_kwargs` helper.
+    /// `token_kwargs` compiles each assigned value, so values imply
+    /// [`ArgumentConsumption::Expression`].
     Assignments { operand: AssignmentOperand },
 }
 
@@ -467,11 +569,12 @@ impl TagArgumentForm {
         &self.pattern
     }
 
-    /// Merge diagnostic messages when `other` has the same pattern kinds.
+    /// Merge another path's form when it has the same pattern kinds.
     ///
-    /// A message remains attached only when both forms agree on it. Returns
+    /// A message remains attached only when both forms agree on it, and each
+    /// atom keeps only the consumption both paths share. Returns
     /// `false` without changing this form when the pattern shapes differ.
-    pub(crate) fn merge_messages_if_same_shape(&mut self, other: &Self) -> bool {
+    pub(crate) fn merge_if_same_shape(&mut self, other: &Self) -> bool {
         if self.pattern.len() != other.pattern.len()
             || self
                 .pattern
@@ -486,6 +589,7 @@ impl TagArgumentForm {
             if left.mismatch_message != right.mismatch_message {
                 left.mismatch_message = None;
             }
+            left.consumption = left.consumption.join(right.consumption);
         }
         true
     }
@@ -649,14 +753,22 @@ pub struct TagArgumentPattern {
     pub kind: TagArgumentPatternKind,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mismatch_message: Option<ExtractedMessageTemplate>,
+    /// How the compile function uses the bits this atom matches on its path.
+    #[serde(default, skip_serializing_if = "ArgumentConsumption::is_unknown")]
+    pub consumption: ArgumentConsumption,
 }
 
+/// The lexical shape of a form atom.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TagArgumentPatternKind {
+    /// A lexical wildcard that matches any Tag Bit. It does not prove that the
+    /// bit is a Template Variable; see [`TagArgumentPattern::consumption`].
     Variable,
     Literal(String),
     Choice(Vec<String>),
-    VariableWidth { minimum: usize },
+    VariableWidth {
+        minimum: usize,
+    },
     VariableExcept(String),
 }
 
@@ -737,12 +849,17 @@ pub struct TagArgument {
     pub requirement: ParameterRequirement,
     /// The kind of argument
     pub kind: TagArgumentKind,
+    /// How the compile function uses this bit. [`TagArgumentSyntax::Signature`]
+    /// parameters imply [`ArgumentConsumption::Expression`] instead.
+    #[serde(default, skip_serializing_if = "ArgumentConsumption::is_unknown")]
+    pub consumption: ArgumentConsumption,
 }
 
-/// The kind of an extracted argument.
+/// The lexical kind of an extracted argument.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TagArgumentKind {
-    /// A template variable or expression
+    /// A lexical wildcard that matches any Tag Bit. It does not prove that the
+    /// bit is a Template Variable; see [`TagArgument::consumption`].
     Variable,
     /// A literal keyword that must appear exactly as specified
     Literal(String),
@@ -779,6 +896,7 @@ mod tests {
             name: name.to_string(),
             kind,
             mismatch_message: None,
+            consumption: ArgumentConsumption::Unknown,
         }
     }
 
@@ -808,24 +926,27 @@ mod tests {
     }
 
     #[test]
-    fn argument_form_merges_only_messages_for_the_same_shape() {
+    fn argument_form_merges_only_shared_details_for_the_same_shape() {
         let first_message = ExtractedMessageTemplate::Static("first".to_string());
         let second_message = ExtractedMessageTemplate::Static("second".to_string());
         let mut form = TagArgumentForm::new(vec![TagArgumentPattern {
             name: "mode".to_string(),
             kind: TagArgumentPatternKind::Literal("safe".to_string()),
             mismatch_message: Some(first_message.clone()),
+            consumption: ArgumentConsumption::Expression,
         }])
         .expect("one fixed-width atom is valid");
         let same_shape = TagArgumentForm::new(vec![TagArgumentPattern {
             name: "other_name".to_string(),
             kind: TagArgumentPatternKind::Literal("safe".to_string()),
             mismatch_message: Some(second_message),
+            consumption: ArgumentConsumption::Unknown,
         }])
         .expect("one fixed-width atom is valid");
 
-        assert!(form.merge_messages_if_same_shape(&same_shape));
+        assert!(form.merge_if_same_shape(&same_shape));
         assert_eq!(form.pattern[0].mismatch_message, None);
+        assert_eq!(form.pattern[0].consumption, ArgumentConsumption::Unknown);
 
         form.pattern[0].mismatch_message = Some(first_message);
         let before_different_shape = form.clone();
@@ -835,7 +956,7 @@ mod tests {
         )])
         .expect("one fixed-width atom is valid");
 
-        assert!(!form.merge_messages_if_same_shape(&different_shape));
+        assert!(!form.merge_if_same_shape(&different_shape));
         assert_eq!(form, before_different_shape);
     }
 

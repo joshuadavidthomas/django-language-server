@@ -33,6 +33,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - **Internal**: Moved the remaining hand-written Django tag facts into Fallback Rules in `djls-project`, keyed by compile function and citing bundled Django source; `djls-semantic` no longer defines Django tag knowledge.
 - **Internal**: Renamed outline kind `ControlTag` to `BlockTag`.
 - **Internal**: Added a `djls-testing` guard test that fails when production code in `djls-semantic`, `djls-ide`, or `djls-server` compares against a Django tag or filter name taken from bundled-Django extraction, or a `django.` module path, unless an allowlist entry explains why.
+- **Internal**: Recorded Argument Consumption in tag extraction: which Tag Bits a compile function compiles as filter expressions, including `name=` keyword expressions parsed with Django's `kwarg_re`.
 
 ### Fixed
 

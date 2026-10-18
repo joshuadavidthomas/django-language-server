@@ -13,6 +13,48 @@ definitions:
     kind: tag
     has_doc: false
 symbols_are_unobserved: false
-tag_rules: {}
+tag_rules:
+  "pretix.multidomain.templatetags.eventurl::tag::abseventurl":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax: Unknown
+    argument_consumption:
+      - bits:
+          first:
+            Forward: 1
+          last:
+            Forward: 1
+        consumption: expression
+    as_var: keep
+  "pretix.multidomain.templatetags.eventurl::tag::absmainurl":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax: Unknown
+    argument_consumption:
+      - bits:
+          first:
+            Forward: 1
+          last:
+            Forward: 1
+        consumption: expression
+    as_var: keep
+  "pretix.multidomain.templatetags.eventurl::tag::eventurl":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax: Unknown
+    argument_consumption:
+      - bits:
+          first:
+            Forward: 1
+          last:
+            Forward: 1
+        consumption: expression
+    as_var: keep
 filter_arities: {}
 block_specs: {}

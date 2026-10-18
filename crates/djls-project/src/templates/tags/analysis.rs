@@ -23,6 +23,7 @@
 pub(crate) mod calls;
 pub(crate) mod constants;
 pub(crate) mod constraints;
+pub(crate) mod consumption;
 pub(crate) mod exceptions;
 pub(crate) mod expressions;
 pub(crate) mod guards;
@@ -55,6 +56,7 @@ use crate::python::PythonFunctionDefinition;
 use crate::python::PythonSourceLookup;
 use crate::templates::tags::analysis::constraints::ExtractedTagConstraints;
 use crate::templates::tags::analysis::guards::ExtractedRuleFragment;
+use crate::templates::tags::types::ArgumentConsumption;
 use crate::templates::tags::types::ArgumentCountConstraint;
 use crate::templates::tags::types::ArgumentFormCoverage;
 use crate::templates::tags::types::AsVar;
@@ -71,6 +73,7 @@ use crate::templates::tags::types::TagArgumentKind;
 use crate::templates::tags::types::TagArgumentPattern;
 use crate::templates::tags::types::TagArgumentPatternKind;
 use crate::templates::tags::types::TagArgumentSyntax;
+use crate::templates::tags::types::TagBitSpan;
 use crate::templates::tags::types::TagRule;
 use crate::templates::tags::types::UniqueKeyCardinality;
 
@@ -294,11 +297,16 @@ fn analyze_compile_function_with_context(
             ) {
                 forms
             } else {
-                let arguments = extract_arg_names(
+                let mut arguments = extract_arg_names(
                     &env,
                     &result.constraints.required_keywords,
                     &[],
                     &result.constraints.arg_constraints,
+                );
+                project_parameter_consumption(
+                    &env,
+                    &result.constraints.arg_constraints,
+                    &mut arguments,
                 );
                 if arguments.is_empty() {
                     TagArgumentSyntax::Unknown
@@ -328,6 +336,7 @@ fn analyze_compile_function_with_context(
             Some(result.diagnostic_messages)
         },
         argument_syntax,
+        argument_consumption: env.consumed().collect(),
         as_var,
     }
 }
@@ -452,6 +461,33 @@ fn subscript_is_negative_index(expr: &Expr, name: &str, index: usize) -> bool {
     value.name_target() == Some(name) && slice.negative_integer() == Some(index)
 }
 
+/// Parameters sit at fixed forward positions; a span covers one only when it
+/// does at every argument count the constraints accept with that parameter.
+fn project_parameter_consumption(
+    env: &state::Env,
+    arg_constraints: &[ArgumentCountConstraint],
+    arguments: &mut [TagArgument],
+) {
+    let exact = finite_accepted_total_lengths(arg_constraints).and_then(|lengths| {
+        match lengths.as_slice() {
+            [length] => length.checked_sub(1),
+            _ => None,
+        }
+    });
+    let minimum = infer_min_position(arg_constraints).unwrap_or(0);
+    for (index, argument) in arguments.iter_mut().enumerate() {
+        let layout = exact.map_or(
+            consumption::ArgumentLayout::AtLeast(minimum.max(index + 1)),
+            consumption::ArgumentLayout::Exact,
+        );
+        argument.consumption = consumption::consumption_covering(
+            env.consumed(),
+            TagBitSpan::single(SplitPosition::Forward(index + 1)),
+            layout,
+        );
+    }
+}
+
 // Keep fallback grammars small enough to scan in snapshots and completion lists.
 const MAX_DERIVED_ARGUMENT_FORMS: usize = 8;
 
@@ -508,6 +544,11 @@ fn derive_finite_backward_keyword_forms(
                     name,
                     kind,
                     mismatch_message: None,
+                    consumption: consumption::consumption_covering(
+                        env.consumed(),
+                        TagBitSpan::single(SplitPosition::Forward(argument_index + 1)),
+                        consumption::ArgumentLayout::Exact(argument_count),
+                    ),
                 }
             })
             .collect();
@@ -546,6 +587,7 @@ fn derived_argument_name(env: &state::Env, argument_index: usize, argument_count
             | state::AbstractValue::Parser
             | state::AbstractValue::SplitResult(_)
             | state::AbstractValue::SplitElement { .. }
+            | state::AbstractValue::TagBits { .. }
             | state::AbstractValue::SplitLength(_)
             | state::AbstractValue::Int(_)
             | state::AbstractValue::Str(_)
@@ -699,6 +741,7 @@ pub(super) fn extract_arg_names(
                 name: rk.value.clone(),
                 requirement: ParameterRequirement::Required,
                 kind: TagArgumentKind::Literal(rk.value.clone()),
+                consumption: ArgumentConsumption::Unknown,
             });
             continue;
         }
@@ -710,6 +753,7 @@ pub(super) fn extract_arg_names(
                 name: format!("arg{pos}"),
                 requirement: ParameterRequirement::Required,
                 kind: TagArgumentKind::Choice(choice.values.clone()),
+                consumption: ArgumentConsumption::Unknown,
             });
             continue;
         }
@@ -720,6 +764,7 @@ pub(super) fn extract_arg_names(
                 name: name.clone(),
                 requirement: inferred_requirement,
                 kind: TagArgumentKind::Variable,
+                consumption: ArgumentConsumption::Unknown,
             });
             continue;
         }
@@ -729,6 +774,7 @@ pub(super) fn extract_arg_names(
             name: format!("arg{pos}"),
             requirement: inferred_requirement,
             kind: TagArgumentKind::Variable,
+            consumption: ArgumentConsumption::Unknown,
         });
     }
 
@@ -2070,5 +2116,103 @@ def do_tag(parser, token):
 ",
         );
         assert_eq!(rule.argument_syntax, TagArgumentSyntax::Unknown);
+    }
+
+    fn consumed(
+        first: SplitPosition,
+        last: SplitPosition,
+    ) -> crate::templates::tags::types::ConsumedTagBits {
+        crate::templates::tags::types::ConsumedTagBits {
+            bits: TagBitSpan { first, last },
+            consumption: ArgumentConsumption::Expression,
+        }
+    }
+
+    #[test]
+    fn compiled_bits_keep_only_consumption_shared_by_every_accepting_path() {
+        let rule = analyze_source(
+            r"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    target = parser.compile_filter(bits[1])
+    if len(bits) == 3:
+        fallback = parser.compile_filter(bits[2])
+    return Node(target)
+",
+        );
+
+        assert_eq!(
+            rule.argument_consumption,
+            [consumed(
+                SplitPosition::Forward(1),
+                SplitPosition::Forward(1)
+            )]
+        );
+    }
+
+    #[test]
+    fn compiled_split_slices_consume_every_bit_they_iterate() {
+        for source in [
+            r"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    values = [parser.compile_filter(bit) for bit in bits[2:-1]]
+",
+            r"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    values = []
+    for bit in bits[2:-1]:
+        values.append(parser.compile_filter(bit))
+",
+        ] {
+            let rule = analyze_source(source);
+
+            assert_eq!(
+                rule.argument_consumption,
+                [consumed(
+                    SplitPosition::Forward(2),
+                    SplitPosition::Backward(2)
+                )],
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn early_loop_exits_leave_later_bits_unconsumed() {
+        let rule = analyze_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    for bit in bits[1:]:
+        parser.compile_filter(bit)
+        if bit == "only":
+            break
+"#,
+        );
+
+        assert!(rule.argument_consumption.is_empty(), "{rule:#?}");
+    }
+
+    #[test]
+    fn pop_in_a_condition_shifts_later_positions() {
+        let rule = analyze_source(
+            r#"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if bits.pop() == "silent":
+        silent = True
+    target = parser.compile_filter(bits[-1])
+"#,
+        );
+
+        assert_eq!(
+            rule.argument_consumption,
+            [consumed(
+                SplitPosition::Backward(2),
+                SplitPosition::Backward(2)
+            )]
+        );
     }
 }

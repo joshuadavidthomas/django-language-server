@@ -3,11 +3,13 @@ mod specs;
 
 use std::borrow::Cow;
 use std::collections::HashSet;
+use std::sync::Arc;
 use std::sync::LazyLock;
 
 use djls_conf::DjangoVersion;
 use djls_project::Project;
 use djls_project::ScopedTemplateLibraries;
+use djls_project::TagRuleMap;
 use djls_project::TemplateLibraryChainStep;
 use djls_project::TemplateLibraryId;
 use djls_project::TemplateSymbolKind;
@@ -122,11 +124,22 @@ pub fn library_tag_specs<'db>(
     let mut specs = library_fallback_tag_specs(db, key);
 
     let facts = template_library_tag_facts(db, key);
-    if !facts.tag_rules().is_empty() {
-        specs.merge_tag_rules(facts.tag_rules());
+    // A Tag Rule entry changes how an unknown extracted closer combines with
+    // configured structure, so rules that only record Argument Consumption
+    // join after Block Specs and leave structure as it was.
+    let (argument_rules, consumption_rules): (TagRuleMap, TagRuleMap) = facts
+        .tag_rules()
+        .iter()
+        .map(|(key, rule)| (key.clone(), Arc::clone(rule)))
+        .partition(|(_, rule)| rule.has_argument_rules());
+    if !argument_rules.is_empty() {
+        specs.merge_tag_rules(&argument_rules);
     }
     if !facts.block_specs().is_empty() {
         specs.merge_block_specs(facts.block_specs());
+    }
+    if !consumption_rules.is_empty() {
+        specs.merge_tag_rules(&consumption_rules);
     }
     specs.merge_tag_meanings(facts.tag_meanings());
 

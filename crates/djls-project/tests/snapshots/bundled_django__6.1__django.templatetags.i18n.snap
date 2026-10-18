@@ -155,6 +155,7 @@ tag_rules:
         - name: arg2
           requirement: required
           kind: Variable
+          consumption: expression
         - name: as
           requirement: required
           kind:
@@ -162,6 +163,13 @@ tag_rules:
         - name: arg4
           requirement: required
           kind: Variable
+    argument_consumption:
+      - bits:
+          first:
+            Forward: 2
+          last:
+            Forward: 2
+        consumption: expression
     as_var: keep
   "django.templatetags.i18n::tag::get_language_info_list":
     arg_constraints:
@@ -184,6 +192,7 @@ tag_rules:
         - name: arg2
           requirement: required
           kind: Variable
+          consumption: expression
         - name: as
           requirement: required
           kind:
@@ -191,6 +200,13 @@ tag_rules:
         - name: arg4
           requirement: required
           kind: Variable
+    argument_consumption:
+      - bits:
+          first:
+            Forward: 2
+          last:
+            Forward: 2
+        consumption: expression
     as_var: keep
   "django.templatetags.i18n::tag::language":
     arg_constraints:
@@ -213,6 +229,14 @@ tag_rules:
         - name: arg1
           requirement: required
           kind: Variable
+          consumption: expression
+    argument_consumption:
+      - bits:
+          first:
+            Forward: 1
+          last:
+            Forward: 1
+        consumption: expression
     as_var: keep
   "django.templatetags.i18n::tag::trans":
     arg_constraints:
@@ -241,6 +265,14 @@ tag_rules:
         - name: arg1
           requirement: required
           kind: Variable
+          consumption: expression
+    argument_consumption:
+      - bits:
+          first:
+            Forward: 1
+          last:
+            Forward: 1
+        consumption: expression
     as_var: keep
   "django.templatetags.i18n::tag::translate":
     arg_constraints:
@@ -269,6 +301,14 @@ tag_rules:
         - name: arg1
           requirement: required
           kind: Variable
+          consumption: expression
+    argument_consumption:
+      - bits:
+          first:
+            Forward: 1
+          last:
+            Forward: 1
+        consumption: expression
     as_var: keep
 filter_arities:
   "django.templatetags.i18n::filter::language_bidi": no_argument

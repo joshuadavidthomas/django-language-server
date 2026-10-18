@@ -862,6 +862,7 @@ fn evaluate_known_options(
 
 #[cfg(test)]
 mod tests {
+    use djls_project::ArgumentConsumption;
     use djls_project::AsVar;
     use djls_project::ParameterRequirement;
     use djls_project::SplitPosition;
@@ -931,6 +932,7 @@ mod tests {
                         TagArgumentKind::Choice(values) => TagArgumentPatternKind::Choice(values),
                     },
                     mismatch_message: None,
+                    consumption: ArgumentConsumption::Unknown,
                 })
                 .collect(),
         )
@@ -944,11 +946,13 @@ mod tests {
                 name: "one".to_string(),
                 requirement: ParameterRequirement::Required,
                 kind: TagArgumentKind::Variable,
+                consumption: ArgumentConsumption::Unknown,
             },
             TagArgument {
                 name: "two".to_string(),
                 requirement: ParameterRequirement::Optional,
                 kind: TagArgumentKind::Variable,
+                consumption: ArgumentConsumption::Unknown,
             },
         ];
 
@@ -989,16 +993,19 @@ mod tests {
                 name: "values".to_string(),
                 requirement: ParameterRequirement::Optional,
                 kind: TagArgumentKind::VarArgs,
+                consumption: ArgumentConsumption::Unknown,
             },
             TagArgument {
                 name: "required".to_string(),
                 requirement: ParameterRequirement::Required,
                 kind: TagArgumentKind::Keyword,
+                consumption: ArgumentConsumption::Unknown,
             },
             TagArgument {
                 name: "optional".to_string(),
                 requirement: ParameterRequirement::Optional,
                 kind: TagArgumentKind::Keyword,
+                consumption: ArgumentConsumption::Unknown,
             },
         ];
         assert_eq!(
@@ -1018,6 +1025,7 @@ mod tests {
             name: "one".to_string(),
             requirement: ParameterRequirement::Required,
             kind: TagArgumentKind::Variable,
+            consumption: ArgumentConsumption::Unknown,
         }];
         let variadic_keyword = Some("extra".to_string());
         assert_eq!(
@@ -1045,6 +1053,7 @@ mod tests {
                 name: "required_hint".to_string(),
                 requirement: ParameterRequirement::Required,
                 kind: TagArgumentKind::Keyword,
+                consumption: ArgumentConsumption::Unknown,
             }]),
             ..TagRule::default()
         };
@@ -1124,6 +1133,7 @@ mod tests {
             name: "value".to_string(),
             kind: TagArgumentPatternKind::VariableExcept("blocked".to_string()),
             mismatch_message: None,
+            consumption: ArgumentConsumption::Unknown,
         }])
         .expect("a fixed-width excluded-value form is valid");
         let rule = TagRule {

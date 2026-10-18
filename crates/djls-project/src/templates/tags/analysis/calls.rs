@@ -2,11 +2,13 @@
 
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprCall;
+use ruff_python_ast::StmtFunctionDef;
 
 use crate::templates::tags::HelperCall;
 use crate::templates::tags::analysis::CallContext;
 use crate::templates::tags::analysis::state::AbstractValue;
 use crate::templates::tags::analysis::state::Env;
+use crate::templates::tags::analysis::state::TagBitRead;
 use crate::templates::tags::analysis::state::TokenSplit;
 use crate::templates::tags::analyze_helper;
 
@@ -18,6 +20,7 @@ pub(crate) enum AbstractValueKey {
     Parser,
     SplitResult(TokenSplit),
     SplitElement(crate::templates::tags::types::SplitPosition),
+    TagBits(crate::templates::tags::types::TagBitSpan, TagBitRead),
     SplitLength(TokenSplit),
     Int(i64),
     Str(String),
@@ -32,6 +35,7 @@ impl From<&AbstractValue> for AbstractValueKey {
             AbstractValue::Parser => AbstractValueKey::Parser,
             AbstractValue::SplitResult(split) => AbstractValueKey::SplitResult(*split),
             AbstractValue::SplitElement { index } => AbstractValueKey::SplitElement(*index),
+            AbstractValue::TagBits { bits, read } => AbstractValueKey::TagBits(*bits, *read),
             AbstractValue::SplitLength(split) => AbstractValueKey::SplitLength(*split),
             AbstractValue::Int(n) => AbstractValueKey::Int(*n),
             AbstractValue::Str(s) => AbstractValueKey::Str(s.clone()),
@@ -51,6 +55,10 @@ impl From<&AbstractValueKey> for AbstractValue {
             AbstractValueKey::Parser => AbstractValue::Parser,
             AbstractValueKey::SplitResult(split) => AbstractValue::SplitResult(*split),
             AbstractValueKey::SplitElement(index) => AbstractValue::SplitElement { index: *index },
+            AbstractValueKey::TagBits(bits, read) => AbstractValue::TagBits {
+                bits: *bits,
+                read: *read,
+            },
             AbstractValueKey::SplitLength(split) => AbstractValue::SplitLength(*split),
             AbstractValueKey::Int(n) => AbstractValue::Int(*n),
             AbstractValueKey::Str(s) => AbstractValue::Str(s.clone()),
@@ -82,19 +90,19 @@ pub(crate) fn evaluate_source_call(
             ) {
                 return native.evaluate(args, keywords, env);
             }
-            if keywords.is_empty()
-                && !expression
-                    .arguments
-                    .args
-                    .iter()
-                    .any(|arg| matches!(arg, Expr::Starred(_)))
+            if let Some(bound) = definition
+                .statement(db)
+                .and_then(|callee| bind_helper_arguments(callee, expression, args, keywords))
             {
-                let arg_keys = args.iter().map(AbstractValueKey::from).collect::<Vec<_>>();
+                let arg_keys = bound.iter().map(AbstractValueKey::from).collect::<Vec<_>>();
                 let call = HelperCall::new(db, definition, arg_keys);
                 let outcome = analyze_helper(db, call);
                 source
                     .lookup
                     .absorb_evidence(&outcome.consulted_files, outcome.recovered_lookups);
+                for consumed in &outcome.consumption {
+                    env.consume(consumed.bits, consumed.consumption);
+                }
                 value = outcome.value;
             }
         }
@@ -103,6 +111,62 @@ pub(crate) fn evaluate_source_call(
         env.forget_aliases(argument);
     }
     value
+}
+
+/// The helper's positional parameter values, with keyword arguments placed
+/// at their parameters. Parameters left to their defaults stay unknown.
+fn bind_helper_arguments(
+    callee: &StmtFunctionDef,
+    expression: &ExprCall,
+    args: &[AbstractValue],
+    keywords: &[AbstractValue],
+) -> Option<Vec<AbstractValue>> {
+    if expression
+        .arguments
+        .args
+        .iter()
+        .any(|arg| matches!(arg, Expr::Starred(_)))
+    {
+        return None;
+    }
+    if keywords.is_empty() {
+        return Some(args.to_vec());
+    }
+    let mut bound = args.iter().cloned().map(Some).collect::<Vec<_>>();
+    // Helper parameters bind from `args` only, so positional-only ones would
+    // shift every keyword's index.
+    if !callee.parameters.posonlyargs.is_empty() {
+        return None;
+    }
+    for (keyword, value) in expression.arguments.keywords.iter().zip(keywords) {
+        // `**kwargs` hides which parameters it fills.
+        let name = keyword.arg.as_ref()?.as_str();
+        if callee
+            .parameters
+            .kwonlyargs
+            .iter()
+            .any(|parameter| parameter.parameter.name.as_str() == name)
+        {
+            continue;
+        }
+        let index = callee
+            .parameters
+            .args
+            .iter()
+            .position(|parameter| parameter.parameter.name.as_str() == name)?;
+        if bound.len() <= index {
+            bound.resize(index + 1, None);
+        }
+        if bound[index].replace(value.clone()).is_some() {
+            return None;
+        }
+    }
+    Some(
+        bound
+            .into_iter()
+            .map(|value| value.unwrap_or(AbstractValue::Unknown))
+            .collect(),
+    )
 }
 
 #[cfg(test)]

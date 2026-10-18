@@ -76,9 +76,17 @@ tag_rules:
         - name: arg1
           requirement: required
           kind: Variable
+          consumption: expression
         - name: arg2
           requirement: required
           kind: Variable
+    argument_consumption:
+      - bits:
+          first:
+            Forward: 1
+          last:
+            Forward: 1
+        consumption: expression
     as_var: strip
   "utilities.templatetags.helpers::tag::applied_filters":
     arg_constraints: []

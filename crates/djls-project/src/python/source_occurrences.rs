@@ -41,6 +41,7 @@ enum Binding {
     String(String),
     Boolean(bool),
     Function(PythonFunctionDefinition),
+    ModuleLevel(PythonModuleBinding),
     Unknown,
 }
 
@@ -50,6 +51,7 @@ enum ResolvedValue {
     String(String),
     Boolean(bool),
     Function(PythonFunctionDefinition),
+    ModuleBinding(PythonModuleBinding),
 }
 
 #[derive(Clone, Debug)]
@@ -131,6 +133,28 @@ impl PythonFunctionDefinition {
             };
             (function.span() == self.definition_span).then_some(function)
         })
+    }
+}
+
+/// Source identity of the final module-level class or assignment bound to a
+/// name, such as `django.template.base.FilterExpression`. It names the
+/// binding only; the bound value is not evaluated.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct PythonModuleBinding {
+    module: PythonSourceModule,
+    name: String,
+    definition_span: Span,
+}
+
+impl PythonModuleBinding {
+    #[must_use]
+    pub(crate) fn module(&self) -> &PythonSourceModule {
+        &self.module
+    }
+
+    #[must_use]
+    pub(crate) fn name(&self) -> &str {
+        &self.name
     }
 }
 
@@ -301,7 +325,10 @@ impl<'db> PythonSourceLookup<'db> {
         match value {
             Some(ResolvedValue::Function(definition)) => Some(definition),
             Some(
-                ResolvedValue::Module(_) | ResolvedValue::String(_) | ResolvedValue::Boolean(_),
+                ResolvedValue::Module(_)
+                | ResolvedValue::String(_)
+                | ResolvedValue::Boolean(_)
+                | ResolvedValue::ModuleBinding(_),
             )
             | None => None,
         }
@@ -446,7 +473,67 @@ impl<'db> PythonSourceLookup<'db> {
         let resolved = match analysis.resolve_expression(expression, 0) {
             Some(ResolvedValue::Function(definition)) => Some(definition),
             Some(
-                ResolvedValue::Module(_) | ResolvedValue::String(_) | ResolvedValue::Boolean(_),
+                ResolvedValue::Module(_)
+                | ResolvedValue::String(_)
+                | ResolvedValue::Boolean(_)
+                | ResolvedValue::ModuleBinding(_),
+            )
+            | None => None,
+        };
+        self.absorb_evidence(
+            &analysis.consulted_files,
+            usize::from(analysis.recovered_source),
+        );
+        (self.recovered_source_lookups == before)
+            .then_some(resolved)
+            .flatten()
+    }
+
+    /// Resolve the module-level class or assignment that `expression` names
+    /// anywhere in `function`. Only names the function never binds qualify,
+    /// so the module's final binding holds at every statement.
+    pub(crate) fn module_binding_in_function(
+        &mut self,
+        function: &StmtFunctionDef,
+        expression: &Expr,
+    ) -> Option<PythonModuleBinding> {
+        if self.module_source_is_recovered() {
+            return None;
+        }
+        let path = expression.path_segments()?;
+        let root = path.first()?;
+        let scope = ScopeBindings::collect(&function.body);
+        if scope.has_unknown_star_import()
+            || scope.writes.contains_key(root)
+            || scope.globals.contains(root)
+            || scope.nonlocals.contains(root)
+            || function_parameter_names(function).contains(root)
+        {
+            return None;
+        }
+        let before = self.recovered_source_lookups;
+        if self.module_scope.is_none() {
+            let parsed = RecoveredPythonModule::from_file(self.db, self.file).ok()??;
+            let mut analysis = SourceOccurrenceAnalysis::new(
+                self.db,
+                self.project,
+                self.module.clone(),
+                self.file,
+            );
+            analysis.recovered_source = parsed.has_ordinary_syntax_errors(self.db);
+            for statement in parsed.body(self.db) {
+                analysis.apply_statement_effects(statement);
+            }
+            self.module_scope = Some(analysis);
+        }
+        let mut analysis = self.module_scope.clone()?;
+        let resolved = match analysis.resolve_expression(expression, 0) {
+            Some(ResolvedValue::ModuleBinding(binding)) => Some(binding),
+            Some(
+                ResolvedValue::Module(_)
+                | ResolvedValue::String(_)
+                | ResolvedValue::Boolean(_)
+                | ResolvedValue::Function(_),
             )
             | None => None,
         };
@@ -669,6 +756,7 @@ impl<'db> SourceOccurrenceAnalysis<'db> {
                 Binding::String(_)
                 | Binding::Boolean(_)
                 | Binding::Function(_)
+                | Binding::ModuleLevel(_)
                 | Binding::Unknown => false,
             })
             .filter(|(name, _)| expression_escapes_name(expression, name))
@@ -697,7 +785,11 @@ impl<'db> SourceOccurrenceAnalysis<'db> {
                     }
                 }
             }
-            Binding::String(_) | Binding::Boolean(_) | Binding::Function(_) | Binding::Unknown => {}
+            Binding::String(_)
+            | Binding::Boolean(_)
+            | Binding::Function(_)
+            | Binding::ModuleLevel(_)
+            | Binding::Unknown => {}
         }
     }
 
@@ -730,6 +822,7 @@ impl<'db> SourceOccurrenceAnalysis<'db> {
             | Binding::String(_)
             | Binding::Boolean(_)
             | Binding::Function(_)
+            | Binding::ModuleLevel(_)
             | Binding::Unknown => return None,
         };
         let value = self.resolve_module_path(&module, tail, 1)?;
@@ -775,10 +868,14 @@ impl<'db> SourceOccurrenceAnalysis<'db> {
             Binding::Function(function) if tail.is_empty() => {
                 Some(ResolvedValue::Function(function))
             }
+            Binding::ModuleLevel(binding) if tail.is_empty() => {
+                Some(ResolvedValue::ModuleBinding(binding))
+            }
             Binding::LazyFromImport(_)
             | Binding::String(_)
             | Binding::Boolean(_)
             | Binding::Function(_)
+            | Binding::ModuleLevel(_)
             | Binding::Unknown => None,
         }
     }
@@ -928,6 +1025,13 @@ impl<'db> SourceOccurrenceAnalysis<'db> {
                                 .string_literal()
                                 .map(|value| ResolvedValue::String(value.to_string()))
                                 .or_else(|| assign.value.bool_literal().map(ResolvedValue::Boolean))
+                                .or_else(|| {
+                                    Some(ResolvedValue::ModuleBinding(PythonModuleBinding {
+                                        module: source.clone(),
+                                        name: root.clone(),
+                                        definition_span: assign.span(),
+                                    }))
+                                })
                         } else {
                             None
                         };
@@ -966,7 +1070,15 @@ impl<'db> SourceOccurrenceAnalysis<'db> {
                 Stmt::ClassDef(class) => {
                     enum_bindings.remove(class.name.as_str());
                     if class.name.as_str() == root {
-                        value = Self::resolve_enum_member(class, &path[1..], &enum_bindings);
+                        value = if path.len() == 1 {
+                            Some(ResolvedValue::ModuleBinding(PythonModuleBinding {
+                                module: source.clone(),
+                                name: root.clone(),
+                                definition_span: class.span(),
+                            }))
+                        } else {
+                            Self::resolve_enum_member(class, &path[1..], &enum_bindings)
+                        };
                     }
                 }
                 Stmt::AugAssign(assign)
@@ -1012,12 +1124,16 @@ impl<'db> SourceOccurrenceAnalysis<'db> {
                 self.resolve_module_path(&module, &path[1..], depth + 1)
             }
             resolved @ (ResolvedValue::String(_) | ResolvedValue::Boolean(_)) => Some(resolved),
-            resolved @ (ResolvedValue::Module(_) | ResolvedValue::Function(_))
+            resolved @ (ResolvedValue::Module(_)
+            | ResolvedValue::Function(_)
+            | ResolvedValue::ModuleBinding(_))
                 if path.len() == 1 =>
             {
                 Some(resolved)
             }
-            ResolvedValue::Module(_) | ResolvedValue::Function(_) => None,
+            ResolvedValue::Module(_)
+            | ResolvedValue::Function(_)
+            | ResolvedValue::ModuleBinding(_) => None,
         }
     }
 
@@ -1209,7 +1325,7 @@ fn occurrence_value(value: ResolvedValue) -> Option<PythonOccurrenceValue> {
         ResolvedValue::String(value) => Some(PythonOccurrenceValue::String(value)),
         ResolvedValue::Boolean(value) => Some(PythonOccurrenceValue::Boolean(value)),
         ResolvedValue::Function(function) => Some(PythonOccurrenceValue::Function(function)),
-        ResolvedValue::Module(_) => None,
+        ResolvedValue::Module(_) | ResolvedValue::ModuleBinding(_) => None,
     }
 }
 
@@ -1239,6 +1355,7 @@ fn binding_from_value(value: ResolvedValue) -> Binding {
         ResolvedValue::String(value) => Binding::String(value),
         ResolvedValue::Boolean(value) => Binding::Boolean(value),
         ResolvedValue::Function(function) => Binding::Function(function),
+        ResolvedValue::ModuleBinding(binding) => Binding::ModuleLevel(binding),
     }
 }
 

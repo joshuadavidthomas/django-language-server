@@ -21,6 +21,8 @@ use crate::python::evaluation::name_analysis::pattern_bound_names;
 use crate::templates::tags::analysis::AnalysisResult;
 use crate::templates::tags::analysis::CallContext;
 use crate::templates::tags::analysis::constraints::ExtractedTagConstraints;
+use crate::templates::tags::analysis::consumption::ArgumentLayout;
+use crate::templates::tags::analysis::consumption::consumption_covering;
 use crate::templates::tags::analysis::exceptions::direct_raise_exception;
 use crate::templates::tags::analysis::exceptions::extract_exception_message;
 use crate::templates::tags::analysis::expressions::eval_expr;
@@ -32,6 +34,8 @@ use crate::templates::tags::analysis::mutations::try_extract_pop_call;
 use crate::templates::tags::analysis::state::AbstractValue;
 use crate::templates::tags::analysis::state::Env;
 use crate::templates::tags::analysis::state::SplitPredicate;
+use crate::templates::tags::analysis::state::TagBitRead;
+use crate::templates::tags::types::ArgumentConsumption;
 use crate::templates::tags::types::ArgumentCountConstraint;
 use crate::templates::tags::types::ExtractedDiagnosticConstraint;
 use crate::templates::tags::types::ExtractedDiagnosticMessage;
@@ -41,6 +45,7 @@ use crate::templates::tags::types::TagArgumentForm;
 use crate::templates::tags::types::TagArgumentPattern;
 use crate::templates::tags::types::TagArgumentPatternKind;
 use crate::templates::tags::types::TagArgumentSyntax;
+use crate::templates::tags::types::TagBitSpan;
 
 const MAX_EXEC_STATES: usize = 64;
 
@@ -614,7 +619,7 @@ fn process_statement_states(
             Stmt::With(stmt_with) => states = branch_with(stmt_with, states, ctx),
             Stmt::Expr(stmt_expr) => {
                 for state in states.next_mut() {
-                    if process_expression_statement(stmt_expr, &mut state.env) {
+                    if process_expression_statement(stmt_expr, &mut state.env, ctx) {
                         state.mark_form_partial();
                     }
                 }
@@ -668,43 +673,7 @@ fn branch_for(
         let iterator = eval_expr(&stmt_for.iter, &mut state.env.clone());
         let iterates_split = matches!(iterator, AbstractValue::SplitResult(_));
         if let AbstractValue::Tuple(values) = iterator {
-            let mut active = vec![state];
-            for value in values {
-                let mut iteration = ExecutionStates(Vec::new());
-                for active_state in active {
-                    let assigned = execute_assignment_targets(
-                        std::slice::from_ref(stmt_for.target.as_ref()),
-                        &value,
-                        active_state,
-                    );
-                    let mut branch =
-                        process_statement_states(&stmt_for.body, ExecutionStates(assigned), ctx);
-                    iteration.0.append(&mut branch.0);
-                }
-                active = Vec::new();
-                for mut state in iteration.0 {
-                    match state.outcome {
-                        ControlOutcome::Next | ControlOutcome::Continue => {
-                            state.outcome = ControlOutcome::Next;
-                            active.push(state);
-                        }
-                        ControlOutcome::Break => {
-                            state.outcome = ControlOutcome::Next;
-                            states.0.push(state);
-                        }
-                        ControlOutcome::Return(_) | ControlOutcome::Raise(_) => {
-                            states.0.push(state);
-                        }
-                    }
-                }
-                normalize_state_destinations(&mut [&mut states.0, &mut active]);
-                if active.is_empty() {
-                    break;
-                }
-            }
-            let mut after_loop =
-                process_statement_states(&stmt_for.orelse, ExecutionStates(active), ctx);
-            states.0.append(&mut after_loop.0);
+            unroll_tuple_loop(stmt_for, values, state, &mut states, ctx);
             continue;
         }
 
@@ -721,6 +690,10 @@ fn branch_for(
         target_changes.record_target(&stmt_for.target);
         let mut body_entry = state;
         body_entry.env = target_changes.apply(&body_entry.env);
+        let element_bits = (!loop_affects_split)
+            .then(|| bind_split_element(&iterator, &stmt_for.target, &mut body_entry.env))
+            .flatten();
+        let entry_env = body_entry.env.clone();
         body_entry.outcome = ControlOutcome::Next;
         let body = process_statement_states(&stmt_for.body, ExecutionStates(vec![body_entry]), ctx);
         let mut repeatable = Vec::new();
@@ -730,11 +703,25 @@ fn branch_for(
                     state.outcome = ControlOutcome::Next;
                     repeatable.push(state);
                 }
-                ControlOutcome::Break => {
-                    state.outcome = ControlOutcome::Next;
+                ControlOutcome::Break | ControlOutcome::Return(_) | ControlOutcome::Raise(_) => {
+                    // Bits after an early exit were never consumed.
+                    if let Some(bits) = element_bits {
+                        state.env.restore_consumption(bits, &entry_env);
+                    }
+                    if matches!(state.outcome, ControlOutcome::Break) {
+                        state.outcome = ControlOutcome::Next;
+                    }
                     states.0.push(state);
                 }
-                ControlOutcome::Return(_) | ControlOutcome::Raise(_) => states.0.push(state),
+            }
+        }
+        // Each completed iteration consumed its own bit, so a use common to
+        // every iteration covers the whole slice, vacuously when it is empty.
+        if let Some(bits) = element_bits
+            && let Some(consumption) = common_consumption(&repeatable, bits)
+        {
+            for exhausted in &mut exhausted {
+                exhausted.env.consume(bits, consumption);
             }
         }
         for repeat_state in &repeatable {
@@ -753,6 +740,87 @@ fn branch_for(
         states.0.append(&mut after_loop.0);
     }
     states
+}
+
+/// Run the loop body once per element of a known tuple.
+fn unroll_tuple_loop(
+    stmt_for: &ruff_python_ast::StmtFor,
+    values: Vec<AbstractValue>,
+    state: ExecutionState,
+    states: &mut ExecutionStates,
+    ctx: &mut CallContext<'_, '_>,
+) {
+    let mut active = vec![state];
+    for value in values {
+        let mut iteration = ExecutionStates(Vec::new());
+        for active_state in active {
+            let assigned = execute_assignment_targets(
+                std::slice::from_ref(stmt_for.target.as_ref()),
+                &value,
+                active_state,
+            );
+            let mut branch =
+                process_statement_states(&stmt_for.body, ExecutionStates(assigned), ctx);
+            iteration.0.append(&mut branch.0);
+        }
+        active = Vec::new();
+        for mut state in iteration.0 {
+            match state.outcome {
+                ControlOutcome::Next | ControlOutcome::Continue => {
+                    state.outcome = ControlOutcome::Next;
+                    active.push(state);
+                }
+                ControlOutcome::Break => {
+                    state.outcome = ControlOutcome::Next;
+                    states.0.push(state);
+                }
+                ControlOutcome::Return(_) | ControlOutcome::Raise(_) => {
+                    states.0.push(state);
+                }
+            }
+        }
+        normalize_state_destinations(&mut [&mut states.0, &mut active]);
+        if active.is_empty() {
+            break;
+        }
+    }
+    let mut after_loop = process_statement_states(&stmt_for.orelse, ExecutionStates(active), ctx);
+    states.0.append(&mut after_loop.0);
+}
+
+/// Bind a loop variable over a split slice to each of its bits.
+fn bind_split_element(
+    iterator: &AbstractValue,
+    target: &Expr,
+    env: &mut Env,
+) -> Option<TagBitSpan> {
+    let (AbstractValue::SplitResult(split), Some(target)) = (iterator, target.name_target()) else {
+        return None;
+    };
+    let bits = split.span();
+    env.set(
+        target.to_string(),
+        AbstractValue::TagBits {
+            bits,
+            read: TagBitRead::Bit,
+        },
+    );
+    Some(bits)
+}
+
+fn common_consumption(states: &[ExecutionState], bits: TagBitSpan) -> Option<ArgumentConsumption> {
+    let mut states = states.iter();
+    let mut common = consumption_of(&states.next()?.env, bits)?;
+    for state in states {
+        common = common.join(consumption_of(&state.env, bits)?);
+    }
+    (!common.is_unknown()).then_some(common)
+}
+
+fn consumption_of(env: &Env, bits: TagBitSpan) -> Option<ArgumentConsumption> {
+    env.consumed()
+        .find(|consumed| consumed.bits == bits)
+        .map(|consumed| consumed.consumption)
 }
 
 fn branch_with(
@@ -1354,6 +1422,14 @@ fn branch_if(
                 )
                 .is_none();
 
+            // Facts above read the bits before the test runs; both branches
+            // continue after its effects, such as `bits.pop() == "as"`.
+            let condition_env = path.env.clone();
+            let mut path = path;
+            if let Some(test) = test {
+                apply_condition_effects(test, &mut path, ctx);
+            }
+
             let mut taken = path.clone();
             if unsupported_form_condition {
                 taken.mark_form_unknown();
@@ -1363,7 +1439,7 @@ fn branch_if(
                 if let Some(test) = fact_test.filter(|_| !has_direct_raise) {
                     taken.result.constraints.extend(
                         crate::templates::tags::analysis::guards::extract_true_condition_constraints(
-                            test, &taken.env,
+                            test, &condition_env,
                         ),
                     );
                 }
@@ -1384,7 +1460,7 @@ fn branch_if(
                     } else if let Some(test) = fact_test.filter(|_| !has_direct_raise) {
                         fallthrough.result.constraints.extend(
                             crate::templates::tags::analysis::guards::extract_false_condition_constraints(
-                                test, &fallthrough.env,
+                                test, &condition_env,
                             ),
                         );
                     }
@@ -1406,6 +1482,53 @@ fn branch_if(
     }
 
     alternatives
+}
+
+/// Run the parts of a branch test that always execute. An operand that runs
+/// only on some paths through `and`/`or` makes later positions unknown.
+fn apply_condition_effects(test: &Expr, path: &mut ExecutionState, ctx: &mut CallContext<'_, '_>) {
+    if !expression_may_mutate_split(test, &path.env) && !expression_pops_split(test) {
+        return;
+    }
+    if let Expr::BoolOp(bool_op) = test {
+        let Some((first, rest)) = bool_op.values.split_first() else {
+            return;
+        };
+        apply_condition_effects(first, path, ctx);
+        if rest.iter().any(|value| {
+            expression_may_mutate_split(value, &path.env) || expression_pops_split(value)
+        }) {
+            path.env.forget_split_results();
+            path.mark_form_partial();
+        }
+    } else if let Expr::UnaryOp(unary) = test
+        && unary.op == ruff_python_ast::UnaryOp::Not
+    {
+        apply_condition_effects(&unary.operand, path, ctx);
+    } else {
+        let may_mutate = expression_may_mutate_split(test, &path.env);
+        let _ = eval_expr_with_ctx(test, &mut path.env, Some(ctx));
+        if may_mutate {
+            path.env.forget_split_results();
+            path.mark_form_partial();
+        }
+    }
+}
+
+fn expression_pops_split(expr: &Expr) -> bool {
+    struct Pops(bool);
+    impl<'a> Visitor<'a> for Pops {
+        fn visit_expr(&mut self, expression: &'a Expr) {
+            if try_extract_pop_call(expression).is_some() {
+                self.0 = true;
+            } else {
+                visitor::walk_expr(self, expression);
+            }
+        }
+    }
+    let mut pops = Pops(false);
+    pops.visit_expr(expr);
+    pops.0
 }
 
 fn assume_all(path: ExecutionState, facts: &[(SplitPredicate, bool)]) -> Option<ExecutionState> {
@@ -1567,7 +1690,7 @@ impl PotentialEnvChanges {
 
     fn apply(&self, env: &Env) -> Env {
         if self.forget_all {
-            return Env::default();
+            return env.without_bindings();
         }
         let mut widened = env.clone();
         for name in &self.assigned_names {
@@ -2101,7 +2224,7 @@ fn project_argument_forms(paths: &[&ExecutionState]) -> Option<TagArgumentSyntax
                 if let Some(form) = project_argument_form(path, &path.exclusions) {
                     if !forms
                         .iter_mut()
-                        .any(|candidate| candidate.merge_messages_if_same_shape(&form))
+                        .any(|candidate| candidate.merge_if_same_shape(&form))
                     {
                         forms.push(form);
                     }
@@ -2216,6 +2339,14 @@ fn project_argument_form(
                     Some(arguments_len),
                     default_name,
                 )
+                .map(|atom| {
+                    with_consumption(
+                        atom,
+                        path,
+                        TagBitSpan::single(position),
+                        ArgumentLayout::Exact(arguments_len),
+                    )
+                })
             })
             .collect::<Option<Vec<_>>>()?;
         return TagArgumentForm::new(pattern).ok();
@@ -2258,6 +2389,7 @@ fn project_argument_form(
             | AbstractValue::Parser
             | AbstractValue::SplitResult(_)
             | AbstractValue::SplitElement { .. }
+            | AbstractValue::TagBits { .. }
             | AbstractValue::SplitLength(_)
             | AbstractValue::Int(_)
             | AbstractValue::Str(_)
@@ -2270,36 +2402,69 @@ fn project_argument_form(
         .unwrap_or("arguments")
         .to_string();
 
+    let layout = ArgumentLayout::AtLeast(minimum_arguments);
     let mut pattern = Vec::with_capacity(prefix_len + suffix_len + 1);
     for index in 0..prefix_len {
         let position = SplitPosition::Forward(index + 1);
-        pattern.push(project_pattern_atom(
+        let atom = project_pattern_atom(
             path,
             assumptions,
             position,
             None,
             position_name(&path.env, position, None).unwrap_or_else(|| format!("arg{}", index + 1)),
-        )?);
+        )?;
+        pattern.push(with_consumption(
+            atom,
+            path,
+            TagBitSpan::single(position),
+            layout,
+        ));
     }
-    pattern.push(TagArgumentPattern {
+    let variable = TagArgumentPattern {
         name: variable_name,
         kind: TagArgumentPatternKind::VariableWidth {
             minimum: variable_minimum,
         },
         mismatch_message: None,
-    });
+        consumption: ArgumentConsumption::Unknown,
+    };
+    pattern.push(with_consumption(
+        variable,
+        path,
+        TagBitSpan {
+            first: SplitPosition::Forward(prefix_len + 1),
+            last: SplitPosition::Backward(suffix_len + 1),
+        },
+        layout,
+    ));
     for backward in (1..=suffix_len).rev() {
         let position = SplitPosition::Backward(backward);
-        pattern.push(project_pattern_atom(
+        let atom = project_pattern_atom(
             path,
             assumptions,
             position,
             None,
             position_name(&path.env, position, None)
                 .unwrap_or_else(|| format!("arg_from_end_{backward}")),
-        )?);
+        )?;
+        pattern.push(with_consumption(
+            atom,
+            path,
+            TagBitSpan::single(position),
+            layout,
+        ));
     }
     TagArgumentForm::new(pattern).ok()
+}
+
+fn with_consumption(
+    mut atom: TagArgumentPattern,
+    path: &ExecutionState,
+    bits: TagBitSpan,
+    layout: ArgumentLayout,
+) -> TagArgumentPattern {
+    atom.consumption = consumption_covering(path.env.consumed(), bits, layout);
+    atom
 }
 
 fn form_positions(path: &ExecutionState, assumptions: &[PathAssumption]) -> Vec<SplitPosition> {
@@ -2427,6 +2592,7 @@ fn project_pattern_atom(
         name,
         kind,
         mismatch_message,
+        consumption: ArgumentConsumption::Unknown,
     })
 }
 
@@ -2510,6 +2676,7 @@ fn position_name(
             | AbstractValue::Parser
             | AbstractValue::SplitResult(_)
             | AbstractValue::SplitElement { .. }
+            | AbstractValue::TagBits { .. }
             | AbstractValue::SplitLength(_)
             | AbstractValue::Int(_)
             | AbstractValue::Str(_)
@@ -3018,11 +3185,15 @@ fn split_unpack_constraint(
     })
 }
 
-fn process_expression_statement(stmt_expr: &ruff_python_ast::StmtExpr, env: &mut Env) -> bool {
+fn process_expression_statement(
+    stmt_expr: &ruff_python_ast::StmtExpr,
+    env: &mut Env,
+    ctx: &mut CallContext<'_, '_>,
+) -> bool {
     let pop_info = try_extract_pop_call(&stmt_expr.value);
     let form_incomplete = expression_may_mutate_split(&stmt_expr.value, env)
         || pop_info.as_ref().is_some_and(PopInfo::is_untracked);
-    eval_expr(&stmt_expr.value, env);
+    eval_expr_with_ctx(&stmt_expr.value, env, Some(ctx));
     if form_incomplete {
         env.forget_split_results();
     }
@@ -3103,6 +3274,7 @@ fn expression_contains_split(expr: &Expr, env: &Env) -> bool {
             | AbstractValue::Token
             | AbstractValue::Parser
             | AbstractValue::SplitElement { .. }
+            | AbstractValue::TagBits { .. }
             | AbstractValue::SplitLength(_)
             | AbstractValue::SplitPredicate(_)
             | AbstractValue::Int(_)
@@ -3248,6 +3420,7 @@ fn process_assignment_target(
                 AbstractValue::Unknown
                 | AbstractValue::Parser
                 | AbstractValue::SplitElement { .. }
+                | AbstractValue::TagBits { .. }
                 | AbstractValue::SplitLength(_)
                 | AbstractValue::Int(_)
                 | AbstractValue::Str(_)
@@ -3358,6 +3531,7 @@ fn process_tuple_unpack(
         | AbstractValue::Token
         | AbstractValue::Parser
         | AbstractValue::SplitElement { .. }
+        | AbstractValue::TagBits { .. }
         | AbstractValue::SplitLength(_)
         | AbstractValue::SplitPredicate(_)
         | AbstractValue::AssignmentMap(_)

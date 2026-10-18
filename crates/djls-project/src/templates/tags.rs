@@ -18,6 +18,7 @@ use crate::templates::tags::analysis::AbstractValueKey;
 use crate::templates::tags::analysis::CallContext;
 use crate::templates::tags::analysis::Env;
 pub(crate) use crate::templates::tags::analysis::TagSourceContext;
+pub(crate) use crate::templates::tags::analysis::constants::module_static_bindings;
 use crate::templates::tags::analysis::process_statements;
 pub(crate) use crate::templates::tags::fallback::apply_fallback_rules;
 pub use crate::templates::tags::meaning::BodyLexing;
@@ -29,6 +30,7 @@ pub use crate::templates::tags::meaning::TagMeaningMap;
 pub use crate::templates::tags::meaning::TagRole;
 pub use crate::templates::tags::meaning::TemplateReferenceKind;
 pub(crate) use crate::templates::tags::roles::extract_tag_role;
+pub use crate::templates::tags::types::ArgumentConsumption;
 pub use crate::templates::tags::types::ArgumentCountConstraint;
 pub use crate::templates::tags::types::ArgumentFormCoverage;
 pub use crate::templates::tags::types::AsVar;
@@ -39,6 +41,7 @@ pub use crate::templates::tags::types::BlockSpecs;
 pub use crate::templates::tags::types::BodyAnalysisEvidence;
 pub use crate::templates::tags::types::ChoiceAt;
 pub use crate::templates::tags::types::ClosingTagArguments;
+pub use crate::templates::tags::types::ConsumedTagBits;
 pub use crate::templates::tags::types::ExtractedDiagnosticConstraint;
 pub use crate::templates::tags::types::ExtractedDiagnosticMessage;
 pub use crate::templates::tags::types::ExtractedMessageArg;
@@ -60,6 +63,7 @@ pub use crate::templates::tags::types::TagArgumentKind;
 pub use crate::templates::tags::types::TagArgumentPattern;
 pub use crate::templates::tags::types::TagArgumentPatternKind;
 pub use crate::templates::tags::types::TagArgumentSyntax;
+pub use crate::templates::tags::types::TagBitSpan;
 pub use crate::templates::tags::types::TagRule;
 pub use crate::templates::tags::types::TagRuleMap;
 pub use crate::templates::tags::types::UniqueKeyCardinality;
@@ -76,6 +80,8 @@ pub(crate) struct HelperCall<'db> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct HelperOutcome {
     pub value: AbstractValue,
+    /// Tag Bits every completing path of the helper consumed.
+    pub consumption: Vec<ConsumedTagBits>,
     pub consulted_files: Vec<File>,
     pub recovered_lookups: usize,
 }
@@ -84,6 +90,7 @@ impl HelperOutcome {
     fn unknown() -> Self {
         Self {
             value: AbstractValue::Unknown,
+            consumption: Vec::new(),
             consulted_files: Vec::new(),
             recovered_lookups: 0,
         }
@@ -133,6 +140,7 @@ pub(crate) fn analyze_helper(db: &dyn crate::db::Db, call: HelperCall<'_>) -> He
 
     HelperOutcome {
         value,
+        consumption: callee_env.consumed().collect(),
         consulted_files: source.lookup.consulted_files().to_vec(),
         recovered_lookups: source.lookup.recovered_source_lookups(),
     }
