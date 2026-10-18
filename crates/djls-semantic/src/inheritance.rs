@@ -2,9 +2,11 @@ use std::collections::VecDeque;
 
 use djls_project::Project;
 use djls_project::ScopedTemplateReferenceResolution;
+use djls_project::TagRole;
 use djls_project::TemplateBackendScope;
 use djls_project::TemplateName;
 use djls_project::TemplateOrigin;
+use djls_project::TemplateReferenceKind;
 use djls_project::TemplateResolution;
 use djls_project::TemplateResolutionResult;
 use djls_project::resolve_relative_name;
@@ -20,14 +22,12 @@ use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 
 use crate::db::Db;
-use crate::references::TemplateReferenceKind;
 use crate::scoping::ScopedTagFacts;
 use crate::scoping::template_analysis_projection_for_file_in_scope;
 use crate::structure::BlockRole;
 use crate::structure::RegionId;
 use crate::structure::Regions;
 use crate::structure::TemplateNode;
-use crate::tags::TagRole;
 use crate::tags::TagSpec;
 
 // The loop is one state transition over a correlated parent chain; extracting its few remaining
@@ -563,8 +563,7 @@ impl SymbolBuilder<'_> {
             }),
             TagRole::TemplateReference(_)
             | TagRole::TemplateLibraryLoader
-            | TagRole::ControlTag
-            | TagRole::TemplateTag
+            | TagRole::TemplatePartialReference
             | TagRole::StaticAssetReference
             | TagRole::RouteReference => {}
         }

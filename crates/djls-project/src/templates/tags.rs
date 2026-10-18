@@ -1,6 +1,9 @@
 mod analysis;
 pub(crate) mod blocks;
+mod fallback;
+mod meaning;
 mod registry;
+mod roles;
 mod signature;
 mod types;
 
@@ -16,6 +19,16 @@ use crate::templates::tags::analysis::CallContext;
 use crate::templates::tags::analysis::Env;
 pub(crate) use crate::templates::tags::analysis::TagSourceContext;
 use crate::templates::tags::analysis::process_statements;
+pub(crate) use crate::templates::tags::fallback::apply_fallback_rules;
+pub use crate::templates::tags::meaning::BodyLexing;
+pub use crate::templates::tags::meaning::ConditionArguments;
+pub use crate::templates::tags::meaning::FactProvenance;
+pub use crate::templates::tags::meaning::FallbackCitation;
+pub use crate::templates::tags::meaning::TagMeaning;
+pub use crate::templates::tags::meaning::TagMeaningMap;
+pub use crate::templates::tags::meaning::TagRole;
+pub use crate::templates::tags::meaning::TemplateReferenceKind;
+pub(crate) use crate::templates::tags::roles::extract_tag_role;
 pub use crate::templates::tags::types::ArgumentCountConstraint;
 pub use crate::templates::tags::types::ArgumentFormCoverage;
 pub use crate::templates::tags::types::AsVar;

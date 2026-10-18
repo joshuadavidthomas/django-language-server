@@ -5916,3 +5916,61 @@ fn mutated_assignment_remainder_does_not_prove_full_consumption() {
         );
     }
 }
+
+#[test]
+fn bundled_django_tag_meanings_name_extracted_roles_and_fallback_gaps() {
+    let meanings = djls_project::bundled_django_libraries(djls_conf::DjangoVersion::Django61)
+        .iter()
+        .flat_map(djls_project::BundledDjangoLibrary::tag_meanings)
+        .map(|(key, meaning)| {
+            (
+                format!("{}::{}", key.registration_module, key.name),
+                meaning.clone(),
+            )
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
+    insta::assert_yaml_snapshot!(meanings);
+}
+
+#[test]
+fn fallback_roles_follow_django_compile_functions_not_tag_names() {
+    let mut db = TestDatabase::new();
+    ProjectFixture::new("/test/project")
+        .file(
+            "/test/project/tags.py",
+            "from django import template\n\
+             from django.template.loader_tags import do_include\n\
+             from local import do_extends\n\
+             register = template.Library()\n\
+             register.tag('embed', do_include)\n\
+             register.tag('extends', do_extends)\n",
+        )
+        .file(
+            "/test/project/local.py",
+            "def do_extends(parser, token):\n    return None\n",
+        )
+        .install(&mut db)
+        .expect("project fixture installs");
+    let file = db
+        .file(Utf8Path::new("/test/project/tags.py"))
+        .expect("library exists");
+    let key = TemplateLibraryId::new(
+        &db,
+        Some(file),
+        PythonModuleName::parse("tags").expect("valid module"),
+    );
+    let meanings = template_library_structure_facts(&db, key).tag_meanings();
+    let embed = &meanings[&SymbolKey::tag("tags", "embed")];
+    assert_eq!(
+        embed.role(),
+        Some(djls_project::TagRole::TemplateReference(
+            djls_project::TemplateReferenceKind::Include
+        ))
+    );
+    assert_eq!(
+        embed.role_provenance(),
+        Some(djls_project::FactProvenance::Fallback)
+    );
+    assert_eq!(embed.fallbacks().len(), 1);
+    assert!(!meanings.contains_key(&SymbolKey::tag("tags", "extends")));
+}

@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 use djls_project::LoadableLibraryLookup;
 use djls_project::TemplateName;
+use djls_project::TemplateReferenceKind;
 use djls_project::TemplateResolutionResult;
 use djls_project::TemplateSymbolKind;
 use djls_project::TemplateSymbolSource;
@@ -9,7 +10,6 @@ use djls_project::template_resolution;
 use djls_project::template_symbol_source;
 use djls_semantic::BlockSite;
 use djls_semantic::SemanticOffsetContext;
-use djls_semantic::TemplateReferenceKind;
 use djls_semantic::ancestor_blocks;
 use djls_semantic::block_definition_at;
 use djls_semantic::block_overrides;

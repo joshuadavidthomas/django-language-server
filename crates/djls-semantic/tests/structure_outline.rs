@@ -2,10 +2,11 @@ use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 use camino::Utf8Path;
+use djls_conf::DjangoVersion;
+use djls_project::bundled_django_libraries;
 use djls_semantic::EndTag;
 use djls_semantic::OutlineItem;
 use djls_semantic::OutlineKind;
-use djls_semantic::TagRole;
 use djls_semantic::TagSpec;
 use djls_semantic::TagSpecs;
 use djls_semantic::build_template_outline_for_file;
@@ -120,16 +121,11 @@ fn outline_roles_follow_load_position() {
 #[test]
 fn loader_role_outline_does_not_depend_on_load_spelling() {
     let mut specs = bundled_django_tag_specs().clone();
-    specs.merge(TagSpecs::new(FxHashMap::from_iter([(
-        "use_library".to_string(),
-        TagSpec::new(
-            Cow::Borrowed("test.loader"),
-            None,
-            Cow::Borrowed(&[]),
-            djls_semantic::BodyAnalysis::Analyze,
-        )
-        .with_role(TagRole::TemplateLibraryLoader),
-    )])));
+    let loader = specs
+        .get("load")
+        .cloned()
+        .expect("bundled Django defines load");
+    specs.insert("use_library".to_string(), loader);
     let db = TestDatabase::new().with_projectless_tag_specs(specs);
 
     let outline = outline_for_source(&db, "{% use_library custom_tags %}")
@@ -196,27 +192,29 @@ fn standalone_tag_items_inside_blocks_are_nested() {
 }
 
 #[test]
-fn custom_callable_block_tags_produce_callable_outline_items() {
+fn partial_definitions_outline_by_partial_name() {
+    // Django 6.0 added partials; the projectless default is the oldest bundle.
+    let defaulttags = bundled_django_libraries(DjangoVersion::Django61)
+        .iter()
+        .find(|library| library.module().as_str() == "django.template.defaulttags")
+        .expect("bundled Django 6.1 has defaulttags");
     let mut specs = bundled_django_tag_specs().clone();
-    specs.merge(TagSpecs::new(FxHashMap::from_iter([(
-        "partialdef".to_string(),
-        TagSpec::new(
-            Cow::Borrowed("django_template_partials.templatetags.partials"),
-            Some(EndTag {
-                name: Cow::Borrowed("endpartialdef"),
-                required: true,
-            }),
-            Cow::Borrowed(&[]),
-            djls_semantic::BodyAnalysis::Analyze,
-        )
-        .with_role(TagRole::TemplateTag),
-    )])));
+    specs
+        .merge_tag_rules(defaulttags.tag_rules())
+        .merge_block_specs(defaulttags.block_specs())
+        .merge_tag_meanings(defaulttags.tag_meanings());
     let db = TestDatabase::new().with_projectless_tag_specs(specs);
-    let outline = outline_for_source(&db, "{% partialdef card %}Body{% endpartialdef %}")
-        .expect("template outline fixture should build");
+    let outline = outline_for_source(
+        &db,
+        "{% partialdef card %}Body{% endpartialdef %}{% partial card %}",
+    )
+    .expect("template outline fixture should build");
 
-    assert_eq!(labels(outline), vec!["partialdef card"]);
+    assert_eq!(labels(outline), vec!["card", "card"]);
     assert_eq!(outline[0].kind, OutlineKind::TemplateTag);
+    assert_eq!(outline[0].detail.as_deref(), Some("partialdef"));
+    assert_eq!(outline[1].kind, OutlineKind::TemplateReference);
+    assert_eq!(outline[1].detail.as_deref(), Some("partial"));
 }
 
 #[test]
@@ -250,7 +248,7 @@ fn tags_without_role_hide_standalone_tags_but_keep_blocks() {
         .expect("template outline fixture should build");
 
     assert_eq!(labels(outline), vec!["myblock thing"]);
-    assert_eq!(outline[0].kind, OutlineKind::ControlTag);
+    assert_eq!(outline[0].kind, OutlineKind::BlockTag);
 }
 
 #[test]
@@ -287,7 +285,7 @@ fn control_structure_inside_blocks_is_visible() {
     );
     assert_eq!(labels(&block_children[0].children), vec!["lower"]);
     assert_eq!(block_children[0].children[0].kind, OutlineKind::Filter);
-    assert_eq!(block_children[1].kind, OutlineKind::ControlTag);
+    assert_eq!(block_children[1].kind, OutlineKind::BlockTag);
     assert_eq!(
         block_children[1].selection_span.start_usize(),
         r"{% load static %}

@@ -6,6 +6,8 @@ use djls_project::FilterArity;
 use djls_project::FilterArityMap;
 use djls_project::PythonModuleName;
 use djls_project::SymbolKey;
+use djls_project::TagMeaning;
+use djls_project::TagMeaningMap;
 use djls_project::TagRule;
 use djls_project::TagRuleMap;
 use djls_project::TemplateLibraryId;
@@ -29,12 +31,16 @@ pub struct ExtractionBundle {
     pub tag_rules: TagRuleMap,
     pub filter_arities: FilterArityMap,
     pub block_specs: BlockSpecs,
+    pub(crate) tag_meanings: TagMeaningMap,
 }
 
 impl ExtractionBundle {
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.tag_rules.is_empty() && self.filter_arities.is_empty() && self.block_specs.is_empty()
+        self.tag_rules.is_empty()
+            && self.filter_arities.is_empty()
+            && self.block_specs.is_empty()
+            && self.tag_meanings.is_empty()
     }
 }
 
@@ -68,6 +74,7 @@ pub fn extract_bundle(
     let tag_rules = tag_facts.tag_rules().to_owned();
     let filter_arities = filter_facts.filter_arities().to_owned();
     let block_specs = tag_facts.block_specs().to_owned();
+    let tag_meanings = tag_facts.tag_meanings().to_owned();
 
     ExtractionBundle {
         definitions,
@@ -75,6 +82,7 @@ pub fn extract_bundle(
         tag_rules,
         filter_arities,
         block_specs,
+        tag_meanings,
     }
 }
 
@@ -85,6 +93,8 @@ pub struct SortedExtractionResult {
     tag_rules: BTreeMap<String, TagRule>,
     filter_arities: BTreeMap<String, FilterArity>,
     block_specs: BTreeMap<String, serde_json::Value>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    tag_meanings: BTreeMap<String, TagMeaning>,
 }
 
 /// Convert an extraction bundle into deterministic snapshot data.
@@ -103,6 +113,11 @@ pub fn sorted_snapshot(bundle: &ExtractionBundle) -> serde_json::Result<SortedEx
             .map(|(key, arity)| (key_str(key), *arity))
             .collect(),
         block_specs: serde_json::from_value(serde_json::to_value(&bundle.block_specs)?)?,
+        tag_meanings: bundle
+            .tag_meanings
+            .iter()
+            .map(|(key, meaning)| (key_str(key), meaning.clone()))
+            .collect(),
     })
 }
 

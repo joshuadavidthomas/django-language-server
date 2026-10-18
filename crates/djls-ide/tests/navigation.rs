@@ -746,7 +746,7 @@ fn goto_definition_resolves_django_load_and_static_tags() {
         .file("/test/project/django/template/__init__.py", "")
         .file(
             "/test/project/django/template/defaulttags.py",
-            "from django import template\nregister = template.Library()\n@register.tag\ndef load(parser, token): pass\n",
+            "from django import template\nregister = template.Library()\n@register.tag\ndef load(parser, token):\n    parser.add_library(None)\n",
         )
         .file("/test/project/django/templatetags/__init__.py", "")
         .file(

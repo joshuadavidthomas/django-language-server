@@ -1,13 +1,10 @@
-use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 use camino::Utf8Path;
 use djls_project::Project;
 use djls_project::TemplateName;
-use djls_semantic::TagRole;
-use djls_semantic::TagSpec;
+use djls_project::TemplateReferenceKind;
 use djls_semantic::TagSpecs;
-use djls_semantic::TemplateReferenceKind;
 use djls_semantic::bundled_django_tag_specs;
 use djls_semantic::references_to_template_name;
 use djls_semantic::template_library_references_in_file;
@@ -453,15 +450,13 @@ fn shadowed_load_does_not_bootstrap_loaded_opaque_grammar() {
 #[test]
 fn captured_else_does_not_retain_a_colliding_loader_role() {
     let mut specs = bundled_django_tag_specs().clone();
+    let loader = specs
+        .get("load")
+        .cloned()
+        .expect("bundled Django defines load");
     specs.merge(TagSpecs::new(FxHashMap::from_iter([(
         "else".to_string(),
-        TagSpec::new(
-            Cow::Borrowed("test.loader"),
-            None,
-            Cow::Borrowed(&[]),
-            djls_semantic::BodyAnalysis::Analyze,
-        )
-        .with_role(TagRole::TemplateLibraryLoader),
+        loader,
     )])));
     let db = TestDatabase::new().with_projectless_tag_specs(specs);
     let source = "{% else outside %}{% if condition %}{% else captured %}{% endif %}";

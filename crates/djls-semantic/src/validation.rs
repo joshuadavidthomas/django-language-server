@@ -3,16 +3,17 @@ mod filters;
 mod if_expressions;
 mod scoping;
 
+use djls_project::TagRole;
+use djls_project::TemplateReferenceKind;
+
 use crate::TagSpec;
 use crate::db::Db;
-use crate::references::TemplateReferenceKind;
 use crate::scoping::TemplateAnalysisProjection;
 use crate::scoping::scoped_filter_facts;
 use crate::structure::ActiveTemplateNode;
 use crate::structure::ActiveTemplateTag;
 use crate::structure::ActiveTemplateVariable;
 use crate::structure::active_template_nodes;
-use crate::tags::TagRole;
 
 /// Tracks the validation state for `{% extends %}` positioning rules.
 #[derive(Debug, Clone, Copy, Default)]
@@ -67,6 +68,22 @@ impl<'db> TemplateValidator<'db> {
         let name = tag.tag;
         let bits = tag.bits;
         let span = tag.span;
+        if let Some(opener_name_span) = tag.opener_name_span {
+            let condition = self
+                .projection
+                .scoped_tag_facts(self.db)
+                .for_name_span(opener_name_span)
+                .and_then(|facts| facts.spec.as_ref())
+                .and_then(TagSpec::condition);
+            if condition.is_some_and(|condition| {
+                condition
+                    .intermediates()
+                    .iter()
+                    .any(|intermediate| intermediate == name)
+            }) {
+                if_expressions::check_if_expression_rule(self.db, name, bits, span);
+            }
+        }
         let Some(facts) = self.projection.scoped_tag_facts(self.db).for_tag(tag) else {
             return;
         };
@@ -122,7 +139,7 @@ impl<'db> TemplateValidator<'db> {
             scoping::check_load_libraries_rule(self.db, &facts.loader_arguments);
         }
 
-        if effective_role == Some(TagRole::ControlTag) && (name == "if" || name == "elif") {
+        if effective_spec.and_then(TagSpec::condition).is_some() {
             if_expressions::check_if_expression_rule(self.db, name, bits, span);
         }
 

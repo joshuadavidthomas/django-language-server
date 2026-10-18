@@ -18,12 +18,26 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ## [Unreleased]
 
+### Added
+
+- Added structure and outline entries for Django 6.0+ `{% partialdef %}` and `{% partial %}`: `{% partialdef %}` is matched with `{% endpartialdef %}`, and both appear in the outline under the partial's name.
+
 ### Changed
 
 - Changed `djls check` to print a summary when no errors are found, such as `No errors found in 12 files.`, or `No templates found to check.` when no templates match. Pass `--quiet` to suppress it.
 - Changed sessions without a project to read Django's standard tags from the bundled Django 5.2 sources, adding tags such as `language`, `querystring`, and `get_current_language`, and tag argument validation.
 - Changed projects whose declared Django release has no bundle and is not installed to take Django's tag names and block structure from the bundled Django 5.2 sources. Block tags such as `{% language %}` are now matched with their closing tags.
+- Changed tag behavior for `{% block %}`, `{% extends %}`, `{% include %}`, `{% url %}`, `{% static %}`, and `elif` validation to follow Django's compile function rather than the tag name, so a library that registers `do_include` or `do_if` under another name gets the same navigation, completions, and validation, and a project tag that only shares a builtin's name does not.
+- Changed library loading to recognize any tag whose compile function calls `parser.add_library`, rather than only a tag named `load`.
 - **Internal**: Removed hand-written end tags and intermediates for Django's builtin tags; test fixtures now mount the bundled Django by default.
+- **Internal**: Moved the remaining hand-written Django tag facts into Fallback Rules in `djls-project`, keyed by compile function and citing bundled Django source; `djls-semantic` no longer defines Django tag knowledge.
+- **Internal**: Renamed outline kind `ControlTag` to `BlockTag`.
+
+### Fixed
+
+- Fixed `{% elif %}` conditions never being checked for expression syntax errors (S114).
+- Fixed `{% verbatim name %}` ending at a plain `{% endverbatim %}`; like Django, it now ends only at `{% endverbatim name %}`.
+- Fixed argument validation for tags and filters that a library registers by passing an already-decorated function, such as `register.tag("url", url)` or humanize filters re-registered by Wagtail.
 
 ## [6.1.1]
 

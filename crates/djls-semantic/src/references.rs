@@ -4,8 +4,10 @@ use djls_project::InconclusiveTemplateResolution;
 use djls_project::LibraryName;
 use djls_project::Project;
 use djls_project::ScopedTemplateReferenceResolution;
+use djls_project::TagRole;
 use djls_project::TemplateName;
 use djls_project::TemplateOrigin;
+use djls_project::TemplateReferenceKind;
 use djls_project::TemplateResolution;
 use djls_project::TemplateResolutionResult;
 use djls_project::resolve_relative_name;
@@ -23,13 +25,6 @@ use crate::db::Db as SemanticDb;
 use crate::scoping::LoadKind;
 use crate::scoping::template_analysis_projection_for_file;
 use crate::structure::active_template_tags;
-use crate::tags::TagRole;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum TemplateReferenceKind {
-    Extends,
-    Include,
-}
 
 #[salsa::tracked]
 pub(crate) struct TemplateReferences<'db> {
@@ -57,7 +52,8 @@ pub(crate) fn template_references(db: &dyn SemanticDb, project: Project) -> Temp
 
     for source in resolution.origins(db) {
         for reference in template_references_in_file(db, project, source.file(db)).as_slice(db) {
-            let Some(scoped) = reference.kind.resolve_from_origin(
+            let Some(scoped) = resolve_reference_kind_from_origin(
+                reference.kind,
                 db,
                 resolution,
                 source,
@@ -152,28 +148,32 @@ pub struct TemplateLibraryReferenceInFile {
     span: Span,
 }
 
-impl TemplateReferenceKind {
-    #[must_use]
-    const fn allow_self(self) -> bool {
-        match self {
-            Self::Extends => false,
-            Self::Include => true,
-        }
+/// Django's `extends` skips the referencing origin; `include` may name itself.
+const fn reference_allows_self(kind: TemplateReferenceKind) -> bool {
+    match kind {
+        TemplateReferenceKind::Extends => false,
+        TemplateReferenceKind::Include => true,
     }
+}
 
-    fn resolve_from_origin<'db>(
-        self,
-        db: &'db dyn SemanticDb,
-        resolution: TemplateResolution<'db>,
-        source: TemplateOrigin<'db>,
-        raw_name: TemplateName<'db>,
-    ) -> Option<ScopedTemplateReferenceResolution<'db>> {
-        let excluded = match self {
-            Self::Extends => slice::from_ref(&source),
-            Self::Include => &[],
-        };
-        resolution.resolve_reference_from_origin(db, source, raw_name, excluded, self.allow_self())
-    }
+fn resolve_reference_kind_from_origin<'db>(
+    kind: TemplateReferenceKind,
+    db: &'db dyn SemanticDb,
+    resolution: TemplateResolution<'db>,
+    source: TemplateOrigin<'db>,
+    raw_name: TemplateName<'db>,
+) -> Option<ScopedTemplateReferenceResolution<'db>> {
+    let excluded = match kind {
+        TemplateReferenceKind::Extends => slice::from_ref(&source),
+        TemplateReferenceKind::Include => &[],
+    };
+    resolution.resolve_reference_from_origin(
+        db,
+        source,
+        raw_name,
+        excluded,
+        reference_allows_self(kind),
+    )
 }
 
 /// Per-origin normalization and backend-scoped resolution of one raw file reference.
@@ -187,7 +187,9 @@ pub fn resolve_reference_origins<'db>(
     resolution
         .origins_for_file(db, file)
         .iter()
-        .filter_map(|origin| kind.resolve_from_origin(db, resolution, *origin, raw_name))
+        .filter_map(|origin| {
+            resolve_reference_kind_from_origin(kind, db, resolution, *origin, raw_name)
+        })
         .collect()
 }
 
@@ -208,7 +210,7 @@ pub fn resolve_reference_for_file<'db>(
         // scope or normalize a relative name. Absolute names can still use the project-wide
         // resolution, which keeps feasible settings alternatives separate when selecting a
         // winner; relative names deliberately remain unresolved.
-        resolve_relative_name(None, raw_name.name(db), kind.allow_self())?;
+        resolve_relative_name(None, raw_name.name(db), reference_allows_self(kind))?;
         return Some(resolution.resolve(db, raw_name));
     };
     let first_found = match first.result {
@@ -384,7 +386,8 @@ impl<'db> TemplateReference<'db> {
         db: &'db dyn SemanticDb,
         resolution: TemplateResolution<'db>,
     ) -> Option<ScopedTemplateReferenceResolution<'db>> {
-        self.kind(db).resolve_from_origin(
+        resolve_reference_kind_from_origin(
+            self.kind(db),
             db,
             resolution,
             self.source(db),

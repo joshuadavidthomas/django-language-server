@@ -6,6 +6,7 @@ use crate::structure::RegionId;
 use crate::structure::Regions;
 use crate::structure::TemplateNode;
 use crate::structure::TemplateTree;
+use crate::tags::BodyAnalysis;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct TemplateFold {
@@ -30,7 +31,6 @@ fn collect_folds_for_region(regions: &Regions, region: RegionId, folds: &mut Vec
     for node in regions.get(region).nodes() {
         match node {
             TemplateNode::Block {
-                tag,
                 full_span,
                 body,
                 role: BlockRole::Opener,
@@ -43,7 +43,7 @@ fn collect_folds_for_region(regions: &Regions, region: RegionId, folds: &mut Vec
                             full_span.start_usize(),
                             end as usize,
                         ),
-                        kind: TemplateFoldKind::from_tag_name(tag),
+                        kind: TemplateFoldKind::Region,
                     });
                 }
                 collect_folds_for_region(regions, *body, folds);
@@ -55,10 +55,14 @@ fn collect_folds_for_region(regions: &Regions, region: RegionId, folds: &mut Vec
             } => {
                 collect_folds_for_region(regions, *body, folds);
             }
-            TemplateNode::Opaque { tag, full_span, .. } => {
+            TemplateNode::Opaque {
+                full_span,
+                body_analysis,
+                ..
+            } => {
                 folds.push(TemplateFold {
                     span: *full_span,
-                    kind: TemplateFoldKind::from_tag_name(tag),
+                    kind: TemplateFoldKind::from_body_analysis(*body_analysis),
                 });
             }
             TemplateNode::StandaloneTag { .. }
@@ -71,10 +75,11 @@ fn collect_folds_for_region(regions: &Regions, region: RegionId, folds: &mut Vec
 }
 
 impl TemplateFoldKind {
-    fn from_tag_name(name: &str) -> Self {
-        match name {
-            "comment" => Self::Comment,
-            _ => Self::Region,
+    /// A body the compile function discards is a comment; a verbatim body is rendered.
+    fn from_body_analysis(body_analysis: BodyAnalysis) -> Self {
+        match body_analysis {
+            BodyAnalysis::Opaque => Self::Comment,
+            BodyAnalysis::Analyze | BodyAnalysis::Verbatim => Self::Region,
         }
     }
 }

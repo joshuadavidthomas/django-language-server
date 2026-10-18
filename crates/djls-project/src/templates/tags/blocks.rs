@@ -6,6 +6,8 @@ mod parse_calls;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprAttribute;
 use ruff_python_ast::ExprCall;
+use ruff_python_ast::FStringPart;
+use ruff_python_ast::InterpolatedStringElement;
 use ruff_python_ast::StmtFunctionDef;
 
 use crate::ast::ExprExt;
@@ -142,22 +144,10 @@ pub(super) fn is_parser_receiver(expr: &Expr, parser_var: &str) -> bool {
 ///
 /// Does not resolve variable references.
 pub(super) fn extract_string_sequence(expr: &Expr) -> Vec<String> {
-    match expr {
-        Expr::Tuple(t) => t
-            .elts
-            .iter()
-            .filter_map(|expr| expr.string_literal_first_word().map(str::to_string))
-            .collect(),
-        Expr::List(l) => l
-            .elts
-            .iter()
-            .filter_map(|expr| expr.string_literal_first_word().map(str::to_string))
-            .collect(),
-        Expr::Set(s) => s
-            .elts
-            .iter()
-            .filter_map(|expr| expr.string_literal_first_word().map(str::to_string))
-            .collect(),
+    let elements = match expr {
+        Expr::Tuple(t) => &t.elts,
+        Expr::List(l) => &l.elts,
+        Expr::Set(s) => &s.elts,
         Expr::BoolOp(_)
         | Expr::Named(_)
         | Expr::BinOp(_)
@@ -187,8 +177,45 @@ pub(super) fn extract_string_sequence(expr: &Expr) -> Vec<String> {
         | Expr::Starred(_)
         | Expr::Name(_)
         | Expr::Slice(_)
-        | Expr::IpyEscapeCommand(_) => Vec::new(),
+        | Expr::IpyEscapeCommand(_) => return Vec::new(),
+    };
+    let mut tokens = Vec::new();
+    for word in elements.iter().filter_map(stop_token_first_word) {
+        if !tokens.contains(&word) {
+            tokens.push(word);
+        }
     }
+    tokens
+}
+
+/// The command word Django's `Parser.parse()` compares against a stop token.
+///
+/// An f-string counts when its static prefix already ends that word, as in
+/// `f"endpartialdef {name}"`.
+fn stop_token_first_word(expr: &Expr) -> Option<String> {
+    if let Some(word) = expr.string_literal_first_word() {
+        return Some(word.to_string());
+    }
+    let Expr::FString(fstring) = expr else {
+        return None;
+    };
+    let mut prefix = String::new();
+    'parts: for part in &fstring.value {
+        match part {
+            FStringPart::Literal(literal) => prefix.push_str(literal),
+            FStringPart::FString(fstring) => {
+                for element in &fstring.elements {
+                    match element {
+                        InterpolatedStringElement::Literal(literal) => prefix.push_str(literal),
+                        InterpolatedStringElement::Interpolation(_) => break 'parts,
+                    }
+                }
+            }
+        }
+    }
+    let trimmed = prefix.trim_start();
+    let word = trimmed.split_whitespace().next()?;
+    (trimmed.len() > word.len()).then(|| word.to_string())
 }
 
 /// Check if an expression accesses token contents.
@@ -275,6 +302,32 @@ mod tests {
         assert_eq!(
             spec.body_analysis_evidence,
             BodyAnalysisEvidence::NotDetected
+        );
+    }
+
+    // Django 6.0 partialdef_func: parse(valid_endpartials) where the local tuple has an f-string.
+    #[test]
+    fn stop_tokens_from_single_local_tuple_and_fstring_prefix() {
+        let func = parse_function(
+            "def partialdef(parser, token):\n    name = token.split_contents()[1]\n    valid = ('endpartialdef', f'endpartialdef {name}')\n    nodelist = parser.parse(valid)\n    parser.next_token()\n    return Node(nodelist)\n",
+        );
+        let spec = extract_block_spec(&func).expect("should extract block spec");
+        assert_eq!(spec.end_tag.as_literal(), Some("endpartialdef"));
+        assert!(spec.intermediates.is_empty());
+
+        // A rebound name could hold anything at the call.
+        let rebound = parse_function(
+            "def tag(parser, token):\n    valid = ('endtag',)\n    valid = compute()\n    nodelist = parser.parse(valid)\n    return Node(nodelist)\n",
+        );
+        assert_eq!(extract_block_spec(&rebound), None);
+        // An f-string whose command word is still interpolated names no stop token.
+        let open_word = parse_function(
+            "def tag(parser, token):\n    nodelist = parser.parse((f'end{token}',))\n    return Node(nodelist)\n",
+        );
+        assert_eq!(
+            extract_block_spec(&open_word)
+                .and_then(|spec| spec.end_tag.as_literal().map(str::to_string)),
+            None
         );
     }
 

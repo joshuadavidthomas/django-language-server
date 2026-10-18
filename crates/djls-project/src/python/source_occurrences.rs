@@ -22,6 +22,7 @@ use crate::python::import::DirectImportClause;
 use crate::python::import::FromImportSyntax;
 use crate::python::module::PythonImportChainResolution;
 use crate::python::module::PythonImportRequest;
+use crate::templates::registrations::decorators_preserve_function;
 
 const MAX_REEXPORT_DEPTH: usize = 8;
 
@@ -598,7 +599,7 @@ impl<'db> SourceOccurrenceAnalysis<'db> {
                 self.bind_target(&assign.target, value);
             }
             Stmt::FunctionDef(function) => {
-                let binding = if function.decorator_list.is_empty() {
+                let binding = if has_transparent_decorators(function) {
                     Binding::Function(PythonFunctionDefinition::new(
                         self.importer.clone().map_or(
                             PythonFunctionOrigin::File(self.file),
@@ -952,7 +953,7 @@ impl<'db> SourceOccurrenceAnalysis<'db> {
                 Stmt::FunctionDef(function) => {
                     enum_bindings.remove(function.name.as_str());
                     if function.name.as_str() == root {
-                        value = if path.len() == 1 && function.decorator_list.is_empty() {
+                        value = if path.len() == 1 && has_transparent_decorators(function) {
                             Some(ResolvedValue::Function(PythonFunctionDefinition::new(
                                 PythonFunctionOrigin::Module(source.clone()),
                                 function,
@@ -1168,6 +1169,11 @@ fn function_parameter_names(function: &StmtFunctionDef) -> std::collections::Has
         names.insert(parameter.name.to_string());
     }
     names
+}
+
+/// Library registration decorators return the function they register, so its identity survives.
+fn has_transparent_decorators(function: &StmtFunctionDef) -> bool {
+    function.decorator_list.is_empty() || decorators_preserve_function(function)
 }
 
 struct ExpressionFinder<'a> {

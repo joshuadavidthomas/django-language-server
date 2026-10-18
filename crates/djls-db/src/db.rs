@@ -373,12 +373,12 @@ mod invalidation_tests {
         fs.add_file(template.join("__init__.py"), String::new());
         fs.add_file(
             template.join("defaulttags.py"),
-            "from django import template\nregister = template.Library()\n@register.tag\ndef load(parser, token): pass\n"
+            "from django import template\nregister = template.Library()\n@register.tag\ndef load(parser, token):\n    parser.add_library(None)\n    return template.Node()\n"
                 .to_string(),
         );
         fs.add_file(
             template.join("loader_tags.py"),
-            "from django import template\nregister = template.Library()\n@register.tag\ndef block(parser, token):\n    nodelist = parser.parse(('endblock',))\n    return template.Node()\n@register.tag\ndef extends(parser, token): pass\n"
+            "from django import template\nregister = template.Library()\n@register.tag('block')\ndef do_block(parser, token):\n    nodelist = parser.parse(('endblock',))\n    return template.Node()\n@register.tag('extends')\ndef do_extends(parser, token): pass\n"
                 .to_string(),
         );
     }
