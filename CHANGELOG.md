@@ -20,6 +20,8 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Added
 
+- Added S114 expression syntax checks, with Django's error messages, for tag arguments that Django compiles as filter expressions, such as `{% firstof a| b %}` or `{% url "view" key= %}`. Which arguments are checked comes from each tag's extracted Argument Consumption, so custom tags that compile arguments with `parser.compile_filter`, `FilterExpression`, or `kwarg_re` are checked too.
+- Added filter availability (S111) and arity (S115, S116) checks for filters used inside tag arguments, such as `{% for x in items|dictsort:"name" %}`.
 - Added structure and outline entries for Django 6.0+ `{% partialdef %}` and `{% partial %}`: `{% partialdef %}` is matched with `{% endpartialdef %}`, and both appear in the outline under the partial's name.
 
 ### Changed
@@ -29,11 +31,13 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Changed projects whose declared Django release has no bundle and is not installed to take Django's tag names and block structure from the bundled Django 5.2 sources. Block tags such as `{% language %}` are now matched with their closing tags.
 - Changed tag behavior for `{% block %}`, `{% extends %}`, `{% include %}`, `{% url %}`, `{% static %}`, and `elif` validation to follow Django's compile function rather than the tag name, so a library that registers `do_include` or `do_if` under another name gets the same navigation, completions, and validation, and a project tag that only shares a builtin's name does not.
 - Changed library loading to recognize any tag whose compile function calls `parser.add_library`, rather than only a tag named `load`.
+- Changed `{% if %}` and `{% elif %}` condition checks (S114) to skip a tag that an unresolved `{% load %}` could shadow, like other compiled-argument checks.
 - **Internal**: Removed hand-written end tags and intermediates for Django's builtin tags; test fixtures now mount the bundled Django by default.
 - **Internal**: Moved the remaining hand-written Django tag facts into Fallback Rules in `djls-project`, keyed by compile function and citing bundled Django source; `djls-semantic` no longer defines Django tag knowledge.
 - **Internal**: Renamed outline kind `ControlTag` to `BlockTag`.
 - **Internal**: Added a `djls-testing` guard test that fails when production code in `djls-semantic`, `djls-ide`, or `djls-server` compares against a Django tag or filter name taken from bundled-Django extraction, or a `django.` module path, unless an allowlist entry explains why.
 - **Internal**: Recorded Argument Consumption in tag extraction: which Tag Bits a compile function compiles as filter expressions, including `name=` keyword expressions parsed with Django's `kwarg_re`.
+- **Internal**: Checked `{% if %}` and `{% elif %}` conditions through the same Argument Consumption path as other compiled arguments, using the `do_if` Fallback Rule's Condition fact instead of a tag-name check.
 
 ### Fixed
 

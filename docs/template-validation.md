@@ -24,8 +24,9 @@ The **extraction engine** analyzes Python source code (using static AST analysis
 - **Argument constraints** — how many arguments a tag expects, required keywords
 - **Block structure** — which tags need closing tags, what intermediate tags are allowed
 - **Filter arity** — whether a filter expects an argument (e.g., `{{ value|default:"nothing" }}`)
+- **Argument consumption** — which tag arguments Django compiles as filter expressions (e.g., the sequence in `{% for x in items|dictsort:"name" %}`)
 
-A few checks are hand-written instead of extracted. `{% if %}` / `{% elif %}` expression syntax (S114) is a port of Django's `IfParser` (`django/template/smartif.py`), not an extracted rule.
+Expression syntax (S114) uses ports of Django's own grammars: arguments that extraction shows Django compiles are parsed like Django's `FilterExpression`, and `{% if %}` / `{% elif %}` conditions like Django's `IfParser` (`django/template/smartif.py`). Extraction does not follow `TemplateIfParser`, so a Fallback Rule for Django's `do_if` supplies the condition fact.
 
 Together, static project discovery tells djls *what's active in your project*, and extraction tells djls *how to validate usage*.
 
@@ -121,9 +122,11 @@ Validates structural rules for `{% extends %}`:
 
 ### Expression Syntax (S114)
 
-Validates operator usage in `{% if %}` and `{% elif %}` expressions:
+Validates tag arguments that Django compiles while it parses the template:
 
-- **S114** — Expression syntax error (e.g., `{% if and x %}`, `{% if x == %}`, `{% if x y %}`)
+- **S114** — Expression syntax error, with Django's message: a filter expression in an argument Django compiles (e.g., `{% firstof a| b %}`, `{% url "view" key= %}`), or an `{% if %}` / `{% elif %}` condition (e.g., `{% if and x %}`, `{% if x == %}`, `{% if x y %}`)
+
+Filters used inside compiled arguments are also checked for availability (S111) and arity (S115–S116). Tags whose Argument Consumption extraction cannot prove are not checked.
 
 ### Filter Arity (S115–S116)
 
@@ -166,7 +169,7 @@ When the template inventory is **incomplete or unavailable**:
 - **S115–S116 are suppressed when filter arity rules are unavailable** — Filter arity rules come from extraction, which depends on knowing source modules
 - **S117 is suppressed when tag argument rules are unavailable** — Tag argument rules come from extraction, which depends on discovering tag source modules
 - **S100–S103 still work** — Block structure for Django's standard tags comes from the oldest bundled Django when Django's own source is unavailable
-- **S114 still works** — `{% if %}` expression checking is a hand-written port of Django's `IfParser` and needs no library inventory
+- **S114 needs Argument Consumption** — like S117, it is suppressed for tags whose source modules are unknown; Django's standard tags, including `{% if %}` and `{% elif %}`, still get it from the bundled Django sources
 - **Project-backed completions and `{% load %}` document links are unavailable** when the active inventory is unknown; syntax-only completions may still appear
 
 This design avoids false positives when djls cannot prove whether a tag, filter, or library is absent from the active project.
