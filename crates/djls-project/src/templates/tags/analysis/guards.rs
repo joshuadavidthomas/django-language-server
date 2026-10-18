@@ -105,6 +105,69 @@ pub(crate) fn split_predicate_condition(expr: &Expr, env: &Env) -> Option<(Split
     Some((predicate, truth))
 }
 
+/// Equality predicates that hold on each outcome of a branch condition.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct ConditionFacts {
+    pub when_true: Vec<(SplitPredicate, bool)>,
+    pub when_false: Vec<(SplitPredicate, bool)>,
+    /// Whether the condition is one predicate, so both outcomes are complete.
+    pub exact: bool,
+}
+
+impl ConditionFacts {
+    fn negated(self) -> Self {
+        Self {
+            when_true: self.when_false,
+            when_false: self.when_true,
+            exact: self.exact,
+        }
+    }
+}
+
+/// Collect the predicates each outcome of `expr` establishes. A true `and`
+/// proves every supported conjunct and a false `or` refutes every supported
+/// disjunct; the opposite outcomes are disjunctions, which a single path
+/// cannot record, so they contribute nothing.
+pub(crate) fn split_condition_facts(expr: &Expr, env: &Env) -> ConditionFacts {
+    if let Some((predicate, truth)) = split_predicate_condition(expr, env) {
+        return ConditionFacts {
+            when_true: vec![(predicate.clone(), truth)],
+            when_false: vec![(predicate, !truth)],
+            exact: true,
+        };
+    }
+
+    if let Expr::UnaryOp(ExprUnaryOp {
+        op: UnaryOp::Not,
+        operand,
+        ..
+    }) = expr
+    {
+        return split_condition_facts(operand, env).negated();
+    }
+    let Expr::BoolOp(ExprBoolOp { op, values, .. }) = expr else {
+        return ConditionFacts::default();
+    };
+    match op {
+        BoolOp::And => ConditionFacts {
+            when_true: values
+                .iter()
+                .flat_map(|value| split_condition_facts(value, env).when_true)
+                .collect(),
+            when_false: Vec::new(),
+            exact: false,
+        },
+        BoolOp::Or => ConditionFacts {
+            when_true: Vec::new(),
+            when_false: values
+                .iter()
+                .flat_map(|value| split_condition_facts(value, env).when_false)
+                .collect(),
+            exact: false,
+        },
+    }
+}
+
 /// Rule fragments contributed by one or more raising guards.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ExtractedRuleFragment {
@@ -217,6 +280,17 @@ pub(crate) fn extract_true_condition_constraints(
             operand,
             ..
         }) => eval_condition(operand, &mut env),
+        // Every conjunct holds while the conjunction is true.
+        Expr::BoolOp(ExprBoolOp {
+            op: BoolOp::And,
+            values,
+            ..
+        }) => values
+            .iter()
+            .fold(ExtractedTagConstraints::default(), |mut acc, value| {
+                acc.extend(extract_true_condition_constraints(value, &env));
+                acc
+            }),
         Expr::BoolOp(_)
         | Expr::Named(_)
         | Expr::BinOp(_)
@@ -896,8 +970,62 @@ mod tests {
 
         let mut env = Env::for_compile_function(parser_param, token_param);
         crate::templates::tags::analysis::constants::seed_static_bindings(bindings, func, &mut env);
-        let mut ctx = CallContext { source: None };
+        let mut ctx = CallContext {
+            source: None,
+            manual_as_var_strips: &[],
+        };
         process_statements(&func.body, &mut env, &mut ctx).0
+    }
+
+    #[test]
+    fn condition_facts_keep_conjuncts_when_true_and_disjuncts_when_false() {
+        let mut env = Env::default();
+        env.set_builtin_name_scope(std::collections::HashSet::new());
+        env.set(
+            "bits".to_string(),
+            AbstractValue::SplitResult(
+                crate::templates::tags::analysis::state::TokenSplit::fresh().after_pop_back(),
+            ),
+        );
+        let condition = |source: &str| {
+            let parsed = ruff_python_parser::parse_expression(source).expect("valid Python");
+            split_condition_facts(parsed.expr(), &env)
+        };
+
+        assert_eq!(
+            condition(r#"len(bits) == 3 and bits[-1] == "as" and len(bits) > 1"#),
+            ConditionFacts {
+                when_true: vec![
+                    (SplitPredicate::LengthEquals(4), true),
+                    (
+                        SplitPredicate::ElementEquals {
+                            position: SplitPosition::Backward(2),
+                            value: "as".to_string(),
+                        },
+                        true,
+                    ),
+                ],
+                when_false: Vec::new(),
+                exact: false,
+            }
+        );
+        assert_eq!(
+            condition(r#"not (len(bits) == 3 or bits[1] != "to")"#),
+            ConditionFacts {
+                when_true: vec![
+                    (SplitPredicate::LengthEquals(4), false),
+                    (
+                        SplitPredicate::ElementEquals {
+                            position: SplitPosition::Forward(1),
+                            value: "to".to_string(),
+                        },
+                        true,
+                    ),
+                ],
+                when_false: Vec::new(),
+                exact: false,
+            }
+        );
     }
 
     // Fabricated: tests isolated `<` comparator on len(bits). Real Django functions
