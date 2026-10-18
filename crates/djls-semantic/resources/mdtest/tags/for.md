@@ -52,6 +52,20 @@
 ✓ no diagnostics
 ```
 
+### ignores arguments on the closing tag
+
+Django matches `{% endfor %}` by its first word and `do_for` never inspects the closing token.
+
+```htmldjango
+{% for item in items %}
+  {{ item }}
+{% endfor item %}
+```
+
+```snapshot
+✓ no diagnostics
+```
+
 ## Invalid
 
 ### rejects empty outside for

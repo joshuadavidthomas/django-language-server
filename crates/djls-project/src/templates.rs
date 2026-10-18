@@ -76,6 +76,7 @@ pub use tags::BlockSpecs;
 pub use tags::BodyAnalysisEvidence;
 pub use tags::BodyLexing;
 pub use tags::ChoiceAt;
+pub use tags::ClosingTagArguments;
 pub use tags::ConditionArguments;
 pub use tags::ExtractedDiagnosticConstraint;
 pub use tags::ExtractedDiagnosticMessage;

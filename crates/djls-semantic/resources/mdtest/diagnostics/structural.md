@@ -57,3 +57,78 @@ error[S103]: Closing block 'sidebar' does not match opening block 'content'
 2 | {% endblock sidebar %}
   | ^^^^^^^^^^^^^^^^^^^^^^
 ```
+
+## closing tag arguments
+
+Django's `Parser.parse` matches a closing tag by its first word. A closing-tag argument is checked only when the opener's compile function inspects the closing token.
+
+`settings.py`:
+
+```py
+INSTALLED_APPS = []
+TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/templates'], 'APP_DIRS': False, 'OPTIONS': {'builtins': ['section_tags'], 'libraries': {}}}]
+```
+
+### checked when the compile function compares the closing token
+
+`section_tags.py`:
+
+```py
+from django import template
+register = template.Library()
+
+@register.tag
+def section(parser, token):
+    bits = token.split_contents()
+    name = bits[1]
+    nodelist = parser.parse(("endsection",))
+    closing = parser.next_token()
+    accepted = ("endsection", f"endsection {name}")
+    if closing.contents not in accepted:
+        parser.invalid_block_tag(closing, "endsection", accepted)
+    return template.Node()
+```
+
+```htmldjango
+{% section intro %}{% endsection intro %}
+{% section body %}{% endsection %}
+{% section footer %}{% endsection sidebar %}
+{% section aside %}{% endsection aside extra %}
+```
+
+```snapshot
+error[S103]: Closing block 'sidebar' does not match opening block 'footer'
+ --> test.html:3:21
+  |
+3 | {% section footer %}{% endsection sidebar %}
+  |                     ^^^^^^^^^^^^^^^^^^^^^^^^
+error[S103]: Closing block 'aside extra' does not match opening block 'aside'
+ --> test.html:4:20
+  |
+4 | {% section aside %}{% endsection aside extra %}
+  |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+```
+
+### ignored when the compile function deletes the closing token
+
+`section_tags.py`:
+
+```py
+from django import template
+register = template.Library()
+
+@register.tag
+def section(parser, token):
+    bits = token.split_contents()
+    nodelist = parser.parse(("endsection",))
+    parser.delete_first_token()
+    return template.Node()
+```
+
+```htmldjango
+{% section footer %}{% endsection sidebar %}
+```
+
+```snapshot
+✓ no diagnostics
+```

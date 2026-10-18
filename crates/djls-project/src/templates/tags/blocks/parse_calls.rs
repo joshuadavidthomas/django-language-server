@@ -23,6 +23,7 @@ use crate::templates::tags::blocks::extract_string_sequence;
 use crate::templates::tags::blocks::is_parser_receiver;
 use crate::templates::tags::blocks::is_token_contents_expr;
 use crate::templates::tags::types::BodyAnalysisEvidence;
+use crate::templates::tags::types::ClosingTagArguments;
 
 /// Detect block structure from `parser.parse((...))` calls with control flow analysis.
 ///
@@ -293,6 +294,7 @@ fn classify_stop_tokens(
         end_tag,
         intermediates,
         body_analysis_evidence: BodyAnalysisEvidence::NotDetected,
+        closing_arguments: ClosingTagArguments::Unchecked,
     })
 }
 
