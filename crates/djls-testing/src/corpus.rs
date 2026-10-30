@@ -53,6 +53,13 @@ pub use sync::sync_corpus;
 const CORPUS_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/.corpus");
 const MANIFEST_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/manifest.toml");
 
+fn http_client_builder() -> reqwest::blocking::ClientBuilder {
+    // reqwest is built without a bundled crypto provider, so install ring before
+    // building a client. Installing fails only when an earlier call already did.
+    drop(rustls::crypto::ring::default_provider().install_default());
+    reqwest::blocking::Client::builder()
+}
+
 /// A validated corpus root directory.
 ///
 /// Constructed via [`Corpus::require`], which validates that the
