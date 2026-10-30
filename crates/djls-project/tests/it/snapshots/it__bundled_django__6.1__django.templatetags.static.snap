@@ -1,0 +1,27 @@
+---
+source: crates/djls-project/tests/it/bundled_django.rs
+expression: "sorted_snapshot(&bundle).expect(\"extraction snapshot should serialize\")"
+---
+definitions:
+  "tag::get_media_prefix":
+    kind: tag
+    has_doc: false
+  "tag::get_static_prefix":
+    kind: tag
+    has_doc: false
+  "tag::static":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
+tag_rules: {}
+filter_arities: {}
+block_specs: {}
+tag_meanings:
+  "django.templatetags.static::tag::static":
+    role:
+      - static_asset_reference
+      - fallback
+    fallbacks:
+      - gap: StaticNode resolves the path through the staticfiles storage at render time; extraction does not model storages.
+        path: django/templatetags/static.py
+        line: 171

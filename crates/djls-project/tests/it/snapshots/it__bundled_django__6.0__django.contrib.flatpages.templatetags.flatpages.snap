@@ -1,0 +1,68 @@
+---
+source: crates/djls-project/tests/it/bundled_django.rs
+expression: "sorted_snapshot(&bundle).expect(\"extraction snapshot should serialize\")"
+---
+definitions:
+  "tag::get_flatpages":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
+tag_rules:
+  "django.contrib.flatpages.templatetags.flatpages::tag::get_flatpages":
+    arg_constraints:
+      - Min: 3
+      - Max: 6
+    required_keywords:
+      - position:
+          Backward: 2
+        value: as
+      - position:
+          Backward: 4
+        value: for
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Forms:
+        forms:
+          - pattern:
+              - name: as
+                kind:
+                  Literal: as
+              - name: context_name
+                kind: Variable
+          - pattern:
+              - name: arg1
+                kind: Variable
+              - name: as
+                kind:
+                  Literal: as
+              - name: context_name
+                kind: Variable
+          - pattern:
+              - name: for
+                kind:
+                  Literal: for
+              - name: arg2
+                kind: Variable
+              - name: as
+                kind:
+                  Literal: as
+              - name: context_name
+                kind: Variable
+          - pattern:
+              - name: arg1
+                kind: Variable
+              - name: for
+                kind:
+                  Literal: for
+              - name: arg3
+                kind: Variable
+              - name: as
+                kind:
+                  Literal: as
+              - name: context_name
+                kind: Variable
+        coverage: complete
+    as_var: keep
+filter_arities: {}
+block_specs: {}

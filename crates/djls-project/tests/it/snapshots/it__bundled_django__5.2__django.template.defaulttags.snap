@@ -1,0 +1,626 @@
+---
+source: crates/djls-project/tests/it/bundled_django.rs
+expression: "sorted_snapshot(&bundle).expect(\"extraction snapshot should serialize\")"
+---
+definitions:
+  "tag::autoescape":
+    kind: tag
+    has_doc: false
+  "tag::comment":
+    kind: tag
+    has_doc: false
+  "tag::csrf_token":
+    kind: tag
+    has_doc: false
+  "tag::cycle":
+    kind: tag
+    has_doc: false
+  "tag::debug":
+    kind: tag
+    has_doc: false
+  "tag::filter":
+    kind: tag
+    has_doc: false
+  "tag::firstof":
+    kind: tag
+    has_doc: false
+  "tag::for":
+    kind: tag
+    has_doc: false
+  "tag::if":
+    kind: tag
+    has_doc: false
+  "tag::ifchanged":
+    kind: tag
+    has_doc: false
+  "tag::load":
+    kind: tag
+    has_doc: false
+  "tag::lorem":
+    kind: tag
+    has_doc: false
+  "tag::now":
+    kind: tag
+    has_doc: false
+  "tag::querystring":
+    kind: tag
+    has_doc: false
+  "tag::regroup":
+    kind: tag
+    has_doc: false
+  "tag::resetcycle":
+    kind: tag
+    has_doc: false
+  "tag::spaceless":
+    kind: tag
+    has_doc: false
+  "tag::templatetag":
+    kind: tag
+    has_doc: false
+  "tag::url":
+    kind: tag
+    has_doc: false
+  "tag::verbatim":
+    kind: tag
+    has_doc: false
+  "tag::widthratio":
+    kind: tag
+    has_doc: false
+  "tag::with":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
+tag_rules:
+  "django.template.defaulttags::tag::autoescape":
+    arg_constraints:
+      - Exact: 2
+    required_keywords: []
+    choice_at_constraints:
+      - position:
+          Forward: 1
+        values:
+          - "on"
+          - "off"
+    known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Exact: 2
+        message:
+          Static: "'autoescape' tag requires exactly one argument."
+      - constraint:
+          ChoiceAt:
+            position:
+              Forward: 1
+            values:
+              - "on"
+              - "off"
+        message:
+          Static: "'autoescape' argument should be 'on' or 'off'"
+    argument_syntax:
+      Parameters:
+        - name: arg
+          requirement: required
+          kind: Variable
+    as_var: keep
+  "django.template.defaulttags::tag::cycle":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Min: 2
+        message:
+          Static: "'cycle' tag requires at least two arguments"
+    argument_syntax:
+      Forms:
+        forms:
+          - pattern:
+              - name: name
+                kind: Variable
+          - pattern:
+              - name: arguments
+                kind:
+                  VariableWidth:
+                    minimum: 1
+                consumption: expression
+              - name: as
+                kind:
+                  Literal: as
+              - name: name
+                kind: Variable
+              - name: silent
+                kind:
+                  Literal: silent
+                mismatch_message:
+                  PercentFormat:
+                    template: "Only 'silent' flag is allowed after cycle's name, not '%s'."
+                    args:
+                      - SplitElement:
+                          Backward: 1
+          - pattern:
+              - name: arguments
+                kind:
+                  VariableWidth:
+                    minimum: 1
+                consumption: expression
+              - name: arg_from_end_3
+                kind:
+                  VariableExcept: as
+                consumption: expression
+              - name: as
+                kind:
+                  Literal: as
+              - name: name
+                kind: Variable
+          - pattern:
+              - name: arguments
+                kind:
+                  VariableWidth:
+                    minimum: 1
+                consumption: expression
+              - name: arg_from_end_3
+                kind:
+                  VariableExcept: as
+                consumption: expression
+              - name: arg_from_end_2
+                kind:
+                  VariableExcept: as
+              - name: name
+                kind: Variable
+        coverage: partial
+    as_var: keep
+  "django.template.defaulttags::tag::firstof":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Min: 2
+        message:
+          Static: "'firstof' statement requires at least one argument"
+    argument_syntax:
+      Parameters:
+        - name: arg1
+          requirement: required
+          kind: Variable
+          consumption: expression
+    argument_consumption:
+      - bits:
+          first:
+            Forward: 1
+          last:
+            Backward: 1
+        consumption: expression
+    as_var: strip
+  "django.template.defaulttags::tag::for":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Forms:
+        forms:
+          - pattern:
+              - name: arguments
+                kind:
+                  VariableWidth:
+                    minimum: 0
+              - name: in
+                kind:
+                  Literal: in
+                mismatch_message:
+                  PercentFormat:
+                    template: "'for' statements should use the format 'for x in y': %s"
+                    args:
+                      - TokenContents
+              - name: arg_from_end_2
+                kind: Variable
+                consumption: expression
+              - name: reversed
+                kind:
+                  Literal: reversed
+          - pattern:
+              - name: arguments
+                kind:
+                  VariableWidth:
+                    minimum: 1
+              - name: in
+                kind:
+                  Literal: in
+                mismatch_message:
+                  PercentFormat:
+                    template: "'for' statements should use the format 'for x in y': %s"
+                    args:
+                      - TokenContents
+              - name: arg_from_end_1
+                kind:
+                  VariableExcept: reversed
+                consumption: expression
+        coverage: complete
+        length_mismatch_message:
+          PercentFormat:
+            template: "'for' statements should have at least four words: %s"
+            args:
+              - TokenContents
+    as_var: keep
+  "django.template.defaulttags::tag::ifchanged":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax: Unknown
+    argument_consumption:
+      - bits:
+          first:
+            Forward: 1
+          last:
+            Backward: 1
+        consumption: expression
+    as_var: keep
+  "django.template.defaulttags::tag::lorem":
+    arg_constraints:
+      - OneOf:
+          - 1
+          - 2
+          - 3
+          - 4
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            OneOf:
+              - 1
+              - 2
+              - 3
+              - 4
+        message:
+          PercentFormat:
+            template: Incorrect format for %r tag
+            args:
+              - SplitElement:
+                  Forward: 0
+    argument_syntax:
+      Parameters:
+        - name: arg1
+          requirement: optional
+          kind: Variable
+        - name: arg2
+          requirement: optional
+          kind: Variable
+        - name: arg3
+          requirement: optional
+          kind: Variable
+    as_var: keep
+  "django.template.defaulttags::tag::now":
+    arg_constraints:
+      - Exact: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Exact: 2
+        message:
+          Static: "'now' statement takes one argument"
+    argument_syntax:
+      Parameters:
+        - name: arg1
+          requirement: required
+          kind: Variable
+    as_var: strip
+  "django.template.defaulttags::tag::querystring":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters:
+          - name: query_dict
+            requirement: optional
+            kind: Variable
+        positional_only: 0
+        variadic_keyword: kwargs
+    as_var: strip
+  "django.template.defaulttags::tag::regroup":
+    arg_constraints:
+      - Exact: 6
+    required_keywords:
+      - position:
+          Forward: 2
+        value: by
+      - position:
+          Forward: 4
+        value: as
+    choice_at_constraints: []
+    known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Exact: 6
+        message:
+          Static: "'regroup' tag takes five arguments"
+      - constraint:
+          RequiredKeyword:
+            position:
+              Forward: 2
+            value: by
+        message:
+          Static: "second argument to 'regroup' tag must be 'by'"
+      - constraint:
+          RequiredKeyword:
+            position:
+              Forward: 4
+            value: as
+        message:
+          Static: "next-to-last argument to 'regroup' tag must be 'as'"
+    argument_syntax:
+      Parameters:
+        - name: arg1
+          requirement: required
+          kind: Variable
+          consumption: expression
+        - name: by
+          requirement: required
+          kind:
+            Literal: by
+        - name: arg3
+          requirement: required
+          kind: Variable
+        - name: as
+          requirement: required
+          kind:
+            Literal: as
+        - name: var_name
+          requirement: required
+          kind: Variable
+    argument_consumption:
+      - bits:
+          first:
+            Forward: 1
+          last:
+            Forward: 1
+        consumption: expression
+    as_var: keep
+  "django.template.defaulttags::tag::resetcycle":
+    arg_constraints:
+      - Max: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Max: 2
+        message:
+          PercentFormat:
+            template: "%r tag accepts at most one argument."
+            args:
+              - SplitElement:
+                  Forward: 0
+    argument_syntax:
+      Forms:
+        forms:
+          - pattern:
+              - name: name
+                kind: Variable
+        coverage: partial
+    as_var: keep
+  "django.template.defaulttags::tag::templatetag":
+    arg_constraints:
+      - Exact: 2
+    required_keywords: []
+    choice_at_constraints:
+      - position:
+          Forward: 1
+        values:
+          - openblock
+          - closeblock
+          - openvariable
+          - closevariable
+          - openbrace
+          - closebrace
+          - opencomment
+          - closecomment
+    known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Exact: 2
+        message:
+          Static: "'templatetag' statement takes one argument"
+    argument_syntax:
+      Parameters:
+        - name: tag
+          requirement: required
+          kind: Variable
+    as_var: keep
+  "django.template.defaulttags::tag::url":
+    arg_constraints:
+      - Min: 2
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Min: 2
+        message:
+          PercentFormat:
+            template: "'%s' takes at least one argument, a URL pattern name."
+            args:
+              - SplitElement:
+                  Forward: 0
+    argument_syntax:
+      Parameters:
+        - name: arg1
+          requirement: required
+          kind: Variable
+          consumption: expression
+    argument_consumption:
+      - bits:
+          first:
+            Forward: 1
+          last:
+            Forward: 1
+        consumption: expression
+      - bits:
+          first:
+            Forward: 2
+          last:
+            Backward: 1
+        consumption: optional_keyword_expression
+    as_var: strip
+  "django.template.defaulttags::tag::widthratio":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Forms:
+        forms:
+          - pattern:
+              - name: this_value_expr
+                kind: Variable
+                consumption: expression
+              - name: max_value_expr
+                kind: Variable
+                consumption: expression
+              - name: max_width
+                kind: Variable
+                consumption: expression
+          - pattern:
+              - name: this_value_expr
+                kind: Variable
+                consumption: expression
+              - name: max_value_expr
+                kind: Variable
+                consumption: expression
+              - name: max_width
+                kind: Variable
+                consumption: expression
+              - name: as
+                kind:
+                  Literal: as
+                mismatch_message:
+                  Static: "Invalid syntax in widthratio tag. Expecting 'as' keyword"
+              - name: asvar
+                kind: Variable
+        coverage: complete
+    argument_consumption:
+      - bits:
+          first:
+            Forward: 1
+          last:
+            Forward: 1
+        consumption: expression
+      - bits:
+          first:
+            Forward: 2
+          last:
+            Forward: 2
+        consumption: expression
+      - bits:
+          first:
+            Forward: 3
+          last:
+            Forward: 3
+        consumption: expression
+    as_var: keep
+  "django.template.defaulttags::tag::with":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Assignments:
+        operand:
+          mode: modern_or_legacy
+          cardinality: at_least_one
+          remainder: reject
+          empty_message:
+            PercentFormat:
+              template: "%r expected at least one variable assignment"
+              args:
+                - SplitElement:
+                    Forward: 0
+    as_var: keep
+filter_arities: {}
+block_specs:
+  "django.template.defaulttags::tag::autoescape":
+    body_analysis_evidence: not_detected
+    end_tag: endautoescape
+    intermediates: []
+  "django.template.defaulttags::tag::comment":
+    body_analysis_evidence: skip_past
+    end_tag: endcomment
+    intermediates: []
+  "django.template.defaulttags::tag::filter":
+    body_analysis_evidence: not_detected
+    end_tag: endfilter
+    intermediates: []
+  "django.template.defaulttags::tag::for":
+    body_analysis_evidence: not_detected
+    end_tag: endfor
+    intermediates:
+      - empty
+  "django.template.defaulttags::tag::if":
+    body_analysis_evidence: not_detected
+    end_tag: endif
+    intermediates:
+      - elif
+      - else
+  "django.template.defaulttags::tag::ifchanged":
+    body_analysis_evidence: not_detected
+    end_tag: endifchanged
+    intermediates:
+      - else
+  "django.template.defaulttags::tag::spaceless":
+    body_analysis_evidence: not_detected
+    end_tag: endspaceless
+    intermediates: []
+  "django.template.defaulttags::tag::verbatim":
+    body_analysis_evidence: not_detected
+    end_tag: endverbatim
+    intermediates: []
+  "django.template.defaulttags::tag::with":
+    body_analysis_evidence: not_detected
+    end_tag: endwith
+    intermediates: []
+tag_meanings:
+  "django.template.defaulttags::tag::if":
+    condition:
+      intermediates:
+        - elif
+    fallbacks:
+      - gap: "Extraction does not follow TemplateIfParser, so it records no Condition consumption for the opener's or each elif's bits."
+        path: django/template/defaulttags.py
+        line: 969
+  "django.template.defaulttags::tag::load":
+    role:
+      - template_library_loader
+      - extracted
+  "django.template.defaulttags::tag::url":
+    role:
+      - route_reference
+      - fallback
+    fallbacks:
+      - gap: URLNode reverses the route at render time; extraction does not model URL resolution.
+        path: django/template/defaulttags.py
+        line: 1440
+  "django.template.defaulttags::tag::verbatim":
+    body_lexing: verbatim
+    fallbacks:
+      - gap: "The Lexer, not do_verbatim, emits the body as text until a tag whose contents are 'end' plus the opener's contents."
+        path: django/template/base.py
+        line: 390

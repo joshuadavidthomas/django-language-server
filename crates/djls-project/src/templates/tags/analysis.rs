@@ -9,12 +9,12 @@
 //! 2. **Interpreter hook.** Record it where the compile function reveals it: statements,
 //!    expressions, and calls under `analysis/`, structure under `blocks/`. Recognize Django
 //!    APIs by canonical identity, as `native.rs` does for `token_kwargs`, never by tag name.
-//! 3. **Snapshot review.** Review `tests/bundled_django.rs`, which mounts the bundled Django
+//! 3. **Snapshot review.** Review `tests/it/bundled_django.rs`, which mounts the bundled Django
 //!    archives as site-packages like production, then `cargo test -p djls-project --test
 //!    corpus` (needs `just corpus sync`) for third-party libraries. The corpus checks Django
 //!    out as project code, so canonical-identity summaries never fire for Django there.
 //! 4. **List gaps.** Each Django tag the snapshots show without the fact is an extraction gap.
-//!    `djls-semantic/tests/bundled_django_provenance.rs` shows which fused facts are
+//!    `djls-semantic/tests/it/bundled_django_provenance.rs` shows which fused facts are
 //!    extracted, hand-written, or missing.
 //! 5. **Fallback with evidence.** Hand-write a fact only for a gap the interpreter cannot
 //!    prove. Name the gap and cite the snapshot row or Django source line; it then appears as
