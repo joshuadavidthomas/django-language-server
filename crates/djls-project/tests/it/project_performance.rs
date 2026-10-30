@@ -1,23 +1,15 @@
-use std::fmt::Write;
-use std::hint::black_box;
 use std::io;
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::time::Instant;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
-use djls_project::PythonModuleName;
 use djls_project::ScopedTemplateLibraries;
-use djls_project::TemplateLibraryId;
 use djls_project::TemplateName;
 use djls_project::TemplateResolutionResult;
 use djls_project::TemplateSymbolKind;
 use djls_project::template_library_candidate_files;
 use djls_project::template_library_catalog;
-use djls_project::template_library_definition_facts;
-use djls_project::template_library_structure_facts;
-use djls_project::template_library_tag_facts;
 use djls_project::template_resolution;
 use djls_source::CaseSensitivity;
 use djls_source::ChangeEvent;
@@ -28,8 +20,6 @@ use djls_source::SourceChanges;
 use djls_source::WalkOptions;
 use djls_testing::OsTestDatabase;
 use djls_testing::ProjectFixture;
-use djls_testing::ProjectSettings;
-use djls_testing::TestDatabase;
 
 #[derive(Default)]
 struct CountedFileSystem {
@@ -263,137 +253,5 @@ fn shared_template_roots_are_walked_once_without_losing_partial_evidence() {
                 .count(),
             1
         );
-    }
-}
-
-/// Run with `cargo test --release -p djls-project --test project_performance -- --ignored --nocapture`.
-/// Setup is excluded; cold indexing includes directory traversal and index construction.
-#[test]
-#[ignore = "manual timing comparison; no wall-clock assertions"]
-fn scoped_template_enumeration_measurements() {
-    let db = TestDatabase::new();
-    let mut fixture = ProjectFixture::new("/proj").settings(&ProjectSettings {
-        dirs: vec!["/proj/templates".to_string()],
-        ..ProjectSettings::default()
-    });
-    for index in 0..2_000 {
-        fixture = fixture.file(format!("/proj/templates/page_{index:04}.html"), "body");
-    }
-    let project = fixture.build(&db).expect("large template fixture");
-    let page = db
-        .file(Utf8Path::new("/proj/templates/page_0000.html"))
-        .expect("page fixture");
-    let cold = Instant::now();
-    let resolution = template_resolution(&db, project);
-    assert_eq!(resolution.origins(&db).count(), 2_000);
-    eprintln!("cold index 2000 templates: {:?}", cold.elapsed());
-
-    let full = Instant::now();
-    for _ in 0..10 {
-        let names = resolution.template_names_for_backend_scope(&db, page);
-        assert_eq!(names.len(), 2_000);
-        black_box(names);
-    }
-    eprintln!("10 empty-prefix enumerations: {:?}", full.elapsed());
-    let narrow = Instant::now();
-    for _ in 0..10 {
-        let names = resolution.template_names_for_backend_scope_with_prefix(&db, page, "page_199");
-        assert_eq!(names.len(), 10);
-        black_box(names);
-    }
-    eprintln!("10 narrow-prefix enumerations: {:?}", narrow.elapsed());
-    let missing = Instant::now();
-    let name = TemplateName::new(&db, "missing.html".to_string());
-    for _ in 0..1_000 {
-        assert!(matches!(
-            resolution.resolve_for_file(&db, name, page),
-            TemplateResolutionResult::DoesNotExist(_)
-        ));
-    }
-    eprintln!("1000 missing scoped resolutions: {:?}", missing.elapsed());
-}
-
-#[test]
-#[ignore = "manual timing comparison; no wall-clock assertions"]
-fn library_products_measurements() {
-    let source = include_str!("../../src/templates/tags/testdata/django_defaulttags.py");
-    let mut inventory = std::time::Duration::ZERO;
-    let mut structure = std::time::Duration::ZERO;
-    let mut detail = std::time::Duration::ZERO;
-    let mut warm = std::time::Duration::ZERO;
-    for _ in 0..50 {
-        let db = TestDatabase::new();
-        db.add_file("/test/defaulttags.py", source)
-            .expect("source fixture");
-        let file = db
-            .file(Utf8Path::new("/test/defaulttags.py"))
-            .expect("source file");
-        let key = TemplateLibraryId::new(
-            &db,
-            Some(file),
-            PythonModuleName::parse("django.template.defaulttags").expect("module name"),
-        );
-        let start = Instant::now();
-        let definitions = template_library_definition_facts(&db, key);
-        assert!(definitions.is_library());
-        inventory += start.elapsed();
-        let start = Instant::now();
-        black_box(template_library_structure_facts(&db, key));
-        structure += start.elapsed();
-        let start = Instant::now();
-        let facts = template_library_tag_facts(&db, key);
-        assert!(!facts.tag_rules().is_empty());
-        detail += start.elapsed();
-        let start = Instant::now();
-        black_box(template_library_tag_facts(&db, key));
-        warm += start.elapsed();
-    }
-    eprintln!(
-        "50 defaulttags passes: inventory={inventory:?} structure={structure:?} first_detail={detail:?} warm_detail={warm:?}"
-    );
-}
-
-#[test]
-#[ignore = "manual timing comparison; no wall-clock assertions"]
-fn registration_inventory_measurements() {
-    for count in [25, 100, 1_000] {
-        let mut source = "from django import template\nregister = template.Library()\n".to_string();
-        for index in 0..count {
-            writeln!(
-                source,
-                "@register.simple_tag\ndef tag_{index}(value): return value"
-            )
-            .expect("write source");
-        }
-        let mut inventory = std::time::Duration::ZERO;
-        let mut catalog = std::time::Duration::ZERO;
-        for _ in 0..20 {
-            let db = TestDatabase::new();
-            let project = ProjectFixture::new("/proj")
-                .django_settings_module("settings")
-                .file("/proj/settings.py", "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'libraries': {'tags': 'tags'}}}]\n")
-                .file("/proj/tags.py", &source)
-                .build(&db).expect("library fixture");
-            let file = db
-                .file(Utf8Path::new("/proj/tags.py"))
-                .expect("library file");
-            let key = TemplateLibraryId::new(
-                &db,
-                Some(file),
-                PythonModuleName::parse("tags").expect("module"),
-            );
-            let start = Instant::now();
-            assert_eq!(
-                template_library_definition_facts(&db, key)
-                    .symbols()
-                    .count(),
-                count
-            );
-            inventory += start.elapsed();
-            let start = Instant::now();
-            black_box(template_library_catalog(&db, project));
-            catalog += start.elapsed();
-        }
-        eprintln!("20 passes, {count} registrations: inventory={inventory:?} catalog={catalog:?}");
     }
 }

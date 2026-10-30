@@ -542,33 +542,6 @@ fn origins_for_name_returns_origins_in_django_search_order() {
 }
 
 #[test]
-fn origins_for_name_retains_duplicate_template_names() {
-    let mut db = TestDatabase::new();
-    let project = project_with_templates(
-        &mut db,
-        vec!["/test/project/templates", "/test/project/app/templates"],
-        vec![
-            (
-                "base.html",
-                "/test/project/templates/base.html",
-                "project base",
-            ),
-            (
-                "base.html",
-                "/test/project/app/templates/base.html",
-                "app base",
-            ),
-        ],
-    )
-    .expect("duplicate-template-name project fixture should build");
-
-    let name = TemplateName::new(&db, "base.html".to_string());
-    let origins = template_resolution(&db, project).origins_for_name(&db, name);
-
-    assert_eq!(origins.len(), 2);
-}
-
-#[test]
 fn origins_for_name_returns_empty_slice_for_unknown_template_name() {
     let mut db = TestDatabase::new();
     let project = project_with_templates(
@@ -736,10 +709,15 @@ fn dynamic_installed_apps_preserve_uncertainty_position() {
         .build(&known_first_db)
         .expect("known-first project fixture should build");
     let name = TemplateName::new(&known_first_db, "base.html".to_string());
-    assert!(matches!(
-        template_resolution(&known_first_db, known_first).resolve(&known_first_db, name),
-        TemplateResolutionResult::Found(_)
-    ));
+    let TemplateResolutionResult::Found(origin) =
+        template_resolution(&known_first_db, known_first).resolve(&known_first_db, name)
+    else {
+        panic!("known app should win before uncertainty");
+    };
+    assert_eq!(
+        origin.file(&known_first_db).path(&known_first_db).as_str(),
+        "/test/project/known/templates/base.html"
+    );
 
     let unknown_first_db = TestDatabase::new();
     let unknown_first = ProjectFixture::new("/test/project")
@@ -1219,7 +1197,13 @@ fn later_dynamic_directory_does_not_weaken_an_earlier_winner() {
     let name = TemplateName::new(&db, "base.html".to_string());
     let result = template_resolution(&db, project).resolve(&db, name);
 
-    assert!(matches!(result, TemplateResolutionResult::Found(_)));
+    let TemplateResolutionResult::Found(origin) = result else {
+        panic!("earlier directory should win");
+    };
+    assert_eq!(
+        origin.file(&db).path(&db).as_str(),
+        "/test/project/templates/base.html"
+    );
 }
 
 #[test]
@@ -1239,7 +1223,13 @@ fn later_uncertainty_does_not_weaken_an_earlier_winner() {
     let name = TemplateName::new(&db, "base.html".to_string());
     let result = template_resolution(&db, project).resolve(&db, name);
 
-    assert!(matches!(result, TemplateResolutionResult::Found(_)));
+    let TemplateResolutionResult::Found(origin) = result else {
+        panic!("earlier directory should win");
+    };
+    assert_eq!(
+        origin.file(&db).path(&db).as_str(),
+        "/test/project/templates/base.html"
+    );
 }
 
 #[test]

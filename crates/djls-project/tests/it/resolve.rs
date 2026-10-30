@@ -31,45 +31,16 @@ use djls_testing::will_execute_count;
 use djls_testing::will_execute_names;
 use salsa::Setter;
 
-struct TestModel {
-    module_name: PythonModuleName,
-}
+struct TestModelGraph<'a>(&'a ModelGraph);
 
-#[derive(Default)]
-struct TestModelGraph {
-    models: BTreeMap<String, TestModel>,
-}
-
-impl TestModelGraph {
-    fn get(&self, name: &str) -> Option<&TestModel> {
-        self.models.get(name)
+impl TestModelGraph<'_> {
+    fn get<'a>(&'a self, name: &'a str) -> Option<&'a ModelId> {
+        self.0.models_named(name).next().map(|(id, _)| id)
     }
 }
 
-fn compute_model_graph(
-    db: &TestDatabase,
-    project: Project,
-) -> Result<TestModelGraph, Box<dyn std::error::Error>> {
-    let mut graph = TestModelGraph::default();
-    for module in model_modules(db, project).iter().rev() {
-        let source = module.file().try_source(db)?;
-        for line in source.as_str().lines() {
-            let Some(rest) = line.trim_start().strip_prefix("class ") else {
-                continue;
-            };
-            let name = rest.split(['(', ':']).next().unwrap_or("").trim();
-            if name.is_empty() {
-                continue;
-            }
-            graph.models.insert(
-                name.to_string(),
-                TestModel {
-                    module_name: module.name().clone(),
-                },
-            );
-        }
-    }
-    Ok(graph)
+fn compute_model_graph(db: &TestDatabase, project: Project) -> TestModelGraph<'_> {
+    TestModelGraph(djls_project::compute_model_graph(db, project))
 }
 
 fn project_for_search_paths(
@@ -864,124 +835,50 @@ def duplicate(value, arg):
 }
 
 #[test]
-fn project_model_graph_reads_changed_project_file_after_django_discovery() {
-    let mut db = TestDatabase::new();
-    db.add_file(
-        "/project/blog/models.py",
-        "from django.db import models\nclass Article(models.Model):\n    pass\n",
-    )
-    .expect("resolver test file should be added");
-
-    let search_paths = SearchPaths::from_project_settings(
-        db.file_system(),
-        Utf8Path::new("/project"),
-        &PythonEnvironment::Auto,
-        &[],
-    );
-    search_paths.register_roots(&db);
-    let project = project_for_search_paths(&mut db, "/project", search_paths)
-        .expect("search-path project fixture should build");
-    db.set_project(project);
-
-    let graph = compute_model_graph(&db, project).expect("model graph fixture should be readable");
-    assert!(graph.get("Article").is_some());
-    assert!(graph.get("Comment").is_none());
-
-    db.add_file(
-        "/project/blog/models.py",
-        "from django.db import models\nclass Comment(models.Model):\n    pass\n",
-    )
-    .expect("resolver test file should be added");
-    apply_project_discovery(&mut db).expect("configured project discovery should succeed");
-
-    let graph = compute_model_graph(&db, project).expect("model graph fixture should be readable");
-    assert!(graph.get("Article").is_none());
-    assert!(graph.get("Comment").is_some());
-}
-
-#[test]
-fn project_model_discovery_updates_through_django_discovery() {
-    let mut db = TestDatabase::new();
-    db.add_file(
-        "/project/blog/models.py",
-        "from django.db import models\nclass Article(models.Model):\n    pass\n",
-    )
-    .expect("resolver test file should be added");
-
-    let search_paths = SearchPaths::from_project_settings(
-        db.file_system(),
-        Utf8Path::new("/project"),
-        &PythonEnvironment::Auto,
-        &[],
-    );
-    search_paths.register_roots(&db);
-    let project = project_for_search_paths(&mut db, "/project", search_paths)
-        .expect("search-path project fixture should build");
-    db.set_project(project);
-
-    let graph = compute_model_graph(&db, project).expect("model graph fixture should be readable");
-    assert!(graph.get("Article").is_some());
-    assert!(graph.get("Comment").is_none());
-
-    db.add_file(
-        "/project/comments/models.py",
-        "from django.db import models\nclass Comment(models.Model):\n    pass\n",
-    )
-    .expect("resolver test file should be added");
-    apply_project_discovery(&mut db).expect("configured project discovery should succeed");
-
-    let graph = compute_model_graph(&db, project).expect("model graph fixture should be readable");
-    assert!(graph.get("Article").is_some());
-    assert!(graph.get("Comment").is_some());
-}
-
-#[test]
-fn external_model_graph_reads_changed_site_packages_file_after_django_discovery() {
-    let mut db = TestDatabase::new();
-    db.add_file(
-        "/project/.venv/lib/python3.12/site-packages/blog/models.py",
-        "from django.db import models\nclass Article(models.Model):\n    pass\n",
-    )
-    .expect("resolver test file should be added");
-
-    let search_paths = SearchPaths::from_project_settings(
-        db.file_system(),
-        Utf8Path::new("/project"),
-        &PythonEnvironment::Auto,
-        &[],
-    );
-    search_paths.register_roots(&db);
-    let project = project_for_search_paths(&mut db, "/project", search_paths)
-        .expect("search-path project fixture should build");
-    db.set_project(project);
-
-    let graph = compute_model_graph(&db, project).expect("model graph fixture should be readable");
-    assert!(graph.get("Article").is_some());
-    assert!(graph.get("Comment").is_none());
-
-    db.add_file(
-        "/project/.venv/lib/python3.12/site-packages/blog/models.py",
-        "from django.db import models\nclass Comment(models.Model):\n    pass\n",
-    )
-    .expect("resolver test file should be added");
-    apply_project_discovery(&mut db).expect("configured project discovery should succeed");
-
-    let graph = compute_model_graph(&db, project).expect("model graph fixture should be readable");
-    assert!(graph.get("Article").is_none());
-    assert!(graph.get("Comment").is_some());
+fn model_modules_update_when_model_source_is_replaced() {
+    for root in ["/project", "/project/.venv/lib/python3.12/site-packages"] {
+        let mut db = TestDatabase::new();
+        let path = format!("{root}/blog/models.py");
+        db.add_file(
+            &path,
+            "from django.db import models\nclass Article(models.Model):\n    pass\n",
+        )
+        .expect("initial model file");
+        let search_paths = SearchPaths::from_project_settings(
+            db.file_system(),
+            Utf8Path::new("/project"),
+            &PythonEnvironment::Auto,
+            &[],
+        );
+        search_paths.register_roots(&db);
+        let project = project_for_search_paths(&mut db, "/project", search_paths).expect("project");
+        db.set_project(project);
+        let graph = compute_model_graph(&db, project);
+        assert!(graph.get("Article").is_some(), "{root}");
+        assert!(graph.get("Comment").is_none(), "{root}");
+        db.add_file(
+            &path,
+            "from django.db import models\nclass Comment(models.Model):\n    pass\n",
+        )
+        .expect("replacement model file");
+        apply_project_discovery(&mut db).expect("discovery");
+        let graph = compute_model_graph(&db, project);
+        assert!(graph.get("Article").is_none(), "{root}");
+        assert!(graph.get("Comment").is_some(), "{root}");
+    }
 }
 
 #[test]
 fn external_model_graph_preserves_pythonpath_precedence() {
     let mut db = TestDatabase::new();
     db.add_file(
-        "/zfirst/zapp/models.py",
-        "from django.db import models\nclass Duplicate(models.Model):\n    pass\n",
+        "/zfirst/app/models.py",
+        "from django.db import models\nclass First(models.Model):\n    pass\n",
     )
     .expect("resolver test file should be added");
     db.add_file(
-        "/afallback/aapp/models.py",
-        "from django.db import models\nclass Duplicate(models.Model):\n    pass\n",
+        "/afallback/app/models.py",
+        "from django.db import models\nclass Fallback(models.Model):\n    pass\n",
     )
     .expect("resolver test file should be added");
 
@@ -999,83 +896,51 @@ fn external_model_graph_preserves_pythonpath_precedence() {
     let project = project_for_search_paths(&mut db, "/project", search_paths)
         .expect("search-path project fixture should build");
 
-    let graph = compute_model_graph(&db, project).expect("model graph fixture should be readable");
-    let model = graph.get("Duplicate").expect("model should be discovered");
-    assert_eq!(model.module_name.as_str(), "zapp.models");
+    let graph = compute_model_graph(&db, project);
+    let model = graph
+        .get("First")
+        .expect("higher-priority model should be discovered");
+    assert_eq!(model.module_name().as_str(), "app.models");
+    assert!(graph.get("Fallback").is_none());
 }
 
 #[test]
-fn external_model_discovery_updates_through_django_discovery() {
-    let mut db = TestDatabase::new();
-    db.add_file(
-        "/project/.venv/lib/python3.12/site-packages/blog/models.py",
-        "from django.db import models\nclass Article(models.Model):\n    pass\n",
-    )
-    .expect("resolver test file should be added");
-
-    let search_paths = SearchPaths::from_project_settings(
-        db.file_system(),
-        Utf8Path::new("/project"),
-        &PythonEnvironment::Auto,
-        &[],
-    );
-    search_paths.register_roots(&db);
-    let project = project_for_search_paths(&mut db, "/project", search_paths)
-        .expect("search-path project fixture should build");
-    db.set_project(project);
-
-    let graph = compute_model_graph(&db, project).expect("model graph fixture should be readable");
-    assert!(graph.get("Article").is_some());
-    assert!(graph.get("Comment").is_none());
-
-    db.add_file(
-        "/project/.venv/lib/python3.12/site-packages/comments/models.py",
-        "from django.db import models\nclass Comment(models.Model):\n    pass\n",
-    )
-    .expect("resolver test file should be added");
-    apply_project_discovery(&mut db).expect("configured project discovery should succeed");
-
-    let graph = compute_model_graph(&db, project).expect("model graph fixture should be readable");
-    assert!(graph.get("Article").is_some());
-    assert!(graph.get("Comment").is_some());
-}
-
-#[test]
-fn external_model_discovery_removes_deleted_models_through_django_discovery() {
-    let mut db = TestDatabase::new();
-    db.add_file(
-        "/project/.venv/lib/python3.12/site-packages/blog/models.py",
-        "from django.db import models\nclass Article(models.Model):\n    pass\n",
-    )
-    .expect("resolver test file should be added");
-    db.add_file(
-        "/project/.venv/lib/python3.12/site-packages/comments/models.py",
-        "from django.db import models\nclass Comment(models.Model):\n    pass\n",
-    )
-    .expect("resolver test file should be added");
-
-    let search_paths = SearchPaths::from_project_settings(
-        db.file_system(),
-        Utf8Path::new("/project"),
-        &PythonEnvironment::Auto,
-        &[],
-    );
-    search_paths.register_roots(&db);
-    let project = project_for_search_paths(&mut db, "/project", search_paths)
-        .expect("search-path project fixture should build");
-    db.set_project(project);
-
-    let graph = compute_model_graph(&db, project).expect("model graph fixture should be readable");
-    assert!(graph.get("Article").is_some());
-    assert!(graph.get("Comment").is_some());
-
-    db.remove_file("/project/.venv/lib/python3.12/site-packages/comments/models.py")
-        .expect("resolver test file should be removed");
-    apply_project_discovery(&mut db).expect("configured project discovery should succeed");
-
-    let graph = compute_model_graph(&db, project).expect("model graph fixture should be readable");
-    assert!(graph.get("Article").is_some());
-    assert!(graph.get("Comment").is_none());
+fn model_modules_update_when_files_are_added_and_deleted() {
+    for root in ["/project", "/project/.venv/lib/python3.12/site-packages"] {
+        let mut db = TestDatabase::new();
+        db.add_file(
+            &format!("{root}/blog/models.py"),
+            "from django.db import models\nclass Article(models.Model):\n    pass\n",
+        )
+        .expect("initial model file");
+        let search_paths = SearchPaths::from_project_settings(
+            db.file_system(),
+            Utf8Path::new("/project"),
+            &PythonEnvironment::Auto,
+            &[],
+        );
+        search_paths.register_roots(&db);
+        let project = project_for_search_paths(&mut db, "/project", search_paths).expect("project");
+        db.set_project(project);
+        let graph = compute_model_graph(&db, project);
+        assert!(graph.get("Article").is_some(), "{root}");
+        assert!(graph.get("Comment").is_none(), "{root}");
+        let path = format!("{root}/comments/models.py");
+        db.add_file(
+            &path,
+            "from django.db import models\nclass Comment(models.Model):\n    pass\n",
+        )
+        .expect("added model file");
+        apply_project_discovery(&mut db).expect("discovery after addition");
+        let graph = compute_model_graph(&db, project);
+        assert!(graph.get("Article").is_some(), "{root}");
+        assert!(graph.get("Comment").is_some(), "{root}");
+        db.remove_file(&path).expect("remove model file");
+        apply_project_discovery(&mut db).expect("discovery after deletion");
+        let graph = compute_model_graph(&db, project);
+        assert!(graph.get("Article").is_some(), "{root}");
+        assert!(graph.get("Comment").is_none(), "{root}");
+    }
 }
 
 #[test]
@@ -1098,7 +963,7 @@ fn external_model_graph_reads_extra_pythonpath_models() {
     let project = project_for_search_paths(&mut db, "/project", search_paths)
         .expect("search-path project fixture should build");
 
-    let graph = compute_model_graph(&db, project).expect("model graph fixture should be readable");
+    let graph = compute_model_graph(&db, project);
     assert!(graph.get("SharedArticle").is_some());
 }
 
@@ -1138,39 +1003,7 @@ fn django_discovery_discovers_site_packages_created_after_bootstrap() {
     assert!(project.search_paths(&db).iter().any(|search_path| {
         search_path.path() == Utf8Path::new("/project/.venv/lib/python3.12/site-packages")
     }));
-    let graph = compute_model_graph(&db, project).expect("model graph fixture should be readable");
-    assert!(graph.get("VenvArticle").is_some());
-}
-
-#[test]
-fn environment_then_project_facts_discovers_site_packages_created_after_bootstrap() {
-    let mut db = TestDatabase::new();
-    let search_paths = SearchPaths::from_project_settings(
-        db.file_system(),
-        Utf8Path::new("/project"),
-        &PythonEnvironment::Auto,
-        &[],
-    );
-    search_paths.register_roots(&db);
-    let project = ProjectFixture::new("/project")
-        .search_paths(search_paths)
-        .python_environment(PythonEnvironment::Auto)
-        .register_roots(false)
-        .install(&mut db)
-        .expect("project-facts fixture should install");
-
-    db.add_file(
-        "/project/.venv/lib/python3.12/site-packages/blog/models.py",
-        "from django.db import models\nclass VenvArticle(models.Model):\n    pass\n",
-    )
-    .expect("resolver test file should be added");
-
-    apply_project_discovery(&mut db).expect("configured project discovery should succeed");
-
-    assert!(project.search_paths(&db).iter().any(|search_path| {
-        search_path.path() == Utf8Path::new("/project/.venv/lib/python3.12/site-packages")
-    }));
-    let graph = compute_model_graph(&db, project).expect("model graph fixture should be readable");
+    let graph = compute_model_graph(&db, project);
     assert!(graph.get("VenvArticle").is_some());
 }
 
@@ -2310,79 +2143,37 @@ fn ty_module_name_3_parts_file_to_module() {
 }
 
 #[test]
-fn python_module_resolve_rejects_wrong_cased_file_module_on_case_insensitive_fs() {
-    let db = TestDatabase::case_insensitive();
-    let project = ProjectFixture::new("/project")
-        .file("/project/foo.py", "")
-        .build(&db)
-        .expect("top-level module project fixture should build");
-
-    assert_eq!(
-        PythonSourceModule::resolve(
+fn python_module_resolve_rejects_wrong_case_on_case_insensitive_fs() {
+    for (path, wrong, correct, package) in [
+        ("/project/foo.py", "Foo", "foo", false),
+        ("/project/pkg/bar.py", "pkg.Bar", "pkg.bar", false),
+        ("/project/pkg/bar.py", "Pkg.bar", "pkg.bar", true),
+    ] {
+        let db = TestDatabase::case_insensitive();
+        let mut fixture = ProjectFixture::new("/project").file(path, "");
+        if package {
+            fixture = fixture.file("/project/pkg/__init__.py", "");
+        }
+        let project = fixture
+            .build(&db)
+            .expect("resolver project fixture should build");
+        assert_eq!(
+            PythonSourceModule::resolve(
+                &db,
+                project,
+                PythonModuleName::parse(wrong).expect("module name")
+            ),
+            None,
+            "{wrong}"
+        );
+        let module = PythonSourceModule::resolve(
             &db,
             project,
-            PythonModuleName::parse("Foo").expect("test Python module name should be valid")
-        ),
-        None
-    );
-    let module = PythonSourceModule::resolve(
-        &db,
-        project,
-        PythonModuleName::parse("foo").expect("test Python module name should be valid"),
-    )
-    .expect("foo should resolve");
-    assert_eq!(module.path(), Utf8Path::new("/project/foo.py"));
-}
-
-#[test]
-fn python_module_resolve_rejects_wrong_cased_dotted_file_module_on_case_insensitive_fs() {
-    let db = TestDatabase::case_insensitive();
-    let project = ProjectFixture::new("/project")
-        .file("/project/pkg/bar.py", "")
-        .build(&db)
-        .expect("resolver project fixture should build");
-
-    assert_eq!(
-        PythonSourceModule::resolve(
-            &db,
-            project,
-            PythonModuleName::parse("pkg.Bar").expect("test Python module name should be valid")
-        ),
-        None
-    );
-    let module = PythonSourceModule::resolve(
-        &db,
-        project,
-        PythonModuleName::parse("pkg.bar").expect("test Python module name should be valid"),
-    )
-    .expect("pkg.bar should resolve");
-    assert_eq!(module.path(), Utf8Path::new("/project/pkg/bar.py"));
-}
-
-#[test]
-fn python_module_resolve_rejects_wrong_cased_package_component_on_case_insensitive_fs() {
-    let db = TestDatabase::case_insensitive();
-    let project = ProjectFixture::new("/project")
-        .file("/project/pkg/__init__.py", "")
-        .file("/project/pkg/bar.py", "")
-        .build(&db)
-        .expect("resolver project fixture should build");
-
-    assert_eq!(
-        PythonSourceModule::resolve(
-            &db,
-            project,
-            PythonModuleName::parse("Pkg.bar").expect("test Python module name should be valid")
-        ),
-        None
-    );
-    let module = PythonSourceModule::resolve(
-        &db,
-        project,
-        PythonModuleName::parse("pkg.bar").expect("test Python module name should be valid"),
-    )
-    .expect("pkg.bar should resolve");
-    assert_eq!(module.path(), Utf8Path::new("/project/pkg/bar.py"));
+            PythonModuleName::parse(correct).expect("module name"),
+        )
+        .expect("correctly cased module should resolve");
+        assert_eq!(module.path(), Utf8Path::new(path), "{correct}");
+    }
 }
 
 #[test]
@@ -2756,29 +2547,20 @@ fn resolve_prefix_returns_longest_module_with_unresolved_tail() {
 }
 
 #[test]
-fn resolve_prefix_returns_full_tail_when_nothing_resolves() {
+fn resolve_prefix_returns_full_tail_for_unresolved_or_unparseable_paths() {
     let db = TestDatabase::new();
     let project = ProjectFixture::new("/project")
         .build(&db)
         .expect("unresolved-prefix project fixture should build");
 
-    let resolved = resolve_prefix(&db, project, "myapp.apps.MyConfig");
-
-    assert_eq!(resolved.module, None);
-    assert_eq!(resolved.unresolved_tail, vec!["myapp", "apps", "MyConfig"]);
-}
-
-#[test]
-fn resolve_prefix_returns_full_tail_for_unparseable_path() {
-    let db = TestDatabase::new();
-    let project = ProjectFixture::new("/project")
-        .build(&db)
-        .expect("unparseable-prefix project fixture should build");
-
-    let resolved = resolve_prefix(&db, project, "my-app.thing");
-
-    assert_eq!(resolved.module, None);
-    assert_eq!(resolved.unresolved_tail, vec!["my-app", "thing"]);
+    for (path, tail) in [
+        ("myapp.apps.MyConfig", vec!["myapp", "apps", "MyConfig"]),
+        ("my-app.thing", vec!["my-app", "thing"]),
+    ] {
+        let resolved = resolve_prefix(&db, project, path);
+        assert_eq!(resolved.module, None, "{path}");
+        assert_eq!(resolved.unresolved_tail, tail, "{path}");
+    }
 }
 
 #[test]
@@ -3407,19 +3189,15 @@ fn file_to_module_reports_not_found_for_missing_source_file() {
 }
 
 #[test]
-fn module_name_from_init_file() {
-    let path = Utf8Path::new("myapp/models/__init__.py");
-    let module_name = PythonModuleName::from_relative_source_path(path)
-        .expect("test Python module name should be valid");
-    assert_eq!(module_name.as_str(), "myapp.models");
-}
-
-#[test]
-fn module_name_from_submodule() {
-    let path = Utf8Path::new("myapp/models/user.py");
-    let module_name = PythonModuleName::from_relative_source_path(path)
-        .expect("expected JSON value should be a string");
-    assert_eq!(module_name.as_str(), "myapp.models.user");
+fn module_name_from_relative_source() {
+    for (path, expected) in [
+        ("myapp/models/__init__.py", "myapp.models"),
+        ("myapp/models/user.py", "myapp.models.user"),
+    ] {
+        let module_name = PythonModuleName::from_relative_source_path(Utf8Path::new(path))
+            .expect("test Python module name should be valid");
+        assert_eq!(module_name.as_str(), expected, "{path}");
+    }
 }
 
 #[test]

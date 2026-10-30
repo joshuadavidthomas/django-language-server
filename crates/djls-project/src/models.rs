@@ -15,6 +15,10 @@ pub(crate) use graph::ClassId;
 pub(crate) use graph::InvalidAncestryReason;
 pub use graph::ModelGraph;
 pub use graph::ModelId;
+pub(crate) use graph::ModelKind;
+pub(crate) use graph::RelationTarget;
+pub(crate) use graph::RelationTargetResolution;
+pub(crate) use graph::RelationTargetUnresolvedReason;
 pub(crate) use resolve::resolve_local_model_graph;
 
 use crate::db::Db;
