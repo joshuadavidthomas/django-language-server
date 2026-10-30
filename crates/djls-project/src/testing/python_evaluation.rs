@@ -37,11 +37,6 @@ impl PythonModuleEvaluationView {
     pub fn binding(&self, name: &str) -> Option<&PythonBindingView> {
         self.bindings.iter().find(|binding| binding.name == name)
     }
-
-    #[must_use]
-    pub fn namespace_open(&self) -> bool {
-        !self.namespace_unknowns.is_empty()
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -59,13 +54,13 @@ pub enum PythonBindingAlternativeView {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PythonBoundValueView {
     pub value: PythonValueView,
-    pub binding_origins: Vec<Origin>,
+    binding_origins: Vec<Origin>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PythonValueView {
     pub kind: PythonValueKindView,
-    pub origins: Vec<Origin>,
+    origins: Vec<Origin>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -122,8 +117,8 @@ pub enum PythonDictItemView {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PythonUnknownView {
-    pub cause: PythonUnknownCauseView,
-    pub origins: Vec<Origin>,
+    cause: PythonUnknownCauseView,
+    origins: Vec<Origin>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -152,8 +147,8 @@ pub enum PythonUnknownCauseView {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PythonFileReadErrorView {
-    pub path: Utf8PathBuf,
-    pub kind: FileReadErrorKind,
+    path: Utf8PathBuf,
+    kind: FileReadErrorKind,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -208,10 +203,10 @@ pub enum PythonImportOutcomeView {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PythonMutationView {
-    pub binding: String,
-    pub path: Vec<PythonMutationPathSegmentView>,
-    pub operation: PythonMutationOperationView,
-    pub origin: Origin,
+    binding: String,
+    path: Vec<PythonMutationPathSegmentView>,
+    operation: PythonMutationOperationView,
+    origin: Origin,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

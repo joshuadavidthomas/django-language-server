@@ -43,6 +43,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - **Internal**: Prebuilt workspace test targets in orb setup so a new orb's first `cargo test` reuses the build.
 - **Internal**: Consolidated `djls-project`, `djls-semantic`, and `djls-ide` integration tests into one test binary per crate.
 - **Internal**: Tightened `djls-project` integration tests and replaced ignored timing tests with `djls-bench` benchmarks.
+- **Internal**: Moved Python evaluator tests from `djls-project` integration tests into inline unit tests.
 
 ### Fixed
 
