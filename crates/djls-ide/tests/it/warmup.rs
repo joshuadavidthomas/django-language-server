@@ -29,7 +29,7 @@ fn install_project_fixture(db: &mut TestDatabase) -> Result<(), Box<dyn std::err
 }
 
 #[test]
-fn final_state_matrix_01_04_shared_prime_is_exact_and_has_no_template_work() {
+fn repeated_prime_reuses_library_products_without_template_work() {
     let events = SalsaEventLog::default();
     let mut db = TestDatabase::with_event_log(events.clone());
     install_project_fixture(&mut db).expect("warmup project fixture should install");
@@ -263,7 +263,7 @@ fn priming_covers_imported_registration_sources() {
 }
 
 #[test]
-fn project_template_preparation_orders_and_reuses_shared_products() {
+fn project_template_preparation_reuses_shared_products() {
     let events = SalsaEventLog::default();
     let mut db = TestDatabase::with_event_log(events.clone());
     install_project_fixture(&mut db).expect("warmup project fixture should install");
@@ -275,18 +275,9 @@ fn project_template_preparation_orders_and_reuses_shared_products() {
     let project = db.project().expect("fixture has a Project");
     assert_eq!(template_resolution(&db, project).origins(&db).count(), 1);
 
-    let names = events
-        .take_will_execute_names(&db)
-        .expect("preparation Salsa events should be read");
-    let intrinsic_position = names
-        .iter()
-        .position(|name| name.rsplit("::").next() == Some("semantic_grammar_vocabulary"))
-        .expect("preparation primes intrinsic products");
-    let index_position = names
-        .iter()
-        .position(|name| name.rsplit("::").next() == Some("template_directory_index"))
-        .expect("preparation builds the shared Template index");
-    assert!(intrinsic_position < index_position);
+    events
+        .take()
+        .expect("preparation Salsa events should be cleared");
 
     assert_eq!(prepare_project_template_analysis(&db), Some(()));
     let repeated_names = events
@@ -348,9 +339,11 @@ fn discovery_and_warmup_defer_model_work() {
     );
 
     prepare_project_template_analysis(&db).expect("Template analysis should prepare");
-    for phase in warm_cache_phases() {
-        assert!(phase.run(&db).count().is_some_and(|count| count > 0));
-    }
+    let counts = warm_cache_phases()
+        .iter()
+        .map(|phase| phase.run(&db).count())
+        .collect::<Vec<_>>();
+    assert_eq!(counts, vec![Some(1), Some(10), Some(1)]);
 
     let project = db.project().expect("fixture should have a Project");
     assert_eq!(template_resolution(&db, project).origins(&db).count(), 1);

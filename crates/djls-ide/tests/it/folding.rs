@@ -6,7 +6,9 @@ use tower_lsp_server::ls_types;
 #[test]
 fn folding_ranges_include_top_level_and_nested_template_blocks() {
     let source = r"{% load static %}
-
+{% load i18n %}
+{# comment
+continued #}
 <!DOCTYPE html>
 <title>
   {% block title %}
@@ -35,26 +37,25 @@ fn folding_ranges_include_top_level_and_nested_template_blocks() {
         .expect("template fixture file should exist");
     let ranges = collect_folding_ranges(&db, file);
 
-    assert!(ranges.iter().any(|range| {
-        range.start_line == 4
-            && range.end_line == 6
-            && range.kind == Some(ls_types::FoldingRangeKind::Region)
-    }));
-    assert!(ranges.iter().any(|range| {
-        range.start_line == 9
-            && range.end_line == 19
-            && range.kind == Some(ls_types::FoldingRangeKind::Region)
-    }));
-    assert!(ranges.iter().any(|range| {
-        range.start_line == 10
-            && range.end_line == 18
-            && range.kind == Some(ls_types::FoldingRangeKind::Region)
-    }));
-    assert!(ranges.iter().any(|range| {
-        range.start_line == 12
-            && range.end_line == 14
-            && range.kind == Some(ls_types::FoldingRangeKind::Region)
-    }));
+    let expected = [
+        (0, 1, ls_types::FoldingRangeKind::Imports),
+        (2, 3, ls_types::FoldingRangeKind::Comment),
+        (6, 8, ls_types::FoldingRangeKind::Region),
+        (11, 21, ls_types::FoldingRangeKind::Region),
+        (12, 20, ls_types::FoldingRangeKind::Region),
+        (14, 16, ls_types::FoldingRangeKind::Region),
+    ]
+    .into_iter()
+    .map(|(start_line, end_line, kind)| ls_types::FoldingRange {
+        start_line,
+        end_line,
+        start_character: None,
+        end_character: None,
+        kind: Some(kind),
+        collapsed_text: None,
+    })
+    .collect::<Vec<_>>();
+    assert_eq!(ranges, expected);
 }
 
 #[test]
@@ -74,19 +75,16 @@ body
         .expect("template fixture file should exist");
     let ranges = collect_folding_ranges(&db, file);
 
-    assert!(ranges.iter().any(|range| {
-        range.start_line == 0
-            && range.end_line == 5
-            && range.kind == Some(ls_types::FoldingRangeKind::Region)
-    }));
-    assert!(ranges.iter().any(|range| {
-        range.start_line == 1
-            && range.end_line == 4
-            && range.kind == Some(ls_types::FoldingRangeKind::Region)
-    }));
-    assert!(!ranges.iter().any(|range| {
-        range.start_line == 0
-            && range.end_line == 2
-            && range.kind == Some(ls_types::FoldingRangeKind::Region)
-    }));
+    let expected = [(0, 5), (1, 4)]
+        .into_iter()
+        .map(|(start_line, end_line)| ls_types::FoldingRange {
+            start_line,
+            end_line,
+            start_character: None,
+            end_character: None,
+            kind: Some(ls_types::FoldingRangeKind::Region),
+            collapsed_text: None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(ranges, expected);
 }

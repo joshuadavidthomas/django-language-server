@@ -138,6 +138,17 @@ fn goto_definition_reports_location_link_with_origin_range() {
             target_selection_range: ls_types::Range::default(),
         }])
     );
+    assert_eq!(
+        goto_definition(&db, file, offset_of(source, "base"), false),
+        Some(ls_types::GotoDefinitionResponse::Scalar(
+            ls_types::Location {
+                uri: "file:///test/project/templates/base.html"
+                    .parse()
+                    .expect("test URI should parse"),
+                range: ls_types::Range::default(),
+            }
+        ))
+    );
 }
 
 #[test]
@@ -257,51 +268,6 @@ fn goto_definition_leaves_relative_reference_from_originless_file_unresolved() {
             false,
         )
         .is_none()
-    );
-}
-
-#[test]
-fn goto_definition_falls_back_to_location_without_link_support() {
-    let mut db = TestDatabase::new();
-    let source = r#"{% extends "base.html" %}"#;
-    let child_path = "/test/project/templates/child.html";
-
-    ProjectFixture::new("/test/project")
-        .settings(&ProjectSettings {
-            dirs: vec!["/test/project/templates".into()],
-            ..ProjectSettings::default()
-        })
-        .file(child_path, source)
-        .file("/test/project/templates/base.html", "base")
-        .install(&mut db)
-        .expect("location fallback project fixture should install");
-
-    let file = db
-        .file(Utf8Path::new(child_path))
-        .expect("child template fixture should exist");
-    let response = goto_definition(
-        &db,
-        file,
-        Offset::new(
-            u32::try_from(
-                source
-                    .find("base")
-                    .expect("test source should contain the expected text"),
-            )
-            .expect("test source offset should fit in u32"),
-        ),
-        false,
-    )
-    .expect("template reference should resolve to the target template");
-
-    assert_eq!(
-        response,
-        ls_types::GotoDefinitionResponse::Scalar(ls_types::Location {
-            uri: "file:///test/project/templates/base.html"
-                .parse()
-                .expect("test URI should parse"),
-            range: ls_types::Range::default(),
-        })
     );
 }
 
@@ -1034,15 +1000,24 @@ fn goto_definition_requires_backend_definition_agreement() {
         .file(Utf8Path::new("/test/project/shared/page.html"))
         .expect("shared-definition template should exist");
 
-    assert!(
+    assert_eq!(
         goto_definition(
             &shared_db,
             shared_file,
             offset_of(shared_source, "common"),
-            true,
-        )
-        .is_some(),
-        "builtin and loaded exposure of one definition should agree",
+            false,
+        ),
+        Some(ls_types::GotoDefinitionResponse::Scalar(
+            ls_types::Location {
+                uri: "file:///test/project/shared_tags.py"
+                    .parse()
+                    .expect("test URI should parse"),
+                range: ls_types::Range::new(
+                    ls_types::Position::new(2, 0),
+                    ls_types::Position::new(3, 18)
+                ),
+            }
+        ))
     );
 
     let conflicting_source = "{% common %}";

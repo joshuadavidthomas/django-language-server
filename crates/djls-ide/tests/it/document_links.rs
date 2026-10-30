@@ -26,7 +26,11 @@ fn document_links_do_not_leak_templates_from_another_backend() {
     ProjectFixture::new("/test/project")
         .django_settings_module("testproject.settings")
         .file("/test/project/testproject/settings.py", settings)
-        .file("/test/project/a/child.html", "{% include 'only-b.html' %}")
+        .file(
+            "/test/project/a/child.html",
+            "{% include 'only-a.html' %}\n{% include 'only-b.html' %}",
+        )
+        .file("/test/project/a/only-a.html", "own backend")
         .file("/test/project/b/only-b.html", "other backend")
         .install(&mut db)
         .expect("multi-backend project fixture should install");
@@ -34,7 +38,12 @@ fn document_links_do_not_leak_templates_from_another_backend() {
         .file(Utf8Path::new("/test/project/a/child.html"))
         .expect("child template fixture should exist");
 
-    assert!(document_links(&db, file).is_empty());
+    let links = document_links(&db, file);
+    assert_eq!(links.len(), 1);
+    assert_eq!(
+        links[0].target.as_ref().map(|uri| uri.as_str()),
+        Some("file:///test/project/a/only-a.html")
+    );
 }
 
 #[test]

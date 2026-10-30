@@ -14,8 +14,6 @@ use djls_testing::OsTestDatabase;
 use djls_testing::ProjectFixture;
 use djls_testing::ProjectSettings;
 use djls_testing::TestDatabase;
-use djls_testing::standard_validation_db;
-use djls_testing::validation_db;
 use tower_lsp_server::ls_types;
 
 const TEMPLATE_PATH: &str = "/test/project/templates/template.html";
@@ -30,24 +28,42 @@ fn db_with_source_and_config(
     source: &str,
     diagnostics_config: DiagnosticsConfig,
 ) -> TestResult<OsTestDatabase> {
-    let mut db = standard_validation_db()?.with_diagnostics_config(diagnostics_config);
-    db.add_file(TEMPLATE_PATH, source)?;
+    let mut db = OsTestDatabase::default().with_diagnostics_config(diagnostics_config);
+    ProjectFixture::new("/test/project")
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".into()],
+            libraries: BTreeMap::from([
+                ("i18n".into(), "i18n_tags".into()),
+                ("humanize".into(), "humanize_tags".into()),
+                ("static".into(), "static_tags".into()),
+            ]),
+            ..ProjectSettings::default()
+        })
+        .file("/test/project/i18n_tags.py", "from django import template\nregister = template.Library()\n@register.simple_tag\ndef trans(value): pass\n")
+        .file("/test/project/humanize_tags.py", "from django import template\nregister = template.Library()\n@register.filter\ndef intcomma(value): pass\n")
+        .file("/test/project/static_tags.py", "from django import template\nregister = template.Library()\n")
+        .file(TEMPLATE_PATH, source)
+        .install(&mut db)?;
     Ok(db)
 }
 
 fn ambiguous_db_with_source(source: &str) -> TestResult<OsTestDatabase> {
     let settings = ProjectSettings {
+        dirs: vec!["/test/project/templates".into()],
         libraries: BTreeMap::from([
             ("alpha".to_string(), "alpha_tags".to_string()),
             ("beta".to_string(), "beta_tags".to_string()),
         ]),
         ..ProjectSettings::default()
     };
-    let mut db = validation_db(&settings.settings_py())?;
+    let mut db = OsTestDatabase::default();
     let library = "from django import template\nregister = template.Library()\n@register.tag(name='ambiguous_tag')\ndef ambiguous_tag(parser, token): pass\n@register.filter(name='ambiguous_filter')\ndef ambiguous_filter(value): pass\n";
-    db.add_file("/fixture/alpha_tags.py", library)?;
-    db.add_file("/fixture/beta_tags.py", library)?;
-    db.add_file(TEMPLATE_PATH, source)?;
+    ProjectFixture::new("/test/project")
+        .settings(&settings)
+        .file("/test/project/alpha_tags.py", library)
+        .file("/test/project/beta_tags.py", library)
+        .file(TEMPLATE_PATH, source)
+        .install(&mut db)?;
     Ok(db)
 }
 
@@ -194,23 +210,13 @@ fn unloaded_tag_action_inserts_load_at_top_without_header() {
 #[test]
 fn unloaded_filter_action_inserts_required_library() {
     let source = "{{ value|intcomma }}\n";
-    let settings = ProjectSettings {
-        installed_apps: vec!["django.contrib.humanize".into()],
-        ..ProjectSettings::default()
-    };
-    let settings_py = settings.settings_py();
-    let mut db = validation_db(&settings_py).expect("validation fixture should build");
-    db.add_file(TEMPLATE_PATH, source)
-        .expect("template fixture should be added");
+    let db = db_with_source(source).expect("validation fixture should build");
     let actions = collect_actions(&db, request_at(source, "intcomma"))
         .expect("unloaded filter should produce a code action response");
     let action = only_action(actions).expect("unloaded filter should produce one action");
     let edit = only_edit(&action).expect("unloaded filter action should contain one edit");
-    let mut edited_db =
-        validation_db(&settings_py).expect("edited validation fixture should build");
-    edited_db
-        .add_file(TEMPLATE_PATH, &apply_edit(source, edit))
-        .expect("edited template fixture should be added");
+    let edited_db =
+        db_with_source(&apply_edit(source, edit)).expect("edited validation fixture should build");
 
     assert_eq!(action.title, "Add '{% load humanize %}'");
     assert_eq!(edit.range.start, ls_types::Position::new(0, 0));
@@ -243,54 +249,33 @@ fn insert_load_action_preserves_crlf_line_endings() {
 }
 
 #[test]
-fn ambiguous_unloaded_tag_actions_offer_each_library_in_order() {
-    let source = "{% ambiguous_tag %}\n";
-    let db = ambiguous_db_with_source(source).expect("validation fixture should build");
-    let actions = collect_actions(&db, request_at(source, "ambiguous_tag"))
-        .expect("ambiguous unloaded tag should produce a code action response");
+fn ambiguous_unloaded_symbols_offer_each_library_in_order() {
+    for (source, symbol) in [
+        ("{% ambiguous_tag %}\n", "ambiguous_tag"),
+        ("{{ value|ambiguous_filter }}\n", "ambiguous_filter"),
+    ] {
+        let db = ambiguous_db_with_source(source).expect("validation fixture should build");
+        let actions = collect_actions(&db, request_at(source, symbol))
+            .expect("ambiguous unloaded tag should produce a code action response");
 
-    assert_eq!(actions.len(), 2);
-    assert_eq!(actions[0].title, "Add '{% load alpha %}'");
-    assert_eq!(actions[1].title, "Add '{% load beta %}'");
-    assert_eq!(actions[0].is_preferred, None);
-    assert_eq!(actions[1].is_preferred, None);
+        assert_eq!(actions.len(), 2);
+        assert_eq!(actions[0].title, "Add '{% load alpha %}'");
+        assert_eq!(actions[1].title, "Add '{% load beta %}'");
+        assert_eq!(actions[0].is_preferred, None);
+        assert_eq!(actions[1].is_preferred, None);
 
-    for action in actions {
-        let edit = only_edit(&action).expect("unloaded tag action should contain one edit");
-        let edited_db = ambiguous_db_with_source(&apply_edit(source, edit))
-            .expect("edited validation fixture should build");
-        assert_eq!(edit.range.start, ls_types::Position::new(0, 0));
-        assert_eq!(edit.range.end, ls_types::Position::new(0, 0));
-        assert_eq!(
-            diagnostic_codes(&edited_db).expect("edited template diagnostics should be collected"),
-            Vec::<String>::new()
-        );
-    }
-}
-
-#[test]
-fn ambiguous_unloaded_filter_actions_offer_each_library_in_order() {
-    let source = "{{ value|ambiguous_filter }}\n";
-    let db = ambiguous_db_with_source(source).expect("validation fixture should build");
-    let actions = collect_actions(&db, request_at(source, "ambiguous_filter"))
-        .expect("ambiguous unloaded filter should produce a code action response");
-
-    assert_eq!(actions.len(), 2);
-    assert_eq!(actions[0].title, "Add '{% load alpha %}'");
-    assert_eq!(actions[1].title, "Add '{% load beta %}'");
-    assert_eq!(actions[0].is_preferred, None);
-    assert_eq!(actions[1].is_preferred, None);
-
-    for action in actions {
-        let edit = only_edit(&action).expect("unloaded filter action should contain one edit");
-        let edited_db = ambiguous_db_with_source(&apply_edit(source, edit))
-            .expect("edited validation fixture should build");
-        assert_eq!(edit.range.start, ls_types::Position::new(0, 0));
-        assert_eq!(edit.range.end, ls_types::Position::new(0, 0));
-        assert_eq!(
-            diagnostic_codes(&edited_db).expect("edited template diagnostics should be collected"),
-            Vec::<String>::new()
-        );
+        for action in actions {
+            let edit = only_edit(&action).expect("unloaded tag action should contain one edit");
+            let edited_db = ambiguous_db_with_source(&apply_edit(source, edit))
+                .expect("edited validation fixture should build");
+            assert_eq!(edit.range.start, ls_types::Position::new(0, 0));
+            assert_eq!(edit.range.end, ls_types::Position::new(0, 0));
+            assert_eq!(
+                diagnostic_codes(&edited_db)
+                    .expect("edited template diagnostics should be collected"),
+                Vec::<String>::new()
+            );
+        }
     }
 }
 
@@ -350,6 +335,18 @@ fn non_intersecting_range_returns_no_actions() {
 #[test]
 fn severity_off_suppresses_diagnostic_and_code_action() {
     let source = "{% trans \"Hi\" %}\n";
+    let control = db_with_source(source).expect("default fixture should build");
+    assert!(
+        diagnostic_codes(&control)
+            .expect("control diagnostics")
+            .contains(&"S109".into())
+    );
+    assert_eq!(
+        collect_actions(&control, request_at(source, "trans"))
+            .expect("control actions")
+            .len(),
+        1
+    );
     let mut config = DiagnosticsConfig::default();
     config.set_severity("S109", DiagnosticSeverity::Off);
     let db = db_with_source_and_config(source, config)

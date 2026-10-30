@@ -44,6 +44,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - **Internal**: Consolidated `djls-project`, `djls-semantic`, and `djls-ide` integration tests into one test binary per crate.
 - **Internal**: Tightened `djls-project` integration tests and replaced ignored timing tests with `djls-bench` benchmarks.
 - **Internal**: Moved Python evaluator tests from `djls-project` integration tests into inline unit tests.
+- **Internal**: Replaced the corpus-backed `djls-ide` code action test fixture with in-memory stubs and tightened weak `djls-ide` test assertions.
 
 ### Fixed
 

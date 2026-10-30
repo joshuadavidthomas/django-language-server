@@ -92,33 +92,55 @@ fn hover_ranges_follow_position_encoding() {
 }
 
 #[test]
-fn tag_hover_follows_definition_collisions_at_each_load_position() {
-    let source = "{% shared %}{% load alpha %}{% shared %}{% load beta %}{% shared %}";
-    let (db, file) =
-        collision_fixture(source).expect("tag definition collision fixture should build");
-    let offsets = source
-        .match_indices("shared")
-        .map(|(offset, _)| {
-            Offset::new(u32::try_from(offset).expect("test source offset should fit in u32"))
-        })
-        .collect::<Vec<_>>();
+fn symbol_hover_follows_definition_collisions_at_each_load_position() {
+    for (source, symbol) in [
+        (
+            "{% shared %}{% load alpha %}{% shared %}{% load beta %}{% shared %}",
+            "shared",
+        ),
+        (
+            "{{ value|shared_filter }}{% load alpha %}{{ value|shared_filter }}{% load beta %}{{ value|shared_filter }}",
+            "shared_filter",
+        ),
+    ] {
+        let (db, file) =
+            collision_fixture(source).expect("definition collision fixture should build");
+        let offsets = source
+            .match_indices(symbol)
+            .map(|(offset, _)| {
+                Offset::new(u32::try_from(offset).expect("test source offset should fit in u32"))
+            })
+            .collect::<Vec<_>>();
 
-    let before = hover_markdown(hover(&db, file, offsets[0]).expect("builtin tag hover"))
-        .expect("builtin tag hover should use markup content");
-    let after_alpha = hover_markdown(hover(&db, file, offsets[1]).expect("alpha tag hover"))
-        .expect("alpha tag hover should use markup content");
-    let after_beta = hover_markdown(hover(&db, file, offsets[2]).expect("beta tag hover"))
-        .expect("beta tag hover should use markup content");
+        let before = hover_markdown(hover(&db, file, offsets[0]).expect("builtin tag hover"))
+            .expect("builtin tag hover should use markup content");
+        let after_alpha = hover_markdown(hover(&db, file, offsets[1]).expect("alpha tag hover"))
+            .expect("alpha tag hover should use markup content");
+        let after_beta = hover_markdown(hover(&db, file, offsets[2]).expect("beta tag hover"))
+            .expect("beta tag hover should use markup content");
 
-    assert!(before.contains("Defined in `builtin_tags`."), "{before}");
-    assert!(
-        after_alpha.contains("Defined in `alpha_tags`."),
-        "{after_alpha}"
-    );
-    assert!(
-        after_beta.contains("Defined in `beta_tags`."),
-        "{after_beta}"
-    );
+        assert!(before.contains("Defined in `builtin_tags`."), "{before}");
+        assert!(
+            after_alpha.contains("Defined in `alpha_tags`."),
+            "{after_alpha}"
+        );
+        assert!(
+            after_beta.contains("Defined in `beta_tags`."),
+            "{after_beta}"
+        );
+        for (markdown, excluded) in [
+            (&before, ["alpha_tags", "beta_tags"]),
+            (&after_alpha, ["builtin_tags", "beta_tags"]),
+            (&after_beta, ["builtin_tags", "alpha_tags"]),
+        ] {
+            for library in excluded {
+                assert!(
+                    !markdown.contains(&format!("Defined in `{library}`.")),
+                    "{markdown}"
+                );
+            }
+        }
+    }
 }
 
 #[test]
@@ -158,36 +180,6 @@ fn captured_if_else_does_not_hover_a_colliding_custom_definition() {
     assert!(
         standalone.contains("Defined in `custom_tags`."),
         "{standalone}"
-    );
-}
-
-#[test]
-fn filter_hover_follows_definition_collisions_at_each_load_position() {
-    let source = "{{ value|shared_filter }}{% load alpha %}{{ value|shared_filter }}{% load beta %}{{ value|shared_filter }}";
-    let (db, file) =
-        collision_fixture(source).expect("filter definition collision fixture should build");
-    let offsets = source
-        .match_indices("shared_filter")
-        .map(|(offset, _)| {
-            Offset::new(u32::try_from(offset).expect("test source offset should fit in u32"))
-        })
-        .collect::<Vec<_>>();
-
-    let before = hover_markdown(hover(&db, file, offsets[0]).expect("builtin filter hover"))
-        .expect("builtin filter hover should use markup content");
-    let after_alpha = hover_markdown(hover(&db, file, offsets[1]).expect("alpha filter hover"))
-        .expect("alpha filter hover should use markup content");
-    let after_beta = hover_markdown(hover(&db, file, offsets[2]).expect("beta filter hover"))
-        .expect("beta filter hover should use markup content");
-
-    assert!(before.contains("Defined in `builtin_tags`."), "{before}");
-    assert!(
-        after_alpha.contains("Defined in `alpha_tags`."),
-        "{after_alpha}"
-    );
-    assert!(
-        after_beta.contains("Defined in `beta_tags`."),
-        "{after_beta}"
     );
 }
 
@@ -285,6 +277,8 @@ fn template_hover_does_not_resolve_from_another_backend() {
         hover_markdown(result).expect("missing template hover should use markup content");
     assert!(markdown.contains("Template not found."));
     assert!(!markdown.contains("Resolved to"));
+    assert!(markdown.contains("`/test/project/a/base.html`"));
+    assert!(!markdown.contains("search is incomplete"));
 }
 
 #[test]
