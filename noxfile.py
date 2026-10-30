@@ -114,6 +114,7 @@ def tests(session, django):
         "corpus_environment::",
         "corpus_validation::",
         "corpus_inheritance::",
+        "validation::corpus_",
         "model_extraction_snapshots",
         "corpus_registration_census",
     ):
@@ -160,6 +161,16 @@ def corpus(session):
         "corpus_inheritance",
         "--test",
         "registration_coverage",
+        *session.posargs,
+    )
+    session.run(
+        "cargo",
+        "test",
+        "-p",
+        "djls-semantic",
+        "--test",
+        "it",
+        "validation::corpus_",
         *session.posargs,
     )
 

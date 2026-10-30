@@ -238,3 +238,94 @@ error[S111]: Unknown filter 'absent_filter'
 1 | {% load closed %}{% absent_tag %}{{ value|absent_filter }}
   |                                           ^^^^^^^^^^^^^
 ```
+
+## selective load reports the unreadable library
+
+`open_tags.py`:
+
+```py
+from django import template
+register = template.Library()
+@register.simple_tag
+def known_tag(): pass
+register.simple_tag(takes_context=True)(globals()['other_tag'])
+```
+
+```htmldjango
+{% load known_tag from open %}
+```
+
+```snapshot
+hint[S124]: DJLS could not read a registration in `open_tags.py` at line 5 (the registered name cannot be resolved), so unrecognized tags and filters from `open` are not reported
+ --> test.html:1:24
+  |
+1 | {% load known_tag from open %}
+  |                        ^^^^
+```
+
+## repeated loads report both arguments
+
+`open_tags.py`:
+
+```py
+from django import template
+register = template.Library()
+@register.simple_tag
+def known_tag(): pass
+register.simple_tag(takes_context=True)(globals()['other_tag'])
+```
+
+```htmldjango
+{% load open open %}
+```
+
+```snapshot
+hint[S124]: DJLS could not read a registration in `open_tags.py` at line 5 (the registered name cannot be resolved), so unrecognized tags and filters from `open` are not reported
+ --> test.html:1:9
+  |
+1 | {% load open open %}
+  |         ^^^^
+hint[S124]: DJLS could not read a registration in `open_tags.py` at line 5 (the registered name cannot be resolved), so unrecognized tags and filters from `open` are not reported
+ --> test.html:1:14
+  |
+1 | {% load open open %}
+  |              ^^^^
+```
+
+## mixed loads report only the unreadable argument
+
+`settings.py`:
+
+```py
+INSTALLED_APPS = []
+TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/templates'], 'APP_DIRS': False, 'OPTIONS': {'builtins': [], 'libraries': {'open': 'open_tags', 'known': 'known_tags'}}}]
+```
+
+`open_tags.py`:
+
+```py
+from django import template
+register = template.Library()
+@register.simple_tag
+def known_tag(): pass
+register.simple_tag(takes_context=True)(globals()['other_tag'])
+```
+
+`known_tags.py`:
+
+```py
+from django import template
+register = template.Library()
+```
+
+```htmldjango
+{% load known open %}
+```
+
+```snapshot
+hint[S124]: DJLS could not read a registration in `open_tags.py` at line 5 (the registered name cannot be resolved), so unrecognized tags and filters from `open` are not reported
+ --> test.html:1:15
+  |
+1 | {% load known open %}
+  |               ^^^^
+```
