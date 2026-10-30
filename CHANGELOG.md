@@ -40,6 +40,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - **Internal**: Checked `{% if %}` and `{% elif %}` conditions through the same Argument Consumption path as other compiled arguments, using the `do_if` Fallback Rule's Condition fact instead of a tag-name check.
 - **Internal**: Capped corpus environments that take their Python from an open-ended `requires-python` range below CPython 3.15, which upstream dependencies such as `pydantic-core` and `psycopg-binary` do not build for yet.
 - **Internal**: Switched the corpus tool's TLS crypto provider from `aws-lc-rs` to `ring` to speed up cold builds.
+- **Internal**: Prebuilt workspace test targets in orb setup so a new orb's first `cargo test` reuses the build.
 
 ### Fixed
 
