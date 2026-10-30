@@ -175,6 +175,15 @@ impl LoadIndex {
     }
 }
 
+/// How a load of a library with unknown contents can redefine a symbol.
+///
+/// Ordered by strength: a selective import that names the symbol outweighs a full load.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum UnknownLoadShadow {
+    FullLoad,
+    SelectiveImport,
+}
+
 /// A borrowed snapshot of the ordered load statements visible at one source position.
 ///
 /// Creating a snapshot is allocation-free. Availability uses indexes owned by
@@ -213,36 +222,37 @@ impl<'a> LoadState<'a> {
         symbol: &str,
         kind: TemplateSymbolKind,
         scoped_libraries: ScopedTemplateLibraries<'_, '_>,
-    ) -> bool {
-        let mut can_shadow = false;
-        let mut fold_library = |library: &LoadArgument| match scoped_libraries
-            .loadable_library_str(library.as_str())
-        {
-            LoadableLibraryLookup::Inconclusive(_) => can_shadow = true,
-            LoadableLibraryLookup::Found(library) if library.symbol(kind, symbol).is_some() => {
-                can_shadow = false;
-            }
-            LoadableLibraryLookup::Found(_)
-            | LoadableLibraryLookup::Ambiguous(_)
-            | LoadableLibraryLookup::Absent => {}
-        };
+    ) -> Option<UnknownLoadShadow> {
+        let mut shadow = None;
+        let mut fold_library =
+            |library: &LoadArgument, via: UnknownLoadShadow| match scoped_libraries
+                .loadable_library_str(library.as_str())
+            {
+                LoadableLibraryLookup::Inconclusive(_) => shadow = shadow.max(Some(via)),
+                LoadableLibraryLookup::Found(library) if library.symbol(kind, symbol).is_some() => {
+                    shadow = None;
+                }
+                LoadableLibraryLookup::Found(_)
+                | LoadableLibraryLookup::Ambiguous(_)
+                | LoadableLibraryLookup::Absent => {}
+            };
 
         for statement in self.statements() {
             match &statement.kind {
                 LoadKind::FullLoad { libraries } => {
                     for library in libraries {
-                        fold_library(library);
+                        fold_library(library, UnknownLoadShadow::FullLoad);
                     }
                 }
                 LoadKind::SelectiveImport { symbols, library }
                     if symbols.iter().any(|loaded| loaded.as_str() == symbol) =>
                 {
-                    fold_library(library);
+                    fold_library(library, UnknownLoadShadow::SelectiveImport);
                 }
                 LoadKind::SelectiveImport { .. } => {}
             }
         }
-        can_shadow
+        shadow
     }
 
     #[must_use]

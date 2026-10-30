@@ -47,6 +47,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Fixed argument validation for tags and filters that a library registers by passing an already-decorated function, such as `register.tag("url", url)` or humanize filters re-registered by Wagtail.
 - Fixed S103 reporting closing-tag arguments such as `{% endfor item %}` that Django ignores. Only tags whose Django source checks the closing name, such as `{% block %}`, report a mismatch, which now includes extra arguments like `{% endblock header extra %}`.
 - Fixed a mismatched `{% endpartialdef name %}` not reporting S103 with Django 6.0+.
+- Fixed a `{% load %}` of an unresolved library suppressing block structure diagnostics (S100–S103) for built-in tags such as `{% block %}` and `{% if %}`. Only a selective load that names the tag, such as `{% load block from unknown %}`, still suppresses them.
 
 ## [6.1.1]
 

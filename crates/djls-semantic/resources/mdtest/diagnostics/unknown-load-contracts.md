@@ -263,7 +263,11 @@ def exact_filter(value, argument): pass
 ```
 
 ```snapshot
-✓ no diagnostics
+error[S100]: Unclosed 'if' tag
+ --> test.html:2:1
+  |
+2 | {% if condition %}
+  | ^^^^^^^^^^^^^^^^^^
 ```
 
 ### a selective unknown import affects only named symbols
@@ -539,5 +543,80 @@ error[S109]: Tag 'exact_symbol' requires the 'exact' tag library
  --> test.html:3:1
   |
 3 | {% exact_symbol %}
+  | ^^^^^^^^^^^^^^^^^^
+```
+
+### an unknown full load keeps built-in block structure
+
+`contract_tags.py`:
+
+```py
+from django import template
+register = template.Library()
+@register.simple_tag
+def contract_tag(value): pass
+@register.simple_tag
+def other_contract(value): pass
+```
+
+`exact_tags.py`:
+
+```py
+from django import template
+register = template.Library()
+@register.simple_tag
+def exact_symbol(value): pass
+@register.filter
+def exact_filter(value, argument): pass
+```
+
+```htmldjango
+{% load unknown_library %}
+{% block title %}
+```
+
+```snapshot
+error[S100]: Unclosed 'block' tag
+ --> test.html:2:1
+  |
+2 | {% block title %}
+  | ^^^^^^^^^^^^^^^^^
+```
+
+### an unknown selective load of a block tag suppresses its structure
+
+`contract_tags.py`:
+
+```py
+from django import template
+register = template.Library()
+@register.simple_tag
+def contract_tag(value): pass
+@register.simple_tag
+def other_contract(value): pass
+```
+
+`exact_tags.py`:
+
+```py
+from django import template
+register = template.Library()
+@register.simple_tag
+def exact_symbol(value): pass
+@register.filter
+def exact_filter(value, argument): pass
+```
+
+```htmldjango
+{% load block from unknown_library %}
+{% block title %}
+{% if condition %}
+```
+
+```snapshot
+error[S100]: Unclosed 'if' tag
+ --> test.html:3:1
+  |
+3 | {% if condition %}
   | ^^^^^^^^^^^^^^^^^^
 ```
