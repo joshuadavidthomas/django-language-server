@@ -11,7 +11,7 @@ use djls_project::Project;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::FilterAritySpecs;
 use djls_semantic::TagSpecs;
-use djls_semantic::builtin_tag_specs;
+use djls_semantic::django_fallback_tag_specs;
 use djls_source::CaseSensitivity;
 use djls_source::ChangeEvent;
 use djls_source::File;
@@ -148,7 +148,7 @@ impl TestDatabase {
         Self {
             fs: Arc::new(Mutex::new(InMemoryFileSystem::new())),
             files: SourceFiles::default(),
-            projectless_tag_specs: builtin_tag_specs(),
+            projectless_tag_specs: django_fallback_tag_specs(),
             projectless_filter_arity_specs: FilterAritySpecs::new(),
             diagnostics_config: djls_conf::DiagnosticsConfig::default(),
             project: None,

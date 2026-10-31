@@ -29,7 +29,7 @@ use djls_semantic::FilterAritySpecs;
 use djls_semantic::TagSpecs;
 use djls_semantic::ValidationError;
 use djls_semantic::ValidationErrorAccumulator;
-use djls_semantic::builtin_tag_specs;
+use djls_semantic::django_fallback_tag_specs;
 use djls_semantic::validate_template_file;
 use djls_source::Diagnostic;
 use djls_source::DiagnosticRenderer;
@@ -474,7 +474,7 @@ pub fn build_specs_from_extraction(
     corpus: &Corpus,
     entry_dir: &Utf8Path,
 ) -> anyhow::Result<(TagSpecs, FilterAritySpecs)> {
-    let mut specs = builtin_tag_specs();
+    let mut specs = django_fallback_tag_specs();
     let mut arities = FilterAritySpecs::new();
     extract_and_merge(corpus, entry_dir, &mut specs, &mut arities)?;
     Ok((specs, arities))
@@ -484,7 +484,7 @@ pub fn build_entry_specs(
     corpus: &Corpus,
     entry_dir: &Utf8Path,
 ) -> anyhow::Result<(TagSpecs, FilterAritySpecs)> {
-    let mut specs = builtin_tag_specs();
+    let mut specs = django_fallback_tag_specs();
     let mut arities = FilterAritySpecs::new();
     let name = entry_dir.file_name().context("missing corpus entry name")?;
     let db = corpus.environment_database(name)?;

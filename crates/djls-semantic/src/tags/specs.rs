@@ -44,9 +44,10 @@ impl TagSpecs {
 
     /// Merge block specs into tag specs.
     ///
-    /// Block specs from extraction override existing end-tag/intermediate info.
-    /// This enriches the handcoded `builtins.rs` defaults with information
-    /// extracted from actual Python source code.
+    /// Extracted Block Specs are authoritative: a proven end tag replaces any
+    /// fallback end tag and intermediates, and a `SkipPast` body makes the body
+    /// opaque. Fallback structure from [`django_fallback_tag_specs`] survives only
+    /// where extraction found no closer or no body evidence.
     pub fn merge_block_specs(&mut self, block_specs: &BlockSpecs) -> &mut Self {
         for (key, block_spec) in block_specs.as_map() {
             if key.kind != TemplateSymbolKind::Tag {
@@ -506,15 +507,20 @@ pub struct IntermediateTag {
     pub name: S,
 }
 
-/// Returns minimal Django tag specs for use in test databases.
+/// Hand-written Fallback Rules for Django's bundled template tag modules.
 ///
-/// Provides block structure (end tags, intermediates, opaque flags) for
-/// standard Django tags. Does NOT include extracted rules — tests that
-/// need argument metadata can use [`TagSpec::with_arguments`], while tests
-/// that need full validation rules should use extraction on Python source.
+/// Extraction from Django's Python source is the source of truth. This table
+/// only seeds what extraction does not yet provide: Tag Roles, structure for
+/// projectless sessions with no Django source (see `Db::projectless_tag_specs`),
+/// and `BodyAnalysis::Opaque` where no `SkipPast` evidence is extracted. Per
+/// library, [`TagSpecs::merge_block_specs`] and [`TagSpecs::merge_tag_rules`]
+/// override it with extracted facts. It carries no Tag Rules.
+///
+/// Do not add Django facts here that extraction could prove; see the
+/// extraction-first rule in `AGENTS.md`.
 #[must_use]
 #[allow(clippy::similar_names, clippy::too_many_lines)]
-pub fn builtin_tag_specs() -> TagSpecs {
+pub fn django_fallback_tag_specs() -> TagSpecs {
     use std::borrow::Cow::Borrowed as B;
 
     let dt = "django.template.defaulttags";
