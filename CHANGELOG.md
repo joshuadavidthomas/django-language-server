@@ -38,6 +38,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - **Internal**: Added a `djls-testing` guard test that fails when production code in `djls-semantic`, `djls-ide`, or `djls-server` compares against a Django tag or filter name taken from bundled-Django extraction, or a `django.` module path, unless an allowlist entry explains why.
 - **Internal**: Recorded Argument Consumption in tag extraction: which Tag Bits a compile function compiles as filter expressions, including `name=` keyword expressions parsed with Django's `kwarg_re`.
 - **Internal**: Checked `{% if %}` and `{% elif %}` conditions through the same Argument Consumption path as other compiled arguments, using the `do_if` Fallback Rule's Condition fact instead of a tag-name check.
+- **Internal**: Capped corpus environments that take their Python from an open-ended `requires-python` range below CPython 3.15, which upstream dependencies such as `pydantic-core` and `psycopg-binary` do not build for yet.
 
 ### Fixed
 

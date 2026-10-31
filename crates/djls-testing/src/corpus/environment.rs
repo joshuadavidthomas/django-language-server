@@ -61,6 +61,19 @@ enum Dependencies {
     },
 }
 
+/// An open-ended `requires-python` range selects the newest interpreter uv can find, which
+/// can be a `CPython` release that upstream dependencies do not ship wheels for yet. Raise
+/// this once the corpus environments build on the next `CPython` release.
+const PYTHON_CEILING: &str = "<3.15";
+
+fn below_python_ceiling(request: &str) -> String {
+    if request.trim_start().starts_with(['<', '>', '=', '!', '~']) {
+        format!("{request},{PYTHON_CEILING}")
+    } else {
+        request.to_owned()
+    }
+}
+
 fn default_source_roots() -> Vec<Utf8PathBuf> {
     vec![Utf8PathBuf::from(".")]
 }
@@ -101,7 +114,7 @@ impl Environment {
                 return requirement
                     .as_str()
                     .filter(|value| !value.trim().is_empty())
-                    .map(str::to_owned)
+                    .map(below_python_ceiling)
                     .with_context(|| format!("invalid Python request in `{pyproject}`"));
             }
         }
@@ -726,7 +739,19 @@ mod tests {
             environment
                 .python_request(&checkout)
                 .expect("metadata request"),
-            ">=3.13,<3.14"
+            ">=3.13,<3.14,<3.15"
+        );
+        // An open-ended range must not select a CPython release too new for upstream wheels.
+        std::fs::write(
+            checkout.join("pyproject.toml"),
+            "[project]\nrequires-python = '>=3.13'\n",
+        )
+        .expect("open-ended metadata");
+        assert_eq!(
+            environment
+                .python_request(&checkout)
+                .expect("open-ended request"),
+            ">=3.13,<3.15"
         );
         environment.dependencies = Dependencies::Requirements {
             inputs: vec!["pyproject.toml".into()],
