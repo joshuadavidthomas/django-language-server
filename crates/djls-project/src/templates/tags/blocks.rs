@@ -13,6 +13,8 @@ use ruff_python_ast::StmtFunctionDef;
 
 use crate::ast::ExprExt;
 use crate::templates::tags::analysis::AbstractValue;
+use crate::templates::tags::analysis::constants::StaticBindings;
+use crate::templates::tags::blocks::dynamic_end::FunctionEnv;
 use crate::templates::tags::types::BodyAnalysisEvidence;
 use crate::templates::tags::types::ClosingTagArguments;
 use crate::templates::tags::types::SplitPosition;
@@ -61,8 +63,21 @@ pub(super) fn is_tag_name_value(value: &AbstractValue) -> bool {
 /// Also records body-consumption evidence from `parser.skip_past(...)` patterns.
 ///
 /// Returns `None` when no block structure or body-consumption evidence is detected.
+#[cfg(test)]
 #[must_use]
-pub(crate) fn extract_block_spec(func: &StmtFunctionDef) -> Option<ExtractedBlockSpec> {
+fn extract_block_spec(func: &StmtFunctionDef) -> Option<ExtractedBlockSpec> {
+    extract_block_spec_in_module(func, None)
+}
+
+/// Like `extract_block_spec`, with the module's name-resolution facts.
+///
+/// Detectors that interpret the function body need them to prove that names
+/// such as `len` are still Python builtins, as the Tag Rule interpreter does.
+#[must_use]
+pub(crate) fn extract_block_spec_in_module(
+    func: &StmtFunctionDef,
+    static_bindings: Option<&StaticBindings>,
+) -> Option<ExtractedBlockSpec> {
     let parser_var = func
         .parameters
         .args
@@ -75,10 +90,17 @@ pub(crate) fn extract_block_spec(func: &StmtFunctionDef) -> Option<ExtractedBloc
         .get(1)
         .map(|p| p.parameter.name.to_string())?;
 
+    let env = FunctionEnv::new(func, static_bindings, &parser_var, &token_var);
     let skip_past = opaque::detect(&func.body, &parser_var);
     let parse_detected = parse_calls::is_detected(&func.body, &parser_var);
-    let parse_spec = parse_calls::detect(&func.body, &parser_var, &token_var)
-        .or_else(|| dynamic_end::detect(&func.body, &parser_var, &token_var));
+    // A dynamic end tag needs a `parser.parse()` call; without one, skip interpreting the body.
+    let parse_spec = parse_calls::detect(&func.body, &parser_var, &token_var).or_else(|| {
+        if parse_detected {
+            dynamic_end::detect(func, &env, &parser_var)
+        } else {
+            None
+        }
+    });
     let body_analysis_evidence = match (skip_past.is_some(), parse_detected) {
         (false, _) => BodyAnalysisEvidence::NotDetected,
         (true, false) => BodyAnalysisEvidence::SkipPast,
@@ -89,13 +111,12 @@ pub(crate) fn extract_block_spec(func: &StmtFunctionDef) -> Option<ExtractedBloc
         (Some(skip_spec), true) => combine_mixed_structure(&skip_spec, parse_spec),
         (Some(skip_spec), false) => skip_spec,
         (None, _) => {
-            parse_spec.or_else(|| next_token::detect(&func.body, &parser_var, &token_var))?
+            parse_spec.or_else(|| next_token::detect(func, &env, &parser_var, &token_var))?
         }
     };
     spec.body_analysis_evidence = body_analysis_evidence;
     if let EndTagEvidence::Literal(end_tag) = &spec.end_tag {
-        spec.closing_arguments =
-            closing_arguments::detect(&func.body, &parser_var, &token_var, end_tag);
+        spec.closing_arguments = closing_arguments::detect(func, &env, &parser_var, end_tag);
     }
     Some(spec)
 }
@@ -288,6 +309,17 @@ mod tests {
 
     use super::*;
     use crate::templates::tags::testing::django_function;
+    use crate::templates::tags::testing::find_function_in_source;
+    use crate::templates::tags::testing::fixture_source;
+
+    /// A Django function with its module's name-resolution facts, as production extracts it.
+    fn django_function_in_module(path: &str, name: &str) -> (StmtFunctionDef, StaticBindings) {
+        let source = fixture_source(path).expect("expected Django fixture source should exist");
+        let module = parse_module(source).expect("valid Python").into_syntax();
+        let func = find_function_in_source(source, name)
+            .expect("expected Django fixture function should exist");
+        (func, StaticBindings::from_module(&module.body))
+    }
 
     fn parse_function(source: &str) -> StmtFunctionDef {
         let parsed = parse_module(source).expect("valid Python");
@@ -568,9 +600,10 @@ def do_block(parser, token):
     // ("endblock", "endblock %s" % block_name)
     #[test]
     fn block_closer_may_repeat_block_name() {
-        let func = django_function("django/template/loader_tags.py", "do_block")
-            .expect("expected Django fixture function should exist");
-        let spec = extract_block_spec(&func).expect("should extract block spec");
+        let (func, bindings) =
+            django_function_in_module("django/template/loader_tags.py", "do_block");
+        let spec = extract_block_spec_in_module(&func, Some(&bindings))
+            .expect("should extract block spec");
         assert_eq!(spec.end_tag.as_literal(), Some("endblock"));
         assert_eq!(
             spec.closing_arguments,
@@ -582,9 +615,10 @@ def do_block(parser, token):
     // stop tokens passed through a local tuple holding an f-string closer
     #[test]
     fn partialdef_stop_tokens_resolve_through_local_tuple() {
-        let func = django_function("django/template/defaulttags.py", "partialdef_func")
-            .expect("expected Django fixture function should exist");
-        let spec = extract_block_spec(&func).expect("should extract block spec");
+        let (func, bindings) =
+            django_function_in_module("django/template/defaulttags.py", "partialdef_func");
+        let spec = extract_block_spec_in_module(&func, Some(&bindings))
+            .expect("should extract block spec");
         assert_eq!(spec.end_tag.as_literal(), Some("endpartialdef"));
         assert!(spec.intermediates.is_empty());
         assert_eq!(
@@ -650,9 +684,10 @@ def do_if(parser, token):
     // for endblock validation
     #[test]
     fn simple_block_with_endblock_validation() {
-        let func = django_function("django/template/loader_tags.py", "do_block")
-            .expect("expected Django fixture function should exist");
-        let spec = extract_block_spec(&func).expect("should extract block spec");
+        let (func, bindings) =
+            django_function_in_module("django/template/loader_tags.py", "do_block");
+        let spec = extract_block_spec_in_module(&func, Some(&bindings))
+            .expect("should extract block spec");
         assert_eq!(spec.end_tag.as_literal(), Some("endblock"));
         assert!(spec.intermediates.is_empty());
         assert_eq!(

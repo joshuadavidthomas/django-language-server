@@ -5,6 +5,7 @@ use ruff_python_ast::ExprAttribute;
 use ruff_python_ast::ExprCall;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtAssign;
+use ruff_python_ast::StmtFunctionDef;
 
 use crate::ast::ExprExt;
 use crate::ast::Recurse;
@@ -12,6 +13,7 @@ use crate::ast::walk_stmts;
 use crate::templates::tags::blocks::EndTagEvidence;
 use crate::templates::tags::blocks::ExtractedBlockSpec;
 use crate::templates::tags::blocks::dynamic_end;
+use crate::templates::tags::blocks::dynamic_end::FunctionEnv;
 use crate::templates::tags::blocks::is_token_contents_expr;
 use crate::templates::tags::types::BodyAnalysisEvidence;
 use crate::templates::tags::types::ClosingTagArguments;
@@ -35,16 +37,18 @@ use crate::templates::tags::types::ClosingTagArguments;
 ///     raise TemplateSyntaxError(...)
 /// ```
 pub(super) fn detect(
-    body: &[Stmt],
+    func: &StmtFunctionDef,
+    env: &FunctionEnv<'_>,
     parser_var: &str,
     token_var: &str,
 ) -> Option<ExtractedBlockSpec> {
+    let body = &func.body;
     if !has_next_token_loop(body, parser_var) {
         return None;
     }
 
     let token_comparisons = collect_token_content_comparisons(body, token_var);
-    let dynamic_end_tag = dynamic_end::dynamic_end_tag_format_evidence(body, parser_var, token_var);
+    let dynamic_end_tag = dynamic_end::dynamic_end_tag_format_evidence(func, env);
     let has_dynamic_end = dynamic_end_tag.is_some();
 
     if token_comparisons.is_empty() && !has_dynamic_end {

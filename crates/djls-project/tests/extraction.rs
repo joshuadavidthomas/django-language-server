@@ -1,11 +1,13 @@
 use std::fs;
 
 use camino::Utf8Path;
+use djls_project::ArgumentConsumption;
 use djls_project::ArgumentCountConstraint;
 use djls_project::ArgumentFormCoverage;
 use djls_project::AssignmentMode;
 use djls_project::BodyAnalysisEvidence;
 use djls_project::ChoiceAt;
+use djls_project::ConsumedTagBits;
 use djls_project::ExtractedMessageArg;
 use djls_project::ExtractedMessageTemplate;
 use djls_project::FilterArity;
@@ -18,6 +20,7 @@ use djls_project::SymbolKey;
 use djls_project::TagArgumentKind;
 use djls_project::TagArgumentPatternKind;
 use djls_project::TagArgumentSyntax;
+use djls_project::TagBitSpan;
 use djls_project::TemplateLibraryId;
 use djls_project::TemplateSymbolKind;
 use djls_project::UniqueKeyCardinality;
@@ -4326,6 +4329,7 @@ def malformed(value): pass
                     },
                     requirement: ParameterRequirement::Required,
                     kind: TagArgumentKind::Variable,
+                    consumption: ArgumentConsumption::Unknown,
                 }],
                 positional_only: 0,
                 variadic_keyword: None,
@@ -5595,6 +5599,16 @@ fn project_assignment_rule(
     caller_source: &str,
     alter_base: impl FnOnce(String) -> String,
 ) -> Result<Option<std::sync::Arc<djls_project::TagRule>>, Box<dyn std::error::Error>> {
+    project_tag_rule(caller_source, "assignment_tag", alter_base)
+}
+
+/// Installs `caller_source` as a project tag library beside a non-project
+/// `django.template.base`, so canonical Django helpers resolve natively.
+fn project_tag_rule(
+    caller_source: &str,
+    tag_name: &str,
+    alter_base: impl FnOnce(String) -> String,
+) -> Result<Option<std::sync::Arc<djls_project::TagRule>>, Box<dyn std::error::Error>> {
     let corpus = Corpus::require()?;
     let base_path = corpus
         .root()
@@ -5635,10 +5649,7 @@ if enabled:
     );
     Ok(template_library_tag_facts(&db, library)
         .tag_rules()
-        .get(&SymbolKey::tag(
-            "app.templatetags.example",
-            "assignment_tag",
-        ))
+        .get(&SymbolKey::tag("app.templatetags.example", tag_name))
         .cloned())
 }
 
@@ -6010,4 +6021,110 @@ fn fallback_roles_follow_django_compile_functions_not_tag_names() {
     );
     assert_eq!(embed.fallbacks().len(), 1);
     assert!(!meanings.contains_key(&SymbolKey::tag("tags", "extends")));
+}
+
+const CONSUMPTION_TAG_SOURCE: &str = r#"
+from django import template
+from django.template.base import FilterExpression, kwarg_re
+register = template.Library()
+
+def parse_tag(token, parser):
+    bits = token.split_contents()
+    tag_name = bits.pop(0)
+    args = []
+    kwargs = {}
+    for bit in bits:
+        match = kwarg_re.match(bit)
+        kwarg_format = match and match.group(1)
+        if kwarg_format:
+            key, value = match.groups()
+            kwargs[key] = FilterExpression(value, parser)
+        else:
+            args.append(FilterExpression(bit, parser))
+    return (tag_name, args, kwargs)
+
+@register.tag(name="element")
+def do_element(parser, token):
+    tag_name, args, kwargs = parse_tag(token, parser)
+    return template.Node()
+
+def compile_target(parser, token, absolute):
+    bits = token.split_contents()
+    return parser.compile_filter(bits[1])
+
+@register.tag(name="absolute")
+def do_absolute(parser, token):
+    return compile_target(parser, token, absolute=True)
+
+@register.tag(name="pair")
+def do_pair(parser, token):
+    bits = token.split_contents()
+    return template.Node(FilterExpression(bits[1], parser), bits[2])
+"#;
+
+fn consumed(
+    first: SplitPosition,
+    last: SplitPosition,
+    consumption: ArgumentConsumption,
+) -> ConsumedTagBits {
+    ConsumedTagBits {
+        bits: TagBitSpan { first, last },
+        consumption,
+    }
+}
+
+#[test]
+fn canonical_filter_helpers_record_consumption_through_called_helpers() {
+    let consumption = |tag| {
+        project_tag_rule(CONSUMPTION_TAG_SOURCE, tag, |source| source)
+            .expect("consumption fixture should install")
+            .expect("consumed bits should derive a Tag Rule")
+            .argument_consumption
+            .clone()
+    };
+
+    // Each bit may carry a `name=` prefix that `kwarg_re` strips first.
+    assert_eq!(
+        consumption("element"),
+        [consumed(
+            SplitPosition::Forward(1),
+            SplitPosition::Backward(1),
+            ArgumentConsumption::OptionalKeywordExpression,
+        )]
+    );
+    // Keyword arguments bind by name when the helper is analyzed.
+    assert_eq!(
+        consumption("absolute"),
+        [consumed(
+            SplitPosition::Forward(1),
+            SplitPosition::Forward(1),
+            ArgumentConsumption::Expression,
+        )]
+    );
+    assert_eq!(
+        consumption("pair"),
+        [consumed(
+            SplitPosition::Forward(1),
+            SplitPosition::Forward(1),
+            ArgumentConsumption::Expression,
+        )]
+    );
+}
+
+#[test]
+fn filter_helper_lookalikes_do_not_record_consumption() {
+    let source = CONSUMPTION_TAG_SOURCE
+        .replace(
+            "from django.template.base import FilterExpression, kwarg_re",
+            "import re\nkwarg_re = re.compile(r\"(?:(\\w+)=)?(.+)\")\nclass FilterExpression:\n    def __init__(self, token, parser):\n        pass",
+        );
+    for tag in ["element", "pair"] {
+        let rule = project_tag_rule(&source, tag, |source| source)
+            .expect("lookalike fixture should install");
+        assert!(
+            rule.as_ref()
+                .is_none_or(|rule| rule.argument_consumption.is_empty()),
+            "{tag}: {rule:#?}"
+        );
+    }
 }

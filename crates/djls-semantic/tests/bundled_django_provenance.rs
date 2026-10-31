@@ -30,6 +30,8 @@ Extracted = derived from Django source by djls-project
 Fallback  = supplied by a Fallback Rule in djls-project's templates/tags/fallback.rs
 Other     = supplied by neither (update this test to attribute the new source)
 -         = no fact
+
+consumption lists rule-wide Argument Consumption; per-form consumption on Forms atoms is not shown.
 ";
 
 #[derive(Clone, Copy)]
@@ -123,7 +125,7 @@ fn provenance_rows(
     db: &dyn djls_semantic::Db,
     project: Project,
     library: &TemplateLibrary<'_>,
-) -> Vec<[String; 7]> {
+) -> Vec<[String; 8]> {
     let module = library.module_name_str();
     let facts = template_library_tag_facts(db, library.id());
     let fused = library_tag_specs(db, project, library.id());
@@ -145,6 +147,7 @@ fn provenance_rows(
                 return [
                     library_label(library),
                     name,
+                    "-".into(),
                     "-".into(),
                     "-".into(),
                     "-".into(),
@@ -203,6 +206,19 @@ fn provenance_rows(
                 cell(source, syntax_kind(syntax))
             };
 
+            let mut consumption = Vec::new();
+            for consumed in rule.map_or(&[][..], |rule| rule.argument_consumption.as_slice()) {
+                let kind = format!("{:?}", consumed.consumption);
+                if !consumption.contains(&kind) {
+                    consumption.push(kind);
+                }
+            }
+            let consumption_cell = if consumption.is_empty() {
+                "-".to_string()
+            } else {
+                cell(Source::Extracted, &consumption.join(", "))
+            };
+
             let role_cell = spec.role().map_or_else(
                 || "-".to_string(),
                 |role| {
@@ -231,6 +247,7 @@ fn provenance_rows(
                 structure_cell,
                 body_cell,
                 syntax_cell,
+                consumption_cell,
                 role_cell,
                 condition_cell,
             ]
@@ -262,6 +279,7 @@ fn bundled_django_tag_fact_provenance() {
                 "structure",
                 "body",
                 "rule",
+                "consumption",
                 "role",
                 "condition",
             ]
@@ -271,7 +289,7 @@ fn bundled_django_tag_fact_provenance() {
             rows.extend(provenance_rows(&db, project, library));
         }
 
-        let mut widths = [0; 7];
+        let mut widths = [0; 8];
         for row in &rows {
             for (width, value) in widths.iter_mut().zip(row) {
                 *width = (*width).max(value.len());

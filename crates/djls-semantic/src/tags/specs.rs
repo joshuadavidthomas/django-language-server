@@ -10,6 +10,7 @@ use djls_conf::ArgTypeDef;
 use djls_conf::TagLibraryDef;
 use djls_conf::TagSpecDef;
 use djls_conf::TagTypeDef;
+use djls_project::ArgumentConsumption;
 use djls_project::BlockSpecs;
 use djls_project::BodyAnalysisEvidence;
 use djls_project::BodyLexing;
@@ -213,20 +214,33 @@ impl TagSpecs {
                             | TagArgumentSyntax::Forms { .. }
                             | TagArgumentSyntax::Assignments { .. } => None,
                         });
+                    // A rule that only records Argument Consumption leaves
+                    // the configured argument rules in charge.
+                    let has_extracted_argument_rules = existing
+                        .extracted_rules
+                        .as_deref()
+                        .is_some_and(TagRule::has_argument_rules);
                     match (
-                        existing.extracted_rules.is_none(),
+                        has_extracted_argument_rules,
                         fallback_spec.extracted_rules.take(),
                         kwargs_only_signature_as_var,
                     ) {
-                        (true, configured_rules, _) => {
-                            existing.extracted_rules = configured_rules;
+                        (false, Some(configured_rules), _) => {
+                            let mut configured_rules = configured_rules.as_ref().clone();
+                            if let Some(extracted) = existing.extracted_rules.as_deref() {
+                                configured_rules
+                                    .argument_consumption
+                                    .clone_from(&extracted.argument_consumption);
+                            }
+                            existing.extracted_rules = Some(configured_rules.into());
                         }
-                        (false, Some(configured_rules), Some(as_var)) => {
+                        (true, Some(configured_rules), Some(as_var)) => {
                             let mut configured_rules = configured_rules.as_ref().clone();
                             configured_rules.as_var = as_var;
                             existing.extracted_rules = Some(configured_rules.into());
                         }
-                        (false, None | Some(_), None) | (false, None, Some(_)) => {}
+                        (false, None, _) | (true, None | Some(_), None) | (true, None, Some(_)) => {
+                        }
                     }
                 }
             }
@@ -337,6 +351,7 @@ impl TagSpecs {
                                 ParameterRequirement::Optional
                             },
                             kind: kind.clone(),
+                            consumption: ArgumentConsumption::Unknown,
                         });
 
                         if arg.required {
@@ -1094,16 +1109,19 @@ mod tests {
                         name: "item".to_string(),
                         requirement: ParameterRequirement::Required,
                         kind: TagArgumentKind::Variable,
+                        consumption: ArgumentConsumption::Unknown,
                     },
                     TagArgument {
                         name: "in".to_string(),
                         requirement: ParameterRequirement::Required,
                         kind: TagArgumentKind::Literal("in".to_string()),
+                        consumption: ArgumentConsumption::Unknown,
                     },
                     TagArgument {
                         name: "iterable".to_string(),
                         requirement: ParameterRequirement::Required,
                         kind: TagArgumentKind::Variable,
+                        consumption: ArgumentConsumption::Unknown,
                     },
                 ]),
                 ..Default::default()

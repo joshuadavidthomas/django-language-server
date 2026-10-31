@@ -2,6 +2,7 @@ use ruff_python_ast::StmtFunctionDef;
 
 use crate::templates::RegistrationKind;
 use crate::templates::registrations::ContextProvision;
+use crate::templates::tags::types::ArgumentConsumption;
 use crate::templates::tags::types::AsVar;
 use crate::templates::tags::types::ParameterRequirement;
 use crate::templates::tags::types::TagArgument;
@@ -69,6 +70,7 @@ pub(crate) fn extract_parse_bits_rule(
             name,
             requirement,
             kind: TagArgumentKind::Variable,
+            consumption: ArgumentConsumption::Unknown,
         });
     }
 
@@ -77,6 +79,7 @@ pub(crate) fn extract_parse_bits_rule(
             name: vararg.name.to_string(),
             requirement: ParameterRequirement::Optional,
             kind: TagArgumentKind::VarArgs,
+            consumption: ArgumentConsumption::Unknown,
         });
     }
 
@@ -91,6 +94,7 @@ pub(crate) fn extract_parse_bits_rule(
             name,
             requirement,
             kind: TagArgumentKind::Keyword,
+            consumption: ArgumentConsumption::Unknown,
         });
     }
 

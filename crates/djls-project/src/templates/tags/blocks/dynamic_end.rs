@@ -1,3 +1,4 @@
+use std::cell::OnceCell;
 use std::ops::ControlFlow;
 
 use ruff_python_ast::Expr;
@@ -10,6 +11,7 @@ use ruff_python_ast::InterpolatedStringElement;
 use ruff_python_ast::Operator;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtAssign;
+use ruff_python_ast::StmtFunctionDef;
 use ruff_python_ast::StmtReturn;
 
 use crate::ast::ExprExt;
@@ -17,6 +19,8 @@ use crate::ast::Recurse;
 use crate::ast::walk_stmts;
 use crate::templates::tags::analysis::CallContext;
 use crate::templates::tags::analysis::Env;
+use crate::templates::tags::analysis::constants::StaticBindings;
+use crate::templates::tags::analysis::constants::seed_static_bindings;
 use crate::templates::tags::analysis::expressions::eval_expr;
 use crate::templates::tags::analysis::process_statements;
 use crate::templates::tags::blocks::EndTagEvidence;
@@ -32,13 +36,12 @@ use crate::templates::tags::types::ClosingTagArguments;
 /// compile function's own tag name. Other dynamic end-tag expressions remain
 /// `Unknown` so callers don't synthesize a closer from convention alone.
 pub(super) fn detect(
-    body: &[Stmt],
+    func: &StmtFunctionDef,
+    env: &FunctionEnv<'_>,
     parser_var: &str,
-    token_var: &str,
 ) -> Option<ExtractedBlockSpec> {
-    let env = analyze_env(body, parser_var, token_var);
-    let assignments = collect_simple_assignments(body);
-    let end_tag = find_dynamic_end_parse_call(body, parser_var, &assignments, &env)?;
+    let assignments = collect_simple_assignments(&func.body);
+    let end_tag = find_dynamic_end_parse_call(&func.body, parser_var, &assignments, env.get())?;
     Some(ExtractedBlockSpec {
         end_tag,
         intermediates: Vec::new(),
@@ -47,14 +50,47 @@ pub(super) fn detect(
     })
 }
 
-pub(super) fn analyze_env(body: &[Stmt], parser_var: &str, token_var: &str) -> Env {
-    let mut env = Env::for_compile_function(parser_var, token_var);
-    let mut ctx = CallContext {
-        source: None,
-        manual_as_var_strips: &[],
-    };
-    let _result = process_statements(body, &mut env, &mut ctx);
-    env
+/// The compile function body interpreted like the Tag Rule interpreter does, once, on first use.
+///
+/// Several detectors read it, and interpreting a body is the expensive part of block extraction.
+pub(super) struct FunctionEnv<'a> {
+    func: &'a StmtFunctionDef,
+    static_bindings: Option<&'a StaticBindings>,
+    parser_var: &'a str,
+    token_var: &'a str,
+    env: OnceCell<Env>,
+}
+
+impl<'a> FunctionEnv<'a> {
+    pub(super) fn new(
+        func: &'a StmtFunctionDef,
+        static_bindings: Option<&'a StaticBindings>,
+        parser_var: &'a str,
+        token_var: &'a str,
+    ) -> Self {
+        Self {
+            func,
+            static_bindings,
+            parser_var,
+            token_var,
+            env: OnceCell::new(),
+        }
+    }
+
+    pub(super) fn get(&self) -> &Env {
+        self.env.get_or_init(|| {
+            let mut env = Env::for_compile_function(self.parser_var, self.token_var);
+            if let Some(static_bindings) = self.static_bindings {
+                seed_static_bindings(static_bindings, self.func, &mut env);
+            }
+            let mut ctx = CallContext {
+                source: None,
+                manual_as_var_strips: &[],
+            };
+            let _result = process_statements(&self.func.body, &mut env, &mut ctx);
+            env
+        })
+    }
 }
 
 pub(super) fn collect_simple_assignments(body: &[Stmt]) -> Vec<(String, &Expr)> {
@@ -218,19 +254,19 @@ fn dynamic_end_expr_evidence(
 
 /// Check for dynamic end-tag format strings in a `next_token()` function body.
 pub(super) fn dynamic_end_tag_format_evidence(
-    body: &[Stmt],
-    parser_var: &str,
-    token_var: &str,
+    func: &StmtFunctionDef,
+    env: &FunctionEnv<'_>,
 ) -> Option<EndTagEvidence> {
-    let env = analyze_env(body, parser_var, token_var);
+    let body = &func.body;
+    let env = env.get();
     let mut found = None;
     walk_stmts(body, Recurse::ControlFlow, |stmt| {
         let evidence = match stmt {
-            Stmt::Expr(expr_stmt) => direct_dynamic_end_expr_evidence(&expr_stmt.value, &env),
-            Stmt::Assign(StmtAssign { value, .. }) => direct_dynamic_end_expr_evidence(value, &env),
+            Stmt::Expr(expr_stmt) => direct_dynamic_end_expr_evidence(&expr_stmt.value, env),
+            Stmt::Assign(StmtAssign { value, .. }) => direct_dynamic_end_expr_evidence(value, env),
             Stmt::Return(StmtReturn {
                 value: Some(val), ..
-            }) => direct_dynamic_end_expr_evidence(val, &env),
+            }) => direct_dynamic_end_expr_evidence(val, env),
             Stmt::FunctionDef(_)
             | Stmt::ClassDef(_)
             | Stmt::Return(_)
