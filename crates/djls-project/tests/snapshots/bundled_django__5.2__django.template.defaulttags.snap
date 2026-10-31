@@ -129,7 +129,7 @@ tag_rules:
               - name: as
                 kind:
                   Literal: as
-              - name: arg_from_end_2
+              - name: name
                 kind: Variable
               - name: silent
                 kind:

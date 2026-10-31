@@ -12,6 +12,7 @@ use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtAssign;
 use ruff_python_ast::visitor;
 use ruff_python_ast::visitor::Visitor;
+use ruff_text_size::Ranged;
 
 use crate::ast::ExprExt;
 use crate::ast::Recurse;
@@ -586,6 +587,14 @@ fn process_statement_states(
                     });
                 }
             }
+            Stmt::Assign(assign)
+                if ctx
+                    .manual_as_var_strips
+                    .iter()
+                    .any(|strip| strip.assignment == assign.range()) =>
+            {
+                // `bits = bits[:-2]` leaves the bits the rule already describes.
+            }
             Stmt::Assign(assign) => {
                 let incoming = states.take_next();
                 for state in incoming {
@@ -979,17 +988,14 @@ fn split_sequence_pattern(
             if let Some(name) = &starred.name {
                 let before = index;
                 let after = sequence.patterns.len() - before - 1;
-                let mut capture_split = split.after_slice_from(before);
-                for _ in 0..after {
-                    capture_split = capture_split.after_pop_back();
-                }
+                let capture_split = split.after_slice_from(before).after_slice_back(after);
                 captures.push((name.to_string(), AbstractValue::SplitResult(capture_split)));
             }
             continue;
         }
         let position = match star {
             Some(star) if index > star => {
-                SplitPosition::Backward(split.back_offset() + sequence.patterns.len() - index)
+                split.resolve_backward_index(sequence.patterns.len() - index)
             }
             Some(_) | None => split.resolve_index(index),
         };
@@ -1282,6 +1288,10 @@ fn branch_if(
 ) -> ExecutionStates {
     let incoming = states.take_next();
     let mut alternatives = states;
+    let strips_as_var = ctx
+        .manual_as_var_strips
+        .iter()
+        .any(|strip| strip.condition == stmt_if.range());
 
     for mut path in incoming {
         if let Some((SplitPredicate::LengthEquals(_), true)) =
@@ -1305,7 +1315,7 @@ fn branch_if(
                 .map(|clause| (clause.test.as_ref(), clause.body.as_slice())),
         );
 
-        for (test, body) in clauses {
+        for (index, (test, body)) in clauses.into_iter().enumerate() {
             let Some(path) = unmatched.take() else {
                 break;
             };
@@ -1315,25 +1325,27 @@ fn branch_if(
                 continue;
             }
 
-            let predicate = test.and_then(|test| {
-                crate::templates::tags::analysis::guards::split_predicate_condition(test, &path.env)
+            // The `as varname` check reads bits that are absent in rule coordinates.
+            let fact_test = test.filter(|_| !(strips_as_var && index == 0));
+            let facts = fact_test.map_or_else(Default::default, |test| {
+                crate::templates::tags::analysis::guards::split_condition_facts(test, &path.env)
             });
             let has_direct_raise = body.iter().any(|stmt| matches!(stmt, Stmt::Raise(_)));
-            let direct_guard =
-                test.filter(|_| direct_raise_exception(body).is_some())
-                    .map(|test| {
-                        crate::templates::tags::analysis::guards::extract_direct_guard(
-                            test, body, &path.env,
-                        )
-                    });
-            let assignment_guard = test.and_then(|test| {
+            let direct_guard = fact_test
+                .filter(|_| direct_raise_exception(body).is_some())
+                .map(|test| {
+                    crate::templates::tags::analysis::guards::extract_direct_guard(
+                        test, body, &path.env,
+                    )
+                });
+            let assignment_guard = fact_test.and_then(|test| {
                 crate::templates::tags::analysis::guards::assignment_rejecting_guard(
                     test, body, &path.env,
                 )
             });
             let unsupported_form_condition = test.is_some_and(|test| {
                 truth.is_none()
-                    && predicate.is_none()
+                    && !facts.exact
                     && direct_raise_exception(body).is_some()
                     && unsupported_condition_affects_static_syntax(test, &path.env)
             })
@@ -1346,12 +1358,9 @@ fn branch_if(
             if unsupported_form_condition {
                 taken.mark_form_unknown();
             }
-            let taken = match predicate.as_ref() {
-                Some((predicate, condition_truth)) => taken.assume(predicate, *condition_truth),
-                None => Some(taken),
-            };
+            let taken = assume_all(taken, &facts.when_true);
             if let Some(mut taken) = taken {
-                if let Some(test) = test.filter(|_| !has_direct_raise) {
+                if let Some(test) = fact_test.filter(|_| !has_direct_raise) {
                     taken.result.constraints.extend(
                         crate::templates::tags::analysis::guards::extract_true_condition_constraints(
                             test, &taken.env,
@@ -1368,16 +1377,11 @@ fn branch_if(
                 if unsupported_form_condition {
                     fallthrough.mark_form_unknown();
                 }
-                let fallthrough = match predicate.as_ref() {
-                    Some((predicate, condition_truth)) => {
-                        fallthrough.assume(predicate, !condition_truth)
-                    }
-                    None => Some(fallthrough),
-                };
+                let fallthrough = assume_all(fallthrough, &facts.when_false);
                 if let Some(mut fallthrough) = fallthrough {
                     if let Some(guard) = direct_guard {
                         fallthrough.result.extend(guard.into());
-                    } else if let Some(test) = test.filter(|_| !has_direct_raise) {
+                    } else if let Some(test) = fact_test.filter(|_| !has_direct_raise) {
                         fallthrough.result.constraints.extend(
                             crate::templates::tags::analysis::guards::extract_false_condition_constraints(
                                 test, &fallthrough.env,
@@ -1402,6 +1406,12 @@ fn branch_if(
     }
 
     alternatives
+}
+
+fn assume_all(path: ExecutionState, facts: &[(SplitPredicate, bool)]) -> Option<ExecutionState> {
+    facts.iter().try_fold(path, |path, (predicate, truth)| {
+        path.assume(predicate, *truth)
+    })
 }
 
 #[derive(Clone, Default)]
@@ -3331,15 +3341,11 @@ fn process_tuple_unpack(
             let after_star = star_index.map_or(0, |star| targets.len() - star - 1);
             for (index, target) in targets.iter().enumerate() {
                 let element = match star_index {
-                    Some(star) if index == star => {
-                        let mut middle = split.after_slice_from(star);
-                        for _ in 0..after_star {
-                            middle = middle.after_pop_back();
-                        }
-                        AbstractValue::SplitResult(middle)
-                    }
+                    Some(star) if index == star => AbstractValue::SplitResult(
+                        split.after_slice_from(star).after_slice_back(after_star),
+                    ),
                     Some(star) if index > star => AbstractValue::SplitElement {
-                        index: SplitPosition::Backward(targets.len() - index),
+                        index: split.resolve_backward_index(targets.len() - index),
                     },
                     Some(_) | None => AbstractValue::SplitElement {
                         index: split.resolve_index(index),
@@ -3426,7 +3432,10 @@ mod tests {
         crate::templates::tags::analysis::constants::seed_static_bindings(
             &bindings, func, &mut env,
         );
-        let mut ctx = CallContext { source: None };
+        let mut ctx = CallContext {
+            source: None,
+            manual_as_var_strips: &[],
+        };
         process_statements(&func.body, &mut env, &mut ctx);
         env
     }
@@ -3516,7 +3525,10 @@ mod tests {
             "def compile(parser, token):\n    bits = token.split_contents()\n    return bits.pop(0)\n",
         );
         let mut env = Env::for_compile_function("parser", "token");
-        let mut ctx = CallContext { source: None };
+        let mut ctx = CallContext {
+            source: None,
+            manual_as_var_strips: &[],
+        };
         let (_, value) = process_statements(&function.body, &mut env, &mut ctx);
         assert_eq!(
             value,
@@ -3708,6 +3720,39 @@ def do_tag(parser, token):
             env.get("last"),
             &AbstractValue::SplitElement {
                 index: SplitPosition::Backward(1)
+            }
+        );
+    }
+
+    #[test]
+    fn negative_subscript_after_back_removal() {
+        let env = eval_body(
+            r"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    bits.pop()
+    distance = 2
+    last = bits[-1]
+    previous = bits[-distance]
+    first, *rest, tail = bits
+",
+        );
+        assert_eq!(
+            env.get("last"),
+            &AbstractValue::SplitElement {
+                index: SplitPosition::Backward(2)
+            }
+        );
+        assert_eq!(
+            env.get("previous"),
+            &AbstractValue::SplitElement {
+                index: SplitPosition::Backward(3)
+            }
+        );
+        assert_eq!(
+            env.get("tail"),
+            &AbstractValue::SplitElement {
+                index: SplitPosition::Backward(2)
             }
         );
     }
@@ -3929,19 +3974,46 @@ def do_tag(parser, token):
     }
 
     #[test]
-    fn slice_truncation_preserves_offset() {
+    fn slice_with_negative_stop_removes_back_elements() {
+        let env = eval_body(
+            r"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    bits.pop()
+    head = bits[:-2]
+    copy = bits[:]
+    last = head[-1]
+",
+        );
+        assert_eq!(
+            env.get("head"),
+            &AbstractValue::SplitResult(TokenSplit::fresh().after_slice_back(3))
+        );
+        assert_eq!(
+            env.get("copy"),
+            &AbstractValue::SplitResult(TokenSplit::fresh().after_pop_back())
+        );
+        assert_eq!(
+            env.get("last"),
+            &AbstractValue::SplitElement {
+                index: SplitPosition::Backward(4)
+            }
+        );
+    }
+
+    #[test]
+    fn slice_with_non_negative_stop_is_untracked() {
         let env = eval_body(
             r"
 def do_tag(parser, token):
     bits = token.split_contents()
     bits = bits[1:]
     truncated = bits[:3]
+    middle = bits[1:3]
 ",
         );
-        assert_eq!(
-            env.get("truncated"),
-            &AbstractValue::SplitResult(TokenSplit::fresh().after_slice_from(1))
-        );
+        assert_eq!(env.get("truncated"), &AbstractValue::Unknown);
+        assert_eq!(env.get("middle"), &AbstractValue::Unknown);
     }
 
     #[test]
