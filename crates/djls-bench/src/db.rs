@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+use djls_project::BundledFileSystem;
 use djls_project::Db as ProjectDb;
 use djls_project::Project;
 use djls_semantic::Db as SemanticDb;
@@ -127,9 +128,10 @@ impl FileSystem for SourceMapFileSystem {
 #[derive(Clone)]
 pub struct Db {
     fs: SourceMapFileSystem,
+    // Bundled Django sources are mounted above fixture sources, as in production.
+    file_system: Arc<dyn FileSystem>,
     files: SourceFiles,
     projectless_tag_specs: Arc<TagSpecs>,
-    projectless_filter_arity_specs: Arc<FilterAritySpecs>,
     project: Option<Project>,
     storage: Storage<Self>,
 }
@@ -141,14 +143,15 @@ impl Db {
     }
 
     fn with_storage(storage: Storage<Self>) -> Self {
+        let fs = SourceMapFileSystem {
+            sources: Arc::new(FxDashMap::default()),
+            directories: Arc::new(FxDashMap::default()),
+        };
         Self {
-            fs: SourceMapFileSystem {
-                sources: Arc::new(FxDashMap::default()),
-                directories: Arc::new(FxDashMap::default()),
-            },
+            file_system: Arc::new(BundledFileSystem::new(Arc::new(fs.clone()))),
+            fs,
             files: SourceFiles::default(),
             projectless_tag_specs: Arc::new(TagSpecs::default()),
-            projectless_filter_arity_specs: Arc::new(FilterAritySpecs::new()),
             project: None,
             storage,
         }
@@ -157,12 +160,6 @@ impl Db {
     #[must_use]
     pub(crate) fn with_projectless_tag_specs(mut self, specs: TagSpecs) -> Self {
         self.projectless_tag_specs = Arc::new(specs);
-        self
-    }
-
-    #[must_use]
-    pub(crate) fn with_projectless_filter_arity_specs(mut self, specs: FilterAritySpecs) -> Self {
-        self.projectless_filter_arity_specs = Arc::new(specs);
         self
     }
 
@@ -216,7 +213,7 @@ impl SourceDb for Db {
     }
 
     fn file_system(&self) -> &dyn FileSystem {
-        &self.fs
+        self.file_system.as_ref()
     }
 }
 
@@ -238,7 +235,7 @@ impl SemanticDb for Db {
     }
 
     fn projectless_filter_arity_specs(&self) -> &FilterAritySpecs {
-        &self.projectless_filter_arity_specs
+        FilterAritySpecs::empty_ref()
     }
 }
 

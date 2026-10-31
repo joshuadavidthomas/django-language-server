@@ -2,6 +2,7 @@ use std::cmp::Ordering;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+use djls_conf::DjangoVersion;
 use djls_source::FileRootKind;
 use djls_source::FileSystem;
 use djls_source::RootWalk;
@@ -10,7 +11,6 @@ use djls_source::WalkEntryKind;
 use djls_source::WalkOptions;
 
 use crate::db::Db as ProjectDb;
-use crate::project::Project;
 use crate::python::PythonEnvironment;
 use crate::python::evaluation::StructuralOrd;
 
@@ -217,8 +217,13 @@ impl SearchPaths {
         search_paths
     }
 
-    pub(crate) fn add_bundled_django(&mut self, db: &dyn ProjectDb, project: Project) {
-        let fs = db.file_system();
+    /// Mount the bundled Django release selected for `root` when no Django package is present.
+    pub fn add_bundled_django(
+        &mut self,
+        fs: &dyn FileSystem,
+        root: &Utf8Path,
+        configured: Option<DjangoVersion>,
+    ) {
         // Treat even an incomplete/shadowing Django package as authoritative;
         // never combine installed modules with a different bundled release.
         if self.iter().any(|path| {
@@ -228,11 +233,8 @@ impl SearchPaths {
         }) {
             return;
         }
-        let Some(version) = crate::django_version::bundled_django_version(
-            fs,
-            project.root(db),
-            project.django_version(db),
-        ) else {
+        let Some(version) = crate::django_version::bundled_django_version(fs, root, configured)
+        else {
             return;
         };
         match crate::bundled::source_root(version) {
