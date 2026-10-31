@@ -1,0 +1,70 @@
+---
+source: crates/djls-project/tests/extraction.rs
+expression: meanings
+---
+"django.template.defaulttags::if":
+  condition:
+    intermediates:
+      - elif
+  fallbacks:
+    - gap: "Extraction does not record Argument Consumption; the opener's and each elif's bits go to TemplateIfParser."
+      path: django/template/defaulttags.py
+      line: 969
+"django.template.defaulttags::load":
+  role:
+    - template_library_loader
+    - extracted
+"django.template.defaulttags::partial":
+  role:
+    - template_partial_reference
+    - extracted
+"django.template.defaulttags::partialdef":
+  role:
+    - template_partial
+    - extracted
+"django.template.defaulttags::url":
+  role:
+    - route_reference
+    - fallback
+  fallbacks:
+    - gap: URLNode reverses the route at render time; extraction does not model URL resolution.
+      path: django/template/defaulttags.py
+      line: 1440
+"django.template.defaulttags::verbatim":
+  body_lexing: verbatim
+  fallbacks:
+    - gap: "The Lexer, not do_verbatim, emits the body as text until a tag whose contents are 'end' plus the opener's contents."
+      path: django/template/base.py
+      line: 390
+"django.template.loader_tags::block":
+  role:
+    - template_block
+    - fallback
+  fallbacks:
+    - gap: Inheritance Blocks exist only through BlockNode and ExtendsNode at render time; the compile function calls no parser API that marks the definition.
+      path: django/template/loader_tags.py
+      line: 242
+"django.template.loader_tags::extends":
+  role:
+    - template_reference: extends
+    - fallback
+  fallbacks:
+    - gap: The parent template is loaded by ExtendsNode at render time; extraction does not follow node classes into the loader.
+      path: django/template/loader_tags.py
+      line: 304
+"django.template.loader_tags::include":
+  role:
+    - template_reference: include
+    - fallback
+  fallbacks:
+    - gap: The included template is loaded by IncludeNode at render time; extraction does not follow node classes into the loader.
+      path: django/template/loader_tags.py
+      line: 358
+"django.templatetags.static::static":
+  role:
+    - static_asset_reference
+    - fallback
+  fallbacks:
+    - gap: StaticNode resolves the path through the staticfiles storage at render time; extraction does not model storages.
+      path: django/templatetags/static.py
+      line: 171

@@ -1,16 +1,14 @@
 use std::borrow::Cow;
 
 use camino::Utf8Path;
+use djls_conf::DjangoVersion;
 use djls_project::Project;
+use djls_project::bundled_django_libraries;
 use djls_semantic::BlockDef;
 use djls_semantic::ChainEnd;
 use djls_semantic::EndTag;
 use djls_semantic::ExtendsTarget;
 use djls_semantic::PartialDef;
-use djls_semantic::TagRole;
-use djls_semantic::TagSpec;
-use djls_semantic::TagSpecs;
-use djls_semantic::TemplateReferenceKind;
 use djls_semantic::TemplateSymbols;
 use djls_semantic::block_overrides;
 use djls_semantic::bundled_django_tag_specs;
@@ -26,7 +24,6 @@ use djls_templates::parse_template;
 use djls_testing::ProjectFixture;
 use djls_testing::ProjectSettings;
 use djls_testing::TestDatabase;
-use rustc_hash::FxHashMap;
 
 fn project_with_templates(
     db: &TestDatabase,
@@ -76,20 +73,16 @@ fn inheritance_summary(db: &TestDatabase, project: Project, file: File) -> (Vec<
 
 #[test]
 fn extracts_partial_defs_from_partial_role_specs() {
+    // Django 6.0 added partials; the projectless default is the oldest bundle.
+    let defaulttags = bundled_django_libraries(DjangoVersion::Django61)
+        .iter()
+        .find(|library| library.module().as_str() == "django.template.defaulttags")
+        .expect("bundled Django 6.1 has defaulttags");
     let mut specs = bundled_django_tag_specs().clone();
-    specs.merge(TagSpecs::new(FxHashMap::from_iter([(
-        "partialdef".to_string(),
-        TagSpec::new(
-            Cow::Borrowed("django_template_partials.templatetags.partials"),
-            Some(EndTag {
-                name: Cow::Borrowed("endpartialdef"),
-                required: true,
-            }),
-            Cow::Borrowed(&[]),
-            djls_semantic::BodyAnalysis::Analyze,
-        )
-        .with_role(TagRole::TemplatePartial),
-    )])));
+    specs
+        .merge_tag_rules(defaulttags.tag_rules())
+        .merge_block_specs(defaulttags.block_specs())
+        .merge_tag_meanings(defaulttags.tag_meanings());
     let db = TestDatabase::new().with_projectless_tag_specs(specs);
     let source = "{% partialdef card %}Body{% endpartialdef %}";
     let symbols = symbols_for_source(&db, source).expect("template symbol fixture should build");
@@ -113,16 +106,11 @@ fn extracts_partial_defs_from_partial_role_specs() {
 #[test]
 fn absent_effective_tag_does_not_fall_back_to_project_global_specs() {
     let mut specs = bundled_django_tag_specs().clone();
-    specs.insert(
-        "overextends".to_string(),
-        TagSpec::new(
-            Cow::Borrowed("missing.templatetags.layout"),
-            None,
-            Cow::Borrowed(&[]),
-            djls_semantic::BodyAnalysis::Analyze,
-        )
-        .with_role(TagRole::TemplateReference(TemplateReferenceKind::Extends)),
-    );
+    let extends = specs
+        .get("extends")
+        .cloned()
+        .expect("bundled Django defines extends");
+    specs.insert("overextends".to_string(), extends);
     let mut db = TestDatabase::new().with_projectless_tag_specs(specs);
     let project = ProjectFixture::new("/test/project")
         .settings(&ProjectSettings {
@@ -182,16 +170,6 @@ fn inheritance_keeps_child_backend_selection_when_resolving_parent() {
     let project = ProjectFixture::new("/test/project")
         .django_settings_module("testproject.settings")
         .file("/test/project/testproject/settings.py", settings)
-        .file("/test/project/django/__init__.py", "")
-        .file("/test/project/django/template/__init__.py", "")
-        .file(
-            "/test/project/django/template/defaulttags.py",
-            "from django import template\nregister = template.Library()\n@register.tag\ndef load(parser, token): pass\n",
-        )
-        .file(
-            "/test/project/django/template/loader_tags.py",
-            "from django import template\nregister = template.Library()\n@register.tag\ndef block(parser, token): pass\n@register.tag\ndef extends(parser, token): pass\n",
-        )
         .file("/test/project/a/child.html", "{% extends 'base.html' %}")
         .file("/test/project/a/base.html", "backend a")
         .file("/test/project/b/base.html", "backend b")
@@ -633,16 +611,11 @@ fn originless_inheritance_keeps_the_exact_resolved_origin_for_relative_parents()
 #[test]
 fn template_inheritance_follows_extends_role_not_builtin_name() {
     let mut specs = bundled_django_tag_specs().clone();
-    specs.merge(TagSpecs::new(FxHashMap::from_iter([(
-        "overextends".to_string(),
-        TagSpec::new(
-            Cow::Borrowed("myapp.templatetags.layout"),
-            None,
-            Cow::Borrowed(&[]),
-            djls_semantic::BodyAnalysis::Analyze,
-        )
-        .with_role(TagRole::TemplateReference(TemplateReferenceKind::Extends)),
-    )])));
+    let extends = specs
+        .get("extends")
+        .cloned()
+        .expect("bundled Django defines extends");
+    specs.insert("overextends".to_string(), extends);
     let db = TestDatabase::new().with_projectless_tag_specs(specs);
     let project = project_with_templates(
         &db,
@@ -1014,31 +987,20 @@ fn template_inheritance_detects_a_cycle_through_a_template_name_alias() {
 #[test]
 fn extracts_blocks_and_extends_by_role_not_builtin_names() {
     let mut specs = bundled_django_tag_specs().clone();
-    specs.merge(TagSpecs::new(FxHashMap::from_iter([
-        (
-            "section".to_string(),
-            TagSpec::new(
-                Cow::Borrowed("myapp.templatetags.layout"),
-                Some(EndTag {
-                    name: Cow::Borrowed("endsection"),
-                    required: true,
-                }),
-                Cow::Borrowed(&[]),
-                djls_semantic::BodyAnalysis::Analyze,
-            )
-            .with_role(TagRole::TemplateBlock),
-        ),
-        (
-            "overextends".to_string(),
-            TagSpec::new(
-                Cow::Borrowed("myapp.templatetags.layout"),
-                None,
-                Cow::Borrowed(&[]),
-                djls_semantic::BodyAnalysis::Analyze,
-            )
-            .with_role(TagRole::TemplateReference(TemplateReferenceKind::Extends)),
-        ),
-    ])));
+    let mut section = specs
+        .get("block")
+        .cloned()
+        .expect("bundled Django defines block");
+    section.end_tag = Some(EndTag {
+        name: Cow::Borrowed("endsection"),
+        required: true,
+    });
+    let extends = specs
+        .get("extends")
+        .cloned()
+        .expect("bundled Django defines extends");
+    specs.insert("section".to_string(), section);
+    specs.insert("overextends".to_string(), extends);
     let db = TestDatabase::new().with_projectless_tag_specs(specs);
     let source = r#"{% overextends "base.html" %}
 {% section content %}Body{% endsection %}"#;

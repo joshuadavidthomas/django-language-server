@@ -1,3 +1,4 @@
+use djls_project::TagRole;
 use djls_source::File;
 use djls_source::Span;
 use djls_templates::NodeList;
@@ -13,7 +14,6 @@ use crate::structure::BlockRole;
 use crate::structure::RegionId;
 use crate::structure::Regions;
 use crate::structure::TemplateNode;
-use crate::tags::TagRole;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct OutlineItem {
@@ -32,7 +32,8 @@ pub struct OutlineItem {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum OutlineKind {
     TemplateBlock,
-    ControlTag,
+    /// A Block Tag without a Tag Role.
+    BlockTag,
     TemplateReference,
     TemplateLibrary,
     TemplateLibrarySymbol,
@@ -46,11 +47,12 @@ pub enum OutlineKind {
 impl From<TagRole> for OutlineKind {
     fn from(role: TagRole) -> Self {
         match role {
-            TagRole::TemplateReference(_) => Self::TemplateReference,
+            TagRole::TemplateReference(_) | TagRole::TemplatePartialReference => {
+                Self::TemplateReference
+            }
             TagRole::TemplateLibraryLoader => Self::TemplateLibrary,
             TagRole::TemplateBlock => Self::TemplateBlock,
-            TagRole::ControlTag => Self::ControlTag,
-            TagRole::TemplatePartial | TagRole::TemplateTag => Self::TemplateTag,
+            TagRole::TemplatePartial => Self::TemplateTag,
             TagRole::StaticAssetReference => Self::StaticAssetReference,
             TagRole::RouteReference => Self::RouteReference,
         }
@@ -85,17 +87,34 @@ impl OutlineTagRoles<'_> {
 }
 
 fn outline_items_for_tag(
-    role: TagRole,
+    role: Option<TagRole>,
     tag: &str,
     name_span: Span,
     bits: &[TagBit],
     span: Span,
     children: Vec<OutlineItem>,
 ) -> Vec<OutlineItem> {
+    let Some(role) = role else {
+        let mut label = tag.to_string();
+        for bit in bits {
+            label.push(' ');
+            label.push_str(bit.as_str());
+        }
+
+        return vec![OutlineItem {
+            label,
+            detail: Some(tag.to_string()),
+            kind: OutlineKind::BlockTag,
+            span,
+            selection_span: name_span,
+            children,
+        }];
+    };
     match role {
         TagRole::TemplateReference(_)
         | TagRole::TemplateBlock
         | TagRole::TemplatePartial
+        | TagRole::TemplatePartialReference
         | TagRole::StaticAssetReference
         | TagRole::RouteReference => {
             let item = if let Some(bit) = bits.first() {
@@ -156,22 +175,6 @@ fn outline_items_for_tag(
             }],
             None => Vec::new(),
         },
-        TagRole::ControlTag | TagRole::TemplateTag => {
-            let mut label = tag.to_string();
-            for bit in bits {
-                label.push(' ');
-                label.push_str(bit.as_str());
-            }
-
-            vec![OutlineItem {
-                label,
-                detail: Some(tag.to_string()),
-                kind: role.into(),
-                span,
-                selection_span: name_span,
-                children,
-            }]
-        }
     }
 }
 
@@ -203,7 +206,7 @@ fn outline_items_for_node(
             body,
             role: BlockRole::Opener,
         } => {
-            let role = roles.role(*name_span).unwrap_or(TagRole::ControlTag);
+            let role = roles.role(*name_span);
             let children = regions
                 .get(*body)
                 .nodes()
@@ -246,14 +249,7 @@ fn outline_items_for_node(
             ..
         } => {
             let children = outline_items_for_region(regions, roles, *body);
-            outline_items_for_tag(
-                TagRole::ControlTag,
-                tag,
-                *name_span,
-                bits,
-                *full_span,
-                children,
-            )
+            outline_items_for_tag(None, tag, *name_span, bits, *full_span, children)
         }
         TemplateNode::StandaloneTag {
             tag,
@@ -262,7 +258,7 @@ fn outline_items_for_node(
             full_span,
             ..
         } => roles.role(*name_span).map_or_else(Vec::new, |role| {
-            outline_items_for_tag(role, tag, *name_span, bits, *full_span, Vec::new())
+            outline_items_for_tag(Some(role), tag, *name_span, bits, *full_span, Vec::new())
         }),
         TemplateNode::Variable {
             var,

@@ -150,6 +150,35 @@ impl OpeningContract {
         })
     }
 
+    /// Whether a closer ends a Lexer-level verbatim body.
+    ///
+    /// Django compares the closer's contents with `end` plus the opener's contents, so names,
+    /// bits, and the whitespace between them must all match.
+    pub(crate) fn verbatim_closes(
+        opener_name: &str,
+        opener_name_span: Span,
+        opener_bits: &[TagBit],
+        closer_name: &str,
+        closer_name_span: Span,
+        closer_bits: &[TagBit],
+    ) -> bool {
+        fn gaps(name_span: Span, bits: &[TagBit]) -> impl Iterator<Item = u32> + '_ {
+            bits.iter().scan(name_span.end(), |previous_end, bit| {
+                let gap = bit.span.start().saturating_sub(*previous_end);
+                *previous_end = bit.span.end();
+                Some(gap)
+            })
+        }
+
+        closer_name.strip_prefix("end") == Some(opener_name)
+            && opener_bits.len() == closer_bits.len()
+            && opener_bits
+                .iter()
+                .zip(closer_bits)
+                .all(|(opener, closer)| opener.as_str() == closer.as_str())
+            && gaps(opener_name_span, opener_bits).eq(gaps(closer_name_span, closer_bits))
+    }
+
     pub(crate) fn validate_close(
         opener_bits: &[TagBit],
         closer_bits: &[TagBit],

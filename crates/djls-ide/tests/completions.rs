@@ -378,17 +378,27 @@ fn shadowed_normal_tag_named_load_gets_no_library_completion() {
         ("/test/project/templates/library.html", library_offset),
         ("/test/project/templates/symbol.html", symbol_offset),
     ] {
+        let labels = completion(
+            &db,
+            db.file(Utf8Path::new(path))
+                .expect("completion fixture file should exist"),
+            offset,
+            PositionEncoding::Utf16,
+            false,
+        )
+        .map(|response| match response {
+            ls_types::CompletionResponse::Array(items) => items,
+            ls_types::CompletionResponse::List(list) => list.items,
+        })
+        .unwrap_or_default()
+        .into_iter()
+        .map(|item| item.label)
+        .collect::<Vec<_>>();
         assert!(
-            completion(
-                &db,
-                db.file(Utf8Path::new(path))
-                    .expect("completion fixture file should exist"),
-                offset,
-                PositionEncoding::Utf16,
-                false,
-            )
-            .is_none(),
-            "a syntax-only load context must not bypass the point-resolved TagRole in {path}"
+            !labels
+                .iter()
+                .any(|label| label == "custom" || label == "custom_tag"),
+            "a tag spelled load without the loader role must not offer libraries in {path}: {labels:?}"
         );
     }
 }

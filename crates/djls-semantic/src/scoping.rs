@@ -8,6 +8,7 @@ use djls_project::FilterArity;
 use djls_project::LibraryName;
 use djls_project::MissingTemplateLibraryLookup;
 use djls_project::SymbolDefinition;
+use djls_project::TagRole;
 use djls_project::TemplateLibraryId;
 use djls_project::TemplateSymbolAvailability;
 use djls_project::TemplateSymbolCandidate;
@@ -41,7 +42,6 @@ use crate::structure::TemplateTree;
 use crate::structure::TemplateTreeBuilder;
 use crate::structure::active_template_nodes;
 use crate::structure::grammar::SparseTagGrammar;
-use crate::tags::TagRole;
 use crate::tags::TagSpec;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]

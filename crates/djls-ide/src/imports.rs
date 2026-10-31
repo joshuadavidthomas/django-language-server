@@ -1,7 +1,12 @@
+use djls_project::TagRole;
+use djls_project::TemplateReferenceKind;
+use djls_semantic::tag_spec_at;
+use djls_source::File;
 use djls_source::LineEnding;
 use djls_source::Offset;
 use djls_source::Span;
 use djls_templates::Node;
+use djls_templates::NodeList;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct LeadingImports {
@@ -19,7 +24,13 @@ impl LeadingImports {
     }
 }
 
-pub(crate) fn leading_imports(nodes: &[Node], source: &str) -> LeadingImports {
+/// Resolves the effective Tag Role of a tag node.
+pub(crate) type TagRoleAt<'a> = &'a dyn Fn(&Node) -> Option<TagRole>;
+
+const EXTENDS: Option<TagRole> = Some(TagRole::TemplateReference(TemplateReferenceKind::Extends));
+const LOADER: Option<TagRole> = Some(TagRole::TemplateLibraryLoader);
+
+pub(crate) fn leading_imports(nodes: &[Node], source: &str, role_at: TagRoleAt) -> LeadingImports {
     let mut imports = LeadingImports::default();
 
     for node in nodes {
@@ -29,12 +40,14 @@ pub(crate) fn leading_imports(nodes: &[Node], source: &str) -> LeadingImports {
                     .get(span.start_usize()..span.end_usize())
                     .is_some_and(|text| text.trim().is_empty()) => {}
             Node::Comment { .. } => {}
-            Node::Tag { name, .. }
-                if name == "extends" && imports.extends.is_none() && imports.loads.is_empty() =>
+            Node::Tag { .. }
+                if imports.extends.is_none()
+                    && imports.loads.is_empty()
+                    && role_at(node) == EXTENDS =>
             {
                 imports.extends = Some(node.full_span());
             }
-            Node::Tag { name, .. } if name == "load" => {
+            Node::Tag { .. } if role_at(node) == LOADER => {
                 imports.loads.push(node.full_span());
             }
             Node::Tag { .. } | Node::Text { .. } | Node::Variable { .. } | Node::Error { .. } => {
@@ -46,17 +59,17 @@ pub(crate) fn leading_imports(nodes: &[Node], source: &str) -> LeadingImports {
     imports
 }
 
-pub(crate) fn fold_spans(nodes: &[Node], source: &str) -> Vec<Span> {
+pub(crate) fn fold_spans(nodes: &[Node], source: &str, role_at: TagRoleAt) -> Vec<Span> {
     let mut spans = Vec::new();
     let mut import_run = ImportRun::None;
 
     for node in nodes {
         match node {
-            Node::Tag { name, .. } if name == "extends" => {
+            Node::Tag { .. } if role_at(node) == EXTENDS => {
                 spans.extend(import_run.finish());
                 import_run.start_at_extends(node.full_span());
             }
-            Node::Tag { name, .. } if name == "load" => {
+            Node::Tag { .. } if role_at(node) == LOADER => {
                 import_run.include_load(node.full_span());
             }
             Node::Text { span }
@@ -75,6 +88,22 @@ pub(crate) fn fold_spans(nodes: &[Node], source: &str) -> Vec<Span> {
 
     spans.extend(import_run.finish());
     spans
+}
+
+/// The effective role of a tag node, under the loads that precede it.
+pub(crate) fn tag_role_at(
+    db: &dyn djls_semantic::Db,
+    file: File,
+    nodelist: NodeList<'_>,
+    node: &Node,
+) -> Option<TagRole> {
+    let Node::Tag {
+        name, name_span, ..
+    } = node
+    else {
+        return None;
+    };
+    tag_spec_at(db, file, nodelist, name_span.start(), name).and_then(|spec| spec.role())
 }
 
 fn offset_after_line(source: &str, offset: usize) -> Offset {

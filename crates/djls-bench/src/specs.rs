@@ -107,10 +107,10 @@ mod tests {
 
     use djls_project::Db as ProjectDb;
     use djls_project::ScopedTemplateLibraries;
+    use djls_project::TagRole;
     use djls_project::TemplateLibrary;
     use djls_project::template_library_catalog;
     use djls_semantic::SemanticOffsetContext;
-    use djls_semantic::TagRole;
     use djls_semantic::tag_spec_at;
     use djls_source::Offset;
     use djls_templates::parse_template;

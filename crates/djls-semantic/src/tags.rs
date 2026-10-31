@@ -24,31 +24,13 @@ pub use specs::EndTag;
 pub use specs::IntermediateTag;
 pub use specs::TagSpec;
 pub use specs::TagSpecs;
-pub use specs::django_fallback_tag_specs;
 
 use crate::db::Db;
-use crate::references::TemplateReferenceKind;
 use crate::scoping::LoadState;
 use crate::scoping::LoadedLibraries;
 use crate::scoping::template_analysis_projection_for_file;
 use crate::structure::CapturedClosingTag;
 use crate::structure::active_template_tags;
-
-/// Durable Django template meaning for a tag.
-///
-/// This describes what the tag does in the template domain. Feature-specific
-/// projections, such as document symbols, map these roles into their own shapes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum TagRole {
-    TemplateReference(TemplateReferenceKind),
-    TemplateLibraryLoader,
-    TemplateBlock,
-    TemplatePartial,
-    ControlTag,
-    TemplateTag,
-    StaticAssetReference,
-    RouteReference,
-}
 
 /// Independently backdatable semantic Tag facts for one Template Library.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -65,33 +47,21 @@ impl LibraryTagSpecs {
     }
 }
 
-static DJANGO_FALLBACK_TAG_SPECS: LazyLock<TagSpecs> = LazyLock::new(django_fallback_tag_specs);
-
-fn django_fallback_tag_specs_for_module(module: &str) -> TagSpecs {
-    TagSpecs::new(
-        DJANGO_FALLBACK_TAG_SPECS
-            .iter()
-            .filter(|(_, spec)| spec.module() == module)
-            .map(|(name, spec)| (name.clone(), spec.clone()))
-            .collect(),
-    )
-}
-
 /// Tag specs for Django's builtin and standard loadable libraries without a Project.
 ///
 /// Facts are extracted from the oldest bundled Django, the same release a project gets when no
-/// Django installation or version evidence is found, and fused in production order with the
-/// fallback roles from [`django_fallback_tag_specs`].
+/// Django installation or version evidence is found, and fused in production order.
 #[must_use]
 pub fn bundled_django_tag_specs() -> &'static TagSpecs {
     static SPECS: LazyLock<TagSpecs> = LazyLock::new(|| {
         let mut specs = TagSpecs::default();
         for library in bundled_django_libraries(DjangoVersion::default()) {
             let module = library.module().as_str();
-            let mut library_specs = django_fallback_tag_specs_for_module(module);
+            let mut library_specs = TagSpecs::default();
             library_specs
                 .merge_tag_rules(library.tag_rules())
-                .merge_block_specs(library.block_specs());
+                .merge_block_specs(library.block_specs())
+                .merge_tag_meanings(library.tag_meanings());
             for name in library.tag_names() {
                 library_specs.entry(name.clone()).or_insert_with(|| {
                     TagSpec::new(
@@ -134,15 +104,14 @@ fn is_bundled_django_module(module: &str) -> bool {
 }
 
 fn library_fallback_tag_specs(db: &dyn Db, key: TemplateLibraryId<'_>) -> TagSpecs {
-    let module = key.module(db).as_str();
-    if key.file(db).is_none() {
-        sourceless_django_tag_specs(module).unwrap_or_default()
-    } else {
-        django_fallback_tag_specs_for_module(module)
-    }
+    key.file(db)
+        .is_none()
+        .then(|| sourceless_django_tag_specs(key.module(db).as_str()))
+        .flatten()
+        .unwrap_or_default()
 }
 
-/// Fuse one library's extracted Tag facts with Django fallback and configured fallback specs.
+/// Fuse one library's extracted Tag facts with configured fallback meaning.
 #[salsa::tracked(returns(ref))]
 #[allow(clippy::needless_pass_by_value)]
 pub fn library_tag_specs<'db>(
@@ -159,6 +128,7 @@ pub fn library_tag_specs<'db>(
     if !facts.block_specs().is_empty() {
         specs.merge_block_specs(facts.block_specs());
     }
+    specs.merge_tag_meanings(facts.tag_meanings());
 
     specs.merge_fallback(configured_library_tag_specs(db, project, key).clone());
     LibraryTagSpecs(specs)
@@ -166,9 +136,9 @@ pub fn library_tag_specs<'db>(
 
 /// Structural Tag meaning needed before occurrence-specific detail is demanded.
 ///
-/// Most libraries can derive topology from Block Specs, Django fallback, and configured fallback
-/// without evaluating Tag Rules. The exceptional merge shape below uses the full product because a
-/// Tag Rule pre-entry changes how an unknown extracted closer combines with configured structure.
+/// Most libraries can derive topology from Block Specs, Tag meanings, and configured fallback without
+/// evaluating Tag Rules. The exceptional merge shape below uses the full product because a Tag
+/// Rule pre-entry changes how an unknown extracted closer combines with configured structure.
 #[salsa::tracked(returns(ref))]
 pub(crate) fn library_tag_structure_specs<'db>(
     db: &'db dyn Db,
@@ -195,7 +165,9 @@ pub(crate) fn library_tag_structure_specs<'db>(
         return library_tag_specs(db, project, key).clone();
     }
 
-    specs.merge_block_specs(structure.block_specs());
+    specs
+        .merge_block_specs(structure.block_specs())
+        .merge_tag_meanings(structure.tag_meanings());
     specs.merge_fallback(configured.clone());
     LibraryTagSpecs(specs)
 }
@@ -242,45 +214,6 @@ fn library_fallback_tag_names<'db>(
     names.sort();
     names.dedup();
     names
-}
-
-#[cfg(test)]
-mod tests {
-    use super::TagSpecs;
-    use super::django_fallback_tag_specs;
-    use super::django_fallback_tag_specs_for_module;
-
-    #[test]
-    fn django_fallback_modules_are_disjoint_and_do_not_share_mutable_specs() {
-        let mut combined = TagSpecs::default();
-        for module in [
-            "django.template.defaulttags",
-            "django.template.loader_tags",
-            "django.templatetags.i18n",
-            "django.templatetags.cache",
-            "django.templatetags.l10n",
-            "django.templatetags.tz",
-            "django.templatetags.static",
-        ] {
-            let specs = django_fallback_tag_specs_for_module(module);
-            assert!(!specs.is_empty());
-            assert!(specs.values().all(|spec| spec.module() == module));
-            assert!(specs.keys().all(|name| !combined.contains_key(name)));
-            combined.merge(specs);
-        }
-        assert_eq!(combined, django_fallback_tag_specs());
-        assert!(django_fallback_tag_specs_for_module("custom.templatetags.extras").is_empty());
-        let mut loader = django_fallback_tag_specs_for_module("django.template.loader_tags");
-        assert!(loader.remove("extends").is_some());
-        assert!(
-            django_fallback_tag_specs_for_module("django.template.loader_tags")
-                .contains_key("extends")
-        );
-        assert!(
-            !django_fallback_tag_specs_for_module("django.template.defaulttags")
-                .contains_key("extends")
-        );
-    }
 }
 
 /// Return the effective tag spec at one occurrence, but only when every feasible backend agrees.

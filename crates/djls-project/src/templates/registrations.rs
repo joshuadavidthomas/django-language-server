@@ -24,8 +24,13 @@ use super::symbols::TemplateSymbolKind;
 use super::symbols::TemplateSymbolSource;
 use super::tags::BlockSpec;
 use super::tags::BlockSpecs;
+use super::tags::FactProvenance;
+use super::tags::TagMeaning;
+use super::tags::TagMeaningMap;
 use super::tags::TagRuleMap;
+use super::tags::apply_fallback_rules;
 use super::tags::blocks::EndTagEvidence;
+use super::tags::extract_tag_role;
 use crate::ast::ExprExt;
 use crate::ast::RangedExt;
 use crate::db::Db as ProjectDb;
@@ -651,11 +656,7 @@ fn analyze_registrations_from_body_in_module(
                 if body_contains_register(&function.body) {
                     analysis.open_inventory(function, UnreadShape::RegisterOutsideRegistration);
                 }
-                if !function.decorator_list.is_empty()
-                    && function.decorator_list.iter().all(|decorator| {
-                        registration_decorator_rooted_at_register(&decorator.expression)
-                    })
-                {
+                if decorators_preserve_function(function) {
                     transparent_decorated_functions.insert(function.name.to_string(), local_source);
                 } else {
                     transparent_decorated_functions.remove(function.name.as_str());
@@ -855,6 +856,15 @@ fn registration_kind(helper: &str) -> Option<RegistrationKind> {
         "filter" => Some(RegistrationKind::Filter),
         _ => None,
     }
+}
+
+/// Whether every decorator registers the function with a Library, which returns it unchanged.
+pub(crate) fn decorators_preserve_function(function: &StmtFunctionDef) -> bool {
+    !function.decorator_list.is_empty()
+        && function
+            .decorator_list
+            .iter()
+            .all(|decorator| registration_decorator_rooted_at_register(&decorator.expression))
 }
 
 fn registration_decorator_rooted_at_register(expr: &Expr) -> bool {
@@ -1711,6 +1721,7 @@ fn template_library_registration_inventory<'db>(
 pub struct TemplateLibraryTagFacts {
     tag_rules: TagRuleMap,
     block_specs: BlockSpecs,
+    tag_meanings: TagMeaningMap,
 }
 
 impl TemplateLibraryTagFacts {
@@ -1723,18 +1734,29 @@ impl TemplateLibraryTagFacts {
     pub fn block_specs(&self) -> &BlockSpecs {
         &self.block_specs
     }
+
+    #[must_use]
+    pub fn tag_meanings(&self) -> &TagMeaningMap {
+        &self.tag_meanings
+    }
 }
 
 /// Independently backdatable structural analysis for one Template Library.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct TemplateLibraryStructureFacts {
     block_specs: BlockSpecs,
+    tag_meanings: TagMeaningMap,
 }
 
 impl TemplateLibraryStructureFacts {
     #[must_use]
     pub fn block_specs(&self) -> &BlockSpecs {
         &self.block_specs
+    }
+
+    #[must_use]
+    pub fn tag_meanings(&self) -> &TagMeaningMap {
+        &self.tag_meanings
     }
 }
 
@@ -1832,10 +1854,16 @@ pub fn template_library_structure_facts<'db>(
 ) -> TemplateLibraryStructureFacts {
     let inventory = template_library_registration_inventory(db, key);
     let mut block_specs = BlockSpecs::default();
+    let mut tag_meanings = TagMeaningMap::default();
     for descriptor in &inventory.descriptors {
         block_specs.0.remove(&descriptor.key);
+        tag_meanings.remove(&descriptor.key);
         if descriptor.kind.symbol_kind() != TemplateSymbolKind::Tag {
             continue;
+        }
+        let meaning = tag_meaning(db, descriptor);
+        if !meaning.is_empty() {
+            tag_meanings.insert(descriptor.key.clone(), meaning);
         }
         // simple_block_tag's closer comes from registration options, not the user body.
         if descriptor.kind != RegistrationKind::SimpleBlockTag
@@ -1869,7 +1897,28 @@ pub fn template_library_structure_facts<'db>(
             );
         }
     }
-    TemplateLibraryStructureFacts { block_specs }
+    TemplateLibraryStructureFacts {
+        block_specs,
+        tag_meanings,
+    }
+}
+
+/// Extract a Tag registration's meaning, then let Fallback Rules fill Extraction Gaps.
+fn tag_meaning(db: &dyn ProjectDb, descriptor: &RegistrationDescriptor) -> TagMeaning {
+    let mut meaning = TagMeaning::default();
+    let function = descriptor
+        .function
+        .as_ref()
+        .filter(|_| descriptor.relation == CallableRelation::Original);
+    if descriptor.kind == RegistrationKind::Tag
+        && let Some(role) = function
+            .and_then(|definition| definition.statement(db))
+            .and_then(extract_tag_role)
+    {
+        meaning.set_role(role, FactProvenance::Extracted);
+    }
+    apply_fallback_rules(&mut meaning, &descriptor.key.name, function);
+    meaning
 }
 
 /// Python source dependencies followed while discovering registrations.
@@ -1932,13 +1981,13 @@ pub fn template_library_tag_facts<'db>(
     db: &'db dyn ProjectDb,
     key: TemplateLibraryId<'db>,
 ) -> TemplateLibraryTagFacts {
+    let structure = template_library_structure_facts(db, key);
     TemplateLibraryTagFacts {
         tag_rules: template_library_tag_rule_analysis(db, key)
             .tag_rules
             .clone(),
-        block_specs: template_library_structure_facts(db, key)
-            .block_specs
-            .clone(),
+        block_specs: structure.block_specs.clone(),
+        tag_meanings: structure.tag_meanings.clone(),
     }
 }
 

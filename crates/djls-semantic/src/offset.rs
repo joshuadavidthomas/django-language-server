@@ -1,4 +1,6 @@
+use djls_project::TagRole;
 use djls_project::TemplateName;
+use djls_project::TemplateReferenceKind;
 use djls_source::File;
 use djls_source::Offset;
 use djls_source::Span;
@@ -8,7 +10,6 @@ use djls_templates::parse_template;
 use crate::TagSpec;
 use crate::db::Db as SemanticDb;
 use crate::references::LiteralTemplateReference;
-use crate::references::TemplateReferenceKind;
 use crate::scoping::LoadKind;
 use crate::scoping::LoadedLibraries;
 use crate::scoping::ScopedTagFacts;
@@ -18,7 +19,6 @@ use crate::structure::ActiveTemplateTag;
 use crate::structure::ActiveTemplateVariable;
 use crate::structure::StructuralOccurrenceMeaning;
 use crate::structure::active_template_nodes;
-use crate::tags::TagRole;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SemanticOffsetContext<'db> {
