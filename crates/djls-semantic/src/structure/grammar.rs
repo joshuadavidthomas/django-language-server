@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use djls_project::ClosingTagArguments;
 use djls_project::EffectiveDefinitionLibrary;
 use djls_project::Project;
 use djls_project::ScopedTemplateLibraries;
@@ -130,6 +131,7 @@ pub(crate) struct OpeningContract {
     pub(crate) intermediates: Vec<String>,
     pub(crate) end_required: bool,
     pub(crate) body_analysis: BodyAnalysis,
+    closing_arguments: ClosingTagArguments,
 }
 
 impl OpeningContract {
@@ -147,6 +149,7 @@ impl OpeningContract {
             },
             end_required: end.required,
             body_analysis: spec.body_analysis(),
+            closing_arguments: spec.closing_arguments(),
         })
     }
 
@@ -179,21 +182,40 @@ impl OpeningContract {
             && gaps(opener_name_span, opener_bits).eq(gaps(closer_name_span, closer_bits))
     }
 
+    /// Django's `Parser.parse` matches a closing tag by its first word, so closing-tag
+    /// arguments only matter when the opener's compile function checks them. Such a
+    /// check compares the whole closing contents, so the closing tag must be bare or
+    /// carry exactly the opener's argument.
     pub(crate) fn validate_close(
+        &self,
         opener_bits: &[TagBit],
         closer_bits: &[TagBit],
     ) -> CloseValidation {
-        if let Some(closer_arg) = closer_bits.first()
-            && let Some(opener_arg) = opener_bits.first()
-            && closer_arg.as_str() != opener_arg.as_str()
-        {
-            return CloseValidation::ArgumentMismatch {
+        let ClosingTagArguments::RepeatsOpenerArgument { position } = self.closing_arguments else {
+            return CloseValidation::Valid;
+        };
+        let Some(opener_arg) = position
+            .checked_sub(1)
+            .and_then(|index| opener_bits.get(index))
+        else {
+            return CloseValidation::Valid;
+        };
+        match closer_bits {
+            [] => CloseValidation::Valid,
+            [closer_arg] if closer_arg.as_str() == opener_arg.as_str() => CloseValidation::Valid,
+            [first, .., last] | [first @ last] => CloseValidation::ArgumentMismatch {
                 expected: opener_arg.as_str().to_string(),
-                got: closer_arg.as_str().to_string(),
-                got_span: closer_arg.span,
-            };
+                got: closer_bits
+                    .iter()
+                    .map(TagBit::as_str)
+                    .collect::<Vec<_>>()
+                    .join(" "),
+                got_span: Span::saturating_from_bounds_usize(
+                    first.span.start_usize(),
+                    last.span.end_usize(),
+                ),
+            },
         }
-        CloseValidation::Valid
     }
 }
 

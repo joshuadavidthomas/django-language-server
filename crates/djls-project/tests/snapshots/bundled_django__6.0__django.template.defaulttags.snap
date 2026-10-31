@@ -556,6 +556,9 @@ block_specs:
       - else
   "django.template.defaulttags::tag::partialdef":
     body_analysis_evidence: not_detected
+    closing_arguments:
+      repeats_opener_argument:
+        position: 1
     end_tag: endpartialdef
     intermediates: []
   "django.template.defaulttags::tag::spaceless":

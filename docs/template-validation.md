@@ -77,7 +77,7 @@ Validates that block tags are properly opened, closed, and nested:
 - **S100** — Unclosed tag (missing end tag, e.g., `{% block %}` without `{% endblock %}`)
 - **S101** — Unbalanced structure (mismatched block tags)
 - **S102** — Orphaned tag (intermediate tag like `{% else %}` without a parent `{% if %}`)
-- **S103** — Unmatched block name (e.g., `{% endblock foo %}` doesn't match `{% block bar %}`)
+- **S103** — Unmatched block name (e.g., `{% endblock foo %}` doesn't match `{% block bar %}`). Reported only for tags whose compile function checks the closing name, such as `{% block %}`.
 
 ### Tag Scoping (S108–S110, S118)
 

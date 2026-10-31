@@ -58,6 +58,7 @@ pub use templates::BlockSpecs;
 pub use templates::BodyAnalysisEvidence;
 pub use templates::BodyLexing;
 pub use templates::ChoiceAt;
+pub use templates::ClosingTagArguments;
 pub use templates::ConditionArguments;
 pub use templates::EffectiveDefinitionLibrary;
 pub use templates::ExtractedDiagnosticConstraint;

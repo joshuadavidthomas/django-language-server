@@ -13,6 +13,7 @@ use djls_conf::TagTypeDef;
 use djls_project::BlockSpecs;
 use djls_project::BodyAnalysisEvidence;
 use djls_project::BodyLexing;
+use djls_project::ClosingTagArguments;
 use djls_project::ConditionArguments;
 use djls_project::ParameterRequirement;
 use djls_project::TagArgument;
@@ -64,6 +65,7 @@ impl TagSpecs {
                         name: end_tag_name.clone().into(),
                         required: true,
                     });
+                    spec.closing_arguments = block_spec.closing_arguments;
                     spec.intermediate_tags = if block_spec.intermediates.is_empty() {
                         Cow::Borrowed(&[])
                     } else {
@@ -108,6 +110,7 @@ impl TagSpecs {
                         ),
                         meaning: None,
                         extracted_rules: None,
+                        closing_arguments: block_spec.closing_arguments,
                     },
                 );
             }
@@ -372,6 +375,7 @@ impl TagSpecs {
                         body_analysis: BodyAnalysis::Analyze,
                         meaning: None,
                         extracted_rules,
+                        closing_arguments: ClosingTagArguments::Unchecked,
                     },
                 );
             }
@@ -460,6 +464,8 @@ pub struct TagSpec {
     /// When present, provides argument validation (S117 diagnostics) and
     /// argument structure for completions/snippets via `argument_syntax`.
     extracted_rules: Option<Arc<TagRule>>,
+    /// Whether the compile function constrains the closing tag's arguments.
+    closing_arguments: ClosingTagArguments,
 }
 
 impl TagSpec {
@@ -477,6 +483,7 @@ impl TagSpec {
             body_analysis,
             meaning: None,
             extracted_rules: None,
+            closing_arguments: ClosingTagArguments::Unchecked,
         }
     }
 
@@ -504,6 +511,11 @@ impl TagSpec {
     #[must_use]
     pub(crate) fn condition(&self) -> Option<&ConditionArguments> {
         self.meaning.as_deref().and_then(TagMeaning::condition)
+    }
+
+    #[must_use]
+    pub(crate) fn closing_arguments(&self) -> ClosingTagArguments {
+        self.closing_arguments
     }
 
     #[must_use]
@@ -582,6 +594,7 @@ mod tests {
                 body_analysis: BodyAnalysis::Analyze,
                 meaning: None,
                 extracted_rules: None,
+                closing_arguments: ClosingTagArguments::Unchecked,
             },
         );
 
@@ -605,6 +618,7 @@ mod tests {
                 body_analysis: BodyAnalysis::Analyze,
                 meaning: None,
                 extracted_rules: None,
+                closing_arguments: ClosingTagArguments::Unchecked,
             },
         );
 
@@ -623,6 +637,7 @@ mod tests {
                 body_analysis: BodyAnalysis::Analyze,
                 meaning: None,
                 extracted_rules: None,
+                closing_arguments: ClosingTagArguments::Unchecked,
             },
         );
 
@@ -639,6 +654,7 @@ mod tests {
                 body_analysis: BodyAnalysis::Analyze,
                 meaning: None,
                 extracted_rules: None,
+                closing_arguments: ClosingTagArguments::Unchecked,
             },
         );
 
@@ -695,6 +711,7 @@ mod tests {
                 body_analysis: BodyAnalysis::Analyze,
                 meaning: None,
                 extracted_rules: None,
+                closing_arguments: ClosingTagArguments::Unchecked,
             },
         );
         specs2_map.insert(
@@ -709,6 +726,7 @@ mod tests {
                 body_analysis: BodyAnalysis::Analyze,
                 meaning: None,
                 extracted_rules: None,
+                closing_arguments: ClosingTagArguments::Unchecked,
             },
         );
 
@@ -759,6 +777,7 @@ mod tests {
                 end_tag: Some("endif".to_string()),
                 intermediates: vec!["elif".to_string(), "else".to_string(), "elseif".to_string()],
                 body_analysis_evidence: BodyAnalysisEvidence::NotDetected,
+                closing_arguments: ClosingTagArguments::Unchecked,
             },
         );
 
@@ -802,6 +821,7 @@ mod tests {
                 body_analysis: BodyAnalysis::Opaque,
                 meaning: None,
                 extracted_rules: None,
+                closing_arguments: ClosingTagArguments::Unchecked,
             },
         );
         let mut specs = TagSpecs::new(spec_map);
@@ -817,6 +837,7 @@ mod tests {
                 end_tag: None,
                 intermediates: vec![],
                 body_analysis_evidence: BodyAnalysisEvidence::NotDetected,
+                closing_arguments: ClosingTagArguments::Unchecked,
             },
         );
 
@@ -840,6 +861,7 @@ mod tests {
                 end_tag: None,
                 intermediates: vec![],
                 body_analysis_evidence: BodyAnalysisEvidence::SkipPast,
+                closing_arguments: ClosingTagArguments::Unchecked,
             },
         );
 
@@ -872,6 +894,7 @@ mod tests {
                 end_tag: None,
                 intermediates: vec![],
                 body_analysis_evidence: BodyAnalysisEvidence::Mixed,
+                closing_arguments: ClosingTagArguments::Unchecked,
             },
         );
 
@@ -896,6 +919,7 @@ mod tests {
                 end_tag: Some("endmixed".to_string()),
                 intermediates: vec![],
                 body_analysis_evidence: BodyAnalysisEvidence::Mixed,
+                closing_arguments: ClosingTagArguments::Unchecked,
             },
         );
 
@@ -922,6 +946,7 @@ mod tests {
                 end_tag: None,
                 intermediates: vec![],
                 body_analysis_evidence: BodyAnalysisEvidence::NotDetected,
+                closing_arguments: ClosingTagArguments::Unchecked,
             },
         );
 
@@ -953,6 +978,7 @@ mod tests {
                 end_tag: None,
                 intermediates: vec!["otherwise".to_string()],
                 body_analysis_evidence: BodyAnalysisEvidence::Mixed,
+                closing_arguments: ClosingTagArguments::Unchecked,
             },
         );
 
@@ -996,6 +1022,7 @@ mod tests {
                 end_tag: Some("endmyblock".to_string()),
                 intermediates: vec!["mymiddle".to_string()],
                 body_analysis_evidence: BodyAnalysisEvidence::NotDetected,
+                closing_arguments: ClosingTagArguments::Unchecked,
             },
         );
 
@@ -1032,6 +1059,7 @@ mod tests {
                 end_tag: Some("endlower".to_string()),
                 intermediates: vec![],
                 body_analysis_evidence: BodyAnalysisEvidence::NotDetected,
+                closing_arguments: ClosingTagArguments::Unchecked,
             },
         );
 

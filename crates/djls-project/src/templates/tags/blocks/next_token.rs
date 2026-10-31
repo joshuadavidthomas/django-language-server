@@ -14,6 +14,7 @@ use crate::templates::tags::blocks::ExtractedBlockSpec;
 use crate::templates::tags::blocks::dynamic_end;
 use crate::templates::tags::blocks::is_token_contents_expr;
 use crate::templates::tags::types::BodyAnalysisEvidence;
+use crate::templates::tags::types::ClosingTagArguments;
 
 /// Detect block structure from `parser.next_token()` loop patterns.
 ///
@@ -71,6 +72,7 @@ pub(super) fn detect(
         end_tag,
         intermediates,
         body_analysis_evidence: BodyAnalysisEvidence::NotDetected,
+        closing_arguments: ClosingTagArguments::Unchecked,
     })
 }
 
@@ -143,7 +145,7 @@ fn body_has_next_token_call(body: &[Stmt], parser_var: &str) -> bool {
 }
 
 /// Check if an expression is `parser.next_token()`.
-fn is_next_token_call(expr: &Expr, parser_var: &str) -> bool {
+pub(super) fn is_next_token_call(expr: &Expr, parser_var: &str) -> bool {
     let Expr::Call(ExprCall {
         func, arguments, ..
     }) = expr
