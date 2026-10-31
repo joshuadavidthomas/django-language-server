@@ -257,6 +257,21 @@ impl TagBitSpan {
             last: position,
         }
     }
+
+    /// Resolve this span to `bits` indices (arguments only, tag name excluded).
+    #[must_use]
+    pub fn to_bits_range(self, bits_len: usize) -> std::ops::Range<usize> {
+        let first = match self.first {
+            SplitPosition::Forward(index) => index.saturating_sub(1),
+            SplitPosition::Backward(distance) => bits_len.saturating_sub(distance),
+        };
+        let end = match self.last {
+            SplitPosition::Forward(index) => index,
+            SplitPosition::Backward(distance) => (bits_len + 1).saturating_sub(distance),
+        }
+        .min(bits_len);
+        first..end.max(first)
+    }
 }
 
 /// How a compile function uses a Tag Bit: its Argument Consumption.
@@ -294,7 +309,7 @@ impl ArgumentConsumption {
     /// The consumption that holds on either of two alternative paths: the
     /// stricter validation is dropped where the paths disagree.
     #[must_use]
-    pub(crate) fn join(self, other: Self) -> Self {
+    pub fn join(self, other: Self) -> Self {
         match (self, other) {
             (left, right) if left == right => left,
             (Self::Expression, Self::OptionalKeywordExpression)
@@ -307,7 +322,7 @@ impl ArgumentConsumption {
 
     /// The consumption that holds when one path applies both uses to a bit.
     #[must_use]
-    pub(crate) fn meet(self, other: Self) -> Self {
+    pub fn meet(self, other: Self) -> Self {
         match (self, other) {
             (left, right) if left == right => left,
             (Self::Unknown, known) | (known, Self::Unknown) => known,
@@ -619,6 +634,14 @@ impl TagArgumentForm {
 
     /// Match a complete argument list against this form.
     pub fn match_full<S: AsRef<str>>(&self, bits: &[S]) -> Result<(), TagArgumentFormMismatch<'_>> {
+        self.match_atoms(bits).map(|_| ())
+    }
+
+    /// Match a complete argument list, returning the atom each argument matched.
+    pub fn match_atoms<S: AsRef<str>>(
+        &self,
+        bits: &[S],
+    ) -> Result<Vec<&TagArgumentPattern>, TagArgumentFormMismatch<'_>> {
         let variable_width = self.pattern.iter().position(|argument| {
             matches!(argument.kind, TagArgumentPatternKind::VariableWidth { .. })
         });
@@ -634,6 +657,7 @@ impl TagArgumentForm {
             0
         };
 
+        let mut matched = Vec::with_capacity(bits.len());
         for (argument_index, bit) in bits.iter().enumerate() {
             let pattern_index = match variable_width {
                 Some(variable_index) if argument_index < variable_index => argument_index,
@@ -651,8 +675,9 @@ impl TagArgumentForm {
                     message: argument.mismatch_message.as_ref(),
                 }));
             }
+            matched.push(argument);
         }
-        Ok(())
+        Ok(matched)
     }
 
     /// Return every atom that may consume the next argument after `completed`.
@@ -923,6 +948,20 @@ mod tests {
         let serialized = r#"{"pattern":[{"name":"first","kind":{"VariableWidth":{"minimum":0}}},{"name":"second","kind":{"VariableWidth":{"minimum":1}}}]}"#;
         let result = serde_json::from_str::<TagArgumentForm>(serialized);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn tag_bit_spans_resolve_to_argument_indices() {
+        let span = |first, last| TagBitSpan { first, last };
+        // `bits[2:-1]` in `split_contents()` coordinates.
+        let slice = span(SplitPosition::Forward(2), SplitPosition::Backward(2));
+        assert_eq!(slice.to_bits_range(4), 1..3);
+        assert_eq!(slice.to_bits_range(1), 1..1);
+        // A start before the first argument still covers the arguments.
+        let tail = span(SplitPosition::Backward(3), SplitPosition::Backward(1));
+        assert_eq!(tail.to_bits_range(2), 0..2);
+        let beyond = TagBitSpan::single(SplitPosition::Forward(3));
+        assert_eq!(beyond.to_bits_range(2), 2..2);
     }
 
     #[test]

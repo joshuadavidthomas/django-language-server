@@ -9,22 +9,22 @@ input:
   sorted_records_sha256: ea3cd77a6ea886927c6309d830eff37d6830b5c0a0321f8fa612dae0219d8150
 output:
   check_parser_count: 0
-  check_validation_count: 56
+  check_validation_count: 77
   check_code_counts:
     S118: 20
-    S119: 13
+    S119: 34
     S121: 23
-  per_file_checks_sha256: f11a75c654004be332554f3d6b76f39c3d7077099ed81c654429741304b62f17
+  per_file_checks_sha256: 4243a7eb265dec83a159fb922b16770e9d02cb44904be060795b3564714253fb
   ide_eligible_file_count: 115
-  ide_diagnostic_count: 56
+  ide_diagnostic_count: 77
   ide_code_counts:
     S118: 20
-    S119: 13
+    S119: 34
     S121: 23
-  normalized_ide_diagnostics_sha256: 3f7527d9fe7ea9044de05ff701d51624a5e208d8e77f5eb5d77918fe7d54584e
+  normalized_ide_diagnostics_sha256: 0d83597a35d59d5c119bac1c48f1812f4f2f012958ae12215b224f9873366e3a
   files_with_diagnostics: 14
   diagnostic_bearing_paths_sha256: ffca47c8f79ff8b52f702dc99d4c5d7a0e3296efed73831dd86a9a9cfce70ae0
   rendered:
-    item_count: 56
-    total_bytes: 18379
-    output_sha256: d771d2e630d001e8b2ceda6e5871c7bb30a17ba1f1d3612eace36b1862e915b5
+    item_count: 77
+    total_bytes: 26238
+    output_sha256: 088f5ab81fe67af671ac4d95b3a6ec8865c483e4fd252807368bc722ca5a9fea

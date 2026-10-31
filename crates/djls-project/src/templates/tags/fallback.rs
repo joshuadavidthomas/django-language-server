@@ -135,8 +135,8 @@ const RULES: &[FallbackRule] = &[
         fact: Fact::Condition {
             intermediates: &["elif"],
         },
-        gap: "Extraction does not record Argument Consumption; the opener's and each elif's \
-              bits go to TemplateIfParser.",
+        gap: "Extraction does not follow TemplateIfParser, so it records no Condition \
+              consumption for the opener's or each elif's bits.",
         evidence: Evidence {
             path: "django/template/defaulttags.py",
             line: 969,

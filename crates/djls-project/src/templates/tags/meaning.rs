@@ -122,7 +122,8 @@ impl TagMeaning {
         self.body_lexing
     }
 
-    /// Always a Fallback Rule until extraction records argument consumption.
+    /// Always a Fallback Rule: extraction does not follow `TemplateIfParser`, so it records no
+    /// Condition consumption.
     #[must_use]
     pub fn condition(&self) -> Option<&ConditionArguments> {
         self.condition.as_ref()

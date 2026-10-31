@@ -377,7 +377,7 @@ fn modern_assignment(bit: &str) -> Option<(&str, &str)> {
     (!value.is_empty() && is_python_word_key(key)).then_some((key, value))
 }
 
-fn is_python_word_key(value: &str) -> bool {
+pub(crate) fn is_python_word_key(value: &str) -> bool {
     static PYTHON_WORD_KEY: OnceLock<Result<Regex, regex::Error>> = OnceLock::new();
     PYTHON_WORD_KEY
         .get_or_init(|| Regex::new(r"\A[\p{Letter}\p{Number}_]+\z"))
@@ -385,8 +385,8 @@ fn is_python_word_key(value: &str) -> bool {
         .is_ok_and(|pattern| pattern.is_match(value))
 }
 
-fn effective_tag_bits<'a>(bits: &'a [&str], strips_as_var: bool) -> &'a [&'a str] {
-    if strips_as_var && bits.len() >= 2 && bits[bits.len() - 2] == "as" {
+pub(crate) fn effective_tag_bits<T: AsRef<str>>(bits: &[T], strips_as_var: bool) -> &[T] {
+    if strips_as_var && bits.len() >= 2 && bits[bits.len() - 2].as_ref() == "as" {
         &bits[..bits.len() - 2]
     } else {
         bits
