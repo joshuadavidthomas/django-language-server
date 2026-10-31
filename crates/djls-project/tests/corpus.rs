@@ -4,6 +4,10 @@
 //! extraction target in the corpus gets its own snapshot file. When a snapshot
 //! changes, `cargo insta review` shows exactly which file's extraction output differs.
 //!
+//! Corpus Django checkouts are project code, so canonical-identity summaries such as
+//! `token_kwargs` do not apply to them. `bundled_django.rs` snapshots what production
+//! extracts from Django itself.
+//!
 //! # Running
 //!
 //! These tests require corpus source and per-repository environments.

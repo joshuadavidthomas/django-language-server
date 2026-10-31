@@ -443,12 +443,17 @@ impl TagSpec {
     }
 
     #[must_use]
-    pub(crate) fn module(&self) -> &str {
+    pub fn module(&self) -> &str {
         self.module.as_ref()
     }
 
     #[must_use]
-    pub(crate) fn body_analysis(&self) -> BodyAnalysis {
+    pub fn intermediate_tags(&self) -> &[IntermediateTag] {
+        &self.intermediate_tags
+    }
+
+    #[must_use]
+    pub fn body_analysis(&self) -> BodyAnalysis {
         self.body_analysis
     }
 

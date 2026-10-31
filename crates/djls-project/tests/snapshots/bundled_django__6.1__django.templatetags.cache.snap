@@ -1,0 +1,41 @@
+---
+source: crates/djls-project/tests/bundled_django.rs
+expression: "sorted_snapshot(&bundle).expect(\"extraction snapshot should serialize\")"
+---
+definitions:
+  "tag::cache":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
+tag_rules:
+  "django.templatetags.cache::tag::cache":
+    arg_constraints:
+      - Min: 3
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Min: 3
+        message:
+          PercentFormat:
+            template: "'%r' tag requires at least 2 arguments."
+            args:
+              - SplitElement:
+                  Forward: 0
+    argument_syntax:
+      Parameters:
+        - name: arg1
+          requirement: required
+          kind: Variable
+        - name: arg2
+          requirement: required
+          kind: Variable
+    as_var: keep
+filter_arities: {}
+block_specs:
+  "django.templatetags.cache::tag::cache":
+    body_analysis_evidence: not_detected
+    end_tag: endcache
+    intermediates: []
