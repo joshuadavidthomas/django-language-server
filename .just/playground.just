@@ -13,7 +13,7 @@ default:
 fmt:
     @just --fmt --justfile {{ justfile }}
 
-# Build djls-wasm and generate its JS bindings into playground/djls-wasm
+# Build djls-wasm, its JS bindings, and the Django sources it loads into playground/djls-wasm
 wasm:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -26,18 +26,21 @@ wasm:
         exit 1
     fi
     rustup --quiet target add wasm32-unknown-unknown
-    cargo build -p djls-wasm --target wasm32-unknown-unknown --release
+    # No wasm-opt: it shrinks the raw module but grows it after gzip/brotli (Cargo.toml).
+    cargo build -p djls-wasm --target wasm32-unknown-unknown --profile wasm-release
     wasm-bindgen --target web --out-dir "{{ wasm_out }}" \
-        target/wasm32-unknown-unknown/release/djls_wasm.wasm
+        target/wasm32-unknown-unknown/wasm-release/djls_wasm.wasm
+    # The wasm embeds no Django; the worker fetches one release and registers it (DJANGO in
+    # src/lib/project.ts picks which). Stored rather than deflated, so HTTP compression does the
+    # work: 5.2 is about 1 MB brotli, against 1.6 MB for the deflated zip.
+    for zip in crates/djls-project/vendor/django-*.zip; do
+        python3 -c 'import sys, zipfile; src, dst = sys.argv[1:]; z = zipfile.ZipFile(src); out = zipfile.ZipFile(dst, "w", zipfile.ZIP_STORED); [out.writestr(i, z.read(i), zipfile.ZIP_STORED) for i in z.infolist()]; out.close()' \
+            "$zip" "{{ wasm_out }}/$(basename "$zip")"
+    done
 
 [private]
 install:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    cd "{{ playground }}"
-    if [ ! node_modules/.package-lock.json -nt package-lock.json ]; then
-        npm ci
-    fi
+    cd "{{ playground }}" && pnpm install --frozen-lockfile
 
 # Run the playground dev server; run `just playground wasm` first
 [positional-arguments]
@@ -49,12 +52,20 @@ dev *ARGS: install
         exit 1
     fi
     cd "{{ playground }}"
-    npm run dev -- "$@"
+    pnpm dev "$@"
 
 # Type-check the playground
 check: install
-    cd "{{ playground }}" && npm run check
+    cd "{{ playground }}" && pnpm check
 
-# Build the static playground into playground/dist
+# Check formatting and lint the playground (oxfmt, oxlint, eslint)
+lint: install
+    cd "{{ playground }}" && pnpm lint
+
+# Format the playground
+format: install
+    cd "{{ playground }}" && pnpm format
+
+# Build the static playground into playground/build
 build: wasm install
-    cd "{{ playground }}" && npm run build
+    cd "{{ playground }}" && pnpm build
