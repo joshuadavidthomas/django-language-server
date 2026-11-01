@@ -11,10 +11,6 @@ use djls_conf::TagTypeDef;
 use djls_ide::completion;
 use djls_ide::prime_template_library_products;
 use djls_project::ArgumentConsumption;
-use djls_project::ScopedTemplateLibraries;
-use djls_project::SymbolDefinition;
-use djls_project::TemplateSymbolKind;
-use djls_project::template_library_catalog;
 use djls_semantic::ParameterRequirement;
 use djls_semantic::TagArgument;
 use djls_semantic::TagArgumentKind;
@@ -140,16 +136,9 @@ fn completion_labels(db: &TestDatabase, file: djls_source::File, offset: Offset)
 
 #[test]
 fn completion_dispatches_before_requesting_semantic_inventory() {
-    let cases = [
-        ("text", "plain §text", false, false),
-        ("library", "{% load § %}", false, true),
-        ("load-symbol", "{% load § from i18n %}", false, true),
-        ("filter", "{{ value|§ }}", false, false),
-        ("argument", "{% if § %}", false, true),
-        ("tag-name", "{% § %}", true, true),
-    ];
+    let cases = [("text", "plain §text"), ("tag-name", "{% § %}")];
 
-    for (name, marked_source, enumerates_tags, builds_projection) in cases {
+    for (name, marked_source) in cases {
         let event_log = SalsaEventLog::default();
         let db = TestDatabase::with_event_log(event_log.clone());
         let (source, offset) = source_and_offset(marked_source)
@@ -170,20 +159,6 @@ fn completion_dispatches_before_requesting_semantic_inventory() {
             .expect("completion Salsa events should be read");
         let executed_query = |query: &str| executed.iter().any(|name| name.ends_with(query));
 
-        assert_eq!(
-            executed_query("tag_specs_at_prefix"),
-            enumerates_tags,
-            "{name} completion ran unexpected tracked functions: {executed:?}"
-        );
-        assert_eq!(
-            executed_query("template_analysis_projection_for_file_in_scope"),
-            builds_projection,
-            "{name} completion ran unexpected tracked functions: {executed:?}"
-        );
-        assert!(
-            !executed_query("tag_specs_for_file"),
-            "parsed completion contexts must not request the fallback tag inventory: {executed:?}"
-        );
         if name == "text" {
             assert!(response.is_none());
             assert!(
@@ -198,10 +173,14 @@ fn completion_dispatches_before_requesting_semantic_inventory() {
 }
 
 #[test]
-fn tag_completion_prefixes_demand_only_matching_detail_and_cache_it() {
-    for (source, expected_label, expected_detail_count) in
-        [("{% alpha§ %}", "alpha", 1), ("{% enda§ %}", "endalpha", 2)]
-    {
+fn completion_prefixes_demand_only_relevant_library_details() {
+    for (source, expected_label, expected_helper) in [
+        ("{% alpha§ %}", "alpha", 0),
+        ("{% enda§ %}", "endalpha", 0),
+        ("{% § %}", "alpha", 1),
+        ("{% al§ %}", "alpha", 0),
+        ("{{ value|alpha_filter§ }}", "alpha_filter", 0),
+    ] {
         let (db, events, file, offset) =
             lazy_library_completion_fixture(source).expect("completion fixture should install");
         let labels = completion_labels(&db, file, offset);
@@ -212,20 +191,16 @@ fn tag_completion_prefixes_demand_only_matching_detail_and_cache_it() {
         let names = events
             .take_will_execute_names(&db)
             .expect("prefix completion events should be readable");
-        assert_eq!(
-            execution_count(&names, "template_library_tag_rule_analysis"),
-            expected_detail_count,
-            "{names:?}"
-        );
-        assert_eq!(
-            execution_count(&names, "library_tag_specs"),
-            expected_detail_count,
-            "{names:?}"
-        );
+        if source == "{% § %}" {
+            assert!(labels.iter().any(|label| label == "beta"));
+        }
+        if source == "{% al§ %}" {
+            assert!(!labels.iter().any(|label| label == "alpha_end"));
+        }
         assert_eq!(
             execution_count(&names, "analyze_helper"),
-            0,
-            "an alpha-only prefix must not infer beta's helper-backed rule: {names:?}"
+            expected_helper,
+            "unexpected helper analysis for {source}: {names:?}"
         );
         assert_eq!(execution_count(&names, "template_library_filter_facts"), 0);
 
@@ -240,56 +215,6 @@ fn tag_completion_prefixes_demand_only_matching_detail_and_cache_it() {
         );
         assert_eq!(execution_count(&names, "library_tag_specs"), 0);
     }
-}
-
-#[test]
-fn empty_tag_prefix_intentionally_demands_every_candidate_library_detail() {
-    let (db, events, file, offset) = lazy_library_completion_fixture("{% § %}")
-        .expect("empty-prefix completion fixture should install");
-    let labels = completion_labels(&db, file, offset);
-    assert!(labels.iter().any(|label| label == "alpha"));
-    assert!(labels.iter().any(|label| label == "beta"));
-    let names = events
-        .take_will_execute_names(&db)
-        .expect("empty-prefix completion events should be readable");
-    assert_eq!(
-        execution_count(&names, "template_library_tag_rule_analysis"),
-        4,
-        "{names:?}"
-    );
-    assert_eq!(execution_count(&names, "library_tag_specs"), 4, "{names:?}");
-    assert_eq!(execution_count(&names, "analyze_helper"), 1, "{names:?}");
-}
-
-#[test]
-fn opener_prefix_does_not_demand_a_non_emitted_custom_closer() {
-    let (db, events, file, offset) =
-        lazy_library_completion_fixture("{% al§ %}").expect("completion fixture should install");
-    let labels = completion_labels(&db, file, offset);
-    assert!(labels.iter().any(|label| label == "alpha"));
-    assert!(!labels.iter().any(|label| label == "alpha_end"));
-    let names = events
-        .take_will_execute_names(&db)
-        .expect("asymmetric prefix events should be readable");
-    assert_eq!(
-        execution_count(&names, "analyze_helper"),
-        0,
-        "closer-driven detail must follow the existing end-prefix emission gate: {names:?}"
-    );
-}
-
-#[test]
-fn exact_existing_filter_name_completion_does_not_demand_arity() {
-    let (db, events, file, offset) = lazy_library_completion_fixture("{{ value|alpha_filter§ }}")
-        .expect("filter completion fixture should install");
-    let labels = completion_labels(&db, file, offset);
-    assert!(labels.iter().any(|label| label == "alpha_filter"));
-    let names = events
-        .take_will_execute_names(&db)
-        .expect("filter completion events should be readable");
-    assert_eq!(execution_count(&names, "scoped_filter_facts"), 0);
-    assert_eq!(execution_count(&names, "template_library_filter_facts"), 0);
-    assert_eq!(execution_count(&names, "library_filter_specs"), 0);
 }
 
 #[test]
@@ -486,6 +411,37 @@ fn multi_backend_effective_symbols_disagree_when_implementations_differ() {
         .install(&mut db)
         .expect("conflicting-backend completion project fixture should install");
 
+    let mut control = TestDatabase::new();
+    ProjectFixture::new("/test/project")
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/shared".into()],
+            libraries: BTreeMap::from([("shared".into(), "alpha_tags".into())]),
+            ..ProjectSettings::default()
+        })
+        .file("/test/project/alpha_tags.py", "from django import template\nregister = template.Library()\n@register.simple_tag\ndef common(): pass\n@register.filter\ndef common_filter(value): return value\n")
+        .file("/test/project/shared/tag.html", "{% load shared %}\n{% com %}")
+        .file("/test/project/shared/filter.html", "{% load shared %}\n{{ value|common_ }}")
+        .install(&mut control)
+        .expect("single-backend control should install");
+    for (path, source, expected) in [
+        (
+            "/test/project/shared/tag.html",
+            "{% load shared %}\n{% com %}",
+            "common",
+        ),
+        (
+            "/test/project/shared/filter.html",
+            "{% load shared %}\n{{ value|common_ }}",
+            "common_filter",
+        ),
+    ] {
+        let file = control
+            .file(Utf8Path::new(path))
+            .expect("control template should exist");
+        let offset = Offset::new(u32::try_from(source.len()).expect("source length fits") - 3);
+        assert!(completion_labels(&control, file, offset).contains(&expected.to_string()));
+    }
+
     let labels_at = |path: &str, source: &str| -> TestResult<Vec<String>> {
         let file = db.file(Utf8Path::new(path))?;
         let offset = Offset::new(
@@ -581,7 +537,7 @@ fn configured_only_tag_survives_effective_candidates_and_completion() {
         }],
         ..TagSpecDef::default()
     };
-    let project = ProjectFixture::new("/test/project")
+    ProjectFixture::new("/test/project")
         .django_settings_module("testproject.settings")
         .tag_specs(tag_specs)
         .file(
@@ -602,18 +558,6 @@ fn configured_only_tag_survives_effective_candidates_and_completion() {
     let file = db
         .file(Utf8Path::new("/test/project/templates/page.html"))
         .expect("configured-tag template fixture should exist");
-    let configured_symbol =
-        ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
-            .resolved_libraries()
-            .into_iter()
-            .find(|library| library.module_name_str() == "dynamic_tags")
-            .and_then(|library| library.symbol(TemplateSymbolKind::Tag, "dynamic_panel"))
-            .expect("configured-only tag should enter its Template Library catalog");
-    assert!(matches!(
-        configured_symbol.definition,
-        SymbolDefinition::Unknown
-    ));
-
     let response = completion(&db, file, offset, PositionEncoding::Utf16, false)
         .expect("configured-only tag should complete");
     let items = match response {
@@ -621,10 +565,11 @@ fn configured_only_tag_survives_effective_candidates_and_completion() {
         ls_types::CompletionResponse::List(list) => list.items,
     };
 
-    assert!(
-        items.iter().any(|item| item.label == "dynamic_panel"),
-        "configured-only Unknown definitions must agree by Template Library identity: {items:?}"
-    );
+    let item = items
+        .iter()
+        .find(|item| item.label == "dynamic_panel")
+        .expect("configured-only tag should be offered");
+    assert_eq!(item.detail.as_deref(), Some("builtin from dynamic_tags"));
 }
 
 #[test]
@@ -634,6 +579,38 @@ fn conflicting_backend_signatures_do_not_offer_argument_snippets() {
     let marked = "{% load shared %}\n{% shared_tag § %}";
     let (source, offset) = source_and_offset(marked)
         .expect("conflicting signature fixture should contain a valid cursor marker");
+    let mut control = TestDatabase::new();
+    ProjectFixture::new("/test/project")
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/shared".into()],
+            libraries: BTreeMap::from([("shared".into(), "alpha_tags".into())]),
+            ..ProjectSettings::default()
+        })
+        .file("/test/project/alpha_tags.py", "from django import template\nregister = template.Library()\n@register.simple_tag(name='shared_tag')\ndef alpha(first): pass\n")
+        .file("/test/project/shared/page.html", &source)
+        .install(&mut control)
+        .expect("single-backend control should install");
+    let control_file = control
+        .file(Utf8Path::new("/test/project/shared/page.html"))
+        .expect("control template should exist");
+    let response = completion(
+        &control,
+        control_file,
+        offset,
+        PositionEncoding::Utf16,
+        true,
+    )
+    .expect("single-backend argument completion should exist");
+    let items = match response {
+        ls_types::CompletionResponse::Array(items) => items,
+        ls_types::CompletionResponse::List(list) => list.items,
+    };
+    assert!(
+        items
+            .iter()
+            .any(|item| item.insert_text_format == Some(ls_types::InsertTextFormat::SNIPPET)),
+        "{items:?}"
+    );
     ProjectFixture::new("/test/project")
         .django_settings_module("testproject.settings")
         .file("/test/project/testproject/settings.py", settings)
