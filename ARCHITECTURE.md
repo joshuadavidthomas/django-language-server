@@ -99,7 +99,7 @@ The supported boundary is static `import a`, `import a as x`, `import a.b`, `imp
 
 The template parser — a hand-written recursive descent parser for Django's template syntax. It's inspired by Django's own parser but designed around IDE needs: error recovery, partial results, and position tracking rather than template rendering.
 
-It lexes and parses template source into a flat `NodeList` — the same representation Django's own template engine uses internally. Each `Node` is a `Tag`, `Variable`, `Comment`, `Text`, or `Error`. The parser always produces a node list; parse errors become `Node::Error` entries in the list and are also emitted through a Salsa accumulator (`TemplateErrorAccumulator`).
+It lexes and parses template source into a flat `NodeList` — the same representation Django's own template engine uses internally. Lexing follows a `LexerMode`: by default a tag must close on the line where it opens, as Django's `tag_re` requires, while projects that compile `tag_re` with `re.DOTALL` let tags span lines. The crate's `Db` trait supplies the mode; project-backed databases derive it in `djls-semantic` from the `template_tag_regex` Extracted Fact and the `multiline_tags` setting. Each `Node` is a `Tag`, `Variable`, `Comment`, `Text`, or `Error`. The parser always produces a node list; parse errors become `Node::Error` entries in the list and are also emitted through a Salsa accumulator (`TemplateErrorAccumulator`).
 
 **Architecture Invariant:** the parser never fails. It produces `(Vec<Node>, Vec<ParseError>)` rather than `Result<NodeList, Error>`. This is critical for an IDE: users are *always* in the middle of typing something invalid, and the rest of the pipeline needs to keep working around the errors.
 

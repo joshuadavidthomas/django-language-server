@@ -2,6 +2,7 @@
 mod bundled_django_provenance;
 mod django_compilation;
 mod inheritance;
+mod lexer_mode;
 mod offset;
 mod references;
 mod structure_opaque;

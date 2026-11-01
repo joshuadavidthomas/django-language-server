@@ -164,6 +164,13 @@ impl SemanticDb for DjangoDatabase {
 }
 
 #[salsa::db]
+impl djls_templates::Db for DjangoDatabase {
+    fn lexer_mode(&self) -> djls_templates::LexerMode {
+        djls_semantic::project_lexer_mode(self)
+    }
+}
+
+#[salsa::db]
 impl ProjectDb for DjangoDatabase {
     fn project(&self) -> Option<Project> {
         self.project

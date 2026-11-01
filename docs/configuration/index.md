@@ -171,6 +171,29 @@ If no `env_file` is configured, the server looks for a `.env` file in the projec
 - Your `.env` file has a non-standard name (e.g., `.env.local`, `.env.development`)
 - Your `.env` file lives in a subdirectory
 
+### `multiline_tags`
+
+**Default:** unset (detected from your project's Python source)
+
+Whether Django template tags, variables, and comments may span lines.
+
+Django's default `django.template.base.tag_re` only matches a tag that closes on the line where it opens, so `{% if\n x %}` is plain text. Projects that want multi-line tags replace `tag_re` while Django starts:
+
+```python
+import re
+
+from django.template import base
+
+base.tag_re = re.compile(base.tag_re.pattern, re.DOTALL)
+```
+
+The language server looks for that assignment in the settings module, in each installed app's package, `apps`, and `models` modules, and in the modules they import from their own package. When it finds a `re.DOTALL` (or `re.S`) pattern, tags may span lines. When it reads all of that code and finds no such pattern, tags must close on their opening line, as in Django. When it cannot tell, for example because an installed app is not on the import search paths, tags may span lines.
+
+**When to configure:**
+
+- Your project patches `tag_re` somewhere the language server does not read, such as `manage.py`: set `multiline_tags = true`
+- Your project only patches `tag_re` behind a setting that is off, such as `COMPONENTS.multiline_tags` in django-components: set `multiline_tags = false`
+
 ### `tagspecs`
 
 Optional manual TagSpecs configuration.

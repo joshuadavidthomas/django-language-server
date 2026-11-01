@@ -1104,6 +1104,7 @@ dependencies = [
  "djls-source",
  "insta",
  "memchr",
+ "regex",
  "salsa",
  "serde",
  "tempfile",

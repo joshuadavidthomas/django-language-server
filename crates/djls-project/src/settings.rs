@@ -11,7 +11,7 @@ use crate::db::Db as ProjectDb;
 use crate::project::Project;
 use crate::python::PythonSourceModule;
 
-fn settings_module(db: &dyn ProjectDb, project: Project) -> Option<PythonSourceModule> {
+pub(crate) fn settings_module(db: &dyn ProjectDb, project: Project) -> Option<PythonSourceModule> {
     let django_settings_module = project.django_settings_module(db).as_ref()?.clone();
     PythonSourceModule::resolve(db, project, django_settings_module)
 }

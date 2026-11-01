@@ -9,5 +9,6 @@ mod project_performance;
 mod resolve;
 mod settings;
 mod settings_extraction;
+mod tag_regex;
 mod template_libraries;
 mod templates;
