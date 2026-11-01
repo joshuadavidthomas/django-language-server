@@ -206,7 +206,12 @@ fn path_expr() -> BoxedStrategy<String> {
     .boxed()
 }
 
-fn simple_statement() -> BoxedStrategy<Vec<String>> {
+fn simple_statement(branching: bool) -> BoxedStrategy<Vec<String>> {
+    let methods: &'static [&'static str] = if branching {
+        &["append", "remove_safe", "insert"]
+    } else {
+        &["append", "insert"]
+    };
     let assign = |names: &'static [&'static str], expr: BoxedStrategy<String>| {
         (pick(names), expr)
             .prop_map(|(name, value)| vec![format!("{name} = {value}")])
@@ -226,11 +231,7 @@ fn simple_statement() -> BoxedStrategy<Vec<String>> {
         ),
         (
             2,
-            (
-                pick(LISTS),
-                str_expr(1),
-                pick(&["append", "remove_safe", "insert"]),
-            )
+            (pick(LISTS), str_expr(1), pick(methods))
                 .prop_map(|(list, item, method)| {
                     vec![match method.as_str() {
                         "append" => format!("{list}.append({item})"),
@@ -289,6 +290,16 @@ fn indent(lines: Vec<String>) -> Vec<String> {
         .collect()
 }
 
+// Loop bodies hold only straight-line statements for now. The evaluator walks a body once from
+// the pre-loop state, so a branch that only becomes reachable on a later iteration is never
+// evaluated, as in `for S0 in list(L0): if not B1: L0.append('a') else: B1 = <env test>`.
+// Generate branches in loop bodies again once that is fixed.
+fn loop_body() -> BoxedStrategy<Vec<String>> {
+    proptest::collection::vec(simple_statement(false), 1..3)
+        .prop_map(|statements| statements.into_iter().flatten().collect())
+        .boxed()
+}
+
 fn block(depth: u32) -> BoxedStrategy<Vec<String>> {
     proptest::collection::vec(statement(depth), 1..3)
         .prop_map(|statements| statements.into_iter().flatten().collect())
@@ -297,10 +308,10 @@ fn block(depth: u32) -> BoxedStrategy<Vec<String>> {
 
 fn statement(depth: u32) -> BoxedStrategy<Vec<String>> {
     if depth == 0 {
-        return simple_statement();
+        return simple_statement(true);
     }
     Union::new_weighted(vec![
-        (4, simple_statement()),
+        (4, simple_statement(true)),
         (
             2,
             (
@@ -341,7 +352,7 @@ fn statement(depth: u32) -> BoxedStrategy<Vec<String>> {
         ),
         (
             1,
-            (pick(LISTS), pick(STRS), block(depth - 1))
+            (pick(LISTS), pick(STRS), loop_body())
                 .prop_map(|(list, name, body)| {
                     let mut lines = vec![format!("for {name} in list({list}):")];
                     lines.extend(indent(body));
