@@ -6,5 +6,6 @@ mod document_links;
 mod folding;
 mod formatting;
 mod hover;
+mod incremental;
 mod navigation;
 mod warmup;
