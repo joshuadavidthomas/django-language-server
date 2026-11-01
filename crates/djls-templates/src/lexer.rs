@@ -1,45 +1,69 @@
 use djls_source::Span;
+use memchr::memchr;
 use memchr::memchr3;
 
 use crate::tokens::TagDelimiter;
 use crate::tokens::Token;
 use crate::tokens::TokenStream;
 
-// A compact set of closing delimiter kinds proven absent from the remaining source.
+/// Whether a Django tag, variable, or comment may span lines.
+///
+/// Django splits templates with `django.template.base.tag_re`,
+/// `{%.*?%}|{{.*?}}|{#.*?#}`. Its `.` stops at `\n`, so by default a construct
+/// must close on the line where it opens. Projects that compile `tag_re` with
+/// `re.DOTALL` let constructs span lines.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum LexerMode {
+    /// Django's default `tag_re`: a closer must appear before the next `\n`.
+    SingleLine,
+    /// `tag_re` compiled with `re.DOTALL`: a closer may appear on any later line.
+    MultiLine,
+}
+
+// Closing delimiter kinds proven absent between the cursor and a search boundary.
+//
+// The cursor only advances through immutable source, so a closer absent before
+// a boundary stays absent for every later search that ends at the same boundary.
 #[derive(Default)]
-struct MissingTagClosers(u8);
+struct MissingTagClosers([Option<usize>; 3]);
 
 impl MissingTagClosers {
-    fn mask(delimiter: TagDelimiter) -> u8 {
+    fn index(delimiter: TagDelimiter) -> usize {
         match delimiter {
-            TagDelimiter::Block => 0b001,
-            TagDelimiter::Variable => 0b010,
-            TagDelimiter::Comment => 0b100,
+            TagDelimiter::Block => 0,
+            TagDelimiter::Variable => 1,
+            TagDelimiter::Comment => 2,
         }
     }
 
-    fn contains(&self, delimiter: TagDelimiter) -> bool {
-        self.0 & Self::mask(delimiter) != 0
+    fn contains(&self, delimiter: TagDelimiter, boundary: usize) -> bool {
+        self.0[Self::index(delimiter)] == Some(boundary)
     }
 
-    fn insert(&mut self, delimiter: TagDelimiter) {
-        self.0 |= Self::mask(delimiter);
+    fn insert(&mut self, delimiter: TagDelimiter, boundary: usize) {
+        self.0[Self::index(delimiter)] = Some(boundary);
     }
 }
 
 pub(crate) struct Lexer<'src> {
     source: &'src str,
+    mode: LexerMode,
     start: usize,
     current: usize,
+    // End of the line containing `current`, cached so a line with many unmatched
+    // openers is scanned for its newline once.
+    line_end: usize,
 }
 
 impl<'src> Lexer<'src> {
     #[must_use]
-    pub(crate) fn new(source: &'src str) -> Self {
+    pub(crate) fn new(source: &'src str, mode: LexerMode) -> Self {
         Lexer {
             source,
+            mode,
             start: 0,
             current: 0,
+            line_end: 0,
         }
     }
 
@@ -77,47 +101,40 @@ impl<'src> Lexer<'src> {
         missing_closers: &mut MissingTagClosers,
     ) -> Token<&'src str> {
         let content_start = self.start + TagDelimiter::LENGTH;
-
         self.consume_n(TagDelimiter::LENGTH);
 
-        match self.consume_until_delimiter(delimiter, missing_closers) {
-            Ok(content) => {
-                let len = content.len();
-                let span = Span::saturating_from_parts_usize(content_start, len);
-                self.consume_n(delimiter.closer().len());
-                match delimiter {
-                    TagDelimiter::Block => Token::Block { content, span },
-                    TagDelimiter::Variable => Token::Variable { content, span },
-                    TagDelimiter::Comment => Token::Comment { content, span },
-                }
-            }
-            Err(err_text) => {
-                // Django's `tag_re` retries one character later when an opener has
-                // no closer. If an opener starts there (`{{%`, `{{#`, `{{{`), lex it
-                // as the next token and leave this `{` as text, as Django does.
-                // Otherwise keep the Error token as an editor hint for the
-                // unclosed opener, even though Django renders it as text.
-                let next = self.start + TagDelimiter::CHAR_OPEN.len_utf8();
-                if TagDelimiter::from_input(&self.source[next..]).is_some() {
-                    self.current = next;
-                    return Token::Text {
-                        content: &self.source[self.start..next],
-                        span: Span::saturating_from_bounds_usize(self.start, next),
-                    };
-                }
+        if let Some(content_end) = self.find_closer(delimiter, content_start, missing_closers) {
+            self.current = content_end + delimiter.closer().len();
+            let content = &self.source[content_start..content_end];
+            let span = Span::saturating_from_bounds_usize(content_start, content_end);
+            return match delimiter {
+                TagDelimiter::Block => Token::Block { content, span },
+                TagDelimiter::Variable => Token::Variable { content, span },
+                TagDelimiter::Comment => Token::Comment { content, span },
+            };
+        }
 
-                let len = err_text.len();
-                let span = if len == 0 {
-                    Span::saturating_from_bounds_usize(content_start, self.current)
-                } else {
-                    Span::saturating_from_parts_usize(content_start, len)
-                };
-                Token::Error {
-                    content: err_text,
-                    span,
-                    delimiter,
-                }
-            }
+        // Django's `tag_re` retries one character later when an opener has
+        // no closer. If an opener starts there (`{{%`, `{{#`, `{{{`), lex it
+        // as the next token and leave this `{` as text, as Django does.
+        // Otherwise keep the Error token as an editor hint for the
+        // unclosed opener, even though Django renders it as text.
+        let next = self.start + TagDelimiter::CHAR_OPEN.len_utf8();
+        if TagDelimiter::from_input(&self.source[next..]).is_some() {
+            self.current = next;
+            return Token::Text {
+                content: &self.source[self.start..next],
+                span: Span::saturating_from_bounds_usize(self.start, next),
+            };
+        }
+
+        self.current += self.consume_until_stop_char();
+        let content = self.consumed_source_from(content_start);
+        let span = Span::saturating_from_bounds_usize(content_start, self.current);
+        Token::Error {
+            content,
+            span,
+            delimiter,
         }
     }
 
@@ -195,25 +212,38 @@ impl<'src> Lexer<'src> {
         }
     }
 
-    fn consume_until_delimiter(
+    /// Return where the content opened at `from` ends, if its closer appears
+    /// before the search boundary.
+    fn find_closer(
         &mut self,
         delimiter: TagDelimiter,
+        from: usize,
         missing_closers: &mut MissingTagClosers,
-    ) -> Result<&'src str, &'src str> {
-        let offset = self.current;
-
-        if !missing_closers.contains(delimiter) {
-            if let Some(pos) = delimiter.find_closer(self.remaining_source()) {
-                self.current += pos;
-                return Ok(self.consumed_source_from(offset));
-            }
-            // The cursor only advances through immutable source, so a closer
-            // absent from this suffix is absent from every later suffix too.
-            missing_closers.insert(delimiter);
+    ) -> Option<usize> {
+        let boundary = self.closer_search_boundary();
+        if missing_closers.contains(delimiter, boundary) {
+            return None;
         }
+        let found = delimiter
+            .find_closer(&self.source[from..boundary])
+            .map(|pos| from + pos);
+        if found.is_none() {
+            missing_closers.insert(delimiter, boundary);
+        }
+        found
+    }
 
-        self.current += self.consume_until_stop_char();
-        Err(self.consumed_source_from(offset))
+    fn closer_search_boundary(&mut self) -> usize {
+        match self.mode {
+            LexerMode::MultiLine => self.source.len(),
+            LexerMode::SingleLine => {
+                if self.current >= self.line_end {
+                    self.line_end = memchr(b'\n', self.remaining_source().as_bytes())
+                        .map_or(self.source.len(), |pos| self.current + pos);
+                }
+                self.line_end
+            }
+        }
     }
 
     fn consume_until_stop_char(&self) -> usize {
@@ -251,34 +281,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn missing_tag_closers_accumulate_independently() {
+    fn missing_tag_closers_are_independent_per_delimiter_and_boundary() {
         let mut missing_closers = MissingTagClosers::default();
-        assert!(!missing_closers.contains(TagDelimiter::Variable));
-        assert!(!missing_closers.contains(TagDelimiter::Block));
-        assert!(!missing_closers.contains(TagDelimiter::Comment));
+        missing_closers.insert(TagDelimiter::Variable, 10);
+        assert!(missing_closers.contains(TagDelimiter::Variable, 10));
+        assert!(!missing_closers.contains(TagDelimiter::Variable, 20));
+        assert!(!missing_closers.contains(TagDelimiter::Block, 10));
+        assert!(!missing_closers.contains(TagDelimiter::Comment, 10));
 
-        missing_closers.insert(TagDelimiter::Variable);
-        assert!(missing_closers.contains(TagDelimiter::Variable));
-        assert!(!missing_closers.contains(TagDelimiter::Block));
-        assert!(!missing_closers.contains(TagDelimiter::Comment));
-
-        missing_closers.insert(TagDelimiter::Block);
-        missing_closers.insert(TagDelimiter::Variable);
-        assert!(missing_closers.contains(TagDelimiter::Variable));
-        assert!(missing_closers.contains(TagDelimiter::Block));
-        assert!(!missing_closers.contains(TagDelimiter::Comment));
-
-        missing_closers.insert(TagDelimiter::Comment);
-        assert!(missing_closers.contains(TagDelimiter::Variable));
-        assert!(missing_closers.contains(TagDelimiter::Block));
-        assert!(missing_closers.contains(TagDelimiter::Comment));
+        missing_closers.insert(TagDelimiter::Block, 10);
+        missing_closers.insert(TagDelimiter::Variable, 20);
+        assert!(!missing_closers.contains(TagDelimiter::Variable, 10));
+        assert!(missing_closers.contains(TagDelimiter::Variable, 20));
+        assert!(missing_closers.contains(TagDelimiter::Block, 10));
+        assert!(!missing_closers.contains(TagDelimiter::Comment, 10));
     }
 
     #[test]
     fn public_tokens_own_their_contents() {
         let tokens = {
             let source = String::from("a\n{{v}}{%t%}{#c#}{{x");
-            crate::lex_template_impl(&source)
+            crate::lex_template_impl(&source, LexerMode::MultiLine)
         };
         assert_eq!(
             tokens,
@@ -314,7 +337,7 @@ mod tests {
 
     #[test]
     fn missing_closers_are_independent_and_preserve_recovery_spans() {
-        let mut lexer = Lexer::new("{{é\r\n{%x%}{#y#}{{z");
+        let mut lexer = Lexer::new("{{é\r\n{%x%}{#y#}{{z", LexerMode::MultiLine);
         assert_eq!(
             lexer.tokenize(),
             vec![
@@ -369,8 +392,106 @@ mod tests {
                 },
             ),
         ] {
-            assert_eq!(Lexer::new(source).tokenize(), vec![expected, Token::Eof]);
+            assert_eq!(
+                Lexer::new(source, LexerMode::MultiLine).tokenize(),
+                vec![expected, Token::Eof]
+            );
         }
+    }
+
+    // Django's `django.template.base.tag_re`, with and without `re.DOTALL`.
+    // Rust's `regex` uses leftmost-first alternation like Python's `re`.
+    fn django_tag_re(mode: LexerMode) -> regex::Regex {
+        let flags = match mode {
+            LexerMode::SingleLine => "",
+            LexerMode::MultiLine => "(?s)",
+        };
+        regex::Regex::new(&format!(r"{flags}\{{%.*?%\}}|\{{\{{.*?\}}\}}|\{{#.*?#\}}"))
+            .expect("tag_re should compile")
+    }
+
+    fn lexed_tag_spans(source: &str, mode: LexerMode) -> Vec<(usize, usize)> {
+        Lexer::new(source, mode)
+            .tokenize()
+            .iter()
+            .filter(|token| {
+                matches!(
+                    token,
+                    Token::Block { .. } | Token::Variable { .. } | Token::Comment { .. }
+                )
+            })
+            .map(|token| {
+                let span = token.full_span_or_fallback();
+                (span.start() as usize, span.end() as usize)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn tags_match_django_tag_re_in_both_modes() {
+        const ALPHABET: [char; 7] = ['{', '%', '#', '}', '\n', '\r', 'x'];
+        const MAX_LEN: u32 = 6;
+
+        let tag_res =
+            [LexerMode::SingleLine, LexerMode::MultiLine].map(|mode| (mode, django_tag_re(mode)));
+        let mut mismatches = Vec::new();
+        for len in 1..=MAX_LEN {
+            for index in 0..ALPHABET.len().pow(len) {
+                let mut rest = index;
+                let source: String = (0..len)
+                    .map(|_| {
+                        let ch = ALPHABET[rest % ALPHABET.len()];
+                        rest /= ALPHABET.len();
+                        ch
+                    })
+                    .collect();
+                for (mode, tag_re) in &tag_res {
+                    let mode = *mode;
+                    let expected: Vec<_> = tag_re
+                        .find_iter(&source)
+                        .map(|found| (found.start(), found.end()))
+                        .collect();
+                    if lexed_tag_spans(&source, mode) != expected && mismatches.len() < 10 {
+                        mismatches.push((source.clone(), mode, expected));
+                    }
+                }
+            }
+        }
+        assert!(mismatches.is_empty(), "{mismatches:#?}");
+    }
+
+    #[test]
+    fn single_line_tags_close_before_the_next_newline() {
+        // Default Django sees text, then `{% if x %}`; DOTALL sees one tag named `}}`.
+        let source = "{%}}\n{% if x %}";
+        assert_eq!(
+            Lexer::new(source, LexerMode::SingleLine).tokenize(),
+            vec![
+                Token::Error {
+                    content: "}}",
+                    span: Span::new(2, 2),
+                    delimiter: TagDelimiter::Block,
+                },
+                Token::Newline {
+                    span: Span::new(4, 1)
+                },
+                Token::Block {
+                    content: " if x ",
+                    span: Span::new(7, 6),
+                },
+                Token::Eof,
+            ]
+        );
+        assert_eq!(
+            Lexer::new(source, LexerMode::MultiLine).tokenize(),
+            vec![
+                Token::Block {
+                    content: "}}\n{% if x ",
+                    span: Span::new(2, 11),
+                },
+                Token::Eof,
+            ]
+        );
     }
 
     #[test]
@@ -446,7 +567,11 @@ mod tests {
         ] {
             let mut expected = expected;
             expected.push(Token::Eof);
-            assert_eq!(Lexer::new(source).tokenize(), expected, "{source:?}");
+            assert_eq!(
+                Lexer::new(source, LexerMode::MultiLine).tokenize(),
+                expected,
+                "{source:?}"
+            );
         }
     }
 
@@ -454,7 +579,7 @@ mod tests {
     fn repeated_unmatched_delimiters_recover_at_each_opener() {
         for repetitions in [4096, 8192] {
             let source = "{{x\r\n{%é\n{#z\n".repeat(repetitions);
-            let mut lexer = Lexer::new(&source);
+            let mut lexer = Lexer::new(&source, LexerMode::MultiLine);
             let tokens = lexer.tokenize();
             assert_eq!(tokens.len(), 6 * repetitions + 1);
             assert_eq!(
@@ -555,7 +680,7 @@ mod tests {
     #[test]
     fn test_tokenize_html() {
         let source = r#"<div class="container" id="main" disabled></div>"#;
-        let mut lexer = Lexer::new(source);
+        let mut lexer = Lexer::new(source, LexerMode::MultiLine);
         let snapshot = lexer.tokenize();
         insta::assert_yaml_snapshot!(snapshot);
     }
@@ -563,7 +688,7 @@ mod tests {
     #[test]
     fn test_tokenize_django_variable() {
         let source = "{{ user.name|default:\"Anonymous\"|title }}";
-        let mut lexer = Lexer::new(source);
+        let mut lexer = Lexer::new(source, LexerMode::MultiLine);
         let snapshot = lexer.tokenize();
         insta::assert_yaml_snapshot!(snapshot);
     }
@@ -571,7 +696,7 @@ mod tests {
     #[test]
     fn test_tokenize_django_block() {
         let source = "{% if user.is_staff %}Admin{% else %}User{% endif %}";
-        let mut lexer = Lexer::new(source);
+        let mut lexer = Lexer::new(source, LexerMode::MultiLine);
         let snapshot = lexer.tokenize();
         insta::assert_yaml_snapshot!(snapshot);
     }
@@ -588,7 +713,7 @@ mod tests {
 <style>
     /* CSS comment */
 </style>";
-        let mut lexer = Lexer::new(source);
+        let mut lexer = Lexer::new(source, LexerMode::MultiLine);
         let snapshot = lexer.tokenize();
         insta::assert_yaml_snapshot!(snapshot);
     }
@@ -602,7 +727,7 @@ mod tests {
        comment */
     console.log(x);
 </script>"#;
-        let mut lexer = Lexer::new(source);
+        let mut lexer = Lexer::new(source, LexerMode::MultiLine);
         let snapshot = lexer.tokenize();
         insta::assert_yaml_snapshot!(snapshot);
     }
@@ -615,7 +740,7 @@ mod tests {
         color: blue;
     }
 </style>"#;
-        let mut lexer = Lexer::new(source);
+        let mut lexer = Lexer::new(source, LexerMode::MultiLine);
         let snapshot = lexer.tokenize();
         insta::assert_yaml_snapshot!(snapshot);
     }
@@ -627,7 +752,7 @@ mod tests {
 {# comment #}
 <!-- html comment -->
 <div>text</div>";
-        let mut lexer = Lexer::new(source);
+        let mut lexer = Lexer::new(source, LexerMode::MultiLine);
         let snapshot = lexer.tokenize();
         insta::assert_yaml_snapshot!(snapshot);
     }
@@ -664,7 +789,7 @@ mod tests {
     </div>
 </body>
 </html>"#;
-        let mut lexer = Lexer::new(source);
+        let mut lexer = Lexer::new(source, LexerMode::MultiLine);
         let snapshot = lexer.tokenize();
         insta::assert_yaml_snapshot!(snapshot);
     }
@@ -672,7 +797,7 @@ mod tests {
     #[test]
     fn test_tokenize_unclosed_style() {
         let source = "<style>body { color: blue; ";
-        let mut lexer = Lexer::new(source);
+        let mut lexer = Lexer::new(source, LexerMode::MultiLine);
         let snapshot = lexer.tokenize();
         insta::assert_yaml_snapshot!(snapshot);
     }

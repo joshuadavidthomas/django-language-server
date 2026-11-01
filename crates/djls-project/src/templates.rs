@@ -7,6 +7,7 @@ mod resolution;
 mod scoped_libraries;
 mod settings_cases;
 mod symbols;
+mod tag_regex;
 mod tags;
 
 pub(crate) use candidates::discover_templatetag_candidate_paths;
@@ -66,6 +67,8 @@ pub use symbols::SymbolKey;
 pub use symbols::TemplateSymbol;
 pub use symbols::TemplateSymbolKind;
 pub use symbols::TemplateSymbolSource;
+pub use tag_regex::TemplateTagRegex;
+pub use tag_regex::template_tag_regex;
 pub use tags::ArgumentConsumption;
 pub use tags::ArgumentCountConstraint;
 pub use tags::ArgumentFormCoverage;

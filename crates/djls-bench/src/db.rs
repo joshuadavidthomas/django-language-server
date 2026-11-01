@@ -225,6 +225,13 @@ impl ProjectDb for Db {
 }
 
 #[salsa::db]
+impl djls_templates::Db for Db {
+    fn lexer_mode(&self) -> djls_templates::LexerMode {
+        djls_semantic::project_lexer_mode(self)
+    }
+}
+
+#[salsa::db]
 impl SemanticDb for Db {
     fn projectless_tag_specs(&self) -> &TagSpecs {
         &self.projectless_tag_specs
