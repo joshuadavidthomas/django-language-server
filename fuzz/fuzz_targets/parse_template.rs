@@ -23,20 +23,14 @@ fn check(source: &str) {
     };
 
     let mut cursor = 0;
-    let mut after_error = false;
     for node in &nodes {
         let full = node.full_span();
         assert_char_range(full, "full span");
-        // Known bug: after a parse error, `Parser::synchronize` drops tokens up to the next tag,
-        // including later malformed constructs, so `{{ a\n{{ b` reports one error. Excluded
-        // until fixed by allowing a gap only right after an Error node.
-        let gap_allowed = after_error && full.start_usize() > cursor;
         assert!(
-            full.start_usize() == cursor || gap_allowed,
+            full.start_usize() == cursor,
             "nodes must tile the source without gaps or overlaps at {node:?} in {source:?}"
         );
         cursor = full.end_usize();
-        after_error = matches!(node, Node::Error { .. });
 
         let assert_inside = |span: Span, what: &str| {
             assert_char_range(span, what);
@@ -76,10 +70,7 @@ fn check(source: &str) {
             Node::Text { .. } => {}
         }
     }
-    assert!(
-        cursor == source.len() || after_error,
-        "nodes must cover {source:?}"
-    );
+    assert!(cursor == source.len(), "nodes must cover {source:?}");
 
     for error in &errors {
         if let Some((start, length)) = error.primary_span() {

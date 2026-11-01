@@ -50,6 +50,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Fixed
 
+- Fixed the template parser skipping everything up to the next `{% %}`, `{{ }}`, or `{# #}` after a syntax error, so a later malformed construct, such as the second line of `{{ a` then `{{ b`, now gets its own T100 error.
 - Fixed `{% elif %}` conditions never being checked for expression syntax errors (S114).
 - Fixed `{% verbatim name %}` ending at a plain `{% endverbatim %}`; like Django, it now ends only at `{% endverbatim name %}`.
 - Fixed argument validation for tags and filters that a library registers by passing an already-decorated function, such as `register.tag("url", url)` or humanize filters re-registered by Wagtail.

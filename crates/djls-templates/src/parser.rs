@@ -50,11 +50,6 @@ impl<'src> Parser<'src> {
                         full_span,
                         error,
                     });
-
-                    if !self.is_at_end() {
-                        // Continue parsing even if synchronization fails.
-                        drop(self.synchronize());
-                    }
                 }
             }
         }
@@ -277,26 +272,6 @@ impl<'src> Parser<'src> {
         }
         self.current += 1;
         self.peek_previous()
-    }
-
-    fn synchronize(&mut self) -> Result<(), ParseError> {
-        while !self.is_at_end() {
-            let current = self.peek()?;
-            match current {
-                Token::Block { .. }
-                | Token::Variable { .. }
-                | Token::Comment { .. }
-                | Token::Eof => {
-                    return Ok(());
-                }
-                Token::Error { .. }
-                | Token::Newline { .. }
-                | Token::Text { .. }
-                | Token::Whitespace { .. } => {}
-            }
-            self.consume()?;
-        }
-        Ok(())
     }
 }
 
@@ -834,29 +809,13 @@ mod tests {
             insta::assert_yaml_snapshot!(test_nodelist);
         }
 
-        // TODO: fix this so we can test against errors returned by parsing
-        // #[test]
-        // fn test_parse_error_recovery() {
-        //     let source = r#"<div class="container">
-        //     <h1>Header</h1>
-        //     {% %}
-        //         {# This if is unclosed which does matter #}
-        //         <p>Welcome {{ user.name }}</p>
-        //         <div>
-        //             {# This div is unclosed which doesn't matter #}
-        //         {% for item in items %}
-        //             <span>{{ item }}</span>
-        //         {% endfor %}
-        //     <footer>Page Footer</footer>
-        // </div>"#;
-        //     let tokens = Lexer::new(source).tokenize().unwrap();
-        //     let mut parser = create_test_parser(tokens);
-        //     let (nodelist, errors) = parser.parse().unwrap();
-        //     let nodelist = convert_nodelist_for_testing(ast.nodelist(parser.db), parser.db);
-        //     insta::assert_yaml_snapshot!(nodelist);
-        //     assert_eq!(errors.len(), 1);
-        //     assert!(matches!(&errors[0], ParserError::EmptyTag));
-        // }
+        #[test]
+        fn test_parse_error_recovery_keeps_following_text_and_errors() {
+            let source = "{%%}\n{{ a\n{{ b\n";
+            let nodelist = parse_test_template(source);
+            let test_nodelist = convert_nodelist_for_testing(&nodelist);
+            insta::assert_yaml_snapshot!(test_nodelist);
+        }
     }
 
     mod full_templates {
