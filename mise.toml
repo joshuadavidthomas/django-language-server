@@ -8,6 +8,6 @@ cargo-insta = "1.48"
 just = "1"
 prek = "0.5"
 uv = "0.12"
-# Keep paired with the wasm-bindgen crate in Cargo.lock; see `just playground wasm`.
+# Keep paired with the wasm-bindgen crate in Cargo.lock; it generates the djls-wasm JS bindings.
 "github:wasm-bindgen/wasm-bindgen" = "0.2.104"
 zizmor = "1"

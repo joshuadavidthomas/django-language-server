@@ -3,7 +3,6 @@ set unstable
 
 mod dev ".just/devtools.just"
 mod docs ".just/docs.just"
-mod playground ".just/playground.just"
 
 # List all available commands
 [private]
