@@ -168,6 +168,11 @@ impl PythonMutationPath {
             path: &[PythonMutationPathSegment],
             origins: &mut ReachableAllocationSites,
         ) {
+            if let PythonValueKind::Unknown(unknown) = &value.kind {
+                // Any object an unknown may reach could be the target.
+                unknown.collect_reachable_sites(origins);
+                return;
+            }
             let Some((segment, remaining)) = path.split_first() else {
                 if let Some(sites) = value.own_mutable_sites() {
                     origins.push_group(sites.clone());
@@ -191,8 +196,15 @@ impl PythonMutationPath {
                         | PythonValueKind::Module(_)
                         | PythonValueKind::Unknown(_) => return,
                     };
-                    if let Some(PythonSequenceItem::Value(value)) = items.get(*index) {
-                        collect(value, remaining, origins);
+                    match items.get(*index) {
+                        Some(PythonSequenceItem::Value(value)) => {
+                            collect(value, remaining, origins);
+                        }
+                        Some(
+                            PythonSequenceItem::UnknownElement(unknown)
+                            | PythonSequenceItem::UnknownUnpack(unknown),
+                        ) => unknown.collect_reachable_sites(origins),
+                        None => {}
                     }
                 }
                 PythonMutationPathSegment::Key(key) => {

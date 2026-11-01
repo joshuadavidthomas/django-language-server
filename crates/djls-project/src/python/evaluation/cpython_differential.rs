@@ -155,11 +155,9 @@ fn bool_expr(depth: u32) -> BoxedStrategy<String> {
     .boxed()
 }
 
-// Plain aliases (`L0 = L1`, `D0 = D1`) are not generated yet: after a mutation through one
-// alias, a later mutation through the other is lost, as in
-// `L0 = L1; L0.append('a'); L1.append('b')`. Generate them again once that is fixed.
 fn list_expr() -> BoxedStrategy<String> {
     Union::new([
+        pick(LISTS),
         proptest::collection::vec(str_expr(1), 0..3)
             .prop_map(|items| format!("[{}]", items.join(", ")))
             .boxed(),
@@ -176,6 +174,7 @@ fn list_expr() -> BoxedStrategy<String> {
 
 fn dict_expr() -> BoxedStrategy<String> {
     Union::new([
+        pick(DICTS),
         proptest::collection::vec((pick(KEYS), str_expr(1)), 0..3)
             .prop_map(|entries| {
                 let entries: Vec<_> = entries
@@ -395,6 +394,15 @@ def encode(value):
     if isinstance(value, types.ModuleType):
         return {"module": value.__name__}
     return {"other": type(value).__name__}
+
+# Aliased lists that grow in place inside loops grow exponentially; raise MemoryError instead.
+try:
+    import resource
+    _, hard = resource.getrlimit(resource.RLIMIT_AS)
+    soft = 1 << 30 if hard == resource.RLIM_INFINITY else min(1 << 30, hard)
+    resource.setrlimit(resource.RLIMIT_AS, (soft, hard))
+except (ImportError, OSError, ValueError):
+    pass
 
 request = json.load(sys.stdin)
 results = []

@@ -759,7 +759,15 @@ impl PythonEvaluationState {
         origin: Origin,
     ) {
         for name in names {
-            self.bind_unknown(&name, cause, origin);
+            let sites = self
+                .binding(&name)
+                .map(PythonBinding::reachable_allocation_sites)
+                .unwrap_or_default();
+            self.assign_binding(
+                &name,
+                PythonBinding::unknown_reaching(cause, origin, sites),
+                origin,
+            );
         }
     }
 
@@ -816,6 +824,18 @@ impl PythonEvaluationState {
         cause: &PythonUnknownCause,
         origin: Origin,
     ) {
+        self.degrade_names_reaching(names, BTreeMap::new(), cause, origin);
+    }
+
+    /// Degrade `names`, letting each name's unknown keep the allocation sites
+    /// `reaching` lists for it: objects it may hold in a state this join drops.
+    fn degrade_names_reaching(
+        &mut self,
+        names: impl IntoIterator<Item = String>,
+        mut reaching: BTreeMap<String, ReachableAllocationSites>,
+        cause: &PythonUnknownCause,
+        origin: Origin,
+    ) {
         let mut names = names.into_iter().collect::<BTreeSet<_>>();
         for name in names.clone() {
             if let Some(binding) = self.binding(&name) {
@@ -823,7 +843,8 @@ impl PythonEvaluationState {
             }
         }
         for name in names {
-            let mut unknown = PythonBinding::unknown(cause, origin);
+            let sites = reaching.remove(&name).unwrap_or_default();
+            let mut unknown = PythonBinding::unknown_reaching(cause, origin, sites);
             unknown.discriminate_predicates(&name, origin, self.predicate_module.as_ref());
             let binding = match self.bindings.remove(&name) {
                 Some(binding) => binding.join(unknown, origin),
@@ -838,6 +859,20 @@ impl PythonEvaluationState {
             .iter()
             .flat_map(|body| body.changed_names_from(&self))
             .collect::<BTreeSet<_>>();
+        // A loop body may leave a name aliasing another object, as in
+        // `for ...: L0 = L1`; the widened unknown must still reach it.
+        let reaching = changed_names
+            .iter()
+            .map(|name| {
+                let mut sites = ReachableAllocationSites::default();
+                for body in &evaluated_bodies {
+                    if let Some(binding) = body.binding(name) {
+                        sites.absorb(binding.reachable_allocation_sites());
+                    }
+                }
+                (name.clone(), sites)
+            })
+            .collect();
 
         let mut body_objects = Vec::with_capacity(evaluated_bodies.len());
         for body in evaluated_bodies {
@@ -856,8 +891,9 @@ impl PythonEvaluationState {
         }
         self.module_effects.degrade_loop(body_objects, origin);
 
-        self.degrade_names(
+        self.degrade_names_reaching(
             changed_names,
+            reaching,
             &PythonUnknownCause::UnsupportedExpression,
             origin,
         );
@@ -3556,6 +3592,47 @@ mod tests {
                     if matches!(&bound.value.kind, PythonValueKind::Unknown(_))
             )));
         }
+    }
+
+    #[test]
+    fn list_mutation_through_invalidated_alias_invalidates_mutated_alias() {
+        let facts = evaluate_source("L1 = ['a']\nL0 = L1\nL0.append('a')\nL1.append('b')\n");
+        assert!(
+            facts.bindings["L0"].alternatives().any(|state| matches!(
+                state,
+                PythonBindingState::Bound(bound)
+                    if matches!(&bound.value.kind, PythonValueKind::Unknown(_))
+            )),
+            "{facts:#?}"
+        );
+    }
+
+    #[test]
+    fn dictionary_assignment_through_invalidated_alias_invalidates_assigned_alias() {
+        let facts = evaluate_source("D1 = {'k': 'a'}\nD0 = D1\nD0['m'] = 'x'\nD1['k'] = 'y'\n");
+        assert!(
+            facts.bindings["D0"].alternatives().any(|state| matches!(
+                state,
+                PythonBindingState::Bound(bound)
+                    if matches!(&bound.value.kind, PythonValueKind::Unknown(_))
+            )),
+            "{facts:#?}"
+        );
+    }
+
+    #[test]
+    fn loop_widened_alias_mutation_invalidates_aliased_list() {
+        let facts = evaluate_source(
+            "L0 = []\nL1 = ['a']\nfor ITEM in ITEMS:\n    L0 = L1\nL0.append('b')\n",
+        );
+        assert!(
+            facts.bindings["L1"].alternatives().any(|state| matches!(
+                state,
+                PythonBindingState::Bound(bound)
+                    if matches!(&bound.value.kind, PythonValueKind::Unknown(_))
+            )),
+            "{facts:#?}"
+        );
     }
 
     #[test]

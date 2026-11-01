@@ -213,6 +213,20 @@ impl PythonValue {
         }
     }
 
+    /// An unknown that may still name or reach the mutable objects `sites`
+    /// describes, used when an exact alias of those objects is invalidated.
+    pub(super) fn unknown_reaching(
+        cause: PythonUnknownCause,
+        origin: Origin,
+        sites: ReachableAllocationSites,
+    ) -> Self {
+        let mut value = Self::unknown(cause, Some(origin));
+        if let PythonValueKind::Unknown(unknown) = &mut value.kind {
+            unknown.reachable_sites = sites.into_union();
+        }
+        value
+    }
+
     pub(super) fn string(value: String, origin: Origin) -> Self {
         Self::atomic(PythonValueKind::Str(value), origin)
     }
@@ -463,16 +477,12 @@ impl PythonValue {
         match &self.kind {
             PythonValueKind::List(list) => {
                 for item in list.semantic_items() {
-                    if let PythonSequenceItem::Value(value) = item {
-                        value.collect_reachable_sites(&mut sites);
-                    }
+                    item.collect_reachable_sites(&mut sites);
                 }
             }
             PythonValueKind::Tuple(tuple) => {
                 for item in tuple.semantic_items() {
-                    if let PythonSequenceItem::Value(value) = item {
-                        value.collect_reachable_sites(&mut sites);
-                    }
+                    item.collect_reachable_sites(&mut sites);
                 }
             }
             PythonValueKind::Dict(dict) => {
@@ -482,8 +492,8 @@ impl PythonValue {
                     }
                 }
             }
+            PythonValueKind::Unknown(unknown) => unknown.collect_reachable_sites(&mut sites),
             PythonValueKind::Module(_)
-            | PythonValueKind::Unknown(_)
             | PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
@@ -502,21 +512,17 @@ impl PythonValue {
         match &self.kind {
             PythonValueKind::List(list) => {
                 for item in list.semantic_items() {
-                    if let PythonSequenceItem::Value(value) = item {
-                        value.collect_reachable_sites(sites);
-                    }
+                    item.collect_reachable_sites(sites);
                 }
             }
             PythonValueKind::Tuple(tuple) => {
                 for item in tuple.semantic_items() {
-                    if let PythonSequenceItem::Value(value) = item {
-                        value.collect_reachable_sites(sites);
-                    }
+                    item.collect_reachable_sites(sites);
                 }
             }
             PythonValueKind::Dict(dict) => dict.mapping().collect_reachable_sites(sites),
+            PythonValueKind::Unknown(unknown) => unknown.collect_reachable_sites(sites),
             PythonValueKind::Module(_)
-            | PythonValueKind::Unknown(_)
             | PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
@@ -534,8 +540,8 @@ impl PythonValue {
             PythonValueKind::List(list) => list.allocation_site_occurrences(wanted),
             PythonValueKind::Tuple(tuple) => tuple.allocation_site_occurrences(wanted),
             PythonValueKind::Dict(dict) => dict.mapping().allocation_site_occurrences(wanted),
+            PythonValueKind::Unknown(unknown) => unknown.allocation_site_occurrences(wanted),
             PythonValueKind::Module(_)
-            | PythonValueKind::Unknown(_)
             | PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)
@@ -928,7 +934,7 @@ impl PythonValueKind {
                 existing.merge_semantically_equal(incoming, operation_origin)
             }
             (Self::Unknown(existing), Self::Unknown(incoming)) => {
-                existing.merge_origins(&incoming);
+                existing.merge(&incoming);
                 true
             }
             // Atomic facts and module identity carry no mergeable payload;
@@ -985,6 +991,10 @@ pub(super) enum Iterable<'a> {
 pub(crate) struct PythonUnknown {
     pub(crate) cause: PythonUnknownCause,
     origins: OriginSet,
+    /// Allocation sites of the mutable objects this unknown may name or reach.
+    /// An invalidated alias keeps them so a later mutation through it still
+    /// finds, and invalidates, every other holder of the same objects.
+    reachable_sites: Option<AllocationSites>,
 }
 
 impl StructuralOrd for PythonUnknown {
@@ -992,6 +1002,12 @@ impl StructuralOrd for PythonUnknown {
         self.cause
             .structural_cmp(&other.cause)
             .then_with(|| self.origins.structural_cmp(&other.origins))
+            .then_with(|| match (&self.reachable_sites, &other.reachable_sites) {
+                (None, None) => Ordering::Equal,
+                (None, Some(_)) => Ordering::Less,
+                (Some(_), None) => Ordering::Greater,
+                (Some(left), Some(right)) => left.structural_cmp(right),
+            })
     }
 }
 
@@ -1003,7 +1019,22 @@ impl PythonUnknown {
         Self {
             cause,
             origins: origins.into_iter().collect(),
+            reachable_sites: None,
         }
+    }
+
+    pub(super) fn collect_reachable_sites(&self, sites: &mut ReachableAllocationSites) {
+        if let Some(own) = &self.reachable_sites {
+            sites.push_group(own.clone());
+        }
+    }
+
+    pub(super) fn allocation_site_occurrences(&self, wanted: &ReachableAllocationSites) -> usize {
+        usize::from(
+            self.reachable_sites
+                .as_ref()
+                .is_some_and(|sites| wanted.intersects_group(sites)),
+        )
     }
 
     pub(crate) fn origins(&self) -> impl ExactSizeIterator<Item = Origin> + '_ {
@@ -1018,9 +1049,15 @@ impl PythonUnknown {
         self.origins.insert(origin);
     }
 
-    pub(super) fn merge_origins(&mut self, incoming: &Self) {
+    pub(super) fn merge(&mut self, incoming: &Self) {
         debug_assert_eq!(self.cause, incoming.cause);
         self.origins.extend(incoming.origins.iter());
+        if let Some(incoming) = &incoming.reachable_sites {
+            match &mut self.reachable_sites {
+                Some(existing) => existing.merge(incoming.clone()),
+                None => self.reachable_sites = Some(incoming.clone()),
+            }
+        }
     }
 
     pub(super) fn replace_origins(&mut self, origins: impl IntoIterator<Item = Origin>) {

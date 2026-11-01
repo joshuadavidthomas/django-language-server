@@ -191,7 +191,7 @@ impl PythonDict {
                         .merge_semantically_equal(incoming.value, operation_origin);
                 }
                 (DictItem::UnknownUnpack(existing), DictItem::UnknownUnpack(incoming)) => {
-                    existing.merge_origins(&incoming);
+                    existing.merge(&incoming);
                 }
                 (
                     DictItem::Entry(_) | DictItem::UnknownUnpack(_),
@@ -344,9 +344,12 @@ impl<'a> PythonMapping<'a> {
     /// allocation-site groups. Owner-held so the private log never leaks.
     pub(super) fn collect_reachable_sites(self, sites: &mut ReachableAllocationSites) {
         for item in &self.dict.items {
-            if let DictItem::Entry(entry) = item {
-                entry.key.collect_reachable_sites(sites);
-                entry.value.collect_reachable_sites(sites);
+            match item {
+                DictItem::Entry(entry) => {
+                    entry.key.collect_reachable_sites(sites);
+                    entry.value.collect_reachable_sites(sites);
+                }
+                DictItem::UnknownUnpack(unknown) => unknown.collect_reachable_sites(sites),
             }
         }
     }
@@ -357,12 +360,12 @@ impl<'a> PythonMapping<'a> {
         self.dict
             .items
             .iter()
-            .filter_map(|item| match item {
-                DictItem::Entry(entry) => Some(
+            .map(|item| match item {
+                DictItem::Entry(entry) => {
                     entry.key.allocation_site_occurrences(wanted)
-                        + entry.value.allocation_site_occurrences(wanted),
-                ),
-                DictItem::UnknownUnpack(_) => None,
+                        + entry.value.allocation_site_occurrences(wanted)
+                }
+                DictItem::UnknownUnpack(unknown) => unknown.allocation_site_occurrences(wanted),
             })
             .sum()
     }
