@@ -98,7 +98,15 @@ export class Playground {
 			fixedOverflowWidgets: true
 		});
 		this.#editor = editor;
+		// On a phone, a horizontally scrolled editor hides the start of every line (a tap near the
+		// right edge is enough to scroll it), so narrow screens wrap instead. 768px matches the
+		// sidebar's mobile breakpoint.
+		const narrow = window.matchMedia('(max-width: 767px)');
+		const wrap = () => editor.updateOptions({ wordWrap: narrow.matches ? 'on' : 'off' });
+		wrap();
+		narrow.addEventListener('change', wrap);
 		const disposables = [
+			{ dispose: () => narrow.removeEventListener('change', wrap) },
 			...registerProviders(this.#client, (uri) => this.#ensureModel(uri)),
 			// Go to Definition and peek's "open" land here instead of in a new editor.
 			monaco.editor.registerEditorOpener({

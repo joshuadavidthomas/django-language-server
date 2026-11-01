@@ -9,7 +9,7 @@
 	const playground = getPlayground();
 </script>
 
-<section class="flex h-full min-h-0 flex-col" aria-labelledby="problems-title">
+<section class="@container flex h-full min-h-0 flex-col" aria-labelledby="problems-title">
 	<header class="flex h-9 shrink-0 items-center gap-2 border-b px-4">
 		<h2 id="problems-title" class="text-sm/6 font-semibold">Problems</h2>
 		<Badge variant="secondary" class="tabular-nums">{playground.problems.length}</Badge>
@@ -21,29 +21,39 @@
 					{@const { line, character } = problem.diagnostic.range.start}
 					{@const severity = problem.diagnostic.severity ?? 1}
 					<li>
+						<!-- Narrow panels put the message first and let it wrap, with the code and file below. -->
 						<button
 							type="button"
-							class="flex w-full items-center gap-2 px-4 py-1 text-left text-sm/6 hover:bg-muted"
+							class="flex w-full items-start gap-2 px-4 py-1 text-left text-sm/6 hover:bg-muted"
+							title="{problem.path}:{line + 1}:{character + 1}"
 							onclick={() => playground.reveal(problem)}
 						>
 							{#if severity === 1}
-								<CircleX class="size-4 shrink-0 text-destructive" aria-label="Error" />
+								<CircleX class="mt-1 size-4 shrink-0 text-destructive" aria-label="Error" />
 							{:else if severity === 2}
 								<TriangleAlert
-									class="size-4 shrink-0 text-amber-600 dark:text-amber-400"
+									class="mt-1 size-4 shrink-0 text-amber-600 dark:text-amber-400"
 									aria-label="Warning"
 								/>
 							{:else}
-								<Info class="size-4 shrink-0 text-muted-foreground" aria-label="Info" />
+								<Info class="mt-1 size-4 shrink-0 text-muted-foreground" aria-label="Info" />
 							{/if}
-							<span class="truncate">{problem.diagnostic.message}</span>
-							{#if problem.diagnostic.code !== undefined}
-								<span class="shrink-0 font-mono text-xs text-muted-foreground">
-									{problem.diagnostic.code}
+							<span
+								class="flex min-w-0 flex-1 flex-col @2xl:flex-row @2xl:items-baseline @2xl:gap-2"
+							>
+								<span class="break-words @2xl:truncate">{problem.diagnostic.message}</span>
+								<span
+									class="flex min-w-0 items-baseline gap-2 font-mono text-xs/5 text-muted-foreground @2xl:contents"
+								>
+									{#if problem.diagnostic.code !== undefined}
+										<span class="shrink-0">{problem.diagnostic.code}</span>
+									{/if}
+									<span class="truncate @2xl:ml-auto @2xl:shrink-0">
+										<span class="@2xl:hidden">{problem.path.split('/').at(-1)}</span><span
+											class="@max-2xl:hidden">{problem.path}</span
+										>:{line + 1}:{character + 1}
+									</span>
 								</span>
-							{/if}
-							<span class="ml-auto shrink-0 truncate font-mono text-xs text-muted-foreground">
-								{problem.path}:{line + 1}:{character + 1}
 							</span>
 						</button>
 					</li>

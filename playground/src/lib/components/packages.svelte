@@ -24,15 +24,16 @@
 	<Sidebar.GroupLabel>Packages</Sidebar.GroupLabel>
 	<Sidebar.GroupContent class="flex flex-col gap-2">
 		<form class="flex gap-1 px-1" onsubmit={submit}>
+			<!-- 16px on phones: iOS zooms into any smaller input it focuses. -->
 			<Sidebar.Input
 				bind:value={requirement}
 				oninput={() => (error = null)}
-				placeholder="django-allauth==65.3.0"
+				placeholder="django-allauth"
 				aria-label="PyPI requirement"
 				aria-invalid={error ? true : undefined}
 				autocomplete="off"
 				spellcheck={false}
-				class="font-mono text-xs"
+				class="font-mono md:text-xs"
 			/>
 			<Button type="submit" variant="outline" size="icon-sm" aria-label="Install package">
 				<Plus />

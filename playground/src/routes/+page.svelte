@@ -29,67 +29,69 @@
 	});
 </script>
 
-<Sidebar.Provider class="isolate h-svh" style="--header-height: calc(var(--spacing) * 12);">
+<Sidebar.Provider
+	class="isolate h-svh"
+	style="--header-height: calc(var(--spacing) * 12); --sidebar-width: 18rem;"
+>
 	<FileTree onNewFile={() => (creating = true)} />
 	<Sidebar.Inset class="min-h-0 min-w-0">
 		<header class="flex h-(--header-height) shrink-0 items-center gap-2 border-b px-4">
 			<Sidebar.Trigger class="mr-1 -ml-1" />
-			<div class="flex min-w-0 items-center gap-2">
+			<!-- Only the file name and the status give way on narrow screens; the buttons never shrink. -->
+			<div class="mr-auto flex min-w-0 items-center gap-2">
 				<h1 class="truncate font-mono text-sm/6" data-testid="open-file">{playground.label}</h1>
 				{#if playground.readOnlyPath}
 					<Badge variant="secondary">{readOnlySource(playground.readOnlyPath)} · read-only</Badge>
 				{/if}
 			</div>
-			<div class="ml-auto flex min-w-0 items-center gap-2">
-				<p
-					class={[
-						'truncate text-sm/6 max-md:hidden',
-						playground.status.state === 'failed' || playground.discoveryError
-							? 'text-destructive'
-							: 'text-muted-foreground'
-					]}
-					role="status"
-					data-testid="status"
-				>
-					{#if playground.status.state === 'starting'}
-						<LoaderCircle class="mr-1 inline size-4 animate-spin align-[-3px]" />Starting djls…
-					{:else if playground.status.state === 'failed'}
-						{playground.status.message}
-					{:else if playground.discoveryError}
-						Django Discovery failed: {playground.discoveryError}
-					{:else}
-						{summary}
-					{/if}
-				</p>
-				<AlertDialog.Root bind:open={resetting}>
-					<AlertDialog.Trigger>
-						{#snippet child({ props })}
-							<Button {...props} variant="outline" size="sm"><RotateCcw />Reset</Button>
-						{/snippet}
-					</AlertDialog.Trigger>
-					<AlertDialog.Content>
-						<AlertDialog.Header>
-							<AlertDialog.Title>Restore the example project?</AlertDialog.Title>
-							<AlertDialog.Description>
-								Your edits and new files are discarded.
-							</AlertDialog.Description>
-						</AlertDialog.Header>
-						<AlertDialog.Footer>
-							<AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
-							<AlertDialog.Action
-								variant="destructive"
-								onclick={() => {
-									resetting = false;
-									void playground.reset();
-								}}
-							>
-								Reset
-							</AlertDialog.Action>
-						</AlertDialog.Footer>
-					</AlertDialog.Content>
-				</AlertDialog.Root>
-				<ModeToggle />
-			</div>
+			<p
+				class={[
+					'min-w-0 shrink-[2] truncate text-sm/6 max-lg:hidden',
+					playground.status.state === 'failed' || playground.discoveryError
+						? 'text-destructive'
+						: 'text-muted-foreground'
+				]}
+				role="status"
+				data-testid="status"
+			>
+				{#if playground.status.state === 'starting'}
+					<LoaderCircle class="mr-1 inline size-4 animate-spin align-[-3px]" />Starting djls…
+				{:else if playground.status.state === 'failed'}
+					{playground.status.message}
+				{:else if playground.discoveryError}
+					Django Discovery failed: {playground.discoveryError}
+				{:else}
+					{summary}
+				{/if}
+			</p>
+			<AlertDialog.Root bind:open={resetting}>
+				<AlertDialog.Trigger>
+					{#snippet child({ props })}
+						<Button {...props} variant="outline" size="sm"><RotateCcw />Reset</Button>
+					{/snippet}
+				</AlertDialog.Trigger>
+				<AlertDialog.Content>
+					<AlertDialog.Header>
+						<AlertDialog.Title>Restore the example project?</AlertDialog.Title>
+						<AlertDialog.Description>
+							Your edits and new files are discarded.
+						</AlertDialog.Description>
+					</AlertDialog.Header>
+					<AlertDialog.Footer>
+						<AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
+						<AlertDialog.Action
+							variant="destructive"
+							onclick={() => {
+								resetting = false;
+								void playground.reset();
+							}}
+						>
+							Reset
+						</AlertDialog.Action>
+					</AlertDialog.Footer>
+				</AlertDialog.Content>
+			</AlertDialog.Root>
+			<ModeToggle />
 		</header>
 		<Resizable.PaneGroup direction="vertical" class="min-h-0 flex-1">
 			<Resizable.Pane defaultSize={78} minSize={30}>
