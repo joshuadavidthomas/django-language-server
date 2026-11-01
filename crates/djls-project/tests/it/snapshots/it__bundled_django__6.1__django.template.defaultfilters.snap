@@ -1,0 +1,237 @@
+---
+source: crates/djls-project/tests/it/bundled_django.rs
+expression: "sorted_snapshot(&bundle).expect(\"extraction snapshot should serialize\")"
+---
+definitions:
+  "filter::add":
+    kind: filter
+    has_doc: false
+  "filter::addslashes":
+    kind: filter
+    has_doc: false
+  "filter::capfirst":
+    kind: filter
+    has_doc: false
+  "filter::center":
+    kind: filter
+    has_doc: false
+  "filter::cut":
+    kind: filter
+    has_doc: false
+  "filter::date":
+    kind: filter
+    has_doc: false
+  "filter::default":
+    kind: filter
+    has_doc: false
+  "filter::default_if_none":
+    kind: filter
+    has_doc: false
+  "filter::dictsort":
+    kind: filter
+    has_doc: false
+  "filter::dictsortreversed":
+    kind: filter
+    has_doc: false
+  "filter::divisibleby":
+    kind: filter
+    has_doc: false
+  "filter::escape":
+    kind: filter
+    has_doc: false
+  "filter::escapejs":
+    kind: filter
+    has_doc: false
+  "filter::escapeseq":
+    kind: filter
+    has_doc: false
+  "filter::filesizeformat":
+    kind: filter
+    has_doc: false
+  "filter::first":
+    kind: filter
+    has_doc: false
+  "filter::floatformat":
+    kind: filter
+    has_doc: false
+  "filter::force_escape":
+    kind: filter
+    has_doc: false
+  "filter::get_digit":
+    kind: filter
+    has_doc: false
+  "filter::iriencode":
+    kind: filter
+    has_doc: false
+  "filter::join":
+    kind: filter
+    has_doc: false
+  "filter::json_script":
+    kind: filter
+    has_doc: false
+  "filter::last":
+    kind: filter
+    has_doc: false
+  "filter::length":
+    kind: filter
+    has_doc: false
+  "filter::linebreaks":
+    kind: filter
+    has_doc: false
+  "filter::linebreaksbr":
+    kind: filter
+    has_doc: false
+  "filter::linenumbers":
+    kind: filter
+    has_doc: false
+  "filter::ljust":
+    kind: filter
+    has_doc: false
+  "filter::lower":
+    kind: filter
+    has_doc: false
+  "filter::make_list":
+    kind: filter
+    has_doc: false
+  "filter::phone2numeric":
+    kind: filter
+    has_doc: false
+  "filter::pluralize":
+    kind: filter
+    has_doc: false
+  "filter::pprint":
+    kind: filter
+    has_doc: false
+  "filter::random":
+    kind: filter
+    has_doc: false
+  "filter::rjust":
+    kind: filter
+    has_doc: false
+  "filter::safe":
+    kind: filter
+    has_doc: false
+  "filter::safeseq":
+    kind: filter
+    has_doc: false
+  "filter::slice":
+    kind: filter
+    has_doc: false
+  "filter::slugify":
+    kind: filter
+    has_doc: false
+  "filter::stringformat":
+    kind: filter
+    has_doc: false
+  "filter::striptags":
+    kind: filter
+    has_doc: false
+  "filter::time":
+    kind: filter
+    has_doc: false
+  "filter::timesince":
+    kind: filter
+    has_doc: false
+  "filter::timeuntil":
+    kind: filter
+    has_doc: false
+  "filter::title":
+    kind: filter
+    has_doc: false
+  "filter::truncatechars":
+    kind: filter
+    has_doc: false
+  "filter::truncatechars_html":
+    kind: filter
+    has_doc: false
+  "filter::truncatewords":
+    kind: filter
+    has_doc: false
+  "filter::truncatewords_html":
+    kind: filter
+    has_doc: false
+  "filter::unordered_list":
+    kind: filter
+    has_doc: false
+  "filter::upper":
+    kind: filter
+    has_doc: false
+  "filter::urlencode":
+    kind: filter
+    has_doc: false
+  "filter::urlize":
+    kind: filter
+    has_doc: false
+  "filter::urlizetrunc":
+    kind: filter
+    has_doc: false
+  "filter::wordcount":
+    kind: filter
+    has_doc: false
+  "filter::wordwrap":
+    kind: filter
+    has_doc: false
+  "filter::yesno":
+    kind: filter
+    has_doc: false
+symbols_are_unobserved: false
+tag_rules: {}
+filter_arities:
+  "django.template.defaultfilters::filter::add": required_argument
+  "django.template.defaultfilters::filter::addslashes": no_argument
+  "django.template.defaultfilters::filter::capfirst": no_argument
+  "django.template.defaultfilters::filter::center": required_argument
+  "django.template.defaultfilters::filter::cut": required_argument
+  "django.template.defaultfilters::filter::date": optional_argument
+  "django.template.defaultfilters::filter::default": required_argument
+  "django.template.defaultfilters::filter::default_if_none": required_argument
+  "django.template.defaultfilters::filter::dictsort": required_argument
+  "django.template.defaultfilters::filter::dictsortreversed": required_argument
+  "django.template.defaultfilters::filter::divisibleby": required_argument
+  "django.template.defaultfilters::filter::escape": no_argument
+  "django.template.defaultfilters::filter::escapejs": no_argument
+  "django.template.defaultfilters::filter::escapeseq": no_argument
+  "django.template.defaultfilters::filter::filesizeformat": no_argument
+  "django.template.defaultfilters::filter::first": no_argument
+  "django.template.defaultfilters::filter::floatformat": optional_argument
+  "django.template.defaultfilters::filter::force_escape": no_argument
+  "django.template.defaultfilters::filter::get_digit": required_argument
+  "django.template.defaultfilters::filter::iriencode": no_argument
+  "django.template.defaultfilters::filter::join": required_argument
+  "django.template.defaultfilters::filter::json_script": optional_argument
+  "django.template.defaultfilters::filter::last": no_argument
+  "django.template.defaultfilters::filter::length": no_argument
+  "django.template.defaultfilters::filter::linebreaks": optional_argument
+  "django.template.defaultfilters::filter::linebreaksbr": optional_argument
+  "django.template.defaultfilters::filter::linenumbers": optional_argument
+  "django.template.defaultfilters::filter::ljust": required_argument
+  "django.template.defaultfilters::filter::lower": no_argument
+  "django.template.defaultfilters::filter::make_list": no_argument
+  "django.template.defaultfilters::filter::phone2numeric": no_argument
+  "django.template.defaultfilters::filter::pluralize": optional_argument
+  "django.template.defaultfilters::filter::pprint": no_argument
+  "django.template.defaultfilters::filter::random": no_argument
+  "django.template.defaultfilters::filter::rjust": required_argument
+  "django.template.defaultfilters::filter::safe": no_argument
+  "django.template.defaultfilters::filter::safeseq": no_argument
+  "django.template.defaultfilters::filter::slice": required_argument
+  "django.template.defaultfilters::filter::slugify": no_argument
+  "django.template.defaultfilters::filter::stringformat": required_argument
+  "django.template.defaultfilters::filter::striptags": no_argument
+  "django.template.defaultfilters::filter::time": optional_argument
+  "django.template.defaultfilters::filter::timesince": optional_argument
+  "django.template.defaultfilters::filter::timeuntil": optional_argument
+  "django.template.defaultfilters::filter::title": no_argument
+  "django.template.defaultfilters::filter::truncatechars": required_argument
+  "django.template.defaultfilters::filter::truncatechars_html": required_argument
+  "django.template.defaultfilters::filter::truncatewords": required_argument
+  "django.template.defaultfilters::filter::truncatewords_html": required_argument
+  "django.template.defaultfilters::filter::unordered_list": optional_argument
+  "django.template.defaultfilters::filter::upper": no_argument
+  "django.template.defaultfilters::filter::urlencode": optional_argument
+  "django.template.defaultfilters::filter::urlize": optional_argument
+  "django.template.defaultfilters::filter::urlizetrunc": required_argument
+  "django.template.defaultfilters::filter::wordcount": no_argument
+  "django.template.defaultfilters::filter::wordwrap": required_argument
+  "django.template.defaultfilters::filter::yesno": optional_argument
+block_specs: {}

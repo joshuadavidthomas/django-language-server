@@ -1,0 +1,426 @@
+use std::collections::BTreeMap;
+use std::io;
+
+use camino::Utf8Path;
+use djls_conf::DiagnosticSeverity;
+use djls_conf::DiagnosticsConfig;
+use djls_ide::code_actions;
+use djls_ide::collect_diagnostics;
+use djls_source::LineCol;
+use djls_source::LineIndex;
+use djls_source::PositionEncoding;
+use djls_source::Span;
+use djls_testing::OsTestDatabase;
+use djls_testing::ProjectFixture;
+use djls_testing::ProjectSettings;
+use djls_testing::TestDatabase;
+use tower_lsp_server::ls_types;
+
+const TEMPLATE_PATH: &str = "/test/project/templates/template.html";
+
+type TestResult<T> = Result<T, Box<dyn std::error::Error>>;
+
+fn db_with_source(source: &str) -> TestResult<OsTestDatabase> {
+    db_with_source_and_config(source, DiagnosticsConfig::default())
+}
+
+fn db_with_source_and_config(
+    source: &str,
+    diagnostics_config: DiagnosticsConfig,
+) -> TestResult<OsTestDatabase> {
+    let mut db = OsTestDatabase::default().with_diagnostics_config(diagnostics_config);
+    ProjectFixture::new("/test/project")
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".into()],
+            libraries: BTreeMap::from([
+                ("i18n".into(), "i18n_tags".into()),
+                ("humanize".into(), "humanize_tags".into()),
+                ("static".into(), "static_tags".into()),
+            ]),
+            ..ProjectSettings::default()
+        })
+        .file("/test/project/i18n_tags.py", "from django import template\nregister = template.Library()\n@register.simple_tag\ndef trans(value): pass\n")
+        .file("/test/project/humanize_tags.py", "from django import template\nregister = template.Library()\n@register.filter\ndef intcomma(value): pass\n")
+        .file("/test/project/static_tags.py", "from django import template\nregister = template.Library()\n")
+        .file(TEMPLATE_PATH, source)
+        .install(&mut db)?;
+    Ok(db)
+}
+
+fn ambiguous_db_with_source(source: &str) -> TestResult<OsTestDatabase> {
+    let settings = ProjectSettings {
+        dirs: vec!["/test/project/templates".into()],
+        libraries: BTreeMap::from([
+            ("alpha".to_string(), "alpha_tags".to_string()),
+            ("beta".to_string(), "beta_tags".to_string()),
+        ]),
+        ..ProjectSettings::default()
+    };
+    let mut db = OsTestDatabase::default();
+    let library = "from django import template\nregister = template.Library()\n@register.tag(name='ambiguous_tag')\ndef ambiguous_tag(parser, token): pass\n@register.filter(name='ambiguous_filter')\ndef ambiguous_filter(value): pass\n";
+    ProjectFixture::new("/test/project")
+        .settings(&settings)
+        .file("/test/project/alpha_tags.py", library)
+        .file("/test/project/beta_tags.py", library)
+        .file(TEMPLATE_PATH, source)
+        .install(&mut db)?;
+    Ok(db)
+}
+
+fn file(db: &dyn djls_semantic::Db) -> Result<djls_source::File, djls_source::FileError> {
+    djls_source::path_to_file(db, Utf8Path::new(TEMPLATE_PATH))
+}
+
+fn template_uri() -> TestResult<ls_types::Uri> {
+    Ok(
+        ls_types::Uri::from_file_path(Utf8Path::new(TEMPLATE_PATH).as_std_path())
+            .ok_or_else(|| io::Error::other("template path should convert to a file URI"))?,
+    )
+}
+
+fn request_at(source: &str, needle: &str) -> TestResult<Span> {
+    let offset = source
+        .find(needle)
+        .ok_or_else(|| io::Error::other(format!("test source should contain {needle:?}")))?;
+    Ok(Span::new(u32::try_from(offset)?, 0))
+}
+
+fn collect_actions(
+    db: &dyn djls_semantic::Db,
+    range: TestResult<Span>,
+) -> TestResult<Vec<ls_types::CodeAction>> {
+    code_actions(db, file(db)?, range?, PositionEncoding::Utf16)
+        .ok_or_else(|| io::Error::other("template file should return a code action response"))?
+        .into_iter()
+        .map(|action| match action {
+            ls_types::CodeActionOrCommand::CodeAction(action) => Ok(action),
+            ls_types::CodeActionOrCommand::Command(_) => {
+                Err(io::Error::other("expected code action").into())
+            }
+        })
+        .collect()
+}
+
+fn only_action(actions: Vec<ls_types::CodeAction>) -> TestResult<ls_types::CodeAction> {
+    let action_count = actions.len();
+    let [action] = actions.try_into().map_err(|_actions: Vec<_>| {
+        io::Error::other(format!("expected one action, got {action_count}"))
+    })?;
+    Ok(action)
+}
+
+fn only_edit(action: &ls_types::CodeAction) -> TestResult<&ls_types::TextEdit> {
+    let edit = action
+        .edit
+        .as_ref()
+        .ok_or_else(|| io::Error::other("code action should have an edit"))?;
+    let changes = edit
+        .changes
+        .as_ref()
+        .ok_or_else(|| io::Error::other("code action should use WorkspaceEdit.changes"))?;
+    let edits = changes
+        .get(&template_uri()?)
+        .ok_or_else(|| io::Error::other("workspace edit should target the template URI"))?;
+    let edit_count = edits.len();
+    let [edit]: &[ls_types::TextEdit; 1] = edits.as_slice().try_into().map_err(|error| {
+        io::Error::other(format!("expected one text edit, got {edit_count}: {error}"))
+    })?;
+    Ok(edit)
+}
+
+fn apply_edit(source: &str, edit: &ls_types::TextEdit) -> String {
+    let line_index = LineIndex::from(source);
+    let start = line_index
+        .offset(
+            source,
+            LineCol::new(edit.range.start.line, edit.range.start.character),
+            PositionEncoding::Utf16,
+        )
+        .get() as usize;
+    let end = line_index
+        .offset(
+            source,
+            LineCol::new(edit.range.end.line, edit.range.end.character),
+            PositionEncoding::Utf16,
+        )
+        .get() as usize;
+
+    let mut updated = String::with_capacity(source.len() + edit.new_text.len());
+    updated.push_str(&source[..start]);
+    updated.push_str(&edit.new_text);
+    updated.push_str(&source[end..]);
+    updated
+}
+
+fn diagnostic_codes(db: &OsTestDatabase) -> TestResult<Vec<String>> {
+    Ok(collect_diagnostics(db, file(db)?, PositionEncoding::Utf8)
+        .ok_or_else(|| io::Error::other("template file should return diagnostics"))?
+        .into_iter()
+        .filter_map(|diagnostic| match diagnostic.code {
+            Some(ls_types::NumberOrString::String(code)) => Some(code),
+            Some(ls_types::NumberOrString::Number(code)) => Some(code.to_string()),
+            None => None,
+        })
+        .collect())
+}
+
+#[test]
+fn unloaded_tag_action_inserts_load_after_import_header() {
+    let source = "{% extends \"base.html\" %}\n{% load static %}\n{% trans \"Hi\" %}\n";
+    let db = db_with_source(source).expect("validation fixture should build");
+    let actions = collect_actions(&db, request_at(source, "trans"))
+        .expect("unloaded tag should produce a code action response");
+    let action = only_action(actions).expect("unloaded tag should produce one action");
+    let edit = only_edit(&action).expect("unloaded tag action should contain one edit");
+    let edited_db =
+        db_with_source(&apply_edit(source, edit)).expect("edited validation fixture should build");
+
+    assert_eq!(action.title, "Add '{% load i18n %}'");
+    assert_eq!(action.kind, Some(ls_types::CodeActionKind::QUICKFIX));
+    assert_eq!(action.is_preferred, Some(true));
+    assert_eq!(edit.range.start, ls_types::Position::new(2, 0));
+    assert_eq!(edit.range.end, ls_types::Position::new(2, 0));
+    assert_eq!(edit.new_text, "{% load i18n %}\n");
+    assert_eq!(
+        diagnostic_codes(&edited_db).expect("edited template diagnostics should be collected"),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
+fn unloaded_tag_action_inserts_load_at_top_without_header() {
+    let source = "{% trans \"Hi\" %}\n";
+    let db = db_with_source(source).expect("validation fixture should build");
+    let actions = collect_actions(&db, request_at(source, "trans"))
+        .expect("unloaded tag should produce a code action response");
+    let action = only_action(actions).expect("unloaded tag should produce one action");
+    let edit = only_edit(&action).expect("unloaded tag action should contain one edit");
+    let edited_db =
+        db_with_source(&apply_edit(source, edit)).expect("edited validation fixture should build");
+
+    assert_eq!(edit.range.start, ls_types::Position::new(0, 0));
+    assert_eq!(edit.range.end, ls_types::Position::new(0, 0));
+    assert_eq!(edit.new_text, "{% load i18n %}\n");
+    assert_eq!(
+        diagnostic_codes(&edited_db).expect("edited template diagnostics should be collected"),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
+fn unloaded_filter_action_inserts_required_library() {
+    let source = "{{ value|intcomma }}\n";
+    let db = db_with_source(source).expect("validation fixture should build");
+    let actions = collect_actions(&db, request_at(source, "intcomma"))
+        .expect("unloaded filter should produce a code action response");
+    let action = only_action(actions).expect("unloaded filter should produce one action");
+    let edit = only_edit(&action).expect("unloaded filter action should contain one edit");
+    let edited_db =
+        db_with_source(&apply_edit(source, edit)).expect("edited validation fixture should build");
+
+    assert_eq!(action.title, "Add '{% load humanize %}'");
+    assert_eq!(edit.range.start, ls_types::Position::new(0, 0));
+    assert_eq!(edit.range.end, ls_types::Position::new(0, 0));
+    assert_eq!(edit.new_text, "{% load humanize %}\n");
+    assert_eq!(
+        diagnostic_codes(&edited_db).expect("edited template diagnostics should be collected"),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
+fn insert_load_action_preserves_crlf_line_endings() {
+    let source = "{% extends \"base.html\" %}\r\n{% trans \"Hi\" %}\r\n";
+    let db = db_with_source(source).expect("validation fixture should build");
+    let actions = collect_actions(&db, request_at(source, "trans"))
+        .expect("unloaded tag should produce a code action response");
+    let action = only_action(actions).expect("unloaded tag should produce one action");
+    let edit = only_edit(&action).expect("unloaded tag action should contain one edit");
+    let edited_db =
+        db_with_source(&apply_edit(source, edit)).expect("edited validation fixture should build");
+
+    assert_eq!(edit.range.start, ls_types::Position::new(1, 0));
+    assert_eq!(edit.range.end, ls_types::Position::new(1, 0));
+    assert_eq!(edit.new_text, "{% load i18n %}\r\n");
+    assert_eq!(
+        diagnostic_codes(&edited_db).expect("edited template diagnostics should be collected"),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
+fn ambiguous_unloaded_symbols_offer_each_library_in_order() {
+    for (source, symbol) in [
+        ("{% ambiguous_tag %}\n", "ambiguous_tag"),
+        ("{{ value|ambiguous_filter }}\n", "ambiguous_filter"),
+    ] {
+        let db = ambiguous_db_with_source(source).expect("validation fixture should build");
+        let actions = collect_actions(&db, request_at(source, symbol))
+            .expect("ambiguous unloaded tag should produce a code action response");
+
+        assert_eq!(actions.len(), 2);
+        assert_eq!(actions[0].title, "Add '{% load alpha %}'");
+        assert_eq!(actions[1].title, "Add '{% load beta %}'");
+        assert_eq!(actions[0].is_preferred, None);
+        assert_eq!(actions[1].is_preferred, None);
+
+        for action in actions {
+            let edit = only_edit(&action).expect("unloaded tag action should contain one edit");
+            let edited_db = ambiguous_db_with_source(&apply_edit(source, edit))
+                .expect("edited validation fixture should build");
+            assert_eq!(edit.range.start, ls_types::Position::new(0, 0));
+            assert_eq!(edit.range.end, ls_types::Position::new(0, 0));
+            assert_eq!(
+                diagnostic_codes(&edited_db)
+                    .expect("edited template diagnostics should be collected"),
+                Vec::<String>::new()
+            );
+        }
+    }
+}
+
+#[test]
+fn unmatched_block_name_action_renames_closing_block() {
+    for (source, cursor, end_column) in [
+        ("{% block content %}\n{% endblock wrong %}\n", "wrong", 17),
+        (
+            "{% block content %}\n{% endblock content extra %}\n",
+            "extra",
+            25,
+        ),
+    ] {
+        let db = db_with_source(source).expect("validation fixture should build");
+        let actions = collect_actions(&db, request_at(source, cursor))
+            .expect("unmatched block should produce a code action response");
+        let action = only_action(actions).expect("unmatched block should produce one action");
+        let edit = only_edit(&action).expect("block rename action should contain one edit");
+        let edited_db = db_with_source(&apply_edit(source, edit))
+            .expect("edited validation fixture should build");
+
+        assert_eq!(action.title, "Rename closing block to 'content'");
+        assert_eq!(action.kind, Some(ls_types::CodeActionKind::QUICKFIX));
+        assert_eq!(action.is_preferred, Some(true));
+        assert_eq!(edit.range.start, ls_types::Position::new(1, 12));
+        assert_eq!(edit.range.end, ls_types::Position::new(1, end_column));
+        assert_eq!(edit.new_text, "content");
+        assert_eq!(
+            diagnostic_codes(&edited_db).expect("edited template diagnostics should be collected"),
+            Vec::<String>::new()
+        );
+    }
+}
+
+#[test]
+fn unnamed_closing_block_returns_no_rename_action() {
+    let source = "{% block content %}\n{% endblock %}\n";
+    let db = db_with_source(source).expect("validation fixture should build");
+
+    let actions = collect_actions(&db, request_at(source, "endblock"))
+        .expect("unnamed closing block should return a code action response");
+
+    assert!(actions.is_empty());
+}
+
+#[test]
+fn non_intersecting_range_returns_no_actions() {
+    let source = "{% trans \"Hi\" %}\nbody\n";
+    let db = db_with_source(source).expect("validation fixture should build");
+
+    let actions = collect_actions(&db, request_at(source, "body"))
+        .expect("non-intersecting range should return a code action response");
+
+    assert!(actions.is_empty());
+}
+
+#[test]
+fn severity_off_suppresses_diagnostic_and_code_action() {
+    let source = "{% trans \"Hi\" %}\n";
+    let control = db_with_source(source).expect("default fixture should build");
+    assert!(
+        diagnostic_codes(&control)
+            .expect("control diagnostics")
+            .contains(&"S109".into())
+    );
+    assert_eq!(
+        collect_actions(&control, request_at(source, "trans"))
+            .expect("control actions")
+            .len(),
+        1
+    );
+    let mut config = DiagnosticsConfig::default();
+    config.set_severity("S109", DiagnosticSeverity::Off);
+    let db = db_with_source_and_config(source, config)
+        .expect("validation fixture with custom diagnostics should build");
+
+    let file = file(&db).expect("template fixture file should exist");
+    let diagnostics = collect_diagnostics(&db, file, PositionEncoding::Utf8)
+        .expect("template should return diagnostics");
+    let actions = collect_actions(&db, request_at(source, "trans"))
+        .expect("disabled diagnostic should return a code action response");
+
+    assert!(diagnostics.is_empty());
+    assert!(actions.is_empty());
+}
+
+#[test]
+fn unreadable_library_action_reports_resolved_module_and_first_statement() {
+    let source = "{% load open %}\n";
+    let library_path = "/test/project/open_tags.py";
+    let mut db = TestDatabase::new();
+    ProjectFixture::new("/test/project")
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".into()],
+            libraries: BTreeMap::from([("open".into(), "open_tags".into())]),
+            ..ProjectSettings::default()
+        })
+        .file(
+            library_path,
+            concat!(
+                "from django import template\n",
+                "register = template.Library()\n",
+                "def other_tag(context): pass\n",
+                "register.simple_tag(takes_context=True)(globals()['other_tag'])\n",
+            ),
+        )
+        .file(TEMPLATE_PATH, source)
+        .install(&mut db)
+        .expect("unreadable-library fixture should install");
+
+    let action = only_action(
+        collect_actions(&db, request_at(source, "open"))
+            .expect("unreadable library should produce a code action response"),
+    )
+    .expect("unreadable library should produce one action");
+    let command = action
+        .command
+        .as_ref()
+        .expect("unreadable-library action should contain a command");
+    let arguments = command
+        .arguments
+        .as_deref()
+        .expect("report command should contain arguments");
+    let registration_uri = ls_types::Uri::from_file_path(Utf8Path::new(library_path).as_std_path())
+        .expect("registration path should convert to a file URI");
+
+    assert_eq!(
+        action.title,
+        "Report unreadable registration to django-language-server"
+    );
+    assert_eq!(action.kind, Some(ls_types::CodeActionKind::QUICKFIX));
+    assert!(action.edit.is_none());
+    assert_eq!(
+        command.command,
+        djls_ide::REPORT_UNREADABLE_REGISTRATION_COMMAND
+    );
+    assert_eq!(
+        arguments,
+        [djls_ide::ReportUnreadableRegistrationParams {
+            module: "open_tags".to_string(),
+            file: registration_uri,
+            line: 4,
+            shape: "the registered name cannot be resolved".to_string(),
+            count: 1,
+        }
+        .into_lsp_value()]
+    );
+}

@@ -120,7 +120,6 @@ fn render_validation_scenario(
     default_settings: &str,
     applied_settings: &mut String,
 ) -> anyhow::Result<String> {
-    let primary = scenario.primary_file()?;
     let python_files = scenario
         .files
         .iter()
@@ -139,8 +138,6 @@ fn render_validation_scenario(
                 .map(|path| (path, file.source.as_str()))
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let primary_database_path =
-        djls_source::safe_join(Utf8Path::new(VALIDATION_TEMPLATE_ROOT), &primary.path)?;
     for (path, source) in &python_files {
         db.add_file(path.as_str(), source)?;
     }
@@ -153,15 +150,29 @@ fn render_validation_scenario(
         effective_settings.clone_into(applied_settings);
     }
 
-    let rendered = snapshot_validate_files(
-        db,
-        primary_database_path.as_str(),
-        primary.path.as_str(),
-        primary.source.as_str(),
-        template_files
+    let rendered = (|| -> anyhow::Result<String> {
+        let mut snapshots = Vec::new();
+        for file in scenario
+            .files
             .iter()
-            .map(|(path, source)| (path.as_str(), *source)),
-    );
+            .filter(|file| file.kind == ScenarioFileKind::Template)
+        {
+            let path = djls_source::safe_join(Utf8Path::new(VALIDATION_TEMPLATE_ROOT), &file.path)?;
+            let snapshot = snapshot_validate_files(
+                db,
+                path.as_str(),
+                file.path.as_str(),
+                file.source.as_str(),
+                template_files
+                    .iter()
+                    .map(|(path, source)| (path.as_str(), *source)),
+            )?;
+            if !snapshot.trim().is_empty() {
+                snapshots.push(snapshot);
+            }
+        }
+        Ok(snapshots.join("\n"))
+    })();
     for (path, _) in &template_files {
         db.remove_file(path.as_str())?;
     }

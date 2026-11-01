@@ -6,22 +6,10 @@ use djls_source::Db as SourceDb;
 use djls_source::File;
 use djls_source::Span;
 pub use python_evaluation::PythonBindingAlternativeView;
-pub use python_evaluation::PythonBindingView;
 pub use python_evaluation::PythonBoundValueView;
-pub use python_evaluation::PythonDictItemView;
-pub use python_evaluation::PythonFileReadErrorView;
-pub use python_evaluation::PythonImportNameErrorView;
 pub use python_evaluation::PythonImportOutcomeView;
-pub use python_evaluation::PythonIntrinsicView;
 pub use python_evaluation::PythonModuleEvaluationError;
 pub use python_evaluation::PythonModuleEvaluationView;
-pub use python_evaluation::PythonModuleView;
-pub use python_evaluation::PythonMutationOperationView;
-pub use python_evaluation::PythonMutationPathSegmentView;
-pub use python_evaluation::PythonMutationView;
-pub use python_evaluation::PythonSequenceItemView;
-pub use python_evaluation::PythonUnknownCauseView;
-pub use python_evaluation::PythonUnknownView;
 pub use python_evaluation::PythonValueKindView;
 pub use python_evaluation::PythonValueView;
 pub use python_evaluation::python_module_evaluation;
@@ -39,6 +27,10 @@ use crate::models::ClassId;
 use crate::models::InvalidAncestryReason;
 use crate::models::ModelGraph;
 use crate::models::ModelId;
+use crate::models::ModelKind;
+use crate::models::RelationTarget;
+use crate::models::RelationTargetResolution;
+use crate::models::RelationTargetUnresolvedReason;
 use crate::models::extract_models;
 pub use crate::models::model_modules;
 use crate::models::resolve_local_model_graph;
@@ -337,6 +329,138 @@ pub fn model_relation_locations(
                 .collect()
         })
         .unwrap_or_default()
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum ModelRelationTargetView<'a> {
+    SelfRef,
+    Qualified { app_label: &'a str, name: &'a str },
+    Bare { name: &'a str },
+    Attribute { path: &'a [String] },
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum ModelRelationResolutionView<'a> {
+    Resolved(&'a ModelId),
+    Ambiguous {
+        candidates: &'a [ModelId],
+        app_label: &'a str,
+        name: &'a str,
+    },
+    Partial {
+        resolved_prefix: &'a PythonModuleName,
+        unresolved_tail: &'a [String],
+    },
+    Unresolved(ModelRelationUnresolvedView<'a>),
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum ModelRelationUnresolvedView<'a> {
+    FileLocal,
+    NoStaticTarget,
+    MissingImportBinding(&'a str),
+    InvalidImportedTarget(&'a str),
+    ImportNotFound(&'a PythonModuleName),
+    ImportedTargetIsModule(&'a PythonModuleName),
+    SameAppTargetNotFound { app_label: &'a str, name: &'a str },
+    AppLabelTargetNotFound { app_label: &'a str, name: &'a str },
+}
+
+#[must_use]
+pub fn model_relation<'a>(
+    graph: &'a ModelGraph,
+    owner: &'a ModelId,
+    field: &str,
+) -> Option<(
+    Option<ModelRelationTargetView<'a>>,
+    ModelRelationResolutionView<'a>,
+)> {
+    let (relation, resolution) = graph
+        .owned_relation_entries(owner)
+        .find(|(relation, _)| relation.field_name.value().as_str() == field)?;
+    let target = relation.target_model().map(|target| match target {
+        RelationTarget::SelfRef => ModelRelationTargetView::SelfRef,
+        RelationTarget::Qualified { app_label, name } => ModelRelationTargetView::Qualified {
+            app_label,
+            name: name.as_str(),
+        },
+        RelationTarget::Bare { name, .. } => ModelRelationTargetView::Bare {
+            name: name.as_str(),
+        },
+        RelationTarget::Attribute { path, .. } => ModelRelationTargetView::Attribute { path },
+    });
+    let resolution = match resolution {
+        RelationTargetResolution::Resolved(id) => ModelRelationResolutionView::Resolved(id),
+        RelationTargetResolution::Ambiguous {
+            candidates,
+            app_label,
+            name,
+        } => ModelRelationResolutionView::Ambiguous {
+            candidates,
+            app_label,
+            name: name.as_str(),
+        },
+        RelationTargetResolution::Partial {
+            resolved_prefix,
+            unresolved_tail,
+        } => ModelRelationResolutionView::Partial {
+            resolved_prefix,
+            unresolved_tail,
+        },
+        RelationTargetResolution::Unresolved { reason } => {
+            ModelRelationResolutionView::Unresolved(match reason {
+                RelationTargetUnresolvedReason::FileLocal => ModelRelationUnresolvedView::FileLocal,
+                RelationTargetUnresolvedReason::NoStaticTarget => {
+                    ModelRelationUnresolvedView::NoStaticTarget
+                }
+                RelationTargetUnresolvedReason::MissingImportBinding { binding } => {
+                    ModelRelationUnresolvedView::MissingImportBinding(binding)
+                }
+                RelationTargetUnresolvedReason::InvalidImportedTarget { target } => {
+                    ModelRelationUnresolvedView::InvalidImportedTarget(target)
+                }
+                RelationTargetUnresolvedReason::ImportNotFound { requested } => {
+                    ModelRelationUnresolvedView::ImportNotFound(requested)
+                }
+                RelationTargetUnresolvedReason::ImportedTargetIsModule { module } => {
+                    ModelRelationUnresolvedView::ImportedTargetIsModule(module)
+                }
+                RelationTargetUnresolvedReason::SameAppTargetNotFound { app_label, name } => {
+                    ModelRelationUnresolvedView::SameAppTargetNotFound {
+                        app_label,
+                        name: name.as_str(),
+                    }
+                }
+                RelationTargetUnresolvedReason::AppLabelTargetNotFound { app_label, name } => {
+                    ModelRelationUnresolvedView::AppLabelTargetNotFound {
+                        app_label,
+                        name: name.as_str(),
+                    }
+                }
+            })
+        }
+    };
+    Some((target, resolution))
+}
+
+#[must_use]
+pub fn resolved_model_id<'a>(
+    graph: &'a ModelGraph,
+    owner: &'a ModelId,
+    field: &str,
+) -> Option<&'a ModelId> {
+    let resolved = graph.resolve_relation(owner, field)?;
+    graph
+        .models_named(resolved.name.value().as_str())
+        .find(|(id, _)| id.module_name() == &resolved.module_name)
+        .map(|(id, _)| id)
+}
+
+#[must_use]
+pub fn model_is_abstract(graph: &ModelGraph, id: &ModelId) -> Option<bool> {
+    graph
+        .get_by_id(id)
+        .map(|model| model.kind == ModelKind::Abstract)
 }
 
 pub fn settings_module_file(db: &dyn Db, project: Project) -> Option<File> {

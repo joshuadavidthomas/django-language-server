@@ -49,8 +49,6 @@ pub use fixtures::corpus_project_database;
 pub use fixtures::library_filter;
 pub use fixtures::library_tag;
 pub use fixtures::make_template_library_catalog;
-pub use fixtures::standard_validation_db;
-pub use fixtures::validation_db;
 pub use log_capture::CapturedEvents;
 pub use log_capture::capture_events;
 pub use mdtest::Scenario;

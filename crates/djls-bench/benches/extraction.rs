@@ -1,5 +1,6 @@
 use std::fmt::Write as _;
 
+use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use divan::Bencher;
 use djls_bench::Db;
@@ -16,6 +17,13 @@ use djls_project::PythonModuleName;
 use djls_project::PythonSourceModule;
 use djls_project::SearchPath;
 use djls_project::SearchPaths;
+use djls_project::TemplateLibraryId;
+use djls_project::TemplateName;
+use djls_project::template_library_catalog;
+use djls_project::template_library_definition_facts;
+use djls_project::template_library_structure_facts;
+use djls_project::template_library_tag_facts;
+use djls_project::template_resolution;
 use djls_project::testing::django_settings;
 use djls_project::testing::settings_module_file;
 use djls_source::Db as _;
@@ -24,6 +32,7 @@ use djls_source::FileError;
 use djls_testing::Corpus;
 use djls_testing::OsTestDatabase;
 use djls_testing::ProjectFixture;
+use djls_testing::ProjectSettings;
 use djls_testing::TestDatabase;
 use djls_testing::extract_bundle;
 
@@ -512,5 +521,155 @@ fn merge_tags(bencher: Bencher) {
             merged_rules += specs.len();
         }
         divan::black_box(merged_rules);
+    });
+}
+
+/// Cold indexing and warm scoped lookup over 2,000 templates; fixture creation
+/// and warm-up are outside the timed operation. Missing lookup includes
+/// re-interning its already-warmed template name.
+#[divan::bench(args = ["index", "all", "prefix", "missing"])]
+fn scoped_template_operations(bencher: Bencher, operation: &str) {
+    bencher
+        .with_inputs(|| {
+            let db = TestDatabase::new();
+            let mut fixture = ProjectFixture::new("/proj").settings(&ProjectSettings {
+                dirs: vec!["/proj/templates".to_string()],
+                ..ProjectSettings::default()
+            });
+            for index in 0..2_000 {
+                fixture = fixture.file(format!("/proj/templates/page_{index:04}.html"), "body");
+            }
+            let project = require("prepare template fixture", fixture.build(&db));
+            let page = require(
+                "template file",
+                db.file(Utf8Path::new("/proj/templates/page_0000.html")),
+            );
+            TemplateName::new(&db, "missing.html".to_string());
+            if operation != "index" {
+                let resolution = template_resolution(&db, project);
+                assert_eq!(resolution.origins(&db).count(), 2_000);
+            }
+            (db, project, page)
+        })
+        .bench_local_values(|(db, project, page)| {
+            let resolution = template_resolution(&db, project);
+            match operation {
+                "index" => {
+                    divan::black_box(resolution.origins(&db).count());
+                }
+                "all" => {
+                    divan::black_box(resolution.template_names_for_backend_scope(&db, page));
+                }
+                "prefix" => {
+                    divan::black_box(
+                        resolution
+                            .template_names_for_backend_scope_with_prefix(&db, page, "page_199"),
+                    );
+                }
+                "missing" => {
+                    let name = TemplateName::new(&db, "missing.html".to_string());
+                    divan::black_box(resolution.resolve_for_file(&db, name, page));
+                }
+                _ => fail(format_args!(
+                    "unknown scoped template operation: {operation}"
+                )),
+            }
+        });
+}
+
+/// Split default-tag products with prerequisite products primed, except for
+/// the cold inventory. The warm detail case also primes its own result. Each
+/// measurement includes re-interning the library key.
+#[divan::bench(args = ["inventory", "structure", "detail", "warm_detail"])]
+fn default_tag_products(bencher: Bencher, operation: &str) {
+    let module = require(
+        "module",
+        PythonModuleName::parse("django.template.defaulttags"),
+    );
+    bencher
+        .with_inputs(|| {
+            let db = TestDatabase::new();
+            require(
+                "add default tags",
+                db.add_file(
+                    "/test/defaulttags.py",
+                    include_str!(
+                        "../../djls-project/src/templates/tags/testdata/django_defaulttags.py"
+                    ),
+                ),
+            );
+            let file = require(
+                "default tags file",
+                db.file(Utf8Path::new("/test/defaulttags.py")),
+            );
+            let key = TemplateLibraryId::new(&db, Some(file), module.clone());
+            if operation != "inventory" {
+                divan::black_box(template_library_definition_facts(&db, key));
+            }
+            if matches!(operation, "detail" | "warm_detail") {
+                divan::black_box(template_library_structure_facts(&db, key));
+            }
+            if operation == "warm_detail" {
+                divan::black_box(template_library_tag_facts(&db, key));
+            }
+            (db, file)
+        })
+        .bench_local_values(|(db, file)| {
+            let key = TemplateLibraryId::new(&db, Some(file), module.clone());
+            match operation {
+                "inventory" => {
+                    divan::black_box(template_library_definition_facts(&db, key));
+                }
+                "structure" => {
+                    divan::black_box(template_library_structure_facts(&db, key));
+                }
+                "detail" | "warm_detail" => {
+                    divan::black_box(template_library_tag_facts(&db, key));
+                }
+                _ => fail(format_args!("unknown default tag product: {operation}")),
+            }
+        });
+}
+
+/// Cold registration inventory and catalog construction at increasing sizes.
+/// Inventory measurements include re-interning the library key.
+#[divan::bench(args = [25, 100, 1000])]
+fn registration_inventory_cold(bencher: Bencher, count: usize) {
+    registration_workload(bencher, count, false);
+}
+
+#[divan::bench(args = [25, 100, 1000])]
+fn registration_catalog_after_inventory(bencher: Bencher, count: usize) {
+    registration_workload(bencher, count, true);
+}
+
+fn registration_workload(bencher: Bencher, count: usize, catalog: bool) {
+    let module = require("module", PythonModuleName::parse("tags"));
+    let mut source = "from django import template\nregister = template.Library()\n".to_string();
+    for index in 0..count {
+        require(
+            "write registration",
+            writeln!(
+                source,
+                "@register.simple_tag\ndef tag_{index}(value): return value"
+            ),
+        );
+    }
+    bencher.with_inputs(|| {
+        let db = TestDatabase::new();
+        let project = require("prepare registration project", ProjectFixture::new("/proj")
+            .django_settings_module("settings")
+            .file("/proj/settings.py", "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'libraries': {'tags': 'tags'}}}]\n")
+            .file("/proj/tags.py", &source).build(&db));
+        let file = require("registration file", db.file(Utf8Path::new("/proj/tags.py")));
+        let key = TemplateLibraryId::new(&db, Some(file), module.clone());
+        if catalog { assert_eq!(template_library_definition_facts(&db, key).symbols().count(), count); }
+        (db, project, file)
+    }).bench_local_values(|(db, project, file)| {
+        if catalog { divan::black_box(template_library_catalog(&db, project)); }
+        else {
+            let key = TemplateLibraryId::new(&db, Some(file), module.clone());
+            divan::black_box(template_library_definition_facts(&db, key).symbols().count());
+        }
     });
 }

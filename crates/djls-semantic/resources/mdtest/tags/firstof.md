@@ -31,3 +31,19 @@
 ```snapshot
 ✓ no diagnostics
 ```
+
+## Invalid
+
+### requires at least one argument
+
+```htmldjango
+{% firstof %}
+```
+
+```snapshot
+error[S117]: 'firstof' statement requires at least one argument
+ --> test.html:1:1
+  |
+1 | {% firstof %}
+  | ^^^^^^^^^^^^^
+```

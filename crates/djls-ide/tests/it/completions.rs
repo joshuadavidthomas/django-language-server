@@ -1,0 +1,1003 @@
+use std::borrow::Cow;
+use std::collections::BTreeMap;
+use std::fs;
+use std::io;
+
+use camino::Utf8Path;
+use djls_conf::TagDef;
+use djls_conf::TagLibraryDef;
+use djls_conf::TagSpecDef;
+use djls_conf::TagTypeDef;
+use djls_ide::completion;
+use djls_ide::prime_template_library_products;
+use djls_project::ArgumentConsumption;
+use djls_semantic::ParameterRequirement;
+use djls_semantic::TagArgument;
+use djls_semantic::TagArgumentKind;
+use djls_semantic::TagArgumentSyntax;
+use djls_semantic::TagSpec;
+use djls_semantic::bundled_django_tag_specs;
+use djls_source::Offset;
+use djls_source::PositionEncoding;
+use djls_testing::Corpus;
+use djls_testing::ProjectFixture;
+use djls_testing::ProjectSettings;
+use djls_testing::SalsaEventLog;
+use djls_testing::TestDatabase;
+use djls_testing::execution_count;
+use tower_lsp_server::ls_types;
+
+type TestResult<T> = Result<T, Box<dyn std::error::Error>>;
+
+fn source_and_offset(marked_source: &str) -> TestResult<(String, Offset)> {
+    let offset = marked_source
+        .find('§')
+        .ok_or_else(|| io::Error::other("test source should contain a cursor marker"))?;
+    let mut source = marked_source.to_string();
+    source.remove(offset);
+    Ok((source, Offset::new(u32::try_from(offset)?)))
+}
+
+fn install_template_completion_project(
+    db: &mut TestDatabase,
+    child_path: &str,
+    source: &str,
+) -> TestResult<()> {
+    ProjectFixture::new("/test/project")
+        .settings(&ProjectSettings {
+            dirs: vec![
+                "/test/project/templates".into(),
+                "/test/project/app/templates".into(),
+            ],
+            ..ProjectSettings::default()
+        })
+        .file(child_path, source)
+        .file("/test/project/templates/base.html", "base")
+        .file("/test/project/templates/shared.html", "primary")
+        .file("/test/project/app/templates/account/detail.html", "detail")
+        .file("/test/project/app/templates/shared.html", "shadow")
+        .install(db)?;
+    Ok(())
+}
+
+fn lazy_library_completion_fixture(
+    marked_source: &str,
+) -> TestResult<(TestDatabase, SalsaEventLog, djls_source::File, Offset)> {
+    let events = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(events.clone());
+    let (source, offset) = source_and_offset(marked_source)?;
+    ProjectFixture::new("/test/project")
+        .django_settings_module("settings")
+        .file(
+            "/test/project/settings.py",
+            r"INSTALLED_APPS = []
+TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'builtins': ['alpha_tags', 'beta_tags']}}]
+",
+        )
+        .file(
+            "/test/project/alpha_tags.py",
+            r"from django import template
+register = template.Library()
+@register.simple_tag(name='alpha')
+def alpha(value): pass
+@register.tag(name='alpha_block')
+def alpha_block(parser, token):
+    bits = token.split_contents()
+    if len(bits) != 1: raise template.TemplateSyntaxError('count')
+    body = parser.parse(('endalpha',))
+    parser.delete_first_token()
+    return template.Node()
+@register.filter(name='alpha_filter')
+def alpha_filter(value, arg=None): pass
+",
+        )
+        .file(
+            "/test/project/beta_tags.py",
+            r"from django import template
+from beta_helper import beta_bits
+register = template.Library()
+@register.tag(name='beta')
+def beta(parser, token):
+    bits = beta_bits(token)
+    if len(bits) != 1: raise template.TemplateSyntaxError('count')
+    body = parser.parse(('alpha_end',))
+    parser.delete_first_token()
+    return template.Node()
+@register.filter(name='beta_filter')
+def beta_filter(value): pass
+",
+        )
+        .file(
+            "/test/project/beta_helper.py",
+            r"def beta_bits(token):
+    return token.split_contents()
+",
+        )
+        .file("/test/project/page.html", &source)
+        .install(&mut db)?;
+    prime_template_library_products(&db)
+        .ok_or_else(|| io::Error::other("completion fixture should prime"))?;
+    events.take()?;
+    let file = db.file(Utf8Path::new("/test/project/page.html"))?;
+    Ok((db, events, file, offset))
+}
+
+fn completion_labels(db: &TestDatabase, file: djls_source::File, offset: Offset) -> Vec<String> {
+    match completion(db, file, offset, PositionEncoding::Utf16, true) {
+        Some(ls_types::CompletionResponse::Array(items)) => {
+            items.into_iter().map(|item| item.label).collect()
+        }
+        Some(ls_types::CompletionResponse::List(list)) => {
+            list.items.into_iter().map(|item| item.label).collect()
+        }
+        None => Vec::new(),
+    }
+}
+
+#[test]
+fn completion_dispatches_before_requesting_semantic_inventory() {
+    let cases = [("text", "plain §text"), ("tag-name", "{% § %}")];
+
+    for (name, marked_source) in cases {
+        let event_log = SalsaEventLog::default();
+        let db = TestDatabase::with_event_log(event_log.clone());
+        let (source, offset) = source_and_offset(marked_source)
+            .expect("completion case should contain a valid cursor marker");
+        let path = format!("/{name}.html");
+        db.add_file(&path, &source)
+            .expect("completion fixture should be added");
+        let file = db
+            .file(Utf8Path::new(&path))
+            .expect("completion fixture file should exist");
+        event_log
+            .take()
+            .expect("initial Salsa events should be cleared");
+
+        let response = completion(&db, file, offset, PositionEncoding::Utf16, false);
+        let executed = event_log
+            .take_will_execute_names(&db)
+            .expect("completion Salsa events should be read");
+        let executed_query = |query: &str| executed.iter().any(|name| name.ends_with(query));
+
+        if name == "text" {
+            assert!(response.is_none());
+            assert!(
+                !executed_query("parse_template"),
+                "text completion must stop before semantic parsing: {executed:?}"
+            );
+        }
+        if name == "tag-name" {
+            assert!(response.is_some());
+        }
+    }
+}
+
+#[test]
+fn completion_prefixes_demand_only_relevant_library_details() {
+    for (source, expected_label, expected_helper) in [
+        ("{% alpha§ %}", "alpha", 0),
+        ("{% enda§ %}", "endalpha", 0),
+        ("{% § %}", "alpha", 1),
+        ("{% al§ %}", "alpha", 0),
+        ("{{ value|alpha_filter§ }}", "alpha_filter", 0),
+    ] {
+        let (db, events, file, offset) =
+            lazy_library_completion_fixture(source).expect("completion fixture should install");
+        let labels = completion_labels(&db, file, offset);
+        assert!(
+            labels.iter().any(|label| label == expected_label),
+            "{labels:?}"
+        );
+        let names = events
+            .take_will_execute_names(&db)
+            .expect("prefix completion events should be readable");
+        if source == "{% § %}" {
+            assert!(labels.iter().any(|label| label == "beta"));
+        }
+        if source == "{% al§ %}" {
+            assert!(!labels.iter().any(|label| label == "alpha_end"));
+        }
+        assert_eq!(
+            execution_count(&names, "analyze_helper"),
+            expected_helper,
+            "unexpected helper analysis for {source}: {names:?}"
+        );
+        assert_eq!(execution_count(&names, "template_library_filter_facts"), 0);
+
+        let repeated = completion_labels(&db, file, offset);
+        assert_eq!(repeated, labels);
+        let names = events
+            .take_will_execute_names(&db)
+            .expect("repeated completion events should be readable");
+        assert_eq!(
+            execution_count(&names, "template_library_tag_rule_analysis"),
+            0
+        );
+        assert_eq!(execution_count(&names, "library_tag_specs"), 0);
+    }
+}
+
+#[test]
+fn captured_closer_does_not_offer_colliding_standalone_arguments() {
+    let mut specs = bundled_django_tag_specs().clone();
+    specs.insert(
+        "endif".to_string(),
+        TagSpec::new(
+            "test.tags".into(),
+            None,
+            Cow::Borrowed(&[]),
+            djls_semantic::BodyAnalysis::Analyze,
+        )
+        .with_argument_syntax(TagArgumentSyntax::Parameters(vec![TagArgument {
+            name: "collision".to_string(),
+            kind: TagArgumentKind::Choice(vec!["standalone-choice".to_string()]),
+            requirement: ParameterRequirement::Required,
+            consumption: ArgumentConsumption::Unknown,
+        }])),
+    );
+    let db = TestDatabase::new().with_projectless_tag_specs(specs);
+
+    let (captured_source, captured_offset) = source_and_offset("{% if condition %}{% endif § %}")
+        .expect("captured closer fixture should contain a valid cursor marker");
+    db.add_file("/captured.html", &captured_source)
+        .expect("captured closer fixture should be added");
+    assert!(
+        completion(
+            &db,
+            db.file(Utf8Path::new("/captured.html"))
+                .expect("captured closer fixture file should exist"),
+            captured_offset,
+            PositionEncoding::Utf16,
+            false,
+        )
+        .is_none(),
+        "a captured endif must not offer arguments from the colliding standalone definition"
+    );
+
+    let (standalone_source, standalone_offset) = source_and_offset("{% endif § %}")
+        .expect("standalone closer fixture should contain a valid cursor marker");
+    db.add_file("/standalone.html", &standalone_source)
+        .expect("standalone closer fixture should be added");
+    let response = completion(
+        &db,
+        db.file(Utf8Path::new("/standalone.html"))
+            .expect("standalone closer fixture file should exist"),
+        standalone_offset,
+        PositionEncoding::Utf16,
+        false,
+    )
+    .expect("the standalone endif definition should offer its argument");
+    let items = match response {
+        ls_types::CompletionResponse::Array(items) => items,
+        ls_types::CompletionResponse::List(list) => list.items,
+    };
+    assert!(items.iter().any(|item| item.label == "standalone-choice"));
+}
+
+#[test]
+fn shadowed_normal_tag_named_load_gets_no_library_completion() {
+    let mut db = TestDatabase::new();
+    let (library_source, library_offset) = source_and_offset("{% load § %}")
+        .expect("library completion fixture should contain a valid cursor marker");
+    let (symbol_source, symbol_offset) = source_and_offset("{% load custom_§ from custom %}")
+        .expect("symbol completion fixture should contain a valid cursor marker");
+    ProjectFixture::new("/test/project")
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".into()],
+            builtins: vec!["custom_load".into()],
+            libraries: BTreeMap::from([("custom".into(), "custom_tags".into())]),
+            ..ProjectSettings::default()
+        })
+        .file(
+            "/test/project/custom_load.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag(name='load')\ndef custom_load(value): pass\n",
+        )
+        .file(
+            "/test/project/custom_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef custom_tag(): pass\n",
+        )
+        .file("/test/project/templates/library.html", &library_source)
+        .file("/test/project/templates/symbol.html", &symbol_source)
+        .install(&mut db)
+        .expect("shadowed-load project fixture should install");
+
+    for (path, offset) in [
+        ("/test/project/templates/library.html", library_offset),
+        ("/test/project/templates/symbol.html", symbol_offset),
+    ] {
+        let labels = completion(
+            &db,
+            db.file(Utf8Path::new(path))
+                .expect("completion fixture file should exist"),
+            offset,
+            PositionEncoding::Utf16,
+            false,
+        )
+        .map(|response| match response {
+            ls_types::CompletionResponse::Array(items) => items,
+            ls_types::CompletionResponse::List(list) => list.items,
+        })
+        .unwrap_or_default()
+        .into_iter()
+        .map(|item| item.label)
+        .collect::<Vec<_>>();
+        assert!(
+            !labels
+                .iter()
+                .any(|label| label == "custom" || label == "custom_tag"),
+            "a tag spelled load without the loader role must not offer libraries in {path}: {labels:?}"
+        );
+    }
+}
+
+#[test]
+fn project_tag_completions_do_not_leak_conflicting_backend_libraries() {
+    let mut db = TestDatabase::new();
+    let settings = "INSTALLED_APPS = []\nTEMPLATES = [\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/a'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'alpha_tags'}}},\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/b'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'beta_tags'}}},\n]\n";
+    ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file("/test/project/testproject/settings.py", settings)
+        .file(
+            "/test/project/alpha_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef alpha():\n    pass\n",
+        )
+        .file(
+            "/test/project/beta_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef beta():\n    pass\n",
+        )
+        .file("/test/project/a/alpha.html", "{% load shared %}\n{%  %}")
+        .file("/test/project/b/beta.html", "{% load shared %}\n{%  %}")
+        .install(&mut db)
+        .expect("multi-backend completion project fixture should install");
+
+    let labels_for = |path: &str| -> TestResult<Vec<String>> {
+        let file = db.file(Utf8Path::new(path))?;
+        let response = completion(
+            &db,
+            file,
+            Offset::new(
+                u32::try_from("{% load shared %}\n{% ".len())
+                    .expect("test source offset should fit in u32"),
+            ),
+            PositionEncoding::Utf16,
+            false,
+        )
+        .ok_or_else(|| io::Error::other("tag completion should produce candidates"))?;
+        Ok(match response {
+            ls_types::CompletionResponse::Array(items) => items,
+            ls_types::CompletionResponse::List(list) => list.items,
+        }
+        .into_iter()
+        .map(|item| item.label)
+        .collect())
+    };
+
+    let alpha = labels_for("/test/project/a/alpha.html")
+        .expect("alpha backend completion labels should be collected");
+    let beta = labels_for("/test/project/b/beta.html")
+        .expect("beta backend completion labels should be collected");
+    assert!(alpha.iter().any(|label| label == "alpha"));
+    assert!(!alpha.iter().any(|label| label == "beta"));
+    assert!(beta.iter().any(|label| label == "beta"));
+    assert!(!beta.iter().any(|label| label == "alpha"));
+}
+
+#[test]
+fn multi_backend_effective_symbols_disagree_when_implementations_differ() {
+    let mut db = TestDatabase::new();
+    let settings = "INSTALLED_APPS = []\nif FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/shared'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'alpha_tags'}}}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/shared'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'beta_tags'}}}]\n";
+    // With observed builtins, completion falls back to scoped candidates when the effective
+    // definition disagrees and offers both backends' `common`; this pins the unobserved case.
+    ProjectFixture::new("/test/project")
+        .without_bundled_django()
+        .django_settings_module("testproject.settings")
+        .file("/test/project/testproject/settings.py", settings)
+        .file(
+            "/test/project/alpha_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef common(): pass\n@register.filter(name='common_filter')\ndef alpha_filter(value): return value\n",
+        )
+        .file(
+            "/test/project/beta_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef common(): pass\n@register.filter(name='common_filter')\ndef beta_filter(value): return value\n",
+        )
+        .file(
+            "/test/project/shared/tag.html",
+            "{% load shared %}\n{% com %}",
+        )
+        .file(
+            "/test/project/shared/filter.html",
+            "{% load shared %}\n{{ value|common_ }}",
+        )
+        .install(&mut db)
+        .expect("conflicting-backend completion project fixture should install");
+
+    let mut control = TestDatabase::new();
+    ProjectFixture::new("/test/project")
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/shared".into()],
+            libraries: BTreeMap::from([("shared".into(), "alpha_tags".into())]),
+            ..ProjectSettings::default()
+        })
+        .file("/test/project/alpha_tags.py", "from django import template\nregister = template.Library()\n@register.simple_tag\ndef common(): pass\n@register.filter\ndef common_filter(value): return value\n")
+        .file("/test/project/shared/tag.html", "{% load shared %}\n{% com %}")
+        .file("/test/project/shared/filter.html", "{% load shared %}\n{{ value|common_ }}")
+        .install(&mut control)
+        .expect("single-backend control should install");
+    for (path, source, expected) in [
+        (
+            "/test/project/shared/tag.html",
+            "{% load shared %}\n{% com %}",
+            "common",
+        ),
+        (
+            "/test/project/shared/filter.html",
+            "{% load shared %}\n{{ value|common_ }}",
+            "common_filter",
+        ),
+    ] {
+        let file = control
+            .file(Utf8Path::new(path))
+            .expect("control template should exist");
+        let offset = Offset::new(u32::try_from(source.len()).expect("source length fits") - 3);
+        assert!(completion_labels(&control, file, offset).contains(&expected.to_string()));
+    }
+
+    let labels_at = |path: &str, source: &str| -> TestResult<Vec<String>> {
+        let file = db.file(Utf8Path::new(path))?;
+        let offset = Offset::new(
+            u32::try_from(source.len()).expect("test source offset should fit in u32") - 3,
+        );
+        Ok(
+            match completion(&db, file, offset, PositionEncoding::Utf16, false) {
+                Some(ls_types::CompletionResponse::Array(items)) => items,
+                Some(ls_types::CompletionResponse::List(list)) => list.items,
+                None => Vec::new(),
+            }
+            .into_iter()
+            .map(|item| item.label)
+            .collect(),
+        )
+    };
+
+    assert!(
+        !labels_at(
+            "/test/project/shared/tag.html",
+            "{% load shared %}\n{% com %}",
+        )
+        .expect("tag completion labels should be collected")
+        .contains(&"common".to_string())
+    );
+    assert!(
+        !labels_at(
+            "/test/project/shared/filter.html",
+            "{% load shared %}\n{{ value|common_ }}",
+        )
+        .expect("filter completion labels should be collected")
+        .contains(&"common_filter".to_string())
+    );
+}
+
+#[test]
+fn multi_backend_same_definition_uses_loaded_availability_presentation() {
+    let mut db = TestDatabase::new();
+    let settings = "INSTALLED_APPS = []\nif FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/shared'], 'APP_DIRS': False, 'OPTIONS': {'builtins': ['shared_tags'], 'libraries': {'shared': 'empty_tags'}}}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/shared'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'shared_tags'}}}]\n";
+    let source = "{% load shared %}\n{% com %}";
+    ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file("/test/project/testproject/settings.py", settings)
+        .file(
+            "/test/project/shared_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef common(): pass\n",
+        )
+        .file(
+            "/test/project/empty_tags.py",
+            "from django import template\nregister = template.Library()\n",
+        )
+        .file("/test/project/shared/tag.html", source)
+        .install(&mut db)
+        .expect("shared-definition completion fixture should install");
+
+    let file = db
+        .file(Utf8Path::new("/test/project/shared/tag.html"))
+        .expect("shared tag template fixture should exist");
+    let offset =
+        Offset::new(u32::try_from(source.len()).expect("test source offset should fit in u32") - 3);
+    let response = completion(&db, file, offset, PositionEncoding::Utf16, false)
+        .expect("the shared definition should complete");
+    let items = match response {
+        ls_types::CompletionResponse::Array(items) => items,
+        ls_types::CompletionResponse::List(list) => list.items,
+    };
+    let item = items
+        .into_iter()
+        .find(|item| item.label == "common")
+        .expect("the common tag should be offered");
+
+    assert_eq!(item.detail.as_deref(), Some("{% load shared %}"));
+}
+
+#[test]
+fn configured_only_tag_survives_effective_candidates_and_completion() {
+    let mut db = TestDatabase::new();
+    let (source, offset) = source_and_offset("{% load dynamic %}\n{% dynamic_§ %}")
+        .expect("configured tag fixture should contain a valid cursor marker");
+    let tag_specs = TagSpecDef {
+        libraries: vec![TagLibraryDef {
+            module: "dynamic_tags".to_string(),
+            requires_engine: None,
+            tags: vec![TagDef {
+                name: "dynamic_panel".to_string(),
+                tag_type: TagTypeDef::Standalone,
+                end: None,
+                intermediates: Vec::new(),
+                args: Vec::new(),
+                extra: None,
+            }],
+            extra: None,
+        }],
+        ..TagSpecDef::default()
+    };
+    ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .tag_specs(tag_specs)
+        .file(
+            "/test/project/testproject/settings.py",
+            "INSTALLED_APPS = []\nif FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'builtins': ['dynamic_tags'], 'libraries': {'dynamic': 'empty_tags'}}}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'dynamic': 'dynamic_tags'}}}]\n",
+        )
+        .file(
+            "/test/project/dynamic_tags.py",
+            "from django import template\nregister = template.Library()\nname = 'dynamic_panel'\nregister.tag(name, lambda parser, token: Node())\n",
+        )
+        .file(
+            "/test/project/empty_tags.py",
+            "from django import template\nregister = template.Library()\n",
+        )
+        .file("/test/project/templates/page.html", &source)
+        .install(&mut db)
+        .expect("configured-tag completion fixture should install");
+    let file = db
+        .file(Utf8Path::new("/test/project/templates/page.html"))
+        .expect("configured-tag template fixture should exist");
+    let response = completion(&db, file, offset, PositionEncoding::Utf16, false)
+        .expect("configured-only tag should complete");
+    let items = match response {
+        ls_types::CompletionResponse::Array(items) => items,
+        ls_types::CompletionResponse::List(list) => list.items,
+    };
+
+    let item = items
+        .iter()
+        .find(|item| item.label == "dynamic_panel")
+        .expect("configured-only tag should be offered");
+    assert_eq!(item.detail.as_deref(), Some("builtin from dynamic_tags"));
+}
+
+#[test]
+fn conflicting_backend_signatures_do_not_offer_argument_snippets() {
+    let mut db = TestDatabase::new();
+    let settings = "INSTALLED_APPS = []\nif FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/shared'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'alpha_tags'}}}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/shared'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'beta_tags'}}}]\n";
+    let marked = "{% load shared %}\n{% shared_tag § %}";
+    let (source, offset) = source_and_offset(marked)
+        .expect("conflicting signature fixture should contain a valid cursor marker");
+    let mut control = TestDatabase::new();
+    ProjectFixture::new("/test/project")
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/shared".into()],
+            libraries: BTreeMap::from([("shared".into(), "alpha_tags".into())]),
+            ..ProjectSettings::default()
+        })
+        .file("/test/project/alpha_tags.py", "from django import template\nregister = template.Library()\n@register.simple_tag(name='shared_tag')\ndef alpha(first): pass\n")
+        .file("/test/project/shared/page.html", &source)
+        .install(&mut control)
+        .expect("single-backend control should install");
+    let control_file = control
+        .file(Utf8Path::new("/test/project/shared/page.html"))
+        .expect("control template should exist");
+    let response = completion(
+        &control,
+        control_file,
+        offset,
+        PositionEncoding::Utf16,
+        true,
+    )
+    .expect("single-backend argument completion should exist");
+    let items = match response {
+        ls_types::CompletionResponse::Array(items) => items,
+        ls_types::CompletionResponse::List(list) => list.items,
+    };
+    assert!(
+        items
+            .iter()
+            .any(|item| item.insert_text_format == Some(ls_types::InsertTextFormat::SNIPPET)),
+        "{items:?}"
+    );
+    ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file("/test/project/testproject/settings.py", settings)
+        .file(
+            "/test/project/alpha_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag(name='shared_tag')\ndef alpha(first):\n    pass\n",
+        )
+        .file(
+            "/test/project/beta_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag(name='shared_tag')\ndef beta(first, second):\n    pass\n",
+        )
+        .file("/test/project/shared/page.html", &source)
+        .install(&mut db)
+        .expect("conflicting-signature project fixture should install");
+    let file = db
+        .file(Utf8Path::new("/test/project/shared/page.html"))
+        .expect("shared template fixture should exist");
+
+    assert!(
+        completion(&db, file, offset, PositionEncoding::Utf16, true).is_none(),
+        "disagreeing feasible signatures must not produce an argument snippet"
+    );
+}
+
+#[test]
+fn project_backed_widthratio_completes_correlated_django_forms() {
+    let corpus = Corpus::require().expect("synced corpus should be available");
+    let django_root = corpus
+        .latest_package("django")
+        .expect("a synced Django package should be available");
+    let defaulttags_source = fs::read_to_string(django_root.join("django/template/defaulttags.py"))
+        .expect("Django defaulttags source should be readable");
+
+    let cases = [
+        ("full.html", "{% widthratio § %}"),
+        ("suffix.html", "{% widthratio this max width § %}"),
+        ("target.html", "{% widthratio this max width as § %}"),
+        (
+            "incompatible.html",
+            "{% widthratio this max width nope § %}",
+        ),
+    ];
+    let parsed_cases = cases
+        .iter()
+        .map(|(name, marked)| {
+            let (source, offset) = source_and_offset(marked)
+                .expect("widthratio completion case should contain a cursor marker");
+            ((*name).to_string(), source, offset)
+        })
+        .collect::<Vec<_>>();
+
+    let mut fixture = ProjectFixture::new("/test/project")
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".into()],
+            builtins: vec!["django.template.defaulttags".into()],
+            ..ProjectSettings::default()
+        })
+        .file("/test/project/django/__init__.py", "")
+        .file("/test/project/django/template/__init__.py", "")
+        .file(
+            "/test/project/django/template/defaulttags.py",
+            &defaulttags_source,
+        );
+    for (name, source, _) in &parsed_cases {
+        fixture = fixture.file(format!("/test/project/templates/{name}"), source);
+    }
+
+    let mut db = TestDatabase::new();
+    fixture
+        .install(&mut db)
+        .expect("widthratio completion project fixture should install");
+
+    let items_for = |name: &str, offset: Offset| -> Vec<ls_types::CompletionItem> {
+        let file = db
+            .file(Utf8Path::new(&format!("/test/project/templates/{name}")))
+            .expect("widthratio template fixture should exist");
+        match completion(&db, file, offset, PositionEncoding::Utf16, true) {
+            Some(ls_types::CompletionResponse::Array(items)) => items,
+            Some(ls_types::CompletionResponse::List(list)) => list.items,
+            None => Vec::new(),
+        }
+    };
+    let inserted_text = |item: &ls_types::CompletionItem| match item.text_edit.as_ref() {
+        Some(ls_types::CompletionTextEdit::Edit(edit)) => Some(edit.new_text.clone()),
+        Some(ls_types::CompletionTextEdit::InsertAndReplace(edit)) => Some(edit.new_text.clone()),
+        None => item.insert_text.clone(),
+    };
+
+    let full = items_for("full.html", parsed_cases[0].2);
+    let full_snippet = full
+        .iter()
+        .find(|item| item.label == "widthratio arguments")
+        .expect("the three-argument widthratio form should produce a snippet");
+    assert_eq!(
+        inserted_text(full_snippet).as_deref(),
+        Some("${1:this_value_expr} ${2:max_value_expr} ${3:max_width}")
+    );
+
+    let suffix = items_for("suffix.html", parsed_cases[1].2);
+    assert!(suffix.iter().any(|item| item.label == "as"));
+    assert!(
+        suffix
+            .iter()
+            .any(|item| item.label == "remaining arguments")
+    );
+
+    let target = items_for("target.html", parsed_cases[2].2);
+    assert!(target.iter().any(|item| item.label == "<asvar>"));
+    assert!(
+        target
+            .iter()
+            .any(|item| item.label == "remaining arguments")
+    );
+
+    let incompatible = items_for("incompatible.html", parsed_cases[3].2);
+    assert!(
+        incompatible.is_empty(),
+        "an incompatible earlier literal must reject every widthratio form: {incompatible:?}"
+    );
+}
+
+#[test]
+fn project_backed_for_completes_correlated_django_forms() {
+    let cases = [
+        ("full.html", "{% for § %}"),
+        ("separator.html", "{% for x § %}"),
+        ("unpack-separator.html", "{% for x, y § %}"),
+        ("reversed.html", "{% for x in items § %}"),
+    ];
+    let parsed = cases
+        .iter()
+        .map(|(name, marked)| {
+            let (source, offset) = source_and_offset(marked).expect("for cursor marker");
+            (*name, source, offset)
+        })
+        .collect::<Vec<_>>();
+    let mut fixture = ProjectFixture::new("/test/project")
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".into()],
+            builtins: vec!["django.template.defaulttags".into()],
+            ..ProjectSettings::default()
+        })
+        .file("/test/project/django/__init__.py", "")
+        .file("/test/project/django/template/__init__.py", "")
+        .file(
+            "/test/project/django/template/defaulttags.py",
+            include_str!("../../../djls-project/src/templates/tags/testdata/django_defaulttags.py"),
+        );
+    for (name, source, _) in &parsed {
+        fixture = fixture.file(format!("/test/project/templates/{name}"), source);
+    }
+    let mut db = TestDatabase::new();
+    fixture.install(&mut db).expect("for completion fixture");
+    let labels = |name: &str, offset: Offset| {
+        let file = db
+            .file(Utf8Path::new(&format!("/test/project/templates/{name}")))
+            .expect("for template");
+        match completion(&db, file, offset, PositionEncoding::Utf16, true) {
+            Some(ls_types::CompletionResponse::Array(items)) => items,
+            Some(ls_types::CompletionResponse::List(list)) => list.items,
+            None => Vec::new(),
+        }
+        .into_iter()
+        .map(|item| item.label)
+        .collect::<Vec<_>>()
+    };
+
+    assert!(labels("full.html", parsed[0].2).contains(&"for arguments".to_string()));
+    assert!(labels("separator.html", parsed[1].2).contains(&"in".to_string()));
+    assert!(labels("unpack-separator.html", parsed[2].2).contains(&"in".to_string()));
+    assert!(labels("reversed.html", parsed[3].2).contains(&"reversed".to_string()));
+}
+
+#[test]
+fn template_name_completions_do_not_leak_names_from_another_backend() {
+    let mut db = TestDatabase::new();
+    let (source, offset) = source_and_offset(r#"{% extends "§" %}"#)
+        .expect("multi-backend template fixture should contain a valid cursor marker");
+    let settings = "TEMPLATES = [\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/a'], 'APP_DIRS': False},\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/b'], 'APP_DIRS': False},\n]\n";
+    ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file("/test/project/testproject/settings.py", settings)
+        .file("/test/project/a/child.html", &source)
+        .file("/test/project/a/only-a.html", "a")
+        .file("/test/project/b/only-b.html", "b")
+        .install(&mut db)
+        .expect("multi-backend template completion fixture should install");
+    let file = db
+        .file(Utf8Path::new("/test/project/a/child.html"))
+        .expect("child template fixture should exist");
+
+    let response = completion(&db, file, offset, PositionEncoding::Utf16, false)
+        .expect("template names should complete");
+    let labels = match response {
+        ls_types::CompletionResponse::Array(items) => items,
+        ls_types::CompletionResponse::List(list) => list.items,
+    }
+    .into_iter()
+    .map(|item| item.label)
+    .collect::<Vec<_>>();
+    assert!(labels.contains(&"only-a.html".to_string()));
+    assert!(!labels.contains(&"only-b.html".to_string()));
+}
+
+#[test]
+fn template_name_completions_use_resolvable_project_names() {
+    let mut db = TestDatabase::new();
+    let (source, offset) = source_and_offset(r#"{% extends "§" %}"#)
+        .expect("template name fixture should contain a valid cursor marker");
+    let child_path = "/test/project/templates/child.html";
+    install_template_completion_project(&mut db, child_path, &source)
+        .expect("template completion project fixture should install");
+    let file = db
+        .file(Utf8Path::new(child_path))
+        .expect("child template fixture should exist");
+
+    let response = completion(&db, file, offset, PositionEncoding::Utf16, false)
+        .expect("template names should complete inside quoted references");
+    let items = match response {
+        ls_types::CompletionResponse::Array(items) => items,
+        ls_types::CompletionResponse::List(list) => list.items,
+    };
+    let labels = items
+        .iter()
+        .map(|item| item.label.as_str())
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        labels,
+        vec![
+            "account/detail.html",
+            "base.html",
+            "child.html",
+            "shared.html",
+        ]
+    );
+    assert_eq!(items[0].kind, Some(ls_types::CompletionItemKind::FILE));
+    assert_eq!(items[0].detail.as_deref(), Some("Django template"));
+}
+
+#[test]
+fn template_name_completions_retain_known_templates_when_search_is_incomplete() {
+    let mut db = TestDatabase::new();
+    let (source, offset) = source_and_offset(r#"{% extends "§" %}"#)
+        .expect("incomplete-search fixture should contain a valid cursor marker");
+    let child_path = "/test/project/templates/child.html";
+    ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file(
+            "/test/project/testproject/settings.py",
+            "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [UNKNOWN, '/test/project/templates'], 'APP_DIRS': False}]\n",
+        )
+        .file(child_path, &source)
+        .file("/test/project/templates/base.html", "base")
+        .install(&mut db)
+        .expect("incomplete-search completion fixture should install");
+    let file = db
+        .file(Utf8Path::new(child_path))
+        .expect("child template fixture should exist");
+
+    let response = completion(&db, file, offset, PositionEncoding::Utf16, false)
+        .expect("known template names should remain completion candidates");
+    let items = match response {
+        ls_types::CompletionResponse::Array(items) => items,
+        ls_types::CompletionResponse::List(list) => list.items,
+    };
+    let labels = items
+        .iter()
+        .map(|item| item.label.as_str())
+        .collect::<Vec<_>>();
+
+    assert_eq!(labels, ["base.html", "child.html"]);
+}
+
+#[test]
+fn template_name_completion_replaces_quoted_argument_interior() {
+    let mut db = TestDatabase::new();
+    let (source, offset) = source_and_offset(r#"{% extends "acc§ount/detail.html" %}"#)
+        .expect("quoted template fixture should contain a valid cursor marker");
+    let child_path = "/test/project/templates/child.html";
+    install_template_completion_project(&mut db, child_path, &source)
+        .expect("template completion project fixture should install");
+    let file = db
+        .file(Utf8Path::new(child_path))
+        .expect("child template fixture should exist");
+
+    let response = completion(&db, file, offset, PositionEncoding::Utf16, false)
+        .expect("template names should complete inside quoted references");
+    let items = match response {
+        ls_types::CompletionResponse::Array(items) => items,
+        ls_types::CompletionResponse::List(list) => list.items,
+    };
+    let item = items
+        .iter()
+        .find(|item| item.label == "account/detail.html")
+        .expect("expected account/detail.html completion");
+    let text_edit = item
+        .text_edit
+        .as_ref()
+        .expect("template-name completion should carry a text edit");
+
+    assert_eq!(
+        text_edit,
+        &ls_types::CompletionTextEdit::Edit(ls_types::TextEdit::new(
+            ls_types::Range::new(
+                ls_types::Position::new(0, 12),
+                ls_types::Position::new(0, 31),
+            ),
+            "account/detail.html".to_string(),
+        ))
+    );
+}
+
+#[test]
+fn template_name_completion_preserves_existing_full_close_after_open_quote() {
+    let mut db = TestDatabase::new();
+    let (source, offset) = source_and_offset(r#"{% extends "ba§ %}"#)
+        .expect("open quote fixture should contain a valid cursor marker");
+    let child_path = "/test/project/templates/child.html";
+    install_template_completion_project(&mut db, child_path, &source)
+        .expect("template completion project fixture should install");
+    let file = db
+        .file(Utf8Path::new(child_path))
+        .expect("child template fixture should exist");
+
+    let response = completion(&db, file, offset, PositionEncoding::Utf16, false)
+        .expect("template names should complete inside quoted references");
+    let items = match response {
+        ls_types::CompletionResponse::Array(items) => items,
+        ls_types::CompletionResponse::List(list) => list.items,
+    };
+    let item = items
+        .iter()
+        .find(|item| item.label == "base.html")
+        .expect("expected base.html completion");
+    let text_edit = item
+        .text_edit
+        .as_ref()
+        .expect("template-name completion should carry a text edit");
+
+    assert_eq!(
+        text_edit,
+        &ls_types::CompletionTextEdit::Edit(ls_types::TextEdit::new(
+            ls_types::Range::new(
+                ls_types::Position::new(0, 12),
+                ls_types::Position::new(0, 14),
+            ),
+            "base.html\"".to_string(),
+        ))
+    );
+}
+
+#[test]
+fn template_name_completion_repairs_autopaired_quote_before_lone_brace() {
+    let mut db = TestDatabase::new();
+    let (source, offset) = source_and_offset(r#"{% include "ba§"}"#)
+        .expect("autopaired quote fixture should contain a valid cursor marker");
+    let child_path = "/test/project/templates/child.html";
+    install_template_completion_project(&mut db, child_path, &source)
+        .expect("template completion project fixture should install");
+    let file = db
+        .file(Utf8Path::new(child_path))
+        .expect("child template fixture should exist");
+
+    let response = completion(&db, file, offset, PositionEncoding::Utf16, false)
+        .expect("template names should complete inside quoted references");
+    let items = match response {
+        ls_types::CompletionResponse::Array(items) => items,
+        ls_types::CompletionResponse::List(list) => list.items,
+    };
+    let item = items
+        .iter()
+        .find(|item| item.label == "base.html")
+        .expect("expected base.html completion");
+    let text_edit = item
+        .text_edit
+        .as_ref()
+        .expect("template-name completion should carry a text edit");
+
+    assert_eq!(
+        text_edit,
+        &ls_types::CompletionTextEdit::Edit(ls_types::TextEdit::new(
+            ls_types::Range::new(
+                ls_types::Position::new(0, 12),
+                ls_types::Position::new(0, 16),
+            ),
+            "base.html\" %}".to_string(),
+        ))
+    );
+}

@@ -1,0 +1,373 @@
+use std::collections::BTreeMap;
+
+use camino::Utf8Path;
+use camino::Utf8PathBuf;
+use djls_conf::TagDef;
+use djls_conf::TagLibraryDef;
+use djls_conf::TagSpecDef;
+use djls_conf::TagTypeDef;
+use djls_ide::document_links as ide_document_links;
+use djls_source::File;
+use djls_source::PositionEncoding;
+use djls_testing::ProjectFixture;
+use djls_testing::ProjectSettings;
+use djls_testing::TestDatabase;
+use djls_testing::corpus_project_database;
+use tower_lsp_server::ls_types;
+
+fn document_links(db: &dyn djls_semantic::Db, file: File) -> Vec<ls_types::DocumentLink> {
+    ide_document_links(db, file, PositionEncoding::Utf16)
+}
+
+#[test]
+fn document_links_do_not_leak_templates_from_another_backend() {
+    let mut db = TestDatabase::new();
+    let settings = "TEMPLATES = [\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/a'], 'APP_DIRS': False},\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/b'], 'APP_DIRS': False},\n]\n";
+    ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file("/test/project/testproject/settings.py", settings)
+        .file(
+            "/test/project/a/child.html",
+            "{% include 'only-a.html' %}\n{% include 'only-b.html' %}",
+        )
+        .file("/test/project/a/only-a.html", "own backend")
+        .file("/test/project/b/only-b.html", "other backend")
+        .install(&mut db)
+        .expect("multi-backend project fixture should install");
+    let file = db
+        .file(Utf8Path::new("/test/project/a/child.html"))
+        .expect("child template fixture should exist");
+
+    let links = document_links(&db, file);
+    assert_eq!(links.len(), 1);
+    assert_eq!(
+        links[0].target.as_ref().map(|uri| uri.as_str()),
+        Some("file:///test/project/a/only-a.html")
+    );
+}
+
+#[test]
+fn document_links_resolve_absolute_references_from_originless_files() {
+    let mut db = TestDatabase::new();
+    let source = "{% include 'card.html' %}\n{% include './card.html' %}";
+
+    ProjectFixture::new("/test/project")
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".into()],
+            ..ProjectSettings::default()
+        })
+        .file("/test/project/scratch.html", source)
+        .file("/test/project/templates/card.html", "card")
+        .install(&mut db)
+        .expect("originless template project fixture should install");
+    let file = db
+        .file(Utf8Path::new("/test/project/scratch.html"))
+        .expect("scratch template fixture should exist");
+
+    let links = document_links(&db, file);
+
+    assert_eq!(links.len(), 1);
+    assert_eq!(
+        links[0].target.as_ref().map(|uri| uri.as_str()),
+        Some("file:///test/project/templates/card.html")
+    );
+}
+
+#[test]
+fn document_link_ranges_follow_position_encoding() {
+    let mut db = TestDatabase::new();
+    let template_path = "/test/project/templates/page.html";
+    let source = "é😀 {% include \"card.html\" %}";
+    ProjectFixture::new("/test/project")
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".into()],
+            ..ProjectSettings::default()
+        })
+        .file(template_path, source)
+        .file("/test/project/templates/card.html", "card")
+        .install(&mut db)
+        .expect("document link range fixture should install");
+    let file = db
+        .file(Utf8Path::new(template_path))
+        .expect("template fixture should exist");
+
+    let utf16 = ide_document_links(&db, file, PositionEncoding::Utf16);
+    let utf32 = ide_document_links(&db, file, PositionEncoding::Utf32);
+
+    assert_eq!(utf16.len(), 1);
+    assert_eq!(utf32.len(), 1);
+    assert_eq!(
+        utf16[0].range,
+        ls_types::Range::new(
+            ls_types::Position::new(0, 16),
+            ls_types::Position::new(0, 25),
+        )
+    );
+    assert_eq!(
+        utf32[0].range,
+        ls_types::Range::new(
+            ls_types::Position::new(0, 15),
+            ls_types::Position::new(0, 24),
+        )
+    );
+}
+
+#[test]
+fn document_links_resolve_template_references_with_interior_ranges() {
+    let mut db = TestDatabase::new();
+    let child_path = "/test/project/templates/child.html";
+    let base_path = "/test/project/templates/base.html";
+    let partial_path = "/test/project/templates/partials/card.html";
+    let source = concat!(
+        "{% extends \"base.html\" %}\n",
+        "{% include \"partials/card.html\" %}\n",
+        "{% include \"missing.html\" %}\n",
+        "{% include dynamic_template %}\n",
+    );
+
+    ProjectFixture::new("/test/project")
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".into()],
+            ..ProjectSettings::default()
+        })
+        .file(child_path, source)
+        .file(base_path, "base")
+        .file(partial_path, "partial")
+        .install(&mut db)
+        .expect("template reference project fixture should install");
+
+    let file = db
+        .file(Utf8Path::new(child_path))
+        .expect("child template fixture should exist");
+    let links = document_links(&db, file);
+
+    assert_eq!(links.len(), 2);
+    assert_eq!(
+        links[0],
+        ls_types::DocumentLink {
+            range: ls_types::Range::new(
+                ls_types::Position::new(0, 12),
+                ls_types::Position::new(0, 21),
+            ),
+            target: Some(
+                "file:///test/project/templates/base.html"
+                    .parse()
+                    .expect("test URI should parse"),
+            ),
+            tooltip: None,
+            data: None,
+        }
+    );
+    assert_eq!(
+        links[1],
+        ls_types::DocumentLink {
+            range: ls_types::Range::new(
+                ls_types::Position::new(1, 12),
+                ls_types::Position::new(1, 30),
+            ),
+            target: Some(
+                "file:///test/project/templates/partials/card.html"
+                    .parse()
+                    .expect("test URI should parse"),
+            ),
+            tooltip: None,
+            data: None,
+        }
+    );
+}
+
+#[test]
+fn document_links_skip_inconclusive_template_references() {
+    let mut db = TestDatabase::new();
+    let child_path = "/test/project/templates/child.html";
+    let source = "{% extends \"base.html\" %}\n";
+
+    ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file(
+            "/test/project/testproject/settings.py",
+            "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [UNKNOWN, '/test/project/templates'], 'APP_DIRS': False}]\n",
+        )
+        .file(child_path, source)
+        .file("/test/project/templates/base.html", "base")
+        .install(&mut db)
+        .expect("incomplete-search project fixture should install");
+
+    let file = db
+        .file(Utf8Path::new(child_path))
+        .expect("child template fixture should exist");
+
+    assert!(document_links(&db, file).is_empty());
+}
+
+#[test]
+fn document_links_do_not_invent_origin_for_source_less_configured_library() {
+    let mut db = TestDatabase::new();
+    let template_path = "/test/project/templates/load.html";
+    ProjectFixture::new("/test/project")
+        .tag_specs(TagSpecDef {
+            libraries: vec![TagLibraryDef {
+                module: "missing.panel_tags".to_string(),
+                requires_engine: None,
+                tags: vec![TagDef {
+                    name: "panel".to_string(),
+                    tag_type: TagTypeDef::Block,
+                    end: None,
+                    intermediates: Vec::new(),
+                    args: Vec::new(),
+                    extra: None,
+                }],
+                extra: None,
+            }],
+            ..TagSpecDef::default()
+        })
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".into()],
+            libraries: BTreeMap::from([("panels".into(), "missing.panel_tags".into())]),
+            ..ProjectSettings::default()
+        })
+        .file(template_path, "{% load panels %}")
+        .install(&mut db)
+        .expect("configured-library project fixture should install");
+    let file = db
+        .file(Utf8Path::new(template_path))
+        .expect("load template fixture should exist");
+
+    assert!(document_links(&db, file).is_empty());
+}
+
+#[test]
+fn document_links_skip_library_candidate_beside_open_backend_alternative() {
+    let mut db = TestDatabase::new();
+    let template_path = "/test/project/templates/load.html";
+    ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file(
+            "/test/project/testproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': UNKNOWN}, {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'project_tags'}}}]\n",
+        )
+        .file(
+            "/test/project/project_tags.py",
+            "from django import template\nregister = template.Library()\n",
+        )
+        .file(template_path, "{% load custom %}")
+        .install(&mut db)
+        .expect("open-backend project fixture should install");
+    let file = db
+        .file(Utf8Path::new(template_path))
+        .expect("load template fixture should exist");
+
+    assert!(document_links(&db, file).is_empty());
+}
+
+#[test]
+fn document_links_resolve_relative_include_to_sibling_template() {
+    let mut db = TestDatabase::new();
+    let child_path = "/test/project/templates/dir/child.html";
+    let target_path = "/test/project/templates/dir/x.html";
+    let source = "{% include \"./x.html\" %}\n";
+
+    ProjectFixture::new("/test/project")
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".into()],
+            ..ProjectSettings::default()
+        })
+        .file(child_path, source)
+        .file(target_path, "target")
+        .install(&mut db)
+        .expect("relative-include project fixture should install");
+
+    let file = db
+        .file(Utf8Path::new(child_path))
+        .expect("child template fixture should exist");
+    let links = document_links(&db, file);
+
+    assert_eq!(
+        links,
+        vec![ls_types::DocumentLink {
+            range: ls_types::Range::new(
+                ls_types::Position::new(0, 12),
+                ls_types::Position::new(0, 20),
+            ),
+            target: Some(
+                "file:///test/project/templates/dir/x.html"
+                    .parse()
+                    .expect("test URI should parse"),
+            ),
+            tooltip: None,
+            data: None,
+        }]
+    );
+}
+
+#[test]
+fn document_links_resolve_load_libraries_with_argument_ranges() {
+    let project_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("resources/projects/document-links-load")
+        .canonicalize()
+        .expect("document-links project fixture should resolve");
+    let project_root = Utf8PathBuf::from_path_buf(project_root)
+        .expect("document-links project fixture path should be UTF-8");
+    let (db, _, _) =
+        corpus_project_database(project_root.clone(), [project_root.clone()], "settings")
+            .expect("template-library project fixture should install");
+    let template_path = project_root.join("templates/load.html");
+    let file = db
+        .file(&template_path)
+        .expect("load template fixture should exist");
+    let links = document_links(&db, file);
+
+    assert_eq!(
+        links,
+        vec![
+            ls_types::DocumentLink {
+                range: ls_types::Range::new(
+                    ls_types::Position::new(0, 8),
+                    ls_types::Position::new(0, 21),
+                ),
+                target: Some(
+                    ls_types::Uri::from_file_path(
+                        project_root
+                            .join("djls_app/templatetags/djls_app_tags.py")
+                            .as_std_path(),
+                    )
+                    .expect("app tag path should convert to a file URI"),
+                ),
+                tooltip: None,
+                data: None,
+            },
+            ls_types::DocumentLink {
+                range: ls_types::Range::new(
+                    ls_types::Position::new(0, 22),
+                    ls_types::Position::new(0, 28),
+                ),
+                target: Some(
+                    ls_types::Uri::from_file_path(
+                        project_root
+                            .join("project/templatetags/extras.py")
+                            .as_std_path(),
+                    )
+                    .expect("extra tag path should convert to a file URI"),
+                ),
+                tooltip: None,
+                data: None,
+            },
+            ls_types::DocumentLink {
+                range: ls_types::Range::new(
+                    ls_types::Position::new(1, 27),
+                    ls_types::Position::new(1, 40),
+                ),
+                target: Some(
+                    ls_types::Uri::from_file_path(
+                        project_root
+                            .join("djls_app/templatetags/djls_app_tags.py")
+                            .as_std_path(),
+                    )
+                    .expect("app tag path should convert to a file URI"),
+                ),
+                tooltip: None,
+                data: None,
+            },
+        ]
+    );
+}

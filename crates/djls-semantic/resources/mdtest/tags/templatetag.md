@@ -81,3 +81,19 @@
 ```snapshot
 ✓ no diagnostics
 ```
+
+## Invalid
+
+### rejects an unknown delimiter
+
+```htmldjango
+{% templatetag unknown %}
+```
+
+```snapshot
+error[S117]: Tag 'templatetag' argument must be one of: 'openblock', 'closeblock', 'openvariable', 'closevariable', 'openbrace', 'closebrace', 'opencomment', 'closecomment'
+ --> test.html:1:1
+  |
+1 | {% templatetag unknown %}
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^
+```

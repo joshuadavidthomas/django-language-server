@@ -51,3 +51,39 @@
 ```snapshot
 ✓ no diagnostics
 ```
+
+## Invalid
+
+### requires a template name
+
+```htmldjango
+{% include %}
+```
+
+```snapshot
+error[S117]: 'include' tag takes at least one argument: the name of the template to be included.
+ --> test.html:1:1
+  |
+1 | {% include %}
+  | ^^^^^^^^^^^^^
+```
+
+### reports diagnostics in a support template
+
+```htmldjango
+{% include "support.html" %}
+```
+
+`support.html`:
+
+```htmldjango
+{% include %}
+```
+
+```snapshot
+error[S117]: 'include' tag takes at least one argument: the name of the template to be included.
+ --> support.html:1:1
+  |
+1 | {% include %}
+  | ^^^^^^^^^^^^^
+```

@@ -1,15 +1,15 @@
 ---
 name: djls-resolver-corpus
-description: Maintain the ported ty resolver test corpus in crates/djls-project/tests/resolve.rs. Use when bumping the ruff git pin in the workspace Cargo.toml or when adding/reviewing module-resolution tests.
+description: Maintain the ported ty resolver test corpus in crates/djls-project/tests/it/resolve.rs. Use when bumping the ruff git pin in the workspace Cargo.toml or when adding/reviewing module-resolution tests.
 ---
 
 # DJLS Resolver Corpus
 
-Use this when maintaining the ported module-resolution tests in `crates/djls-project/tests/resolve.rs`.
+Use this when maintaining the ported module-resolution tests in `crates/djls-project/tests/it/resolve.rs`.
 
 ## Provenance
 
-`crates/djls-project/tests/resolve.rs` ports module-resolution tests from ty's resolver in astral-sh/ruff:
+`crates/djls-project/tests/it/resolve.rs` ports module-resolution tests from ty's resolver in astral-sh/ruff:
 
 - `crates/ty_module_resolver/src/resolve.rs`
 - `crates/ty_module_resolver/src/path.rs`
