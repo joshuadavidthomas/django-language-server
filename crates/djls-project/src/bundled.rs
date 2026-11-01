@@ -29,6 +29,7 @@ use zip::ZipArchive;
 
 pub use self::facts::BundledDjangoLibrary;
 pub use self::facts::bundled_django_libraries;
+pub use self::facts::prime_bundled_django_libraries;
 
 struct Bundle {
     root: Utf8PathBuf,
@@ -107,8 +108,8 @@ fn bundle(version: DjangoVersion) -> Option<io::Result<&'static Bundle>> {
 /// Supply a Django release at runtime to a build that does not embed it.
 ///
 /// `bytes` is a Django wheel or vendored bundle; its `.dist-info` name selects the release.
-/// Register before the release is first used, because tag facts and Django Discovery keep a
-/// missing-bundle result. The archive stays in memory for the rest of the process.
+/// Register before the release is first used, because Django Discovery keeps a missing-bundle
+/// result. On wasm this also extracts the release's tag facts, so call it outside any query. The archive stays in memory for the rest of the process.
 pub fn register_django_bundle(bytes: Vec<u8>) -> io::Result<DjangoVersion> {
     let version = ZipArchive::new(Cursor::new(bytes.as_slice()))?
         .file_names()
@@ -131,6 +132,10 @@ pub fn register_django_bundle(bytes: Vec<u8>) -> io::Result<DjangoVersion> {
     }
     let bundle = Bundle::new(cache_root()?, Box::leak(bytes.into_boxed_slice()))?;
     slot.set(bundle).map_err(|_rejected| already_loaded())?;
+    // Registration happens before any database exists, the only safe place to extract without
+    // a second thread.
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    prime_bundled_django_libraries();
     Ok(version)
 }
 

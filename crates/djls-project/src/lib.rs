@@ -13,6 +13,7 @@ pub use bundled::BundledDjangoLibrary;
 pub use bundled::BundledFileSystem;
 pub use bundled::bundled_django_libraries;
 pub use bundled::materialize_bundled_path;
+pub use bundled::prime_bundled_django_libraries;
 pub use bundled::register_django_bundle;
 pub use db::Db;
 pub use discovery::CountLabel;

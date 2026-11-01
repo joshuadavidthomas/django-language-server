@@ -34,6 +34,8 @@ impl Workspace {
     #[wasm_bindgen(constructor)]
     pub fn new(settings: &str) -> Result<Workspace, JsError> {
         let settings: Settings = serde_json::from_str(settings)?;
+        // Embedded releases must be extracted before a database exists; see `registerDjango`.
+        djls_project::prime_bundled_django_libraries();
         let files = Arc::new(Mutex::new(InMemoryFileSystem::new()));
         let file_system: Arc<dyn FileSystem> = Arc::new(BundledFileSystem::new(
             Arc::clone(&files) as Arc<dyn FileSystem>
