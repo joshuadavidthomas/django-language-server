@@ -23,6 +23,8 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Added S114 expression syntax checks, with Django's error messages, for tag arguments that Django compiles as filter expressions, such as `{% firstof a| b %}` or `{% url "view" key= %}`. Which arguments are checked comes from each tag's extracted Argument Consumption, so custom tags that compile arguments with `parser.compile_filter`, `FilterExpression`, or `kwarg_re` are checked too.
 - Added filter availability (S111) and arity (S115, S116) checks for filters used inside tag arguments, such as `{% for x in items|dictsort:"name" %}`.
 - Added structure and outline entries for Django 6.0+ `{% partialdef %}` and `{% partial %}`: `{% partialdef %}` is matched with `{% endpartialdef %}`, and both appear in the outline under the partial's name.
+- **Internal**: Added `just ecosystem` and an `ecosystem` workflow that run `djls check` from the base and pull request builds across the corpus and report the diagnostic diff.
+- **Internal**: Added `just mutants` for mutation testing with `cargo-mutants`.
 
 ### Changed
 

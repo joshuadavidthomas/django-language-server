@@ -221,3 +221,6 @@ perf.data*
 
 # Orb-generated portal manifests
 /.amp/portals/
+
+# cargo-mutants output
+/mutants.out*/

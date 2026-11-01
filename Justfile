@@ -53,6 +53,26 @@ hawk *ARGS:
         --target-dir "{{ justfile_directory() }}/target/hawk" \
         -D warnings "$@"
 
+# Run `djls check` from the base and current builds across the corpus and diff the diagnostics
+ecosystem BASE="origin/main":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    out="target/ecosystem"
+    rm -rf "$out/base-src" && mkdir -p "$out"
+    git worktree add --detach "$out/base-src" "{{ BASE }}" >/dev/null
+    trap 'git worktree remove --force "$out/base-src"' EXIT
+    cargo build --release -q -p djls --manifest-path "$out/base-src/Cargo.toml" --target-dir "$out/base-target"
+    cargo build --release -q -p djls
+    python3 tools/ecosystem.py run --djls "$out/base-target/release/djls" --output "$out/base.json"
+    python3 tools/ecosystem.py run --djls target/release/djls --output "$out/head.json"
+    python3 tools/ecosystem.py diff "$out/base.json" "$out/head.json"
+
+# Mutation-test a crate or file, e.g. `just mutants -p djls-semantic -f crates/djls-semantic/src/scoping/loads.rs`
+mutants *ARGS:
+    cargo mutants --in-place {{ ARGS }} -- -- \
+        --skip corpus_environment:: --skip corpus_validation:: --skip corpus_inheritance:: \
+        --skip validation::corpus_ --skip model_extraction_snapshots --skip corpus_registration_census
+
 e2e *ARGS:
     @just nox e2e {{ ARGS }}
 
