@@ -67,8 +67,8 @@ mod tests {
         let line_index = LineIndex::from(source);
         let error = ParseError::MalformedConstruct {
             position: 6,
-            opener: "{{".to_string(),
-            closer: "}}".to_string(),
+            opener: "{{",
+            closer: "}}",
             content: "value".to_string(),
         };
 
@@ -95,8 +95,8 @@ mod tests {
         let line_index = LineIndex::from(source);
         let error = ParseError::MalformedConstruct {
             position: 7,
-            opener: "{{".to_string(),
-            closer: "}}".to_string(),
+            opener: "{{",
+            closer: "}}",
             content: "value".to_string(),
         };
         let config = djls_conf::DiagnosticsConfig::default();
