@@ -101,4 +101,8 @@ echo "==> Installing pre-commit hooks complete ($((SECONDS - step_start))s)"
 # builds historical interpreters and resolves dozens of unrelated dependency sets.
 run_step "Syncing locked corpus source" just corpus sync --source-only
 
+# The snapshot keeps target/, so a thread's first `cargo test` or `just test`
+# compiles only the crates it changes instead of the whole dependency graph.
+run_step "Building workspace tests" cargo test --workspace --locked --no-run
+
 echo "==> Setup complete ($((SECONDS - setup_start))s total)"
