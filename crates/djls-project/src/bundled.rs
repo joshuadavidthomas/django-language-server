@@ -65,7 +65,8 @@ impl Bundle {
         let archive = ZipArchive::new(Cursor::new(bytes))?;
         let mut index = BTreeMap::new();
         for name in archive.file_names() {
-            let path = root.join(name);
+            let name = name?;
+            let path = root.join(&*name);
             index.insert(
                 path.clone(),
                 if name.ends_with('/') {
