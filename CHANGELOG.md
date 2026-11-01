@@ -57,6 +57,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Fixed a mismatched `{% endpartialdef name %}` not reporting S103 with Django 6.0+.
 - Fixed settings evaluation dropping changes made through a second name for the same list or dict, such as `BASE_APPS.append(...)` after `INSTALLED_APPS = BASE_APPS; INSTALLED_APPS.append(...)`, or after a loop assigned one name to the other.
 - Fixed a `{% load %}` of an unresolved library suppressing block structure diagnostics (S100–S103) for built-in tags such as `{% block %}` and `{% if %}`. Only a selective load that names the tag, such as `{% load block from unknown %}`, still suppresses them.
+- Fixed settings evaluation treating a value as certain when a `for` or `while` loop body changes it only on a later iteration, such as a list appended to in an `if` arm that an earlier iteration enables.
 
 ### Fixed
 
