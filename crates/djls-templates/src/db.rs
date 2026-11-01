@@ -1,8 +1,8 @@
-//! Template parser Salsa diagnostics.
+//! Template parser Salsa database and diagnostics.
 //!
-//! This module provides the accumulator used by template parsing. The parser
-//! itself depends directly on `djls_source::Db` because it only needs file
-//! source text.
+//! The parser needs file source text and the [`LexerMode`] that decides
+//! whether tags may span lines. The database supplies the mode so this crate
+//! stays independent of how a project derives it.
 //!
 //! ## Architecture
 //!
@@ -41,7 +41,17 @@
 //! }
 //! ```
 
+use crate::lexer::LexerMode;
 use crate::parser::ParseError;
+
+#[salsa::db]
+pub trait Db: djls_source::Db {
+    /// How the lexer delimits tags in this database's templates.
+    ///
+    /// Tracked queries that lex call this, so an implementation backed by
+    /// tracked project queries invalidates lexing when those queries change.
+    fn lexer_mode(&self) -> LexerMode;
+}
 
 /// Accumulator for template parse errors.
 #[salsa::accumulator]

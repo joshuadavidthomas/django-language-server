@@ -426,6 +426,7 @@ impl ProjectFixture {
             self.pythonpath,
             self.env_vars,
             self.tag_specs,
+            None,
         ))
     }
 
@@ -640,6 +641,7 @@ pub fn corpus_project_database(
         pythonpath,
         Vec::new(),
         Settings::default().tagspecs().clone(),
+        None,
     );
     db.set_project(project);
 

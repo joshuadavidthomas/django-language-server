@@ -16,7 +16,10 @@ fn all(bencher: Bencher) {
     bencher.bench_local(move || {
         let mut total_nodes = 0;
         for fixture in fixtures {
-            let (nodes, _errors) = djls_templates::parse_template_impl(&fixture.source);
+            let (nodes, _errors) = djls_templates::parse_template_impl(
+                &fixture.source,
+                djls_templates::LexerMode::MultiLine,
+            );
             total_nodes += nodes.len();
         }
         divan::black_box(total_nodes);
@@ -38,7 +41,10 @@ fn scaling_repetitions() -> &'static [usize] {
 fn repeated_unclosed_variables(bencher: Bencher, repetitions: usize) {
     let source = "{{x\n".repeat(repetitions);
     bencher.bench_local(|| {
-        divan::black_box(djls_templates::parse_template_impl(&source));
+        divan::black_box(djls_templates::parse_template_impl(
+            &source,
+            djls_templates::LexerMode::MultiLine,
+        ));
     });
 }
 
@@ -46,7 +52,10 @@ fn repeated_unclosed_variables(bencher: Bencher, repetitions: usize) {
 fn repeated_closed_variables(bencher: Bencher, repetitions: usize) {
     let source = "{{x}}\n".repeat(repetitions);
     bencher.bench_local(|| {
-        divan::black_box(djls_templates::parse_template_impl(&source));
+        divan::black_box(djls_templates::parse_template_impl(
+            &source,
+            djls_templates::LexerMode::MultiLine,
+        ));
     });
 }
 

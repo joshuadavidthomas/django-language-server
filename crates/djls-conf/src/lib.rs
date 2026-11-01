@@ -82,6 +82,7 @@ pub struct Settings {
     #[serde(default)]
     pythonpath: Vec<Utf8PathBuf>,
     env_file: Option<String>,
+    multiline_tags: Option<bool>,
     #[serde(default)]
     tagspecs: TagSpecDef,
     #[serde(default)]
@@ -186,6 +187,13 @@ impl Settings {
         self.env_file.as_deref()
     }
 
+    /// Whether Django template tags may span lines, overriding the value
+    /// extracted from the Project's `django.template.base.tag_re`.
+    #[must_use]
+    pub fn multiline_tags(&self) -> Option<bool> {
+        self.multiline_tags
+    }
+
     #[must_use]
     pub fn tagspecs(&self) -> &TagSpecDef {
         &self.tagspecs
@@ -273,6 +281,7 @@ mod tests {
                     django_environments: vec![],
                     pythonpath: vec![],
                     env_file: None,
+                    multiline_tags: None,
                     tagspecs: TagSpecDef::default(),
                     diagnostics: DiagnosticsConfig::default(),
                     format: FormatConfig::default(),
@@ -297,6 +306,18 @@ mod tests {
             let settings = Settings::new(project_root, None)
                 .expect("valid djls.toml fixture should load settings");
             assert_eq!(settings.django_settings_module(), Some("project.settings"));
+        }
+
+        #[test]
+        fn test_load_multiline_tags_config() {
+            let dir = tempdir().expect("test should create temporary project directory");
+            fs::write(dir.path().join("djls.toml"), "multiline_tags = false")
+                .expect("test should write multiline tags djls.toml fixture");
+            let project_root = Utf8Path::from_path(dir.path())
+                .expect("temporary project directory path should be valid UTF-8");
+            let settings = Settings::new(project_root, None)
+                .expect("multiline tags djls.toml fixture should load settings");
+            assert_eq!(settings.multiline_tags(), Some(false));
         }
 
         #[test]

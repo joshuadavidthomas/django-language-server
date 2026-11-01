@@ -72,6 +72,7 @@ fn install_template_library_fixture(db: &mut Db) -> Result<(), BenchmarkSetupErr
         Vec::new(),
         Vec::new(),
         TagSpecDef::default(),
+        None,
     );
     db.set_project(project);
     Ok(())
