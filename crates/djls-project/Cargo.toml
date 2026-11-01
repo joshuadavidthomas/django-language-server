@@ -31,6 +31,7 @@ zip = { workspace = true }
 [dev-dependencies]
 djls-testing = { workspace = true }
 insta = { workspace = true }
+proptest = { workspace = true }
 libtest-mimic = { workspace = true }
 
 [[test]]
