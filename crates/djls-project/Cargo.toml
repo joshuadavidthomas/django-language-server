@@ -3,6 +3,14 @@ name = "djls-project"
 version = "0.0.0"
 edition.workspace = true
 
+[features]
+default = ["bundled-django"]
+# Embed every supported Django release; size-sensitive builds register them at runtime instead.
+bundled-django = ["django-5-2", "django-6-0", "django-6-1"]
+django-5-2 = []
+django-6-0 = []
+django-6-1 = []
+
 [dependencies]
 djls-conf = { workspace = true }
 djls-source = { workspace = true }

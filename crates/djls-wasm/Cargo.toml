@@ -7,6 +7,11 @@ publish = false
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+# Django sources are registered at runtime (`registerDjango`) unless a release is embedded.
+bundled-django = ["djls-project/bundled-django"]
+django-5-2 = ["djls-project/django-5-2"]
+
 [dependencies]
 djls-conf = { workspace = true }
 djls-db = { workspace = true }
