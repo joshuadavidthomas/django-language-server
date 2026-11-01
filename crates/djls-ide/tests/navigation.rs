@@ -614,7 +614,7 @@ fn goto_definition_does_not_skip_an_uncertain_parent_block() {
         .file("/test/project/templates/base.html", base_source)
         .file(
             "/test/project/templates/layout.html",
-            "{% extends \"base.html\" %}\n{% load unknown_library %}\n{% block title %}Layout{% endblock %}",
+            "{% extends \"base.html\" %}\n{% load block from unknown_library %}\n{% block title %}Layout{% endblock %}",
         )
         .file("/test/project/templates/child.html", child_source)
         .install(&mut db)

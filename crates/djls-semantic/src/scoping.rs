@@ -33,6 +33,7 @@ pub(crate) use crate::scoping::loads::LoadKind;
 pub(crate) use crate::scoping::loads::LoadState;
 pub(crate) use crate::scoping::loads::LoadStatement;
 pub(crate) use crate::scoping::loads::LoadedLibraries;
+pub(crate) use crate::scoping::loads::UnknownLoadShadow;
 use crate::scoping::symbols::SymbolAvailability;
 use crate::scoping::symbols::resolve_occurrence_availability;
 use crate::structure::ActiveTemplateNode;
@@ -266,11 +267,13 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
                             TemplateSymbolKind::Tag,
                         )
                     },
-                    unknown_load_can_shadow: load_state.unknown_load_can_shadow_symbol(
-                        tag.tag,
-                        TemplateSymbolKind::Tag,
-                        scoped_libraries,
-                    ),
+                    unknown_load_can_shadow: load_state
+                        .unknown_load_can_shadow_symbol(
+                            tag.tag,
+                            TemplateSymbolKind::Tag,
+                            scoped_libraries,
+                        )
+                        .is_some(),
                 });
             let loader_arguments =
                 if spec.and_then(TagSpec::role) == Some(TagRole::TemplateLibraryLoader) {
@@ -408,11 +411,13 @@ pub(crate) fn scoped_filter_facts<'db>(
                 ScopedFilterFact {
                     availability,
                     arity,
-                    unknown_load_can_shadow: load_state.unknown_load_can_shadow_symbol(
-                        &filter.name,
-                        TemplateSymbolKind::Filter,
-                        scoped_libraries,
-                    ),
+                    unknown_load_can_shadow: load_state
+                        .unknown_load_can_shadow_symbol(
+                            &filter.name,
+                            TemplateSymbolKind::Filter,
+                            scoped_libraries,
+                        )
+                        .is_some(),
                 }
             });
             facts.insert(FilterOccurrenceKey::from_filter(filter), fact);

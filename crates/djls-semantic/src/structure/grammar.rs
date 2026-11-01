@@ -15,6 +15,7 @@ use djls_templates::TagBit;
 use crate::db::Db;
 use crate::scoping::LoadState;
 use crate::scoping::LoadedLibraries;
+use crate::scoping::UnknownLoadShadow;
 use crate::tags::BodyAnalysis;
 use crate::tags::TagSpec;
 use crate::tags::effective_tag_spec_in_scope;
@@ -302,15 +303,35 @@ impl SparseTagGrammar {
                 )
             },
             |name, load_state| {
-                if load_state.unknown_load_can_shadow_symbol(
+                match load_state.unknown_load_can_shadow_symbol(
                     name,
                     TemplateSymbolKind::Tag,
                     scoped_libraries,
                 ) {
-                    return TagGrammarFact {
-                        spec: None,
-                        classification: TagClassification::Inconclusive,
-                    };
+                    None => {}
+                    // Libraries can override built-in block tags, but one that does so
+                    // through a full load is rare enough that losing block structure
+                    // in every Template with an unresolved load costs more.
+                    Some(UnknownLoadShadow::FullLoad)
+                        if let Some(spec) = effective_tag_spec_in_scope(
+                            db,
+                            project,
+                            scoped_libraries,
+                            name,
+                            &[],
+                        ) && let Some(contract) = OpeningContract::from_spec(&spec) =>
+                    {
+                        return TagGrammarFact {
+                            spec: Some(spec),
+                            classification: TagClassification::Opener(contract),
+                        };
+                    }
+                    Some(_) => {
+                        return TagGrammarFact {
+                            spec: None,
+                            classification: TagClassification::Inconclusive,
+                        };
+                    }
                 }
 
                 load_state.write_libraries_loading_symbol(name, &mut loaded_names);
