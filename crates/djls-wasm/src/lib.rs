@@ -136,6 +136,34 @@ impl Workspace {
         Ok(serde_json::to_string(&ranges)?)
     }
 
+    /// LSP `TextEdit[]` as JSON. Like the server, this honors `format.enabled` (off by
+    /// default) and `format.backend` from the settings passed to the constructor.
+    pub fn format(
+        &self,
+        path: &str,
+        #[wasm_bindgen(js_name = tabSize)] tab_size: u32,
+        #[wasm_bindgen(js_name = insertSpaces)] insert_spaces: bool,
+    ) -> Result<String, JsError> {
+        let file = path_to_file(&self.db, &project_path(path))?;
+        let format_config = self.db.settings().format().clone();
+        let edits = if format_config.enabled() && is_template(&self.db, file) {
+            djls_ide::format_document(
+                &self.db,
+                file,
+                PositionEncoding::Utf16,
+                format_config.backend(),
+                &ls_types::FormattingOptions {
+                    tab_size,
+                    insert_spaces,
+                    ..Default::default()
+                },
+            )
+        } else {
+            Vec::new()
+        };
+        Ok(serde_json::to_string(&edits)?)
+    }
+
     /// Source text of a project file or a bundled file such as a definition target.
     /// Absolute paths are used as-is; relative paths are project-relative.
     #[wasm_bindgen(js_name = readFile)]
