@@ -38,7 +38,7 @@ struct Bundle {
 
 static BUNDLES: LazyLock<io::Result<Vec<Bundle>>> = LazyLock::new(|| {
     let cache = ProjectDirs::from("", "", "djls")
-        .map_or_else(std::env::temp_dir, |dirs| dirs.cache_dir().to_path_buf());
+        .map_or_else(fallback_cache_dir, |dirs| dirs.cache_dir().to_path_buf());
     let cache = Utf8PathBuf::from_path_buf(cache).map_err(|path| {
         io::Error::other(format!(
             "bundle cache path is not UTF-8: {}",
@@ -54,6 +54,18 @@ static BUNDLES: LazyLock<io::Result<Vec<Bundle>>> = LazyLock::new(|| {
     .map(|bytes| Bundle::new(&cache.join("django"), bytes))
     .collect()
 });
+
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+fn fallback_cache_dir() -> std::path::PathBuf {
+    std::env::temp_dir()
+}
+
+// `std::env::temp_dir` panics without a host filesystem. Bundle paths only need a
+// stable identity; nothing is materialized there because navigation never runs.
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+fn fallback_cache_dir() -> std::path::PathBuf {
+    std::path::PathBuf::from("/djls-cache")
+}
 
 impl Bundle {
     fn new(cache: &Utf8Path, bytes: &'static [u8]) -> io::Result<Self> {

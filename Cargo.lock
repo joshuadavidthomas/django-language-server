@@ -1126,6 +1126,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "djls-wasm"
+version = "0.0.0"
+dependencies = [
+ "camino",
+ "djls-conf",
+ "djls-db",
+ "djls-ide",
+ "djls-project",
+ "djls-source",
+ "serde_json",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "dlv-list"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
