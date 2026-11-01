@@ -1007,6 +1007,7 @@ dependencies = [
  "libtest-mimic",
  "pep440_rs",
  "pep508_rs",
+ "proptest",
  "ruff_python_ast",
  "ruff_python_parser",
  "ruff_text_size",
