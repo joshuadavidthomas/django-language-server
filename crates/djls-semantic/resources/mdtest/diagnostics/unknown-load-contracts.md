@@ -620,3 +620,73 @@ error[S100]: Unclosed 'if' tag
 3 | {% if condition %}
   | ^^^^^^^^^^^^^^^^^^
 ```
+
+### a selective unknown import can supply an unloaded symbol
+
+`contract_tags.py`:
+
+```py
+from django import template
+register = template.Library()
+@register.simple_tag
+def contract_tag(value): pass
+@register.simple_tag
+def other_contract(value): pass
+```
+
+`exact_tags.py`:
+
+```py
+from django import template
+register = template.Library()
+@register.simple_tag
+def exact_symbol(value): pass
+@register.filter
+def exact_filter(value, argument): pass
+```
+
+```htmldjango
+{% load exact_symbol exact_filter from unknown_library %}
+{% exact_symbol %}
+{{ value|exact_filter }}
+```
+
+```snapshot
+✓ no diagnostics
+```
+
+### a known library without the symbol keeps an earlier unknown library's shadow
+
+`settings.py`:
+
+```py
+INSTALLED_APPS = []
+TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/'], 'APP_DIRS': False, 'OPTIONS': {'builtins': [], 'libraries': {**UNKNOWN, 'exact': 'exact_tags', 'other': 'other_tags'}}}]
+```
+
+`exact_tags.py`:
+
+```py
+from django import template
+register = template.Library()
+@register.simple_tag
+def exact_symbol(value): pass
+```
+
+`other_tags.py`:
+
+```py
+from django import template
+register = template.Library()
+@register.simple_tag
+def other_symbol(value): pass
+```
+
+```htmldjango
+{% load unknown_library exact %}
+{% other_symbol %}
+```
+
+```snapshot
+✓ no diagnostics
+```
