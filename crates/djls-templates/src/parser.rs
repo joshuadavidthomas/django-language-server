@@ -144,8 +144,8 @@ impl<'src> Parser<'src> {
                 let full_span = token.full_span().unwrap_or(*span);
                 Err(ParseError::MalformedConstruct {
                     position: full_span.start_usize(),
-                    opener: delimiter.opener().to_string(),
-                    closer: delimiter.closer().to_string(),
+                    opener: delimiter.opener(),
+                    closer: delimiter.closer(),
                     content: error_text,
                 })
             }
@@ -295,8 +295,8 @@ pub enum ParseError {
     #[error("Unclosed '{opener}' (no matching '{closer}' found): {content}")]
     MalformedConstruct {
         position: usize,
-        opener: String,
-        closer: String,
+        opener: &'static str,
+        closer: &'static str,
         content: String,
     },
 
@@ -363,8 +363,8 @@ mod tests {
     fn parser_errors_keep_legacy_diagnostic_code() {
         let error = ParseError::MalformedConstruct {
             position: 15,
-            opener: "{{".to_string(),
-            closer: "}}".to_string(),
+            opener: "{{",
+            closer: "}}",
             content: "value".to_string(),
         };
 
@@ -376,8 +376,8 @@ mod tests {
         assert_eq!(
             ParseError::MalformedConstruct {
                 position: 15,
-                opener: "{{".to_string(),
-                closer: "}}".to_string(),
+                opener: "{{",
+                closer: "}}",
                 content: "value".to_string(),
             }
             .primary_span(),
