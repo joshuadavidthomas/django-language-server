@@ -884,7 +884,11 @@ impl PythonEvaluationState {
                 module_effects,
                 predicate_module: _,
             } = body;
-            self.namespace_causes.extend(namespace_causes);
+            for cause in namespace_causes {
+                if !self.namespace_causes.contains(&cause) {
+                    self.namespace_causes.push(cause);
+                }
+            }
             self.mutations.extend(mutations);
             self.import_trace.absorb(&import_trace);
             body_objects.push(module_effects);
@@ -4617,6 +4621,26 @@ mod tests {
                 )
             )
         );
+    }
+
+    #[test]
+    fn python_module_evaluation_reaches_loop_arms_enabled_by_later_iterations() {
+        // Each flag flips one iteration after the flag before it, so the append
+        // is only reachable from the third iteration on.
+        let facts = evaluate_source(
+            "FIRST = True\nSECOND = True\nVALUES = ['a']\nfor item in list(VALUES):\n    if not SECOND:\n        VALUES.append('a')\n    if not FIRST:\n        SECOND = False\n    FIRST = False\n",
+        );
+        let [mutation] = facts.mutations.as_slice() else {
+            panic!("expected the append from a later iteration")
+        };
+        assert_eq!(mutation.binding, "VALUES");
+        assert_eq!(mutation.operation, PythonMutationOperation::Append);
+        for name in ["FIRST", "SECOND", "VALUES"] {
+            assert!(
+                facts.bindings[name].alternatives().any(|alternative| matches!(alternative, PythonBindingState::Bound(bound) if matches!(bound.value.kind, PythonValueKind::Unknown(_)))),
+                "{name} should be uncertain after the loop"
+            );
+        }
     }
 
     #[test]

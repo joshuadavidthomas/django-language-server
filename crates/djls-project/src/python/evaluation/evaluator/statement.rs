@@ -524,18 +524,28 @@ impl<'db> PythonModuleEvaluator<'db> {
         }
     }
 
+    /// Evaluates the bodies again from each widened state until widening stops
+    /// changing it, so arms that only a later iteration reaches are evaluated.
+    /// Widening only joins changed names and attributes with one loop-origin
+    /// unknown, so each pass either widens something new or reaches the fixpoint.
     fn degrade_loop_bodies(&mut self, bodies: &[&[ast::Stmt]], control_span: Span) {
-        let baseline = self.fork();
-        let mut evaluated_bodies = Vec::with_capacity(bodies.len());
-        for body in bodies {
-            let mut evaluator = baseline.fork();
-            evaluator.evaluate_body(body);
-            evaluated_bodies.push(evaluator.state);
+        let origin = self.origin_at(control_span);
+        loop {
+            let mut evaluated_bodies = Vec::with_capacity(bodies.len());
+            for body in bodies {
+                let mut evaluator = self.fork();
+                evaluator.evaluate_body(body);
+                evaluated_bodies.push(evaluator.state);
+            }
+            let widened = self
+                .state
+                .clone()
+                .degrade_loop_effects(evaluated_bodies, origin);
+            if widened == self.state {
+                return;
+            }
+            self.state = widened;
         }
-
-        self.state = baseline
-            .state
-            .degrade_loop_effects(evaluated_bodies, self.origin_at(control_span));
     }
 
     fn assign_target(
