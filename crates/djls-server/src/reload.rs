@@ -21,6 +21,7 @@ use djls_ide::WarmCachePart;
 use djls_ide::WarmCachePhase;
 use djls_ide::prime_template_library_products;
 use djls_ide::warm_cache_phases;
+use djls_lsp::ClientInfo;
 use djls_project::Db as ProjectDb;
 use djls_project::DjangoEnvironmentData;
 use djls_project::EnvironmentPart;
@@ -49,7 +50,6 @@ use tracing::error;
 use tracing::instrument::WithSubscriber;
 use tracing::warn;
 
-use crate::client::ClientInfo;
 use crate::diagnostics::DiagnosticPublisher;
 use crate::logging::blocking_in_span;
 use crate::logging::elapsed_ms;

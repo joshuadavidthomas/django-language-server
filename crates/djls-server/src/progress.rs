@@ -2,11 +2,10 @@ use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
+use djls_lsp::ClientInfo;
 use tower_lsp_server::Client;
 use tower_lsp_server::ls_types;
 use tower_lsp_server::ls_types::notification::Progress as ProgressNotification;
-
-use crate::client::ClientInfo;
 
 const CREATE_PROGRESS_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -210,6 +209,7 @@ async fn send_end(client: &Client, token: ls_types::ProgressToken, message: Opti
 
 #[cfg(test)]
 mod tests {
+    use djls_lsp::ClientOptions;
     use futures_util::SinkExt;
     use futures_util::StreamExt;
     use tower_lsp_server::LspService;
@@ -217,7 +217,6 @@ mod tests {
     use tower_service::Service;
 
     use super::*;
-    use crate::client::ClientOptions;
     use crate::testing::TransportBackend;
 
     #[tokio::test]

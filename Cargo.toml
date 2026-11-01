@@ -12,6 +12,7 @@ djls-conf = { path = "crates/djls-conf" }
 djls-db = { path = "crates/djls-db" }
 djls-format = { path = "crates/djls-format" }
 djls-ide = { path = "crates/djls-ide" }
+djls-lsp = { path = "crates/djls-lsp" }
 djls-project = { path = "crates/djls-project", default-features = false }
 djls-semantic = { path = "crates/djls-semantic" }
 djls-server = { path = "crates/djls-server" }

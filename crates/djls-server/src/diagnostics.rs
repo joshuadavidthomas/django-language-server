@@ -8,6 +8,8 @@ use std::time::Instant;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
+use djls_lsp::TextDocument;
+use djls_lsp::UriExt;
 use djls_source::path_to_file;
 use salsa::Cancelled;
 use tokio::sync::Mutex;
@@ -21,8 +23,6 @@ use tracing::debug;
 use tracing::debug_span;
 use tracing::error;
 
-use crate::document::TextDocument;
-use crate::ext::UriExt;
 use crate::logging::blocking_in_span;
 use crate::logging::elapsed_ms;
 use crate::session::IntrinsicReadinessState;

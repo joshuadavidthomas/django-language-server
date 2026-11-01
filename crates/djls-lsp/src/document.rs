@@ -19,7 +19,7 @@ use djls_source::Range;
 /// efficient position lookups.
 ///
 #[derive(Clone)]
-pub(crate) struct TextDocument {
+pub struct TextDocument {
     /// The document's path.
     path: Utf8PathBuf,
     /// The document's current in-memory content.
@@ -34,7 +34,7 @@ pub(crate) struct TextDocument {
 
 impl TextDocument {
     #[must_use]
-    pub(crate) fn new(path: Utf8PathBuf, content: String, version: i32, kind: FileKind) -> Self {
+    pub fn new(path: Utf8PathBuf, content: String, version: i32, kind: FileKind) -> Self {
         let line_index = LineIndex::from(content.as_str());
         Self {
             path,
@@ -46,22 +46,22 @@ impl TextDocument {
     }
 
     #[must_use]
-    pub(crate) fn content(&self) -> &str {
+    pub fn content(&self) -> &str {
         &self.content
     }
 
     #[must_use]
-    pub(crate) fn version(&self) -> i32 {
+    pub fn version(&self) -> i32 {
         self.version
     }
 
     #[must_use]
-    pub(crate) fn kind(&self) -> FileKind {
+    pub fn kind(&self) -> FileKind {
         self.kind
     }
 
     #[must_use]
-    pub(crate) fn path(&self) -> &Utf8Path {
+    pub fn path(&self) -> &Utf8Path {
         &self.path
     }
 
@@ -79,7 +79,7 @@ impl TextDocument {
     }
 }
 
-pub(crate) struct DocumentChange {
+pub struct DocumentChange {
     range: Option<Range>,
     text: String,
 }

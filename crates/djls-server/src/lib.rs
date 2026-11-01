@@ -1,9 +1,6 @@
 #![cfg_attr(not(test), warn(clippy::expect_used))]
 
-mod client;
 mod diagnostics;
-mod document;
-mod ext;
 mod logging;
 mod progress;
 mod reload;
@@ -11,7 +8,6 @@ mod server;
 mod session;
 #[cfg(test)]
 mod testing;
-mod workspace;
 
 use std::io::IsTerminal;
 

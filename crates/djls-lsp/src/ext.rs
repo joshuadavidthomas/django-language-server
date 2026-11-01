@@ -13,7 +13,7 @@ use crate::client::Client;
 use crate::client::ClientOptions;
 use crate::document::DocumentChange;
 
-pub(crate) trait PositionExt {
+pub trait PositionExt {
     fn to_line_col(&self) -> LineCol;
     fn to_offset(&self, text: &str, line_index: &LineIndex, encoding: PositionEncoding) -> Offset;
 }
@@ -29,7 +29,7 @@ impl PositionExt for ls_types::Position {
     }
 }
 
-pub(crate) trait PositionEncodingExt {
+pub trait PositionEncodingExt {
     fn to_lsp(&self) -> ls_types::PositionEncodingKind;
 }
 
@@ -70,7 +70,7 @@ impl RangeExt for ls_types::Range {
     }
 }
 
-pub(crate) trait TextDocumentContentChangeEventExt {
+pub trait TextDocumentContentChangeEventExt {
     fn to_document_changes(self) -> Vec<DocumentChange>;
 }
 
@@ -84,7 +84,7 @@ impl TextDocumentContentChangeEventExt for Vec<ls_types::TextDocumentContentChan
     }
 }
 
-pub(crate) trait InitializeParamsExt {
+pub trait InitializeParamsExt {
     fn client_options(&self) -> ClientOptions;
 }
 
@@ -144,7 +144,7 @@ impl ClientInfoExt for Option<&ls_types::ClientInfo> {
     }
 }
 
-pub(crate) trait TextDocumentItemExt {
+pub trait TextDocumentItemExt {
     fn language_id_to_file_kind(&self, client: Client) -> FileKind;
 }
 
@@ -158,7 +158,7 @@ impl TextDocumentItemExt for ls_types::TextDocumentItem {
     }
 }
 
-pub(crate) trait UriExt {
+pub trait UriExt {
     /// Convert `Utf8Path` to LSP Uri
     fn from_path(path: &Utf8Path) -> Option<Self>
     where
@@ -210,11 +210,11 @@ impl UriExt for ls_types::Uri {
 mod tests {
     use std::str::FromStr;
 
+    use djls_testing::log_capture::Capture;
+    use djls_testing::log_capture::callsite_guard;
     use tracing_subscriber::layer::SubscriberExt;
 
     use super::*;
-    use crate::logging::capture::Capture;
-    use crate::logging::capture::callsite_guard;
 
     #[test]
     fn client_options_keep_supplied_fields_separate_from_startup_defaults() {

@@ -993,6 +993,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "djls-lsp"
+version = "0.0.0"
+dependencies = [
+ "camino",
+ "djls-conf",
+ "djls-db",
+ "djls-ide",
+ "djls-project",
+ "djls-source",
+ "djls-testing",
+ "rustc-hash",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "toml",
+ "tower-lsp-server",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "djls-project"
 version = "0.0.0"
 dependencies = [
@@ -1061,6 +1082,7 @@ dependencies = [
  "djls-conf",
  "djls-db",
  "djls-ide",
+ "djls-lsp",
  "djls-project",
  "djls-source",
  "djls-testing",
@@ -1072,7 +1094,6 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
- "toml",
  "tower-lsp-server",
  "tower-service",
  "tracing",
