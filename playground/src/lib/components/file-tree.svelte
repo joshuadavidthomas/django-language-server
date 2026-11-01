@@ -15,6 +15,7 @@
 	let { onNewFile }: { onNewFile: () => void } = $props();
 
 	const playground = getPlayground();
+	const sidebar = Sidebar.useSidebar();
 
 	interface Directory {
 		name: string;
@@ -72,7 +73,8 @@
 					{/snippet}
 				</Collapsible.Trigger>
 				<Collapsible.Content>
-					<Sidebar.MenuSub class="mr-0 pr-0">
+					<!-- A tighter indent than shadcn's, so names four folders deep still fit. -->
+					<Sidebar.MenuSub class="mr-0 ml-2.5 pr-0 pl-1.5">
 						{@render directory(sub)}
 					</Sidebar.MenuSub>
 				</Collapsible.Content>
@@ -85,18 +87,24 @@
 		<Sidebar.MenuItem>
 			<Sidebar.MenuButton
 				isActive={playground.current === path}
-				onclick={() => playground.open(path)}
+				onclick={() => {
+					playground.open(path);
+					// On phones the tree is a sheet over the editor.
+					sidebar.setOpenMobile(false);
+				}}
 				data-path={path}
 				title={path}
+				class={errors || warnings ? 'max-md:pr-14!' : undefined}
 			>
 				{#if path.endsWith('.py')}<FileCode />{:else}<FileText />{/if}
 				<span>{name}</span>
 			</Sidebar.MenuButton>
 			{#if errors || warnings}
-				<!-- Gives way to the delete action on hover. -->
+				<!-- Gives way to the delete action on hover; on phones the action always shows, so the
+				     badge sits beside it. -->
 				<Sidebar.MenuBadge
 					class={[
-						'group-hover/menu-item:opacity-0',
+						'group-hover/menu-item:opacity-0 max-md:right-7 max-md:opacity-100',
 						errors ? 'text-destructive' : 'text-amber-600 dark:text-amber-400'
 					]}
 					aria-label="{errors + warnings} problems"
