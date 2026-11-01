@@ -53,7 +53,18 @@ impl PythonBinding {
     }
 
     pub(super) fn unknown(cause: &PythonUnknownCause, origin: Origin) -> Self {
-        let mut binding = Self::bound(PythonValue::unknown(cause.clone(), Some(origin)), origin);
+        Self::unknown_reaching(cause, origin, ReachableAllocationSites::default())
+    }
+
+    /// An unknown binding that may still name or reach the mutable objects
+    /// `sites` describes.
+    pub(super) fn unknown_reaching(
+        cause: &PythonUnknownCause,
+        origin: Origin,
+        sites: ReachableAllocationSites,
+    ) -> Self {
+        let value = PythonValue::unknown_reaching(cause.clone(), origin, sites);
+        let mut binding = Self::bound(value, origin);
         binding.cases[0].predicate_identity = Some(PredicateIdentity::new(origin));
         binding
     }
