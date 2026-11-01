@@ -1,0 +1,105 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  example.coffee.models.Favorite:
+    name:
+      value: Favorite
+      span:
+        start: 730
+        length: 8
+    module_name: example.coffee.models
+    relations:
+      - field_name:
+          value: flavor
+          span:
+            start: 811
+            length: 6
+        relation_type: OneToOne
+        target:
+          value:
+            kind: Bare
+            name: Flavor
+          span:
+            start: 841
+            length: 6
+        related_name: ~
+    kind: concrete
+  example.coffee.models.Flavor:
+    name:
+      value: Flavor
+      span:
+        start: 50
+        length: 6
+    module_name: example.coffee.models
+    relations:
+      - field_name:
+          value: parent
+          span:
+            start: 165
+            length: 6
+        relation_type: ForeignKey
+        target:
+          value:
+            kind: SelfRef
+          span:
+            start: 192
+            length: 6
+        related_name: ~
+    kind: concrete
+  example.coffee.models.NewFlavor:
+    name:
+      value: NewFlavor
+      span:
+        start: 1142
+        length: 9
+    module_name: example.coffee.models
+    relations: []
+    kind: concrete
+  example.coffee.models.Origin:
+    name:
+      value: Origin
+      span:
+        start: 1000
+        length: 6
+    module_name: example.coffee.models
+    relations:
+      - field_name:
+          value: flavor
+          span:
+            start: 1070
+            length: 6
+        relation_type: ManyToMany
+        target:
+          value:
+            kind: Bare
+            name: Flavor
+          span:
+            start: 1102
+            length: 6
+        related_name: origins
+    kind: concrete
+  example.coffee.models.Taste:
+    name:
+      value: Taste
+      span:
+        start: 883
+        length: 5
+    module_name: example.coffee.models
+    relations:
+      - field_name:
+          value: flavor
+          span:
+            start: 952
+            length: 6
+        relation_type: ManyToMany
+        target:
+          value:
+            kind: Bare
+            name: Flavor
+          span:
+            start: 984
+            length: 6
+        related_name: ~
+    kind: concrete

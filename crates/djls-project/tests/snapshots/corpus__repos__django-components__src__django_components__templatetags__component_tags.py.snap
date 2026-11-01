@@ -1,0 +1,12 @@
+---
+source: crates/djls-project/tests/corpus.rs
+expression: sorted_snapshot(&bundle)?
+---
+definitions:
+  "tag::cache":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: true
+tag_rules: {}
+filter_arities: {}
+block_specs: {}

@@ -3,40 +3,40 @@ source: crates/djls-bench/src/check.rs
 expression: "CorpusWorkloadSnapshot\n{\n    input: corpus_input_snapshot(corpus), output:\n    checked_workload_snapshot(&db, &files, WorkloadDetail::Corpus, true),\n}"
 ---
 input:
-  discovered_file_count: 7269
-  synchronized_file_count: 7269
-  total_bytes: 11921621
-  sorted_records_sha256: 8ffe302b4b0d09aae1d18f434e1a468a2bf6d0947a48b36b9ea66a7b8a49b690
+  discovered_file_count: 9821
+  synchronized_file_count: 9821
+  total_bytes: 14877406
+  sorted_records_sha256: bbe3d72f26a49cccfc019e66681b19b57fa0074c40a097aa8a969c026df1b3b3
 output:
   check_parser_count: 0
-  check_validation_count: 17522
+  check_validation_count: 17929
   check_code_counts:
     S101: 1
-    S108: 10064
+    S108: 10280
     S109: 1
-    S111: 1919
+    S111: 1954
     S114: 25
     S118: 245
     S119: 502
-    S120: 4365
+    S120: 4521
     S121: 400
-  per_file_checks_sha256: ac50a143aee9bda59b6a2b1c6918dd2149f67e842c1dcd8b0fe0d90ba117ea38
-  ide_eligible_file_count: 6214
-  ide_diagnostic_count: 17522
+  per_file_checks_sha256: 20fc62f68ca8deb1e7734efffdc7be48e7ba56d566273b557a50fb83fa270ec6
+  ide_eligible_file_count: 8764
+  ide_diagnostic_count: 17929
   ide_code_counts:
     S101: 1
-    S108: 10064
+    S108: 10280
     S109: 1
-    S111: 1919
+    S111: 1954
     S114: 25
     S118: 245
     S119: 502
-    S120: 4365
+    S120: 4521
     S121: 400
-  normalized_ide_diagnostics_sha256: 2f6fc37be1796ae9b6f1999b56d50d47e03f0b489a618ed617ec665a3e7f3a9c
-  files_with_diagnostics: 3336
-  diagnostic_bearing_paths_sha256: cde21b13d827167dd943cf330754c92883b7c99ae61ea22356053b40e01728bb
+  normalized_ide_diagnostics_sha256: 57cc45a293f67fdac8c8c2200d84ed943acfeeeca0a6bf38ff9d4f524635e606
+  files_with_diagnostics: 3474
+  diagnostic_bearing_paths_sha256: 781518fb58788e23f619ce79033c7ee19c0b4ebe34dd1c8c960e208ba53f2b50
   rendered:
-    item_count: 17522
-    total_bytes: 4691953
-    output_sha256: 16ff4228c3b672d230df8a348df3746dc4dd4105f9088ab4aeb85a8464450a32
+    item_count: 17929
+    total_bytes: 4778553
+    output_sha256: fd93b1eb7b047d61f5481fa82f17212c9ef86cd5ce1e67a7b82eeefb4b3167e6

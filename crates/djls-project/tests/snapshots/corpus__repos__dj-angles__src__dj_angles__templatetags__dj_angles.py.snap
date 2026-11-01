@@ -1,0 +1,46 @@
+---
+source: crates/djls-project/tests/corpus.rs
+expression: sorted_snapshot(&bundle)?
+---
+definitions:
+  "filter::dateformat":
+    kind: filter
+    has_doc: false
+  "tag::call":
+    kind: tag
+    has_doc: false
+  "tag::dj_angles_scripts":
+    kind: tag
+    has_doc: false
+  "tag::model":
+    kind: tag
+    has_doc: false
+  "tag::template":
+    kind: tag
+    has_doc: false
+  "tag::view":
+    kind: tag
+    has_doc: false
+symbols_are_unobserved: false
+tag_rules:
+  "dj_angles.templatetags.dj_angles::tag::dj_angles_scripts":
+    arg_constraints: []
+    required_keywords: []
+    choice_at_constraints: []
+    known_options: ~
+    argument_syntax:
+      Signature:
+        parameters:
+          - name: ajax_form
+            requirement: optional
+            kind: Keyword
+        positional_only: 0
+        variadic_keyword: ~
+    as_var: keep
+filter_arities:
+  "dj_angles.templatetags.dj_angles::filter::dateformat": required_argument
+block_specs:
+  "dj_angles.templatetags.dj_angles::tag::template":
+    body_analysis_evidence: not_detected
+    end_tag: endtemplate
+    intermediates: []

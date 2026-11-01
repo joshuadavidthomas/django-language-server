@@ -1,0 +1,37 @@
+---
+source: crates/djls-project/tests/corpus_models.rs
+expression: graph
+---
+models:
+  example.books.models.Author:
+    name:
+      value: Author
+      span:
+        start: 256
+        length: 6
+    module_name: example.books.models
+    relations:
+      - field_name:
+          value: books
+          span:
+            start: 327
+            length: 5
+        relation_type: ManyToMany
+        target:
+          value:
+            kind: Bare
+            name: Book
+          span:
+            start: 358
+            length: 4
+        related_name: ~
+    kind: concrete
+  example.books.models.Book:
+    name:
+      value: Book
+      span:
+        start: 37
+        length: 4
+    module_name: example.books.models
+    relations: []
+    kind: concrete
