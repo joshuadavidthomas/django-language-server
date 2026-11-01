@@ -93,7 +93,7 @@ impl PythonNamespaceRemainder {
                 .iter_mut()
                 .find(|existing| existing.unknown.cause == cause.unknown.cause)
             {
-                existing.unknown.merge_origins(&cause.unknown);
+                existing.unknown.merge(&cause.unknown);
                 existing.constraints.merge(cause.constraints);
             } else {
                 normalized.push(cause);

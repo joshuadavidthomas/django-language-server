@@ -138,6 +138,15 @@ impl ReachableAllocationSites {
         self.0.is_empty()
     }
 
+    /// Collapse every reachable group into one site set. Alias matching is
+    /// origin-based, so the union intersects exactly what any group intersects.
+    pub(super) fn into_union(self) -> Option<AllocationSites> {
+        self.0.into_iter().reduce(|mut union, group| {
+            union.merge(group);
+            union
+        })
+    }
+
     /// Whether any reachable group here shares an allocation origin with any
     /// group in `other`. Branch constraints remain stored but deliberately do
     /// not narrow this plan's conservative alias matching.

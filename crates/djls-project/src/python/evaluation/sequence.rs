@@ -402,10 +402,11 @@ impl SequenceFacts {
     fn allocation_site_occurrences(&self, wanted: &ReachableAllocationSites) -> usize {
         self.summary
             .iter()
-            .filter_map(|item| match item {
-                PythonSequenceItem::Value(value) => Some(value.allocation_site_occurrences(wanted)),
-                PythonSequenceItem::UnknownElement(_) | PythonSequenceItem::UnknownUnpack(_) => {
-                    None
+            .map(|item| match item {
+                PythonSequenceItem::Value(value) => value.allocation_site_occurrences(wanted),
+                PythonSequenceItem::UnknownElement(unknown)
+                | PythonSequenceItem::UnknownUnpack(unknown) => {
+                    unknown.allocation_site_occurrences(wanted)
                 }
             })
             .sum()
@@ -815,6 +816,15 @@ impl StructuralOrd for PythonSequenceItem {
 }
 
 impl PythonSequenceItem {
+    pub(super) fn collect_reachable_sites(&self, sites: &mut ReachableAllocationSites) {
+        match self {
+            Self::Value(value) => value.collect_reachable_sites(sites),
+            Self::UnknownElement(unknown) | Self::UnknownUnpack(unknown) => {
+                unknown.collect_reachable_sites(sites);
+            }
+        }
+    }
+
     fn constrain_value_evidence(&mut self, constraints: &BranchConstraints) {
         if let Self::Value(value) = self {
             value.constrain_value_evidence(constraints);
@@ -867,7 +877,7 @@ impl PythonSequenceItem {
             }
             (Self::UnknownElement(existing), Self::UnknownElement(incoming))
             | (Self::UnknownUnpack(existing), Self::UnknownUnpack(incoming)) => {
-                existing.merge_origins(&incoming);
+                existing.merge(&incoming);
                 true
             }
             (
