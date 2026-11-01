@@ -1,0 +1,253 @@
+:root {
+  color-scheme: dark;
+  --bg: #1e1e1e;
+  --panel: #181818;
+  --border: #2b2b2b;
+  --text: #cccccc;
+  --muted: #8b8b8b;
+  --accent: #0c4a2f;
+  --accent-text: #44b78b;
+  --hover: #2a2d2e;
+  --active: #37373d;
+  --error: #f14c4c;
+  --warning: #cca700;
+  --info: #3794ff;
+  font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  height: 100vh;
+  display: grid;
+  grid-template: "header header" auto "tree main" 1fr "tree problems" 180px / 260px 1fr;
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+header {
+  grid-area: header;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 14px;
+  background: var(--accent);
+  border-bottom: 1px solid var(--border);
+}
+
+header h1 {
+  margin: 0;
+  font-size: 15px;
+  color: #fff;
+}
+
+header h1 span {
+  font-weight: 400;
+  color: var(--accent-text);
+}
+
+#status {
+  flex: 1;
+  color: #d7f3e6;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#status.error {
+  color: #ffb4b4;
+}
+
+.actions button {
+  background: rgb(255 255 255 / 0.08);
+  border: 1px solid rgb(255 255 255 / 0.15);
+  border-radius: 4px;
+  padding: 3px 10px;
+}
+
+.actions button:hover {
+  background: rgb(255 255 255 / 0.16);
+}
+
+#tree {
+  grid-area: tree;
+  overflow: auto;
+  padding: 6px 0;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  font: 12px/1.6 ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+.tree-dir,
+.tree-file {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: 0;
+  background: none;
+  padding: 1px 8px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.tree-dir {
+  color: var(--muted);
+  cursor: default;
+}
+
+.tree-file:hover {
+  background: var(--hover);
+}
+
+.tree-file.active {
+  background: var(--active);
+  color: #fff;
+}
+
+.tree-file .name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tree-file .delete {
+  visibility: hidden;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  padding: 0 2px;
+}
+
+.tree-file:hover .delete {
+  visibility: visible;
+}
+
+.tree-file .delete:hover {
+  color: var(--error);
+}
+
+.badge {
+  min-width: 16px;
+  padding: 0 5px;
+  border-radius: 8px;
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+  color: #fff;
+}
+
+.badge.error {
+  background: #a1260d;
+}
+
+.badge.warning {
+  background: #8a6d00;
+}
+
+main {
+  grid-area: main;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+#tab {
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--border);
+  font: 12px ui-monospace, "SF Mono", Menlo, monospace;
+  color: var(--muted);
+}
+
+#editor {
+  flex: 1;
+  min-height: 0;
+}
+
+#problems {
+  grid-area: problems;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+}
+
+#problems h2 {
+  margin: 0;
+  padding: 6px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+#problem-list {
+  flex: 1;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+#problem-list li {
+  display: flex;
+  gap: 8px;
+  padding: 2px 14px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+#problem-list li:hover {
+  background: var(--hover);
+}
+
+#problem-list li.empty {
+  color: var(--muted);
+  cursor: default;
+}
+
+#problem-list .severity {
+  width: 8px;
+  height: 8px;
+  margin-top: 6px;
+  border-radius: 50%;
+  flex: none;
+}
+
+#problem-list .severity.error {
+  background: var(--error);
+}
+
+#problem-list .severity.warning {
+  background: var(--warning);
+}
+
+#problem-list .severity.info {
+  background: var(--info);
+}
+
+#problem-list .message {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#problem-list .where,
+#problem-list .code {
+  color: var(--muted);
+  font: 12px ui-monospace, "SF Mono", Menlo, monospace;
+  line-height: 1.6;
+}

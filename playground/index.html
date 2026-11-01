@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Django Language Server Playground</title>
+  </head>
+  <body>
+    <header>
+      <h1>djls <span>playground</span></h1>
+      <div id="status" role="status">Loading djls…</div>
+      <div class="actions">
+        <button id="new-file" type="button">New file</button>
+        <button id="reset" type="button">Reset</button>
+      </div>
+    </header>
+    <nav id="tree" aria-label="Project files"></nav>
+    <main>
+      <div id="tab"></div>
+      <div id="editor"></div>
+    </main>
+    <section id="problems" aria-label="Problems">
+      <h2>Problems</h2>
+      <ul id="problem-list"></ul>
+    </section>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
