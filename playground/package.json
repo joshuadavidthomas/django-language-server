@@ -1,0 +1,18 @@
+{
+  "name": "djls-playground",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "check": "tsc"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3",
+    "vite": "^8.3.5"
+  },
+  "dependencies": {
+    "monaco-editor": "^0.57.0"
+  }
+}
