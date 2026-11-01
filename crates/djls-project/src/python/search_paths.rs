@@ -237,12 +237,20 @@ impl SearchPaths {
         else {
             return;
         };
-        match crate::bundled::source_root(version) {
-            Ok(path) if fs.is_dir(&path) => {
-                tracing::info!(
-                    django_version = version.as_str(),
-                    "Using bundled Django sources"
-                );
+        match crate::bundled::nearest_source_root(version) {
+            Ok((mounted, path)) if fs.is_dir(&path) => {
+                if mounted == version {
+                    tracing::info!(
+                        django_version = version.as_str(),
+                        "Using bundled Django sources"
+                    );
+                } else {
+                    tracing::warn!(
+                        django_version = version.as_str(),
+                        substitute = mounted.as_str(),
+                        "Django sources for this release are not available; using the nearest bundled release"
+                    );
+                }
                 tracing::debug!(%path, "Bundled Django source root");
                 self.paths.push(SearchPath::SitePackages(path));
             }
