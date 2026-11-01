@@ -16,10 +16,13 @@ django-5-2 = ["djls-project/django-5-2"]
 djls-conf = { workspace = true }
 djls-db = { workspace = true }
 djls-ide = { workspace = true }
+djls-lsp = { workspace = true }
 djls-project = { workspace = true }
 djls-source = { workspace = true }
 
 camino = { workspace = true }
+percent-encoding = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 tower-lsp-server = { workspace = true }
 wasm-bindgen = "0.2"
