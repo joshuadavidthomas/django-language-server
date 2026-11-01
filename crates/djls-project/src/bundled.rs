@@ -287,6 +287,37 @@ fn bundle_for(path: &Utf8Path) -> Option<&'static Bundle> {
         .find(|bundle| path.starts_with(&bundle.root))
 }
 
+/// The source root for `version`, or for the nearest supported release this build has when
+/// `version` is neither embedded nor registered (as in a wasm host that registered only one).
+///
+/// Mounting a neighbor keeps Django's builtins known instead of leaving the project without
+/// any Django source. Returns the release actually mounted.
+pub(crate) fn nearest_source_root(
+    version: DjangoVersion,
+) -> io::Result<(DjangoVersion, Utf8PathBuf)> {
+    let available =
+        nearest_release(version, |candidate| bundle(candidate).is_some()).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("no Django sources are bundled for {}", version.as_str()),
+            )
+        })?;
+    Ok((available, source_root(available)?))
+}
+
+/// `version` itself, else the closest newer release, else the closest older one. Newer releases
+/// rarely remove Tags but often add them, so they are less likely to report a used Tag unknown.
+fn nearest_release(
+    version: DjangoVersion,
+    available: impl Fn(DjangoVersion) -> bool,
+) -> Option<DjangoVersion> {
+    let index = slot(version);
+    std::iter::once(version)
+        .chain(VERSIONS[index + 1..].iter().copied())
+        .chain(VERSIONS[..index].iter().rev().copied())
+        .find(|&candidate| available(candidate))
+}
+
 pub(crate) fn source_root(version: DjangoVersion) -> io::Result<Utf8PathBuf> {
     let bundle = bundle(version).unwrap_or_else(|| {
         Err(io::Error::new(
@@ -387,6 +418,35 @@ impl FileSystem for BundledFileSystem {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unavailable_release_falls_back_to_nearest_available_release() {
+        use DjangoVersion::Django52;
+        use DjangoVersion::Django60;
+        use DjangoVersion::Django61;
+
+        let only = |available: &'static [DjangoVersion]| {
+            move |candidate: DjangoVersion| available.contains(&candidate)
+        };
+        for (requested, available, expected) in [
+            (
+                Django61,
+                &[Django52, Django60, Django61][..],
+                Some(Django61),
+            ),
+            (Django61, &[Django52][..], Some(Django52)),
+            (Django61, &[Django52, Django60][..], Some(Django60)),
+            (Django60, &[Django52, Django61][..], Some(Django61)),
+            (Django52, &[Django60, Django61][..], Some(Django60)),
+            (Django60, &[][..], None),
+        ] {
+            assert_eq!(
+                nearest_release(requested, only(available)),
+                expected,
+                "{requested:?} with {available:?}"
+            );
+        }
+    }
 
     #[test]
     fn bundles_match_pins_and_include_templates_and_licenses() {
