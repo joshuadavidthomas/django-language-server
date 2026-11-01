@@ -1,0 +1,24 @@
+[package]
+name = "djls-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+djls-source = { path = "../crates/djls-source" }
+djls-templates = { path = "../crates/djls-templates" }
+
+libfuzzer-sys = "0.4"
+
+[[bin]]
+name = "parse_template"
+path = "fuzz_targets/parse_template.rs"
+test = false
+doc = false
+bench = false
+
+# cargo-fuzz needs nightly and sanitizer flags, so keep this crate out of the main workspace.
+[workspace]
