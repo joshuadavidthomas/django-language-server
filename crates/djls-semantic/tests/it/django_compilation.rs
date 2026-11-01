@@ -60,8 +60,8 @@ const MISSED_DIAGNOSTICS: &[&str] = &[
 ];
 
 #[test]
-fn template_files_match_golden() {
-    let (_, _, project_root, _) = django_facts_project("tests/compilation", "settings")
+fn templates_compile_like_django() {
+    let (db, _, project_root, _) = django_facts_project("tests/compilation", "settings")
         .expect("Django compilation project should build");
     let template_root = project_root.join("templates");
     let golden: CompilationGolden = serde_json::from_str(include_str!(
@@ -91,17 +91,6 @@ fn template_files_match_golden() {
         disk_names, golden_names,
         "compilation template files changed; run nox -s fixtures"
     );
-}
-
-#[test]
-fn templates_compile_like_django() {
-    let (db, _, project_root, _) = django_facts_project("tests/compilation", "settings")
-        .expect("Django compilation project should build");
-    let golden: CompilationGolden = serde_json::from_str(include_str!(
-        "../../../../tests/fixtures/django-facts/compilation-5.2.json"
-    ))
-    .expect("compilation golden should parse");
-    let template_root = project_root.join("templates");
     let mut false_positives = BTreeSet::new();
     let mut missed_diagnostics = BTreeSet::new();
 

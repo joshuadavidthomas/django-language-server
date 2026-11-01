@@ -45,6 +45,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - **Internal**: Tightened `djls-project` integration tests and replaced ignored timing tests with `djls-bench` benchmarks.
 - **Internal**: Moved Python evaluator tests from `djls-project` integration tests into inline unit tests.
 - **Internal**: Replaced the corpus-backed `djls-ide` code action test fixture with in-memory stubs and tightened weak `djls-ide` test assertions.
+- **Internal**: Moved corpus-backed `djls-semantic` validation tests into the `corpus` nox session and tightened `djls-semantic` tests and mdtest harness checks.
 
 ### Fixed
 

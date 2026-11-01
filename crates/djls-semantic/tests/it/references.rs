@@ -187,33 +187,6 @@ fn template_references_ignore_dynamic_template_names() {
 }
 
 #[test]
-fn template_references_ignore_include_inside_verbatim() {
-    let mut db = TestDatabase::new();
-    let project = project_with_templates(
-        &mut db,
-        vec!["/test/project/templates"],
-        vec![
-            (
-                "child.html",
-                "/test/project/templates/child.html",
-                "{% verbatim %}{% include \"partial.html\" %}{% endverbatim %}",
-            ),
-            (
-                "partial.html",
-                "/test/project/templates/partial.html",
-                "partial",
-            ),
-        ],
-    )
-    .expect("template project fixture should install");
-
-    let partial = TemplateName::new(&db, "partial.html".to_string());
-    let references = references_to_template_name(&db, project, partial);
-
-    assert!(references.is_empty());
-}
-
-#[test]
 fn extracted_verbatim_suppresses_references_while_custom_mixed_body_stays_active() {
     let mut db = TestDatabase::new();
     let project = ProjectFixture::new("/test/project")

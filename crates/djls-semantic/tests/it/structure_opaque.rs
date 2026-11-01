@@ -84,16 +84,15 @@ fn opaque_opener_treats_intermediate_as_raw_content() {
 }
 
 #[test]
-fn test_opaque_regions_empty() {
+fn test_opaque_regions_boundaries_and_ordering() {
     let regions = OpaqueRegions::default();
     assert!(!regions.is_opaque(0));
     assert!(!regions.is_opaque(100));
     assert!(regions.is_empty());
-}
-
-#[test]
-fn test_opaque_regions_basic() {
-    let regions = OpaqueRegions::new(vec![Span::saturating_from_bounds_usize(10, 20)]);
+    let regions = OpaqueRegions::new(vec![
+        Span::saturating_from_bounds_usize(30, 40),
+        Span::saturating_from_bounds_usize(10, 20),
+    ]);
     assert!(!regions.is_opaque(5));
     assert!(!regions.is_opaque(9));
     assert!(regions.is_opaque(10));
@@ -101,44 +100,8 @@ fn test_opaque_regions_basic() {
     assert!(regions.is_opaque(19));
     assert!(!regions.is_opaque(20));
     assert!(!regions.is_opaque(25));
-}
-
-#[test]
-fn test_opaque_regions_multiple() {
-    let regions = OpaqueRegions::new(vec![
-        Span::saturating_from_bounds_usize(10, 20),
-        Span::saturating_from_bounds_usize(30, 40),
-    ]);
-    assert!(regions.is_opaque(15));
-    assert!(!regions.is_opaque(25));
     assert!(regions.is_opaque(35));
     assert!(!regions.is_opaque(45));
-}
-
-#[test]
-fn test_opaque_regions_sorted() {
-    let regions = OpaqueRegions::new(vec![
-        Span::saturating_from_bounds_usize(30, 40),
-        Span::saturating_from_bounds_usize(10, 20),
-    ]);
-    assert!(regions.is_opaque(15));
-    assert!(regions.is_opaque(35));
-    assert!(!regions.is_opaque(25));
-}
-
-#[test]
-fn test_verbatim_block_produces_opaque_region() {
-    let db = TestDatabase::new();
-    let source = "{% verbatim %}{% trans 'hello' %}{% endverbatim %}";
-    let regions = compute_regions(&db, source).expect("opaque-region fixture should build");
-    assert!(
-        !regions.is_empty(),
-        "verbatim block should produce an opaque region"
-    );
-    assert!(
-        regions.is_opaque(14),
-        "Position inside verbatim block should be opaque"
-    );
 }
 
 #[test]
@@ -191,39 +154,9 @@ fn unclosed_opaque_block_creates_no_region() {
 }
 
 #[test]
-fn outer_closer_inside_opaque_content_does_not_end_outer_block() {
-    let db = TestDatabase::new();
-    let source = "{% if outer %}{% verbatim %}{% endif %}body{% endverbatim %}{% endif %}";
-    let regions = compute_regions(&db, source).expect("opaque-region fixture should build");
-    let raw_closer = u32::try_from(
-        source
-            .find("{% endif %}")
-            .expect("fixture should contain the closer inside opaque content"),
-    )
-    .expect("raw closer offset should fit in u32");
-    let body = u32::try_from(
-        source
-            .find("body")
-            .expect("fixture should contain opaque body text after the raw closer"),
-    )
-    .expect("opaque body offset should fit in u32");
-
-    assert!(regions.is_opaque(raw_closer));
-    assert!(regions.is_opaque(body));
-}
-
-#[test]
-fn test_content_after_verbatim_not_opaque() {
-    let db = TestDatabase::new();
-    let source = "{% verbatim %}opaque{% endverbatim %}after";
-    let regions = compute_regions(&db, source).expect("opaque-region fixture should build");
-    assert!(!regions.is_opaque(37));
-}
-
-#[test]
 fn test_verbatim_opaque_boundaries() {
     let db = TestDatabase::new();
-    let source = "{% verbatim %}opaque{% endverbatim %}";
+    let source = "{% verbatim %}opaque{% endverbatim %}after";
     let regions = compute_regions(&db, source).expect("opaque-region fixture should build");
 
     assert!(!regions.is_opaque(0), "start of opener tag");
@@ -234,4 +167,5 @@ fn test_verbatim_opaque_boundaries() {
 
     assert!(!regions.is_opaque(20), "start of closer tag");
     assert!(!regions.is_opaque(35), "end of closer tag");
+    assert!(!regions.is_opaque(37), "content after closer tag");
 }

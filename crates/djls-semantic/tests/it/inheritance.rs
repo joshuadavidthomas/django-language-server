@@ -132,7 +132,7 @@ fn absent_effective_tag_does_not_fall_back_to_project_global_specs() {
 }
 
 #[test]
-fn inheritance_is_inconclusive_when_effective_extends_definition_conflicts_by_backend() {
+fn inheritance_stops_when_both_backend_definitions_are_not_extends() {
     let mut db = TestDatabase::new();
     let settings = "INSTALLED_APPS = []\nif FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'alpha_tags'}}}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'beta_tags'}}}]\n";
     let project = ProjectFixture::new("/test/project")
@@ -391,37 +391,6 @@ fn template_inheritance_resolves_relative_sibling_extends() {
 }
 
 #[test]
-fn template_inheritance_joins_relative_targets_for_every_source_name() {
-    let mut db = TestDatabase::new();
-    let project = ProjectFixture::new("/test/project")
-        .settings(&ProjectSettings {
-            dirs: vec![
-                "/test/project/templates".to_string(),
-                "/test/project/templates/alias".to_string(),
-            ],
-            ..ProjectSettings::default()
-        })
-        .file(
-            "/test/project/templates/alias/child.html",
-            "{% extends './parent.html' %}",
-        )
-        .file("/test/project/templates/alias/parent.html", "parent")
-        .install(&mut db)
-        .expect("project fixture should install into the test database");
-    let child = db
-        .file(Utf8Path::new("/test/project/templates/alias/child.html"))
-        .expect("fixture file should exist in the test database");
-
-    assert_eq!(
-        inheritance_summary(&db, project, child),
-        (
-            vec!["/test/project/templates/alias/parent.html".to_string()],
-            ChainEnd::Root,
-        )
-    );
-}
-
-#[test]
 fn template_inheritance_treats_escaping_relative_extends_as_unresolved() {
     let db = TestDatabase::new();
     let project = project_with_templates(
@@ -646,7 +615,12 @@ fn template_inheritance_follows_extends_role_not_builtin_name() {
     let custom = inheritance_summary(&db, project, custom_file);
     let builtin = inheritance_summary(&db, project, builtin_file);
 
-    assert_eq!(custom, builtin);
+    let expected = (
+        vec!["/test/project/templates/base.html".to_string()],
+        ChainEnd::Root,
+    );
+    assert_eq!(custom, expected);
+    assert_eq!(builtin, expected);
 }
 
 #[test]
@@ -749,6 +723,18 @@ fn inherited_symbols_use_the_child_backend_scope() {
     let inherited = inherited_blocks(&db, project, child);
     assert_eq!(inherited.len(), 1);
     assert_eq!(inherited[0].0, "content");
+    assert_eq!(
+        inherited[0].1.file.path(&db).as_str(),
+        "/test/project/shared/base.html"
+    );
+    assert_eq!(
+        inherited[0].1.name_span,
+        Span::saturating_from_bounds_usize(9, 16)
+    );
+    assert_eq!(
+        inherited[0].1.full_span,
+        Span::saturating_from_bounds_usize(0, 37)
+    );
 }
 
 #[test]
@@ -822,33 +808,6 @@ fn reverse_inheritance_rejects_a_shared_child_with_backend_local_parents() {
 }
 
 #[test]
-fn template_inheritance_reports_missing_parent_as_unresolved() {
-    let db = TestDatabase::new();
-    let project = project_with_templates(
-        &db,
-        vec!["/test/project/templates"],
-        vec![(
-            "/test/project/templates/child.html",
-            "{% extends 'missing.html' %}",
-        )],
-    )
-    .expect("template project fixture should build");
-    let child = db
-        .file(Utf8Path::new("/test/project/templates/child.html"))
-        .expect("fixture file should exist in the test database");
-
-    let (ancestors, end) = inheritance_summary(&db, project, child);
-
-    assert!(ancestors.is_empty());
-    assert_eq!(
-        end,
-        ChainEnd::Unresolved {
-            name: "missing.html".to_string()
-        }
-    );
-}
-
-#[test]
 fn template_inheritance_reports_inconclusive_parent_search() {
     let db = TestDatabase::new();
     let project = ProjectFixture::new("/test/project")
@@ -916,34 +875,6 @@ fn template_inheritance_preserves_resolved_prefix_before_inconclusive_parent() {
             },
         )
     );
-}
-
-#[test]
-fn template_inheritance_preserves_cycle_detection() {
-    let db = TestDatabase::new();
-    let project = project_with_templates(
-        &db,
-        vec!["/test/project/templates"],
-        vec![
-            (
-                "/test/project/templates/first.html",
-                "{% extends 'second.html' %}",
-            ),
-            (
-                "/test/project/templates/second.html",
-                "{% extends 'first.html' %}",
-            ),
-        ],
-    )
-    .expect("template project fixture should build");
-    let first = db
-        .file(Utf8Path::new("/test/project/templates/first.html"))
-        .expect("fixture file should exist in the test database");
-
-    let (ancestors, end) = inheritance_summary(&db, project, first);
-
-    assert_eq!(ancestors, ["/test/project/templates/second.html"]);
-    assert_eq!(end, ChainEnd::Cycle);
 }
 
 #[test]

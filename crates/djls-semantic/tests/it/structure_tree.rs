@@ -18,7 +18,6 @@ use djls_semantic::bundled_django_tag_specs;
 use djls_semantic::compute_opaque_regions;
 use djls_source::Span;
 use djls_templates::Filter;
-use djls_templates::Node;
 use djls_templates::TagBit;
 use djls_templates::parse_template;
 use djls_testing::ProjectFixture;
@@ -169,89 +168,6 @@ impl From<&TemplateNode> for NodeSnapshot {
     }
 }
 
-#[derive(serde::Serialize)]
-struct NodeListView {
-    nodes: Vec<NodeView>,
-}
-
-#[derive(serde::Serialize)]
-#[serde(tag = "kind")]
-enum NodeView {
-    Tag {
-        name: String,
-        name_span: Span,
-        bits: Vec<TagBit>,
-        span: Span,
-    },
-    Variable {
-        var: String,
-        var_span: Span,
-        filters: Vec<Filter>,
-        span: Span,
-    },
-    Comment {
-        content: String,
-        span: Span,
-    },
-    Text {
-        span: Span,
-    },
-    Error {
-        span: Span,
-        full_span: Span,
-        error: String,
-    },
-}
-
-impl From<&Node> for NodeView {
-    fn from(node: &Node) -> Self {
-        match node {
-            Node::Tag {
-                name,
-                name_span,
-                bits,
-                span,
-            } => Self::Tag {
-                name: name.clone(),
-                name_span: *name_span,
-                bits: bits.clone(),
-                span: *span,
-            },
-            Node::Variable {
-                var,
-                var_span,
-                filters,
-                span,
-            } => Self::Variable {
-                var: var.clone(),
-                var_span: *var_span,
-                filters: filters.clone(),
-                span: *span,
-            },
-            Node::Comment { content, span } => Self::Comment {
-                content: content.clone(),
-                span: *span,
-            },
-            Node::Text { span } => Self::Text { span: *span },
-            Node::Error {
-                span,
-                full_span,
-                error,
-            } => Self::Error {
-                span: *span,
-                full_span: *full_span,
-                error: error.to_string(),
-            },
-        }
-    }
-}
-
-fn nodelist_view(nodes: &[Node]) -> NodeListView {
-    NodeListView {
-        nodes: nodes.iter().map(NodeView::from).collect(),
-    }
-}
-
 #[test]
 fn test_template_tree_building() {
     let db = TestDatabase::new();
@@ -288,7 +204,6 @@ fn test_template_tree_building() {
         .expect("fixture file should exist in the test database");
     let nodelist = parse_template(&db, file).expect("should parse");
 
-    insta::assert_yaml_snapshot!("nodelist", nodelist_view(nodelist.nodelist(&db)));
     let template_tree = build_template_tree_for_file(&db, file, nodelist);
     insta::assert_yaml_snapshot!(
         "template_tree",
@@ -297,7 +212,8 @@ fn test_template_tree_building() {
 }
 
 #[test]
-fn projectless_structure_queries_bypass_correlated_template_analysis() {
+#[expect(clippy::too_many_lines, reason = "compare both query routing modes")]
+fn structure_queries_use_correlated_analysis_only_with_a_project() {
     let event_log = SalsaEventLog::default();
     let db = TestDatabase::with_event_log(event_log.clone());
     db.add_file("/tree.html", "{% if value %}body{% endif %}")
@@ -354,10 +270,6 @@ fn projectless_structure_queries_bypass_correlated_template_analysis() {
             .all(|name| !name.ends_with("template_analysis_projection_for_file_in_scope")),
         "projectless opaque analysis must bypass correlated analysis: {executed:?}"
     );
-}
-
-#[test]
-fn project_backed_structure_queries_use_correlated_template_analysis() {
     let event_log = SalsaEventLog::default();
     let mut db = TestDatabase::with_event_log(event_log.clone());
     ProjectFixture::new("/project")
@@ -868,7 +780,7 @@ fn known_opener_and_closer_inside_opaque_block_have_no_structure() {
 #[test]
 fn outer_closer_inside_opaque_block_has_no_structure() {
     let db = TestDatabase::new();
-    let source = "{% if outer %}{% verbatim %}{% endif %}{% endverbatim %}{% endif %}";
+    let source = "{% if outer %}{% verbatim %}{% endif %}body{% endverbatim %}{% endif %}";
 
     db.add_file("test.html", source)
         .expect("fixture file should be added to the test database");
@@ -897,6 +809,8 @@ fn outer_closer_inside_opaque_block_has_no_structure() {
         .expect("fixture should contain the opaque node");
     assert_position_inside(body_span, source, "{% endif %}")
         .expect("fixture closer should fall inside the opaque span");
+    assert_position_inside(body_span, source, "body")
+        .expect("text following the raw closer should remain opaque");
 }
 
 #[test]

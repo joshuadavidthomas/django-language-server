@@ -21,23 +21,9 @@ const PROJECT_ROOT: &str = "/test/project";
 const TEMPLATE_ROOT: &str = "/test/project/templates";
 
 #[expect(clippy::needless_pass_by_value)]
-fn diagnostics_mdtest(fixture_path: &Utf8Path, content: String) -> datatest_stable::Result<()> {
-    run_validation_mdtest(fixture_path, &content)
-}
-
-#[expect(clippy::needless_pass_by_value)]
-fn tags_mdtest(fixture_path: &Utf8Path, content: String) -> datatest_stable::Result<()> {
-    run_validation_mdtest(fixture_path, &content)
-}
-
-#[expect(clippy::needless_pass_by_value)]
-fn libraries_mdtest(fixture_path: &Utf8Path, content: String) -> datatest_stable::Result<()> {
-    run_validation_mdtest(fixture_path, &content)
-}
-
-fn run_validation_mdtest(fixture_path: &Utf8Path, content: &str) -> datatest_stable::Result<()> {
+fn validation_mdtest(fixture_path: &Utf8Path, content: String) -> datatest_stable::Result<()> {
     let absolute_path = Utf8Path::new(env!("CARGO_MANIFEST_DIR")).join(fixture_path);
-    djls_testing::run_file(&absolute_path, content)?;
+    djls_testing::run_file(&absolute_path, &content)?;
     Ok(())
 }
 
@@ -108,6 +94,13 @@ fn project_for_scenario(
     db: &TestDatabase,
     scenario: &Scenario,
 ) -> anyhow::Result<djls_project::Project> {
+    anyhow::ensure!(
+        scenario
+            .files
+            .iter()
+            .all(|file| file.kind != ScenarioFileKind::Python),
+        "inheritance scenarios do not support Python files"
+    );
     let fixture = ProjectFixture::new(PROJECT_ROOT).settings(&ProjectSettings {
         dirs: vec![TEMPLATE_ROOT.to_string()],
         ..ProjectSettings::default()
@@ -232,8 +225,8 @@ fn render_file(db: &TestDatabase, file: File) -> String {
 }
 
 datatest_stable::harness! {
-    { test = diagnostics_mdtest, root = "./resources/mdtest/diagnostics", pattern = r"\.md$" },
-    { test = tags_mdtest, root = "./resources/mdtest/tags", pattern = r"\.md$" },
-    { test = libraries_mdtest, root = "./resources/mdtest/libraries", pattern = r"\.md$" },
+    { test = validation_mdtest, root = "./resources/mdtest/diagnostics", pattern = r"\.md$" },
+    { test = validation_mdtest, root = "./resources/mdtest/tags", pattern = r"\.md$" },
+    { test = validation_mdtest, root = "./resources/mdtest/libraries", pattern = r"\.md$" },
     { test = inheritance_mdtest, root = "./resources/mdtest/inheritance", pattern = r"\.md$" },
 }
