@@ -109,6 +109,17 @@ debug = 2
 [profile.dev]
 debug = "line-tables-only"
 
+# Browser builds: `cargo build -p djls-wasm --target wasm32-unknown-unknown --profile wasm-release`.
+# Measured against `release`, "z" was smaller and no slower. Running wasm-opt afterwards
+# shrinks the raw module but grows it after gzip/brotli, so it is left out.
+[profile.wasm-release]
+inherits = "release"
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+
 [profile.dev.package]
 insta.opt-level = 3
 
