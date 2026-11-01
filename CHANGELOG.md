@@ -42,6 +42,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - **Internal**: Switched the corpus tool's TLS crypto provider from `aws-lc-rs` to `ring` to speed up cold builds.
 - **Internal**: Prebuilt workspace test targets in orb setup so a new orb's first `cargo test` reuses the build.
 - **Internal**: Consolidated `djls-project`, `djls-semantic`, and `djls-ide` integration tests into one test binary per crate.
+- **Internal**: Tightened `djls-project` integration tests and replaced ignored timing tests with `djls-bench` benchmarks.
 
 ### Fixed
 

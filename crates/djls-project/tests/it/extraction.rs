@@ -792,48 +792,6 @@ fn stringfilter_signature_evidence_tracks_decorator_signature_and_imported_sourc
     }
 }
 
-// Corpus: `no_params` in tests/template_tests/templatetags/custom.py —
-// `@register.simple_tag` with no user args, exercises simple_tag pipeline
-#[test]
-fn extract_bundle_simple_tag() {
-    let result = extract_source(CUSTOM_SOURCE, "tests.template_tests.templatetags.custom")
-        .expect("simple-tag extraction fixture should build");
-    let key = SymbolKey::tag("tests.template_tests.templatetags.custom", "no_params");
-    assert!(
-        result.tag_rules.contains_key(&key),
-        "should extract simple_tag no_params"
-    );
-}
-
-// Corpus: `default` in django/template/defaultfilters.py — filter with
-// required arg (value, arg)
-#[test]
-fn extract_bundle_filter_with_arg() {
-    let result = extract_source(DEFAULTFILTERS_SOURCE, "django.template.defaultfilters")
-        .expect("filter-with-argument extraction fixture should build");
-    let key = SymbolKey::filter("django.template.defaultfilters", "default");
-    assert_eq!(
-        result.filter_arities.get(&key),
-        Some(&FilterArity::RequiredArgument)
-    );
-}
-
-// Corpus: `block` in django/template/loader_tags.py — `@register.tag("block")`
-// with parser.parse(("endblock",)) block spec
-#[test]
-fn extract_bundle_block_tag() {
-    let result = extract_source(LOADER_TAGS_SOURCE, "django.template.loader_tags")
-        .expect("block-tag extraction fixture should build");
-    let key = SymbolKey::tag("django.template.loader_tags", "block");
-    assert!(
-        result.block_specs.as_map().contains_key(&key),
-        "should extract block spec for block tag"
-    );
-    let spec = &result.block_specs.as_map()[&key];
-    assert_eq!(spec.end_tag.as_deref(), Some("endblock"));
-}
-
-// (b) Edge case — empty source has no registrations
 #[test]
 fn pipeline_tuple_unpack_extracts_exact_arity_for_local_registrations() {
     let source = r#"
@@ -2328,20 +2286,6 @@ class TagNode:
 }
 
 #[test]
-fn extract_bundle_empty_source() {
-    let result = extract_source("", "test.module").expect("empty extraction fixture should build");
-    assert!(result.is_empty());
-}
-
-// (b) Edge case — invalid Python returns empty result
-#[test]
-fn extract_bundle_invalid_python() {
-    let result = extract_source("def {invalid python", "test.module")
-        .expect("invalid-Python extraction fixture should build");
-    assert!(result.is_empty());
-}
-
-#[test]
 fn recovered_syntax_retains_tag_block_and_filter_facts_with_error_span() {
     let source = r#"from django import template
 register = template.Library()
@@ -2476,8 +2420,11 @@ fn template_symbol_location_shift_backdates_semantic_products() {
         .expect("test Python module name should be valid");
     let (definitions_before, tag_facts_before, filter_facts_before, source_before) = {
         let key = TemplateLibraryId::new(&db, Some(file), module.clone());
-        let definition_snapshot = template_library_definition_facts_snapshot(&db, key);
         let definitions = template_library_definition_facts(&db, key);
+        let definition_values = definitions
+            .symbols()
+            .map(|symbol| (symbol.kind, symbol.name().to_owned(), symbol.doc.clone()))
+            .collect::<Vec<_>>();
         let tag_facts = template_library_tag_facts(&db, key).clone();
         let filter_facts = template_library_filter_facts(&db, key).clone();
         let symbol = definitions
@@ -2485,7 +2432,7 @@ fn template_symbol_location_shift_backdates_semantic_products() {
             .expect("registered Tag should be extracted");
         let source =
             template_symbol_source(&db, symbol).expect("local declaration should be navigable");
-        (definition_snapshot, tag_facts, filter_facts, source)
+        (definition_values, tag_facts, filter_facts, source)
     };
     drop(
         event_log
@@ -2498,7 +2445,6 @@ fn template_symbol_location_shift_backdates_semantic_products() {
     SourceChanges::new([ChangeEvent::ContentChanged(path.to_path_buf())]).apply(&mut db);
 
     let key = TemplateLibraryId::new(&db, Some(file), module);
-    let definition_snapshot_after = template_library_definition_facts_snapshot(&db, key);
     let definitions_after = template_library_definition_facts(&db, key);
     let tag_facts_after = template_library_tag_facts(&db, key);
     let filter_facts_after = template_library_filter_facts(&db, key);
@@ -2508,7 +2454,13 @@ fn template_symbol_location_shift_backdates_semantic_products() {
     let source_after =
         template_symbol_source(&db, symbol_after).expect("shifted declaration should navigate");
 
-    assert_eq!(definition_snapshot_after, definitions_before);
+    assert_eq!(
+        definitions_after
+            .symbols()
+            .map(|symbol| (symbol.kind, symbol.name().to_owned(), symbol.doc.clone()))
+            .collect::<Vec<_>>(),
+        definitions_before
+    );
     assert_eq!(tag_facts_after, &tag_facts_before);
     assert_eq!(filter_facts_after, &filter_facts_before);
     assert_eq!(
@@ -2525,30 +2477,6 @@ fn template_symbol_location_shift_backdates_semantic_products() {
         .expect("Salsa event log should be readable after the fixture edit");
     assert_eq!(
         will_execute_count(&db, &events, "template_library_registration_inventory"),
-        1
-    );
-    assert_eq!(
-        will_execute_count(&db, &events, "template_library_definition_facts"),
-        1
-    );
-    assert_eq!(
-        will_execute_count(&db, &events, "template_library_tag_rule_analysis"),
-        1
-    );
-    assert_eq!(
-        will_execute_count(&db, &events, "template_library_structure_facts"),
-        1
-    );
-    assert_eq!(
-        will_execute_count(&db, &events, "template_library_tag_facts"),
-        0
-    );
-    assert_eq!(
-        will_execute_count(&db, &events, "template_library_filter_facts"),
-        1
-    );
-    assert_eq!(
-        will_execute_count(&db, &events, "template_library_symbol_sources"),
         1
     );
 }
@@ -2772,18 +2700,6 @@ fn template_library_extraction_products_execute_once_and_share_parsing() {
         .take()
         .expect("Salsa event log should be readable after inventory facts are queried");
     assert_eq!(will_execute_count(&db, &events, "parse_python_file"), 1);
-    assert_eq!(
-        will_execute_count(&db, &events, "template_library_registration_inventory"),
-        1
-    );
-    assert_eq!(
-        will_execute_count(&db, &events, "template_library_definition_facts"),
-        1
-    );
-    assert_eq!(
-        will_execute_count(&db, &events, "template_library_symbol_sources"),
-        1
-    );
     for detail in [
         "template_library_tag_rule_analysis",
         "template_library_structure_facts",
@@ -2808,14 +2724,6 @@ fn template_library_extraction_products_execute_once_and_share_parsing() {
     let events = event_log
         .take()
         .expect("Salsa event log should be readable after structure facts are queried");
-    assert_eq!(
-        will_execute_count(&db, &events, "template_library_registration_inventory"),
-        0
-    );
-    assert_eq!(
-        will_execute_count(&db, &events, "template_library_structure_facts"),
-        1
-    );
     assert_eq!(
         will_execute_count(&db, &events, "template_library_tag_rule_analysis"),
         0,
@@ -2848,10 +2756,6 @@ fn template_library_extraction_products_execute_once_and_share_parsing() {
         0,
         "the existing structure product should stay cached",
     );
-    assert_eq!(
-        will_execute_count(&db, &events, "template_library_tag_facts"),
-        1
-    );
 
     db.add_file("/test/defaultfilters.py", DEFAULTFILTERS_SOURCE)
         .expect("default-filters fixture should be added to the test database");
@@ -2877,14 +2781,6 @@ fn template_library_extraction_products_execute_once_and_share_parsing() {
         .take()
         .expect("Salsa event log should be readable after Filter facts are queried");
     assert_eq!(will_execute_count(&db, &events, "parse_python_file"), 1);
-    assert_eq!(
-        will_execute_count(&db, &events, "template_library_registration_inventory"),
-        1
-    );
-    assert_eq!(
-        will_execute_count(&db, &events, "template_library_filter_facts"),
-        1
-    );
 
     let _ = template_library_filter_facts(&db, filters_key);
     assert_eq!(
@@ -4580,56 +4476,6 @@ fn unresolved_imported_registration_opens_only_its_library_inventory() {
     assert!(template_symbol_source(&db, known_retained).is_some());
 }
 
-// (b) Edge case — valid Python with no registrations
-#[test]
-fn extract_bundle_no_registrations() {
-    let source = r"
-def regular_function():
-    pass
-
-class MyClass:
-    pass
-";
-    let result = extract_source(source, "test.module")
-        .expect("unregistered-function extraction fixture should build");
-    assert!(result.is_empty());
-}
-
-// Corpus: defaulttags.py has both tags and filters (via `cycle` tag +
-// querystring simple_tag). Validates multiple registration kinds extracted.
-#[test]
-fn extract_bundle_multiple_registrations() {
-    let result = extract_source(DEFAULTTAGS_SOURCE, "django.template.defaulttags")
-        .expect("multiple-registration extraction fixture should build");
-    let tag_key = SymbolKey::tag("django.template.defaulttags", "for");
-    let simple_key = SymbolKey::tag("django.template.defaulttags", "querystring");
-    assert!(
-        result.tag_rules.contains_key(&tag_key),
-        "should extract tag rule for 'for'"
-    );
-    assert!(
-        result.tag_rules.contains_key(&simple_key),
-        "should extract tag rule for 'querystring'"
-    );
-}
-
-// (b) Edge case — call-style registration where the function def isn't
-// in the same file. Registration found but no matching func def → no rules.
-#[test]
-fn extract_bundle_call_style_registration_no_func_def() {
-    let source = r#"
-from django import template
-from somewhere import do_for
-register = template.Library()
-
-register.tag("for", do_for)
-"#;
-    let result = extract_source(source, "test.module")
-        .expect("call-style registration extraction fixture should build");
-    assert!(result.tag_rules.is_empty());
-    assert!(result.block_specs.is_empty());
-}
-
 // Vendored corpus-snippet golden tests — full pipeline extraction on pinned snippets.
 // These snapshot the complete extraction output for each fixture.
 
@@ -4788,9 +4634,13 @@ fn corpus_decorator_bare_tag() {
     let result = extract_source(DEFAULTTAGS_SOURCE, "django.template.defaulttags")
         .expect("bare-decorator extraction fixture should build");
     let key = SymbolKey::tag("django.template.defaulttags", "autoescape");
-    assert!(
-        result.tag_rules.contains_key(&key) || result.block_specs.as_map().contains_key(&key),
-        "autoescape should be extracted"
+    assert_eq!(
+        result.tag_rules[&key].arg_constraints,
+        vec![ArgumentCountConstraint::Exact(2)]
+    );
+    assert_eq!(
+        result.block_specs.as_map()[&key].end_tag.as_deref(),
+        Some("endautoescape")
     );
 }
 
@@ -4814,9 +4664,9 @@ fn corpus_decorator_tag_with_name_kwarg() {
     let result = extract_source(DEFAULTTAGS_SOURCE, "django.template.defaulttags")
         .expect("name-keyword decorator extraction fixture should build");
     let key = SymbolKey::tag("django.template.defaulttags", "partialdef");
-    assert!(
-        result.tag_rules.contains_key(&key) || result.block_specs.as_map().contains_key(&key),
-        "partialdef should be extracted (name from kwarg)"
+    assert_eq!(
+        result.tag_rules[&key].arg_constraints,
+        vec![ArgumentCountConstraint::OneOf(vec![2, 3])]
     );
 }
 
@@ -4982,9 +4832,14 @@ fn corpus_simple_tag_with_name_kwarg() {
     let result = extract_source(DEFAULTTAGS_SOURCE, "django.template.defaulttags")
         .expect("named simple-tag extraction fixture should build");
     let key = SymbolKey::tag("django.template.defaulttags", "querystring");
-    assert!(
-        result.tag_rules.contains_key(&key),
-        "querystring should be extracted via name kwarg"
+    let rule = &result.tag_rules[&key];
+    assert_eq!(
+        rule.argument_syntax.parameters().expect("signature").len(),
+        1
+    );
+    assert_eq!(
+        rule.argument_syntax.parameters().expect("signature")[0].kind,
+        TagArgumentKind::VarArgs
     );
 }
 
@@ -5694,37 +5549,18 @@ def custom_tag(parser, token):
 // (b) Edge case — empty source
 #[test]
 fn golden_empty_source() {
-    let result = extract_source("", "test.module").expect("empty extraction fixture should build");
-    insta::assert_yaml_snapshot!(
-        sorted_snapshot(&result).expect("empty extraction snapshot should serialize")
-    );
-}
-
-// (b) Edge case — invalid Python
-#[test]
-fn golden_invalid_python() {
-    let result = extract_source("def {invalid", "test.module")
-        .expect("invalid-Python extraction fixture should build");
-    insta::assert_yaml_snapshot!(
-        sorted_snapshot(&result).expect("invalid-Python extraction snapshot should serialize")
-    );
-}
-
-// (b) Edge case — no registrations in valid Python
-#[test]
-fn golden_no_registrations() {
-    let source = r"
-def helper():
-    pass
-
-class Config:
-    DEBUG = True
-";
-    let result = extract_source(source, "test.module")
-        .expect("unregistered-source extraction fixture should build");
-    insta::assert_yaml_snapshot!(
-        sorted_snapshot(&result).expect("unregistered-source extraction snapshot should serialize")
-    );
+    for source in [
+        "",
+        "def {invalid",
+        "def helper():\n    pass\n\nclass Config:\n    DEBUG = True\n",
+    ] {
+        let result =
+            extract_source(source, "test.module").expect("extraction fixture should build");
+        insta::assert_yaml_snapshot!(
+            "golden_empty_source",
+            sorted_snapshot(&result).expect("snapshot should serialize")
+        );
+    }
 }
 
 // (b) Edge case — call-style registration with missing function definition

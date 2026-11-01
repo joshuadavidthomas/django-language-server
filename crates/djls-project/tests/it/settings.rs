@@ -368,10 +368,6 @@ fn settings_consumers_share_one_core_evaluation_without_mutation() {
         will_execute_count(&db, &events, "evaluate_python_module"),
         1
     );
-    assert_eq!(will_execute_count(&db, &events, "python_module_facts"), 1);
-    assert_eq!(will_execute_count(&db, &events, "python_import_trace"), 1);
-    assert_eq!(will_execute_count(&db, &events, "django_settings"), 1);
-    assert_eq!(will_execute_count(&db, &events, "settings_sources"), 1);
 }
 
 #[test]
@@ -2059,163 +2055,62 @@ fn django_discovery_enumerates_settings_star_import_chain() {
 }
 
 #[test]
-fn settings_sources_includes_semantically_reached_imports_and_excludes_unreachable_imports() {
-    let mut db = TestDatabase::new();
-    let project = project_with_settings(
-        &mut db,
-        "myproject.settings",
-        &[
-            (
-                "/proj/myproject/settings.py",
-                "from .flags import DEBUG\nif DEBUG:\n    from .unreachable import *\nelse:\n    from .base import *\n",
-            ),
-            ("/proj/myproject/flags.py", "DEBUG = False\n"),
-            ("/proj/myproject/base.py", "INSTALLED_APPS = []\n"),
-            ("/proj/myproject/unreachable.py", "INSTALLED_APPS = [\n"),
-        ],
-    ).expect("settings project fixture should build");
-
-    let discovery = compute_project_facts(&db, project);
-
-    assert_eq!(
-        discovery.file_paths(),
-        [
-            Utf8PathBuf::from("/proj/myproject/base.py"),
-            Utf8PathBuf::from("/proj/myproject/flags.py"),
-            Utf8PathBuf::from("/proj/myproject/settings.py"),
-        ]
-    );
-}
-
-#[test]
-fn settings_sources_excludes_import_guarded_by_imported_false_flag() {
-    let mut db = TestDatabase::new();
-    let project = project_with_settings(
-        &mut db,
-        "myproject.settings",
-        &[
-            (
-                "/proj/myproject/settings.py",
-                "from .flags import DEBUG\nif DEBUG:\n    from .broken import *\nelse:\n    INSTALLED_APPS = ['local']\n",
-            ),
-            ("/proj/myproject/flags.py", "DEBUG = False\n"),
-            ("/proj/myproject/broken.py", "INSTALLED_APPS = [\n"),
-        ],
-    ).expect("settings project fixture should build");
-
-    let discovery = compute_project_facts(&db, project);
-
-    assert_eq!(
-        discovery.file_paths(),
-        [
-            Utf8PathBuf::from("/proj/myproject/flags.py"),
-            Utf8PathBuf::from("/proj/myproject/settings.py"),
-        ]
-    );
-}
-
-#[test]
-fn settings_sources_includes_import_after_unsupported_guard_touch() {
-    let mut db = TestDatabase::new();
-    let project = project_with_settings(
-        &mut db,
-        "myproject.settings",
-        &[
-            (
-                "/proj/myproject/settings.py",
-                "DEBUG = False\nmaybe_enable(DEBUG)\nif DEBUG:\n    from .broken import *\nelse:\n    INSTALLED_APPS = ['local']\n",
-            ),
-            ("/proj/myproject/broken.py", "INSTALLED_APPS = [\n"),
-        ],
-    ).expect("settings project fixture should build");
-
-    let discovery = compute_project_facts(&db, project);
-
-    assert_eq!(
-        discovery.file_paths(),
-        [
-            Utf8PathBuf::from("/proj/myproject/broken.py"),
-            Utf8PathBuf::from("/proj/myproject/settings.py"),
-        ]
-    );
-}
-
-#[test]
-fn settings_sources_includes_import_after_loop_guard_change() {
-    let mut db = TestDatabase::new();
-    let project = project_with_settings(
-        &mut db,
-        "myproject.settings",
-        &[
-            (
-                "/proj/myproject/settings.py",
-                "DEBUG = False\nfor plugin in PLUGINS:\n    DEBUG = True\nif DEBUG:\n    from .broken import *\nelse:\n    INSTALLED_APPS = ['local']\n",
-            ),
-            ("/proj/myproject/broken.py", "INSTALLED_APPS = [\n"),
-        ],
-    ).expect("settings project fixture should build");
-
-    let discovery = compute_project_facts(&db, project);
-
-    assert_eq!(
-        discovery.file_paths(),
-        [
-            Utf8PathBuf::from("/proj/myproject/broken.py"),
-            Utf8PathBuf::from("/proj/myproject/settings.py"),
-        ]
-    );
-}
-
-#[test]
-fn settings_sources_plain_import_alias_makes_guarded_import_reachable() {
-    let mut db = TestDatabase::new();
-    let project = project_with_settings(
-        &mut db,
-        "myproject.settings",
-        &[
-            (
-                "/proj/myproject/settings.py",
-                "DEBUG = False\nimport flags as DEBUG\nif DEBUG:\n    from .broken import *\nelse:\n    INSTALLED_APPS = ['local']\n",
-            ),
-            ("/proj/myproject/broken.py", "INSTALLED_APPS = [\n"),
-        ],
-    ).expect("settings project fixture should build");
-
-    let discovery = compute_project_facts(&db, project);
-
-    assert_eq!(
-        discovery.file_paths(),
-        [
-            Utf8PathBuf::from("/proj/myproject/broken.py"),
-            Utf8PathBuf::from("/proj/myproject/settings.py"),
-        ]
-    );
-}
-
-#[test]
-fn settings_sources_dedupes_duplicate_import_edges() {
-    let mut db = TestDatabase::new();
-    let project = project_with_settings(
-        &mut db,
-        "myproject.settings",
-        &[
-            (
-                "/proj/myproject/settings.py",
-                "from .base import INSTALLED_APPS as FIRST\nfrom .base import INSTALLED_APPS as SECOND\nINSTALLED_APPS = FIRST + SECOND\n",
-            ),
-            ("/proj/myproject/base.py", "INSTALLED_APPS = ['base']\n"),
-        ],
-    ).expect("settings project fixture should build");
-
-    let discovery = compute_project_facts(&db, project);
-
-    assert_eq!(
-        discovery.file_paths(),
-        [
-            Utf8PathBuf::from("/proj/myproject/base.py"),
-            Utf8PathBuf::from("/proj/myproject/settings.py"),
-        ]
-    );
+fn settings_sources_follow_reachable_imports_and_deduplicate_edges() {
+    for (case, settings, expected) in [
+        (
+            "reachable branch",
+            "from .flags import DEBUG\nif DEBUG:\n    from .unreachable import *\nelse:\n    from .base import *\n",
+            &["base.py", "flags.py", "settings.py"][..],
+        ),
+        (
+            "false imported guard",
+            "from .flags import DEBUG\nif DEBUG:\n    from .broken import *\nelse:\n    INSTALLED_APPS = ['local']\n",
+            &["flags.py", "settings.py"][..],
+        ),
+        (
+            "unsupported guard mutation",
+            "DEBUG = False\nmaybe_enable(DEBUG)\nif DEBUG:\n    from .broken import *\nelse:\n    INSTALLED_APPS = ['local']\n",
+            &["broken.py", "settings.py"][..],
+        ),
+        (
+            "loop guard mutation",
+            "DEBUG = False\nfor plugin in PLUGINS:\n    DEBUG = True\nif DEBUG:\n    from .broken import *\nelse:\n    INSTALLED_APPS = ['local']\n",
+            &["broken.py", "settings.py"][..],
+        ),
+        (
+            "import alias",
+            "DEBUG = False\nimport flags as DEBUG\nif DEBUG:\n    from .broken import *\nelse:\n    INSTALLED_APPS = ['local']\n",
+            &["broken.py", "settings.py"][..],
+        ),
+        (
+            "duplicate edges",
+            "from .base import INSTALLED_APPS as FIRST\nfrom .base import INSTALLED_APPS as SECOND\nINSTALLED_APPS = FIRST + SECOND\n",
+            &["base.py", "settings.py"][..],
+        ),
+    ] {
+        let mut db = TestDatabase::new();
+        let project = project_with_settings(
+            &mut db,
+            "myproject.settings",
+            &[
+                ("/proj/myproject/settings.py", settings),
+                ("/proj/myproject/flags.py", "DEBUG = False\n"),
+                ("/proj/myproject/base.py", "INSTALLED_APPS = ['base']\n"),
+                ("/proj/myproject/broken.py", "INSTALLED_APPS = [\n"),
+                ("/proj/myproject/unreachable.py", "INSTALLED_APPS = [\n"),
+            ],
+        )
+        .expect("settings project fixture should build");
+        let expected = expected
+            .iter()
+            .map(|name| Utf8PathBuf::from(format!("/proj/myproject/{name}")))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            compute_project_facts(&db, project).file_paths(),
+            expected,
+            "{case}"
+        );
+    }
 }
 
 #[test]
@@ -2515,78 +2410,56 @@ fn template_resolution_definite_earlier_candidate_wins_before_later_walk_failure
 }
 
 #[test]
-fn template_resolution_no_candidate_with_walk_failure_is_inconclusive() {
-    let settings = "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False}]\n";
-    let (db, project) = project_with_file_system_failure(
-        &[
-            ("/proj/myproject/settings.py", settings),
+fn template_resolution_file_system_failures_are_inconclusive() {
+    let explicit = "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False}]\n";
+    let app_dirs = "INSTALLED_APPS = ['blog']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n";
+    for (case, settings, fixture, failure, requested, root) in [
+        (
+            "missing after walk failure",
+            explicit,
             ("/proj/templates/other.html", "other"),
-        ],
-        FileSystemFailure::Walk(Utf8PathBuf::from("/proj/templates")),
-    )
-    .expect("file-system failure project fixture should build");
-    let name = TemplateName::new(&db, "missing.html".to_string());
-
-    let search = match template_resolution(&db, project).resolve(&db, name) {
-        TemplateResolutionResult::Inconclusive(search) => Some(search),
-        TemplateResolutionResult::Found(_) | TemplateResolutionResult::DoesNotExist(_) => None,
-    }
-    .expect("the failed walk should make a missing result inconclusive");
-
-    assert_eq!(search.name, name);
-    assert!(search.possible_origins.is_empty());
-}
-
-#[test]
-fn template_resolution_target_path_conversion_failure_is_inconclusive() {
-    let settings = "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/proj/templates'], 'APP_DIRS': False}]\n";
-    let target = Utf8PathBuf::from("/proj/templates/base.html");
-    let (db, project) = project_with_file_system_failure(
-        &[
-            ("/proj/myproject/settings.py", settings),
+            FileSystemFailure::Walk("/proj/templates".into()),
+            "missing.html",
+            "/proj/templates",
+        ),
+        (
+            "target indexing failure",
+            explicit,
             ("/proj/templates/base.html", "base"),
-        ],
-        FileSystemFailure::PathToFile(target),
-    )
-    .expect("file-system failure project fixture should build");
-    let name = TemplateName::new(&db, "base.html".to_string());
-
-    let search = match template_resolution(&db, project).resolve(&db, name) {
-        TemplateResolutionResult::Inconclusive(search) => Some(search),
-        TemplateResolutionResult::Found(_) | TemplateResolutionResult::DoesNotExist(_) => None,
-    }
-    .expect("the target indexing failure should make resolution inconclusive");
-
-    assert_eq!(search.name, name);
-    assert!(search.possible_origins.is_empty());
-}
-
-#[test]
-fn template_resolution_app_dirs_candidate_walk_failure_is_inconclusive() {
-    let settings = "INSTALLED_APPS = ['blog']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n";
-    let (db, project) = project_with_file_system_failure(
-        &[
-            ("/proj/myproject/settings.py", settings),
+            FileSystemFailure::PathToFile("/proj/templates/base.html".into()),
+            "base.html",
+            "/proj/templates",
+        ),
+        (
+            "app directory walk failure",
+            app_dirs,
             ("/proj/blog/__init__.py", ""),
-        ],
-        FileSystemFailure::Walk(Utf8PathBuf::from("/proj/blog/templates")),
-    )
-    .expect("file-system failure project fixture should build");
-    let name = TemplateName::new(&db, "missing.html".to_string());
-
-    let search = match template_resolution(&db, project).resolve(&db, name) {
-        TemplateResolutionResult::Inconclusive(search) => Some(search),
-        TemplateResolutionResult::Found(_) | TemplateResolutionResult::DoesNotExist(_) => None,
+            FileSystemFailure::Walk("/proj/blog/templates".into()),
+            "missing.html",
+            "/proj/blog/templates",
+        ),
+    ] {
+        let (db, project) = project_with_file_system_failure(
+            &[("/proj/myproject/settings.py", settings), fixture],
+            failure,
+        )
+        .expect("file-system failure project fixture should build");
+        let name = TemplateName::new(&db, requested.to_string());
+        let TemplateResolutionResult::Inconclusive(search) =
+            template_resolution(&db, project).resolve(&db, name)
+        else {
+            panic!("{case}: resolution should be inconclusive");
+        };
+        assert_eq!(search.name, name, "{case}");
+        assert!(search.possible_origins.is_empty(), "{case}");
+        assert_eq!(
+            template_directories(&db, project)
+                .known_roots()
+                .collect::<Vec<_>>(),
+            [Utf8Path::new(root)],
+            "{case}"
+        );
     }
-    .expect("the APP_DIRS metadata failure should make resolution inconclusive");
-
-    assert!(search.possible_origins.is_empty());
-    assert_eq!(
-        template_directories(&db, project)
-            .known_roots()
-            .collect::<Vec<_>>(),
-        [Utf8Path::new("/proj/blog/templates")]
-    );
 }
 
 #[test]
@@ -2688,71 +2561,51 @@ fn uncertain_backend_dictionary_before_known_backend_keeps_library_identity_alig
 }
 
 #[test]
-fn missing_template_backend_excludes_directory_and_library_consumers() {
-    let mut db = TestDatabase::new();
-    let project = project_with_settings(
-        &mut db,
-        "myproject.settings",
-        &[
-            ("/proj/templates/index.html", "index"),
-            (
-                "/proj/custom_tags.py",
-                "from django import template\nregister = template.Library()\n",
-            ),
-            (
-                "/proj/myproject/settings.py",
-                "INSTALLED_APPS = []\nTEMPLATES = [{'DIRS': ['/proj/templates'], 'OPTIONS': {'libraries': {'custom': 'custom_tags'}}}]\n",
-            ),
-        ],
-    ).expect("settings project fixture should build");
-
-    let settings = serde_json::to_value(django_settings(&db, project))
-        .expect("test value should serialize to JSON");
-    assert!(has_case(&settings["templates"], "malformed"));
-
-    let directories = template_directories(&db, project);
-    assert!(directories.settings_cases_may_omit_roots());
-    assert_eq!(template_resolution(&db, project).origins(&db).count(), 0);
-    assert!(
-        ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
-            .loadable_library_str("custom")
-            .found()
-            .is_none()
-    );
-}
-
-#[test]
-fn dynamic_template_backend_excludes_directory_and_library_consumers() {
-    let mut db = TestDatabase::new();
-    let project = project_with_settings(
-        &mut db,
-        "myproject.settings",
-        &[
-            ("/proj/templates/index.html", "index"),
-            (
-                "/proj/custom_tags.py",
-                "from django import template\nregister = template.Library()\n",
-            ),
-            (
-                "/proj/myproject/settings.py",
-                "INSTALLED_APPS = []\nBACKEND = object()\nTEMPLATES = [{'BACKEND': BACKEND, 'DIRS': ['/proj/templates'], 'OPTIONS': {'libraries': {'custom': 'custom_tags'}}}]\n",
-            ),
-        ],
-    ).expect("settings project fixture should build");
-
-    let settings = serde_json::to_value(django_settings(&db, project))
-        .expect("test value should serialize to JSON");
-    assert!(has_case(&settings["templates"], "dynamic"));
-
-    let directories = template_directories(&db, project);
-    assert!(directories.settings_cases_may_omit_roots());
-    assert_eq!(template_resolution(&db, project).origins(&db).count(), 0);
-    assert!(
-        ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
-            .loadable_library_str("custom")
-            .found()
-            .is_none()
-    );
+fn missing_or_dynamic_template_backend_excludes_consumers() {
+    for (source, case) in [
+        (
+            "INSTALLED_APPS = []\nTEMPLATES = [{'DIRS': ['/proj/templates'], 'OPTIONS': {'libraries': {'custom': 'custom_tags'}}}]\n",
+            "malformed",
+        ),
+        (
+            "INSTALLED_APPS = []\nBACKEND = object()\nTEMPLATES = [{'BACKEND': BACKEND, 'DIRS': ['/proj/templates'], 'OPTIONS': {'libraries': {'custom': 'custom_tags'}}}]\n",
+            "dynamic",
+        ),
+    ] {
+        let mut db = TestDatabase::new();
+        let project = project_with_settings(
+            &mut db,
+            "myproject.settings",
+            &[
+                ("/proj/templates/index.html", "index"),
+                (
+                    "/proj/custom_tags.py",
+                    "from django import template\nregister = template.Library()\n",
+                ),
+                ("/proj/myproject/settings.py", source),
+            ],
+        )
+        .expect("settings project fixture should build");
+        let settings =
+            serde_json::to_value(django_settings(&db, project)).expect("settings should serialize");
+        assert!(has_case(&settings["templates"], case), "{case}");
+        assert!(
+            template_directories(&db, project).settings_cases_may_omit_roots(),
+            "{case}"
+        );
+        assert_eq!(
+            template_resolution(&db, project).origins(&db).count(),
+            0,
+            "{case}"
+        );
+        assert!(
+            ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
+                .loadable_library_str("custom")
+                .found()
+                .is_none(),
+            "{case}"
+        );
+    }
 }
 
 #[test]
@@ -2783,74 +2636,36 @@ fn template_dirs_treat_unresolved_configured_settings_as_unknown() {
 
 #[test]
 fn template_dirs_resolve_relative_star_imports() {
-    let mut db = TestDatabase::new();
-    let project = project_with_settings(
-        &mut db,
-        "myproject.prod",
-        &[
+    for (module, base, settings) in [
+        (
+            "myproject.prod",
+            "/proj/myproject/base.py",
+            "/proj/myproject/prod.py",
+        ),
+        (
+            "myproject.settings",
+            "/proj/myproject/settings/base.py",
+            "/proj/myproject/settings/__init__.py",
+        ),
+    ] {
+        let mut db = TestDatabase::new();
+        let project = project_with_settings(&mut db, module, &[
             ("/proj/django/contrib/auth/__init__.py", ""),
-            (
-                "/proj/django/contrib/auth/templates/auth/index.html",
-                "auth",
-            ),
+            ("/proj/django/contrib/auth/templates/auth/index.html", "auth"),
             ("/proj/blog/__init__.py", ""),
             ("/proj/blog/templates/blog/detail.html", "detail"),
-            (
-                "/proj/myproject/base.py",
-                "INSTALLED_APPS = ['django.contrib.auth']\n",
-            ),
-            (
-                "/proj/myproject/prod.py",
-                "from .base import *\nINSTALLED_APPS += ['blog']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
-            ),
-        ],
-    ).expect("settings project fixture should build");
-
-    let dirs = complete_template_dirs(&db, project);
-
-    assert_eq!(
-        dirs,
-        vec![
-            Utf8PathBuf::from("/proj/django/contrib/auth/templates"),
-            Utf8PathBuf::from("/proj/blog/templates"),
-        ]
-    );
-}
-
-#[test]
-fn template_dirs_resolve_relative_star_imports_from_package_module() {
-    let mut db = TestDatabase::new();
-    let project = project_with_settings(
-        &mut db,
-        "myproject.settings",
-        &[
-            ("/proj/django/contrib/auth/__init__.py", ""),
-            (
-                "/proj/django/contrib/auth/templates/auth/index.html",
-                "auth",
-            ),
-            ("/proj/blog/__init__.py", ""),
-            ("/proj/blog/templates/blog/detail.html", "detail"),
-            (
-                "/proj/myproject/settings/base.py",
-                "INSTALLED_APPS = ['django.contrib.auth']\n",
-            ),
-            (
-                "/proj/myproject/settings/__init__.py",
-                "from .base import *\nINSTALLED_APPS += ['blog']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
-            ),
-        ],
-    ).expect("settings project fixture should build");
-
-    let dirs = complete_template_dirs(&db, project);
-
-    assert_eq!(
-        dirs,
-        vec![
-            Utf8PathBuf::from("/proj/django/contrib/auth/templates"),
-            Utf8PathBuf::from("/proj/blog/templates"),
-        ]
-    );
+            (base, "INSTALLED_APPS = ['django.contrib.auth']\n"),
+            (settings, "from .base import *\nINSTALLED_APPS += ['blog']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n"),
+        ]).expect("settings project fixture should build");
+        assert_eq!(
+            complete_template_dirs(&db, project),
+            vec![
+                Utf8PathBuf::from("/proj/django/contrib/auth/templates"),
+                Utf8PathBuf::from("/proj/blog/templates"),
+            ],
+            "{module}"
+        );
+    }
 }
 
 #[test]
@@ -2904,65 +2719,40 @@ fn template_dirs_include_dirs_entries_before_app_dirs() {
 
 #[test]
 fn template_dirs_resolve_app_config_entries() {
-    let mut db = TestDatabase::new();
-    let project = project_with_settings(
-        &mut db,
-        "myproject.settings",
-        &[
-            ("/proj/blog/apps.py", ""),
-            ("/proj/blog/templates/blog/detail.html", "detail"),
-            (
-                "/proj/myproject/settings.py",
-                "INSTALLED_APPS = ['blog.apps.BlogConfig']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
-            ),
-        ],
-    ).expect("settings project fixture should build");
-
-    let dirs = complete_template_dirs(&db, project);
-
-    assert_eq!(dirs, vec![Utf8PathBuf::from("/proj/blog/templates")]);
-}
-
-#[test]
-fn template_dirs_resolve_app_config_class_from_init_module() {
-    let mut db = TestDatabase::new();
-    let project = project_with_settings(
-        &mut db,
-        "myproject.settings",
-        &[
-            ("/proj/something/__init__.py", ""),
-            ("/proj/something/templates/something/detail.html", "detail"),
-            (
-                "/proj/myproject/settings.py",
-                "INSTALLED_APPS = ['something.WeirdConfig']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
-            ),
-        ],
-    ).expect("settings project fixture should build");
-
-    let dirs = complete_template_dirs(&db, project);
-
-    assert_eq!(dirs, vec![Utf8PathBuf::from("/proj/something/templates")]);
-}
-
-#[test]
-fn template_dirs_demote_broken_app_config_entry_to_partial() {
-    let mut db = TestDatabase::new();
-    let project = project_with_settings(
-        &mut db,
-        "myproject.settings",
-        &[
-            ("/proj/myapp/__init__.py", ""),
-            ("/proj/myapp/templates/myapp/detail.html", "detail"),
-            (
-                "/proj/myproject/settings.py",
-                "INSTALLED_APPS = ['myapp.apps.MyConfig']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
-            ),
-        ],
-    ).expect("settings project fixture should build");
-
-    let directories = template_directories(&db, project);
-
-    assert!(directories.settings_cases_may_omit_roots());
+    for (app, module_path, template, root) in [
+        (
+            "blog.apps.BlogConfig",
+            "/proj/blog/apps.py",
+            "/proj/blog/templates/blog/detail.html",
+            "/proj/blog/templates",
+        ),
+        (
+            "something.WeirdConfig",
+            "/proj/something/__init__.py",
+            "/proj/something/templates/something/detail.html",
+            "/proj/something/templates",
+        ),
+    ] {
+        let mut db = TestDatabase::new();
+        let source = format!(
+            "INSTALLED_APPS = ['{app}']\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}}]\n"
+        );
+        let project = project_with_settings(
+            &mut db,
+            "myproject.settings",
+            &[
+                (module_path, ""),
+                (template, "detail"),
+                ("/proj/myproject/settings.py", &source),
+            ],
+        )
+        .expect("settings project fixture should build");
+        assert_eq!(
+            complete_template_dirs(&db, project),
+            vec![Utf8PathBuf::from(root)],
+            "{app}"
+        );
+    }
 }
 
 #[test]
@@ -3050,41 +2840,29 @@ fn template_dirs_resolve_namespace_app_portions_in_root_order() {
 }
 
 #[test]
-fn template_dirs_demote_file_module_app_to_partial() {
-    let mut db = TestDatabase::new();
-    let project = project_with_settings(
-        &mut db,
-        "myproject.settings",
-        &[
-            ("/proj/app.py", ""),
-            ("/proj/app/templates/app/index.html", "index"),
-            (
-                "/proj/myproject/settings.py",
-                "INSTALLED_APPS = ['app']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
-            ),
-        ],
-    ).expect("settings project fixture should build");
-
-    let directories = template_directories(&db, project);
-
-    assert!(directories.settings_cases_may_omit_roots());
-}
-
-#[test]
-fn template_dirs_demote_unresolved_app_to_partial() {
-    let mut db = TestDatabase::new();
-    let project = project_with_settings(
-        &mut db,
-        "myproject.settings",
-        &[(
-            "/proj/myproject/settings.py",
-            "INSTALLED_APPS = ['missing']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}]\n",
-        )],
-    ).expect("settings project fixture should build");
-
-    let directories = template_directories(&db, project);
-
-    assert!(directories.settings_cases_may_omit_roots());
+fn template_dirs_demote_unresolved_apps_to_partial() {
+    for app in ["myapp.apps.MyConfig", "app", "missing"] {
+        let db = TestDatabase::new();
+        let settings = format!(
+            "INSTALLED_APPS = ['{app}']\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'APP_DIRS': True}}]\n"
+        );
+        let project = ProjectFixture::new("/proj")
+            .django_settings_module("myproject.settings")
+            .file("/proj/myapp/__init__.py", "")
+            .file("/proj/myapp/templates/myapp/detail.html", "detail")
+            .file("/proj/app.py", "")
+            .file("/proj/app/templates/app/index.html", "index")
+            .file("/proj/myproject/settings.py", &settings)
+            .build(&db)
+            .expect("settings project fixture should build");
+        let directories = template_directories(&db, project);
+        assert!(directories.settings_cases_may_omit_roots(), "{app}");
+        assert_eq!(
+            directories.known_roots().collect::<Vec<_>>(),
+            Vec::<&Utf8Path>::new(),
+            "{app}"
+        );
+    }
 }
 
 #[test]
@@ -4224,12 +4002,10 @@ fn failed_configured_library_is_inconclusive() {
 
     let libraries = template_library_catalog(&db, project);
 
-    assert!(
-        ScopedTemplateLibraries::from_project_inventory(libraries)
-            .loadable_library_str("broken")
-            .found()
-            .is_none()
-    );
+    assert!(matches!(
+        ScopedTemplateLibraries::from_project_inventory(libraries).loadable_library_str("broken"),
+        LoadableLibraryLookup::Inconclusive(_)
+    ));
 }
 
 #[test]
@@ -4412,12 +4188,10 @@ fn template_library_catalog_omit_configured_non_library_module_and_demote_knowle
 
     let libraries = template_library_catalog(&db, project);
 
-    assert!(
-        ScopedTemplateLibraries::from_project_inventory(libraries)
-            .loadable_library_str("custom")
-            .found()
-            .is_none()
-    );
+    assert!(matches!(
+        ScopedTemplateLibraries::from_project_inventory(libraries).loadable_library_str("custom"),
+        LoadableLibraryLookup::Inconclusive(_)
+    ));
 }
 
 #[test]

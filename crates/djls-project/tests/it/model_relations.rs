@@ -1,5 +1,4 @@
 use std::io;
-use std::ptr;
 
 use camino::Utf8Path;
 use djls_conf::TagSpecDef;
@@ -14,13 +13,19 @@ use djls_project::testing::ModelBaseOutcomeView;
 use djls_project::testing::ModelBaseUnresolvedReasonView;
 use djls_project::testing::ModelInvalidAncestryReasonView;
 use djls_project::testing::ModelMroEntryView;
+use djls_project::testing::ModelRelationResolutionView as Resolution;
+use djls_project::testing::ModelRelationTargetView as Target;
+use djls_project::testing::ModelRelationUnresolvedView as Unresolved;
 use djls_project::testing::PythonSyntaxErrorClass;
 use djls_project::testing::extract_model_graph;
 use djls_project::testing::model_inheritance_outcomes;
+use djls_project::testing::model_is_abstract;
 use djls_project::testing::model_location;
+use djls_project::testing::model_relation;
 use djls_project::testing::model_relation_locations;
 use djls_project::testing::python_syntax_errors;
 use djls_project::testing::resolve_model_graph_from_modules;
+use djls_project::testing::resolved_model_id;
 use djls_source::ChangeEvent;
 use djls_source::SourceChanges;
 use djls_source::Span;
@@ -28,7 +33,6 @@ use djls_testing::ProjectFixture;
 use djls_testing::SalsaEventLog;
 use djls_testing::TestDatabase;
 use djls_testing::will_execute_count;
-use serde_json::Value;
 use serde_json::json;
 
 fn model_id<'a>(
@@ -41,21 +45,6 @@ fn model_id<'a>(
         .find(|(id, _model)| id.module_name().as_str() == module_name)
         .map(|(id, _model)| id)
         .ok_or_else(|| io::Error::other(format!("model `{module_name}.{name}` does not exist")))
-}
-
-fn graph_value(graph: &ModelGraph) -> Result<Value, serde_json::Error> {
-    serde_json::to_value(graph)
-}
-
-fn relation_value<'a>(graph: &'a Value, model: &str, field: &str) -> Result<&'a Value, io::Error> {
-    graph["models"][model]["relations"]
-        .as_array()
-        .and_then(|relations| {
-            relations
-                .iter()
-                .find(|relation| relation["field_name"]["value"] == field)
-        })
-        .ok_or_else(|| io::Error::other(format!("relation `{model}.{field}` does not exist")))
 }
 
 fn update_file(
@@ -625,21 +614,9 @@ fn qualified_relation_resolves_cross_app() {
     let blog_user = model_id(graph, "User", "blog.models")
         .expect("model fixture should contain the requested model");
 
-    let resolved = graph
-        .resolve_relation(post, "author")
-        .expect("qualified relation should resolve");
-    assert!(ptr::eq(
-        resolved,
-        graph
-            .get_by_id(accounts_user)
-            .expect("test value should resolve")
-    ));
-    assert!(!ptr::eq(
-        resolved,
-        graph
-            .get_by_id(blog_user)
-            .expect("test value should resolve")
-    ));
+    let resolved = resolved_model_id(graph, post, "author");
+    assert_eq!(resolved, Some(accounts_user));
+    assert_ne!(resolved, Some(blog_user));
 }
 
 #[test]
@@ -665,21 +642,9 @@ fn bare_relation_resolves_relative_to_scope_app() {
     let blog_user = model_id(graph, "User", "blog.models")
         .expect("model fixture should contain the requested model");
 
-    let resolved = graph
-        .resolve_relation(profile, "user")
-        .expect("bare relation should resolve in the scope app");
-    assert!(ptr::eq(
-        resolved,
-        graph
-            .get_by_id(accounts_user)
-            .expect("test value should resolve")
-    ));
-    assert!(!ptr::eq(
-        resolved,
-        graph
-            .get_by_id(blog_user)
-            .expect("test value should resolve")
-    ));
+    let resolved = resolved_model_id(graph, profile, "user");
+    assert_eq!(resolved, Some(accounts_user));
+    assert_ne!(resolved, Some(blog_user));
 }
 
 #[test]
@@ -704,15 +669,7 @@ class Profile(models.Model):
         .expect("model fixture should contain Profile");
     let user =
         model_id(graph, "User", "accounts.models").expect("model fixture should contain User");
-    let resolved = graph
-        .resolve_relation(profile, "user")
-        .expect("keyword relation should resolve");
-    assert!(ptr::eq(
-        resolved,
-        graph
-            .get_by_id(user)
-            .expect("keyword relation target should resolve")
-    ));
+    assert_eq!(resolved_model_id(graph, profile, "user"), Some(user));
 
     let file = db
         .file(Utf8Path::new("/project/accounts/models.py"))
@@ -764,15 +721,7 @@ class TemplatedHiddenOrder(models.Model):
         .expect("model fixture should contain HiddenOrder");
     let templated_hidden_order = model_id(graph, "TemplatedHiddenOrder", "accounts.models")
         .expect("model fixture should contain TemplatedHiddenOrder");
-    let resolved = graph
-        .resolve_relation(user, "orders")
-        .expect("ordinary related_name should create a reverse accessor");
-    assert!(ptr::eq(
-        resolved,
-        graph
-            .get_by_id(order)
-            .expect("ordinary reverse relation target should resolve")
-    ));
+    assert_eq!(resolved_model_id(graph, user, "orders"), Some(order));
 
     for absent_accessor in [
         "+",
@@ -785,15 +734,7 @@ class TemplatedHiddenOrder(models.Model):
     }
 
     for source in [hidden_order, templated_hidden_order] {
-        let resolved = graph
-            .resolve_relation(source, "user")
-            .expect("suppression should not affect forward resolution");
-        assert!(ptr::eq(
-            resolved,
-            graph
-                .get_by_id(user)
-                .expect("suppressed relation target should resolve")
-        ));
+        assert_eq!(resolved_model_id(graph, source, "user"), Some(user));
     }
 }
 
@@ -814,15 +755,7 @@ fn self_relation_resolves_to_scope_model() {
     let category = model_id(graph, "Category", "catalog.models")
         .expect("model fixture should contain the requested model");
 
-    let resolved = graph
-        .resolve_relation(category, "parent")
-        .expect("self relation should resolve");
-    assert!(ptr::eq(
-        resolved,
-        graph
-            .get_by_id(category)
-            .expect("test value should resolve")
-    ));
+    assert_eq!(resolved_model_id(graph, category, "parent"), Some(category));
 }
 
 #[test]
@@ -851,32 +784,16 @@ fn later_same_name_class_shadows_imported_base_for_relation() {
     let blog_user = model_id(graph, "User", "blog.models")
         .expect("model fixture should contain the requested model");
 
-    let resolved = graph
-        .resolve_relation(post, "author")
-        .expect("shadowed relation should resolve to the local class");
-    assert!(ptr::eq(
-        resolved,
-        graph
-            .get_by_id(blog_user)
-            .expect("test value should resolve")
-    ));
-    assert!(!ptr::eq(
-        resolved,
-        graph
-            .get_by_id(accounts_user)
-            .expect("test value should resolve")
-    ));
+    let resolved = resolved_model_id(graph, post, "author");
+    assert_eq!(resolved, Some(blog_user));
+    assert_ne!(resolved, Some(accounts_user));
 
-    let value = graph_value(graph).expect("model graph should serialize");
-    let relation = relation_value(&value, "blog.models.Post", "author")
-        .expect("model fixture should contain the requested relation");
     assert_eq!(
-        relation["target"]["value"],
-        json!({ "kind": "Bare", "name": "User" })
-    );
-    assert_eq!(
-        relation["resolution"],
-        json!({ "Resolved": "blog.models.User" })
+        model_relation(graph, post, "author"),
+        Some((
+            Some(Target::Bare { name: "User" }),
+            Resolution::Resolved(blog_user)
+        ))
     );
 }
 
@@ -903,33 +820,15 @@ fn attribute_qualified_expression_retains_source_path_and_resolves() {
     let blog_user = model_id(graph, "User", "blog.models")
         .expect("model fixture should contain the requested model");
 
-    let resolved = graph
-        .resolve_relation(post, "author")
-        .expect("attribute relation should resolve");
-    assert!(ptr::eq(
-        resolved,
-        graph
-            .get_by_id(accounts_user)
-            .expect("test value should resolve")
-    ));
-    assert!(!ptr::eq(
-        resolved,
-        graph
-            .get_by_id(blog_user)
-            .expect("test value should resolve")
-    ));
+    let resolved = resolved_model_id(graph, post, "author");
+    assert_eq!(resolved, Some(accounts_user));
+    assert_ne!(resolved, Some(blog_user));
 
-    let value = graph_value(graph).expect("model graph should serialize");
-    let relation = relation_value(&value, "blog.models.Post", "author")
-        .expect("model fixture should contain the requested relation");
-    assert_eq!(
-        relation["target"]["value"],
-        json!({ "kind": "Attribute", "path": ["account_models", "User"] })
+    let (target, resolution) = model_relation(graph, post, "author").expect("relation");
+    assert!(
+        matches!(target, Some(Target::Attribute { path }) if path == ["account_models", "User"])
     );
-    assert_eq!(
-        relation["resolution"],
-        json!({ "Resolved": "accounts.models.User" })
-    );
+    assert_eq!(resolution, Resolution::Resolved(accounts_user));
 }
 
 #[test]
@@ -977,18 +876,8 @@ fn imported_abstract_base_import_spellings_are_recognized_and_inherit_relations(
     let story = model_id(graph, "Story", "c_app.models")
         .expect("model fixture should contain the requested model");
 
-    assert!(ptr::eq(
-        graph
-            .resolve_relation(article, "owner")
-            .expect("direct imported abstract base relation should resolve"),
-        graph.get_by_id(user).expect("test value should resolve")
-    ));
-    assert!(ptr::eq(
-        graph
-            .resolve_relation(story, "owner")
-            .expect("aliased imported abstract base relation should resolve"),
-        graph.get_by_id(user).expect("test value should resolve")
-    ));
+    assert_eq!(resolved_model_id(graph, article, "owner"), Some(user));
+    assert_eq!(resolved_model_id(graph, story, "owner"), Some(user));
 }
 
 #[test]
@@ -1014,28 +903,16 @@ fn dotted_string_auth_user_resolves_via_app_label_path() {
     let shop_user = model_id(graph, "User", "shop.models")
         .expect("model fixture should contain the requested model");
 
-    let resolved = graph
-        .resolve_relation(order, "user")
-        .expect("dotted string relation should resolve by app label");
-    assert!(ptr::eq(
-        resolved,
-        graph
-            .get_by_id(auth_user)
-            .expect("test value should resolve")
-    ));
-    assert!(!ptr::eq(
-        resolved,
-        graph
-            .get_by_id(shop_user)
-            .expect("test value should resolve")
-    ));
+    let resolved = resolved_model_id(graph, order, "user");
+    assert_eq!(resolved, Some(auth_user));
+    assert_ne!(resolved, Some(shop_user));
 
-    let value = graph_value(graph).expect("model graph should serialize");
-    let relation = relation_value(&value, "shop.models.Order", "user")
-        .expect("model fixture should contain the requested relation");
     assert_eq!(
-        relation["target"]["value"],
-        json!({ "kind": "Qualified", "app_label": "auth", "name": "User" })
+        model_relation(graph, order, "user").expect("relation").0,
+        Some(Target::Qualified {
+            app_label: "auth",
+            name: "User"
+        })
     );
 }
 
@@ -1055,12 +932,8 @@ fn unresolvable_imported_target_records_explicit_reason() {
         .expect("model fixture should contain the requested model");
     assert_eq!(graph.resolve_relation(post, "author"), None);
 
-    let value = graph_value(graph).expect("model graph should serialize");
-    let relation = relation_value(&value, "blog.models.Post", "author")
-        .expect("model fixture should contain the requested relation");
-    assert_eq!(
-        relation["resolution"]["Unresolved"]["reason"]["ImportNotFound"],
-        json!({ "requested": "missing.models.User" })
+    assert!(
+        matches!(model_relation(graph, post, "author"), Some((_, Resolution::Unresolved(Unresolved::ImportNotFound(requested)))) if requested.as_str() == "missing.models.User")
     );
 }
 
@@ -1084,12 +957,8 @@ fn imported_module_target_records_explicit_reason() {
         .expect("model fixture should contain the requested model");
     assert_eq!(graph.resolve_relation(post, "author"), None);
 
-    let value = graph_value(graph).expect("model graph should serialize");
-    let relation = relation_value(&value, "blog.models.Post", "author")
-        .expect("model fixture should contain the requested relation");
-    assert_eq!(
-        relation["resolution"]["Unresolved"]["reason"]["ImportedTargetIsModule"],
-        json!({ "module": "accounts.models" })
+    assert!(
+        matches!(model_relation(graph, post, "author"), Some((_, Resolution::Unresolved(Unresolved::ImportedTargetIsModule(module)))) if module.as_str() == "accounts.models")
     );
 }
 
@@ -1113,17 +982,8 @@ fn imported_partial_target_is_preserved_when_model_id_is_absent() {
         .expect("model fixture should contain the requested model");
     assert_eq!(graph.resolve_relation(post, "author"), None);
 
-    let value = graph_value(graph).expect("model graph should serialize");
-    let relation = relation_value(&value, "blog.models.Post", "author")
-        .expect("model fixture should contain the requested relation");
-    assert_eq!(
-        relation["resolution"],
-        json!({
-            "Partial": {
-                "resolved_prefix": "accounts.models",
-                "unresolved_tail": ["User"]
-            }
-        })
+    assert!(
+        matches!(model_relation(graph, post, "author"), Some((_, Resolution::Partial { resolved_prefix, unresolved_tail })) if resolved_prefix.as_str() == "accounts.models" && unresolved_tail == ["User"])
     );
 }
 
@@ -1151,18 +1011,18 @@ fn ambiguous_app_label_fallback_is_preserved_in_relation_resolution() {
         .expect("model fixture should contain the requested model");
     assert_eq!(graph.resolve_relation(post, "author"), None);
 
-    let value = graph_value(graph).expect("model graph should serialize");
-    let relation = relation_value(&value, "NEWS.models.Post", "author")
-        .expect("model fixture should contain the requested relation");
+    let (_, resolution) = model_relation(graph, post, "author").expect("relation");
     assert_eq!(
-        relation["resolution"]["Ambiguous"]["candidates"],
-        json!(["News.models.User", "news.models.User"])
+        resolution,
+        Resolution::Ambiguous {
+            candidates: &[
+                "News.models.User".parse().expect("model id"),
+                "news.models.User".parse().expect("model id"),
+            ],
+            app_label: "NEWS",
+            name: "User"
+        }
     );
-    assert_eq!(
-        relation["resolution"]["Ambiguous"]["app_label"],
-        json!("NEWS")
-    );
-    assert_eq!(relation["resolution"]["Ambiguous"]["name"], json!("User"));
 }
 
 #[test]
@@ -1177,25 +1037,38 @@ fn computed_model_graph_does_not_expose_file_local_relation_resolution() {
         .expect("file-local-resolution project fixture should build");
 
     let graph = compute_model_graph(&db, project);
-    let value = graph_value(graph).expect("model graph should serialize");
+    let tagged = model_id(graph, "TaggedItem", "blog.models").expect("model");
     assert_eq!(
-        relation_value(&value, "blog.models.TaggedItem", "target")
-            .expect("model fixture should contain the requested relation")["resolution"],
-        json!({
-            "Unresolved": {
-                "reason": {
-                    "SameAppTargetNotFound": {
-                        "app_label": "blog",
-                        "name": "Missing"
-                    }
-                }
-            }
+        model_relation(graph, tagged, "target").expect("relation").1,
+        Resolution::Unresolved(Unresolved::SameAppTargetNotFound {
+            app_label: "blog",
+            name: "Missing"
         })
     );
     assert_eq!(
-        relation_value(&value, "blog.models.TaggedItem", "content_object")
-            .expect("model fixture should contain the requested relation")["resolution"],
-        json!({ "Unresolved": { "reason": "NoStaticTarget" } })
+        model_relation(graph, tagged, "content_object")
+            .expect("relation")
+            .1,
+        Resolution::Unresolved(Unresolved::NoStaticTarget)
+    );
+}
+
+#[test]
+fn model_graph_serializes_relation_targets_and_resolutions() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .file("/project/blog/models.py", "from django.db import models\nclass User(models.Model): pass\nclass Post(models.Model):\n    author = models.ForeignKey('User')\n")
+        .build(&db).expect("model project");
+    let value = serde_json::to_value(compute_model_graph(&db, project)).expect("serialize graph");
+    let relation = &value["models"]["blog.models.Post"]["relations"][0];
+    assert_eq!(relation["field_name"]["value"], "author");
+    assert_eq!(
+        relation["target"]["value"],
+        json!({"kind": "Bare", "name": "User"})
+    );
+    assert_eq!(
+        relation["resolution"],
+        json!({"Resolved": "blog.models.User"})
     );
 }
 
@@ -1226,12 +1099,7 @@ fn salsa_recomputes_relation_resolution_for_import_edits_only_where_needed() {
         .expect("model fixture should contain the requested model");
     let user = model_id(graph, "User", "accounts.models")
         .expect("model fixture should contain the requested model");
-    assert!(ptr::eq(
-        graph
-            .resolve_relation(post, "author")
-            .expect("initial import should resolve"),
-        graph.get_by_id(user).expect("test value should resolve")
-    ));
+    assert_eq!(resolved_model_id(graph, post, "author"), Some(user));
     drop(
         event_log
             .take()
@@ -1251,12 +1119,7 @@ fn salsa_recomputes_relation_resolution_for_import_edits_only_where_needed() {
         .expect("model fixture should contain the requested model");
     let profile = model_id(graph, "Profile", "accounts.models")
         .expect("model fixture should contain the requested model");
-    assert!(ptr::eq(
-        graph
-            .resolve_relation(post, "author")
-            .expect("edited import should resolve"),
-        graph.get_by_id(profile).expect("test value should resolve")
-    ));
+    assert_eq!(resolved_model_id(graph, post, "author"), Some(profile));
     assert!(
         will_execute_count(
             &db,
@@ -1330,93 +1193,66 @@ fn control_recognized_base_import_spellings() {
 }
 
 #[test]
-fn control_django_db_models_recognized_without_external_source() {
-    // No accounts/django sources are provided; recognition is purely symbolic.
-    assert!(detects_model!(
-        "from django.db import models\nclass Thing(models.Model):\n    pass\n",
-        "Thing",
-    ));
-}
-
-#[test]
-fn correction_import_after_class_does_not_affect_earlier_class() {
-    assert!(!detects_model!(
-        "class Thing(models.Model):\n    pass\nfrom django.db import models\n",
-        "Thing",
-    ));
-}
-
-#[test]
-fn correction_reassignment_before_occurrence_removes_certainty() {
-    assert!(!detects_model!(
-        "from django.db import models\nmodels = None\nclass Thing(models.Model):\n    pass\n",
-        "Thing",
-    ));
-}
-
-#[test]
-fn correction_delete_before_occurrence_removes_certainty() {
-    assert!(!detects_model!(
-        "from django.db import models\ndel models\nclass Thing(models.Model):\n    pass\n",
-        "Thing",
-    ));
-}
-
-#[test]
-fn correction_function_definition_before_occurrence_removes_certainty() {
-    assert!(!detects_model!(
-        "from django.db import models\ndef models():\n    pass\nclass Thing(models.Model):\n    pass\n",
-        "Thing",
-    ));
-}
-
-#[test]
-fn correction_class_definition_before_occurrence_removes_certainty() {
-    assert!(!detects_model!(
-        "from django.db import models\nclass models:\n    pass\nclass Thing(models.Model):\n    pass\n",
-        "Thing",
-    ));
-}
-
-#[test]
-fn correction_branch_disagreement_is_conservatively_unresolved() {
-    assert!(!detects_model!(
-        "from django.db import models\nif flag:\n    models = None\nclass Thing(models.Model):\n    pass\n",
-        "Thing",
-    ));
-}
-
-#[test]
-fn correction_try_disagreement_is_conservatively_unresolved() {
-    assert!(!detects_model!(
-        "from django.db import models\ntry:\n    models = None\nexcept Exception:\n    pass\nclass Thing(models.Model):\n    pass\n",
-        "Thing",
-    ));
-}
-
-#[test]
-fn correction_later_exact_import_restores_certainty_for_later_only() {
-    let source = concat!(
-        "from django.db import models\n",
-        "models = None\n",
-        "class Early(models.Model):\n    pass\n",
-        "from django.db import models\n",
-        "class Late(models.Model):\n    pass\n",
-    );
-    assert!(!detects_model!(source, "Early"));
-    assert!(detects_model!(source, "Late"));
-}
-
-#[test]
-fn correction_earlier_occurrence_stable_after_later_write() {
-    let source = concat!(
-        "from django.db import models\n",
-        "class Early(models.Model):\n    pass\n",
-        "models = None\n",
-        "class Late(models.Model):\n    pass\n",
-    );
-    assert!(detects_model!(source, "Early"));
-    assert!(!detects_model!(source, "Late"));
+fn correction_resolves_each_model_at_its_occurrence() {
+    for (source, class, expected) in [
+        (
+            "class Thing(models.Model):\n    pass\nfrom django.db import models\n",
+            "Thing",
+            false,
+        ),
+        (
+            "from django.db import models\nmodels = None\nclass Thing(models.Model):\n    pass\n",
+            "Thing",
+            false,
+        ),
+        (
+            "from django.db import models\ndel models\nclass Thing(models.Model):\n    pass\n",
+            "Thing",
+            false,
+        ),
+        (
+            "from django.db import models\ndef models():\n    pass\nclass Thing(models.Model):\n    pass\n",
+            "Thing",
+            false,
+        ),
+        (
+            "from django.db import models\nclass models:\n    pass\nclass Thing(models.Model):\n    pass\n",
+            "Thing",
+            false,
+        ),
+        (
+            "from django.db import models\nif flag:\n    models = None\nclass Thing(models.Model):\n    pass\n",
+            "Thing",
+            false,
+        ),
+        (
+            "from django.db import models\ntry:\n    models = None\nexcept Exception:\n    pass\nclass Thing(models.Model):\n    pass\n",
+            "Thing",
+            false,
+        ),
+        (
+            "from django.db import models\nmodels = None\nclass Early(models.Model):\n    pass\nfrom django.db import models\nclass Late(models.Model):\n    pass\n",
+            "Early",
+            false,
+        ),
+        (
+            "from django.db import models\nmodels = None\nclass Early(models.Model):\n    pass\nfrom django.db import models\nclass Late(models.Model):\n    pass\n",
+            "Late",
+            true,
+        ),
+        (
+            "from django.db import models\nclass Early(models.Model):\n    pass\nmodels = None\nclass Late(models.Model):\n    pass\n",
+            "Early",
+            true,
+        ),
+        (
+            "from django.db import models\nclass Early(models.Model):\n    pass\nmodels = None\nclass Late(models.Model):\n    pass\n",
+            "Late",
+            false,
+        ),
+    ] {
+        assert_eq!(detects_model!(source, class), expected, "{class}: {source}");
+    }
 }
 
 #[test]
@@ -1477,8 +1313,13 @@ fn relative_model_alias_resolves_an_imported_abstract_base() {
         .expect("aliased-abstract-base project fixture should build");
 
     let graph = compute_model_graph(&db, project);
-    model_id(graph, "Thing", "app.models")
-        .expect("model fixture should contain the requested model");
+    let base = model_id(graph, "AbstractThing", "app.base.models").expect("base should exist");
+    let (bases, ancestry) = model_inheritance_outcomes(graph, "app.models", "Thing")
+        .expect("Thing should have ancestry");
+    assert!(matches!(&bases[..], [ModelBaseOutcomeView::Model { model, .. }] if model == base));
+    assert!(
+        matches!(ancestry, ModelAncestryOutcomeView::Complete { mro } if mro.contains(&ModelMroEntryView::Model(base.clone())))
+    );
 }
 
 #[test]
@@ -1508,33 +1349,26 @@ fn class_body_relations_capture_alias_state_at_each_occurrence() {
     let accounts_user = model_id(graph, "User", "accounts.models")
         .expect("model fixture should contain the requested model");
     assert_eq!(graph.resolve_relation(post, "before"), None);
-    assert!(ptr::eq(
-        graph
-            .resolve_relation(post, "imported")
-            .expect("class-local import should resolve at its occurrence"),
-        graph
-            .get_by_id(accounts_user)
-            .expect("test value should resolve"),
-    ));
+    assert_eq!(
+        resolved_model_id(graph, post, "imported"),
+        Some(accounts_user)
+    );
     assert_eq!(graph.resolve_relation(post, "after"), None);
 
-    let value = graph_value(graph).expect("model graph should serialize");
     assert_eq!(
-        relation_value(&value, "blog.models.Post", "imported")
-            .expect("model fixture should contain the requested relation")["resolution"],
-        json!({ "Resolved": "accounts.models.User" })
+        model_relation(graph, post, "imported").expect("relation").1,
+        Resolution::Resolved(accounts_user)
     );
+    assert!(matches!(
+        model_relation(graph, post, "before"),
+        Some((
+            _,
+            Resolution::Unresolved(Unresolved::SameAppTargetNotFound { name: "User", .. })
+        ))
+    ));
     assert_eq!(
-        relation_value(&value, "blog.models.Post", "before")
-            .expect("model fixture should contain the requested relation")["resolution"]["Unresolved"]
-            ["reason"]["SameAppTargetNotFound"]["name"],
-        json!("User")
-    );
-    assert_eq!(
-        relation_value(&value, "blog.models.Post", "after")
-            .expect("model fixture should contain the requested relation")["resolution"]["Unresolved"]
-            ["reason"]["MissingImportBinding"],
-        json!({ "binding": "User" })
+        model_relation(graph, post, "after").expect("relation").1,
+        Resolution::Unresolved(Unresolved::MissingImportBinding("User"))
     );
 
     let file = db
@@ -1589,14 +1423,7 @@ fn class_body_conditional_relation_remains_a_possible_field() {
         .expect("model fixture should contain the requested model");
     let user = model_id(graph, "User", "accounts.models")
         .expect("model fixture should contain the conditional relation target");
-    assert!(ptr::eq(
-        graph
-            .resolve_relation(post, "conditional")
-            .expect("conditional relation should remain a possible field"),
-        graph
-            .get_by_id(user)
-            .expect("conditional relation target should resolve"),
-    ));
+    assert_eq!(resolved_model_id(graph, post, "conditional"), Some(user));
     assert_eq!(graph.resolve_relation(post, "outside"), None);
 }
 
@@ -1680,8 +1507,13 @@ fn deferred_imported_base_is_not_rebound_by_a_later_local_class() {
         .expect("deferred-imported-base project fixture should build");
 
     let graph = compute_model_graph(&db, project);
-    model_id(graph, "Child", "blog.models")
-        .expect("model fixture should contain the requested model");
+    let base = model_id(graph, "AbstractBase", "accounts.models").expect("base should exist");
+    let (bases, ancestry) = model_inheritance_outcomes(graph, "blog.models", "Child")
+        .expect("Child should have ancestry");
+    assert!(matches!(&bases[..], [ModelBaseOutcomeView::Model { model, .. }] if model == base));
+    assert!(
+        matches!(ancestry, ModelAncestryOutcomeView::Complete { mro } if mro.contains(&ModelMroEntryView::Model(base.clone())))
+    );
 }
 
 #[test]
@@ -1722,14 +1554,7 @@ fn string_relation_targets_ignore_python_import_aliases() {
         .expect("model fixture should contain the requested model");
     let blog_user = model_id(graph, "User", "blog.models")
         .expect("model fixture should contain the requested model");
-    assert!(ptr::eq(
-        graph
-            .resolve_relation(post, "author")
-            .expect("string target should resolve in the current app"),
-        graph
-            .get_by_id(blog_user)
-            .expect("test value should resolve"),
-    ));
+    assert_eq!(resolved_model_id(graph, post, "author"), Some(blog_user));
 }
 
 #[test]
@@ -1753,12 +1578,9 @@ fn explicitly_shadowed_relation_does_not_fall_back_to_same_app_model() {
     let post = model_id(graph, "Post", "blog.models")
         .expect("model fixture should contain the requested model");
     assert_eq!(graph.resolve_relation(post, "author"), None);
-    let value = graph_value(graph).expect("model graph should serialize");
     assert_eq!(
-        relation_value(&value, "blog.models.Post", "author")
-            .expect("model fixture should contain the requested relation")["resolution"]["Unresolved"]
-            ["reason"]["MissingImportBinding"],
-        json!({ "binding": "User" })
+        model_relation(graph, post, "author").expect("relation").1,
+        Resolution::Unresolved(Unresolved::MissingImportBinding("User"))
     );
 }
 
@@ -2092,15 +1914,7 @@ fn c3_left_base_wins_a_forward_field_collision() {
     let graph = compute_model_graph(&db, project);
     let child = model_id(graph, "Child", "app.models").expect("Child should exist");
     let left_target = model_id(graph, "LeftTarget", "app.models").expect("LeftTarget should exist");
-    let resolved = graph
-        .resolve_relation(child, "owner")
-        .expect("the left C3 field should resolve");
-    assert!(ptr::eq(
-        resolved,
-        graph
-            .get_by_id(left_target)
-            .expect("LeftTarget should resolve")
-    ));
+    assert_eq!(resolved_model_id(graph, child, "owner"), Some(left_target));
 }
 
 #[test]
@@ -2173,21 +1987,9 @@ fn inherited_concrete_field_target_uses_the_declaring_models_scope() {
     let base_target = model_id(graph, "Target", "base.models").expect("base Target should exist");
     let child_target =
         model_id(graph, "Target", "child.models").expect("child Target should exist");
-    let resolved = graph
-        .resolve_relation(child, "target")
-        .expect("inherited concrete field should resolve");
-    assert!(ptr::eq(
-        resolved,
-        graph
-            .get_by_id(base_target)
-            .expect("base Target should resolve")
-    ));
-    assert!(!ptr::eq(
-        resolved,
-        graph
-            .get_by_id(child_target)
-            .expect("child Target should resolve")
-    ));
+    let resolved = resolved_model_id(graph, child, "target");
+    assert_eq!(resolved, Some(base_target));
+    assert_ne!(resolved, Some(child_target));
     assert!(model_relation_locations(graph, "child.models", "Child").is_empty());
 }
 
@@ -2522,15 +2324,7 @@ fn abstract_clone_stops_at_concrete_owner_scope() {
     let graph = compute_model_graph(&db, project);
     let child = model_id(graph, "Child", "child.models").expect("Child should exist");
     let base_target = model_id(graph, "Target", "base.models").expect("base Target should exist");
-    let resolved = graph
-        .resolve_relation(child, "target")
-        .expect("inherited field should resolve");
-    assert!(ptr::eq(
-        resolved,
-        graph
-            .get_by_id(base_target)
-            .expect("base target should resolve")
-    ));
+    assert_eq!(resolved_model_id(graph, child, "target"), Some(base_target));
     assert!(model_relation_locations(graph, "child.models", "Child").is_empty());
 }
 
@@ -2565,20 +2359,11 @@ fn abstract_clone_expression_target_keeps_its_declaration_scope() {
     let child_target =
         model_id(graph, "Target", "child.models").expect("child Target should exist");
 
-    assert!(ptr::eq(
-        graph
-            .resolve_relation(child, "target")
-            .expect("cloned expression target should resolve"),
-        graph
-            .get_by_id(base_target)
-            .expect("base Target should resolve"),
-    ));
-    assert!(ptr::eq(
-        graph
-            .resolve_relation(base_target, "child_set")
-            .expect("base Target should receive the cloned reverse relation"),
-        graph.get_by_id(child).expect("Child should resolve"),
-    ));
+    assert_eq!(resolved_model_id(graph, child, "target"), Some(base_target));
+    assert_eq!(
+        resolved_model_id(graph, base_target, "child_set"),
+        Some(child)
+    );
     assert_eq!(graph.resolve_relation(child_target, "child_set"), None);
 }
 
@@ -2652,12 +2437,7 @@ fn c3_uses_local_bindings_across_a_shared_ancestor_diamond() {
     let d = model_id(graph, "D", "app.models").expect("D should exist");
     let c_target = model_id(graph, "CTarget", "app.models").expect("CTarget should exist");
 
-    assert!(ptr::eq(
-        graph
-            .resolve_relation(d, "owner")
-            .expect("D.owner should resolve"),
-        graph.get_by_id(c_target).expect("CTarget should resolve"),
-    ));
+    assert_eq!(resolved_model_id(graph, d, "owner"), Some(c_target));
 }
 
 #[test]
@@ -2676,14 +2456,8 @@ fn later_non_relation_suppresses_an_earlier_relation() {
         .expect("relation suppression fixture should build");
     let graph = compute_model_graph(&db, project);
     let order = model_id(graph, "Order", "app.models").expect("Order should exist");
-    let value = graph_value(graph).expect("model graph should serialize");
-
     assert_eq!(graph.resolve_relation(order, "user"), None);
-    assert!(
-        value["models"]["app.models.Order"]["relations"]
-            .as_array()
-            .is_some_and(Vec::is_empty)
-    );
+    assert!(model_relation_locations(graph, "app.models", "Order").is_empty());
 }
 
 #[test]
@@ -2703,7 +2477,12 @@ fn later_relation_restores_a_name_after_a_non_relation() {
     let graph = compute_model_graph(&db, project);
     let order = model_id(graph, "Order", "app.models").expect("Order should exist");
 
-    assert!(graph.resolve_relation(order, "user").is_some());
+    let user = model_id(graph, "User", "app.models").expect("User should exist");
+    assert_eq!(graph.resolve_relation(order, "user"), graph.get_by_id(user));
+    assert_eq!(
+        model_relation_locations(graph, "app.models", "Order").len(),
+        1
+    );
 }
 
 #[test]
@@ -2724,19 +2503,17 @@ fn later_relation_replaces_an_earlier_relation() {
     let graph = compute_model_graph(&db, project);
     let choice = model_id(graph, "Choice", "app.models").expect("Choice should exist");
     let second = model_id(graph, "Second", "app.models").expect("Second should exist");
-    let value = graph_value(graph).expect("model graph should serialize");
-    let relations = value["models"]["app.models.Choice"]["relations"]
-        .as_array()
-        .expect("Choice relations should be an array");
-
-    assert!(ptr::eq(
-        graph
-            .resolve_relation(choice, "selected")
-            .expect("the final relation should resolve"),
-        graph.get_by_id(second).expect("Second should resolve"),
-    ));
-    assert_eq!(relations.len(), 1);
-    assert_eq!(relations[0]["target"]["value"]["name"], json!("Second"));
+    assert_eq!(resolved_model_id(graph, choice, "selected"), Some(second));
+    assert_eq!(
+        model_relation_locations(graph, "app.models", "Choice").len(),
+        1
+    );
+    assert_eq!(
+        model_relation(graph, choice, "selected")
+            .expect("relation")
+            .0,
+        Some(Target::Bare { name: "Second" })
+    );
 }
 
 #[test]
@@ -2777,10 +2554,11 @@ fn final_static_meta_abstract_assignment_wins() {
         .file("/project/app/models.py", source)
         .build(&db)
         .expect("Meta.abstract ordering fixture should build");
-    let value = graph_value(compute_model_graph(&db, project)).expect("graph should serialize");
-
-    assert_eq!(value["models"]["app.models.Concrete"]["kind"], "concrete");
-    assert_eq!(value["models"]["app.models.Abstract"]["kind"], "abstract");
+    let graph = compute_model_graph(&db, project);
+    for (name, expected) in [("Concrete", false), ("Abstract", true)] {
+        let id = model_id(graph, name, "app.models").expect("model");
+        assert_eq!(model_is_abstract(graph, id), Some(expected), "{name}");
+    }
 }
 
 #[test]
@@ -2802,20 +2580,15 @@ fn final_duplicate_meta_class_controls_model_kind() {
         .file("/project/app/models.py", source)
         .build(&db)
         .expect("duplicate Meta fixture should build");
-    let value = graph_value(compute_model_graph(&db, project)).expect("graph should serialize");
-
-    assert_eq!(
-        value["models"]["app.models.ResetToDefault"]["kind"],
-        "concrete"
-    );
-    assert_eq!(
-        value["models"]["app.models.ResetToFalse"]["kind"],
-        "concrete"
-    );
-    assert_eq!(
-        value["models"]["app.models.ResetToTrue"]["kind"],
-        "abstract"
-    );
+    let graph = compute_model_graph(&db, project);
+    for (name, expected) in [
+        ("ResetToDefault", false),
+        ("ResetToFalse", false),
+        ("ResetToTrue", true),
+    ] {
+        let id = model_id(graph, name, "app.models").expect("model");
+        assert_eq!(model_is_abstract(graph, id), Some(expected), "{name}");
+    }
 }
 
 #[test]

@@ -34,16 +34,6 @@ pub struct ExtractionBundle {
     pub(crate) tag_meanings: TagMeaningMap,
 }
 
-impl ExtractionBundle {
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.tag_rules.is_empty()
-            && self.filter_arities.is_empty()
-            && self.block_specs.is_empty()
-            && self.tag_meanings.is_empty()
-    }
-}
-
 #[must_use]
 pub fn extract_bundle(
     db: &dyn ProjectDb,
