@@ -5,16 +5,22 @@
 
 use std::sync::Arc;
 
-use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_db::DjangoDatabase;
 use djls_ide::PrimedTemplateLibraries;
+use djls_lsp::ClientInfo;
+use djls_lsp::InitializeParamsExt;
+use djls_lsp::PositionExt;
+use djls_lsp::TextDocument;
+use djls_lsp::TextDocumentContentChangeEventExt;
+use djls_lsp::TextDocumentItemExt;
+use djls_lsp::UriExt;
+use djls_lsp::Workspace;
 use djls_project::Db as ProjectDb;
 use djls_source::ChangeEvent;
 use djls_source::Db as _;
 use djls_source::File;
 use djls_source::FileKind;
-use djls_source::FileStatus;
 use djls_source::Offset;
 use djls_source::SourceChanges;
 use djls_source::Span;
@@ -22,15 +28,7 @@ use djls_source::path_to_file;
 use tokio::sync::watch;
 use tower_lsp_server::ls_types;
 
-use crate::client::ClientInfo;
 use crate::diagnostics::DiagnosticQueue;
-use crate::document::TextDocument;
-use crate::ext::InitializeParamsExt;
-use crate::ext::PositionExt;
-use crate::ext::TextDocumentContentChangeEventExt;
-use crate::ext::TextDocumentItemExt;
-use crate::ext::UriExt;
-use crate::workspace::Workspace;
 
 /// How many times snapshot-based reads retry after Salsa cancellation before
 /// giving up and returning a fallback.
@@ -630,7 +628,7 @@ impl Session {
         };
 
         let kind = text_document.language_id_to_file_kind(self.client_info.client());
-        let change = self.open_document_change(&path);
+        let change = self.workspace.open_document_change(&self.db, &path);
         let document =
             self.workspace
                 .open_document(&path, &text_document.text, text_document.version, kind);
@@ -680,7 +678,7 @@ impl Session {
         let change = if self.workspace.contains_document(&path) {
             ChangeEvent::ContentChanged(path.clone())
         } else {
-            self.open_document_change(&path)
+            self.workspace.open_document_change(&self.db, &path)
         };
         let Some(document) = self.workspace.update_document(
             &path,
@@ -714,7 +712,7 @@ impl Session {
         };
 
         self.diagnostics.close(&path);
-        let change = self.close_document_change(&path);
+        let change = self.workspace.close_document_change(&path);
         let Some(document) = self.workspace.close_document(&path) else {
             return DocumentMutation::Ignored;
         };
@@ -724,35 +722,9 @@ impl Session {
         DocumentMutation::Applied { project_work }
     }
 
-    fn open_document_change(&self, path: &Utf8Path) -> ChangeEvent {
-        if !self.workspace.disk_is_file(path) {
-            return ChangeEvent::BecameVisible(path.to_path_buf());
-        }
-
-        match self
-            .db
-            .files()
-            .try_file(path)
-            .map(|file| file.status(&self.db))
-        {
-            Some(FileStatus::Exists) => ChangeEvent::Opened(path.to_path_buf()),
-            Some(FileStatus::IsADirectory | FileStatus::NotFound) | None => {
-                ChangeEvent::BecameVisible(path.to_path_buf())
-            }
-        }
-    }
-
-    fn close_document_change(&self, path: &Utf8Path) -> ChangeEvent {
-        if self.workspace.disk_is_file(path) {
-            ChangeEvent::ContentChanged(path.to_path_buf())
-        } else {
-            ChangeEvent::Deleted(path.to_path_buf())
-        }
-    }
-
     /// Get a document from the buffer if it's open.
     #[cfg(test)]
-    fn get_document(&self, path: &Utf8Path) -> Option<Arc<TextDocument>> {
+    fn get_document(&self, path: &camino::Utf8Path) -> Option<Arc<TextDocument>> {
         self.workspace.get_document(path)
     }
 
@@ -884,9 +856,11 @@ mod tests {
     use std::task::Poll;
     use std::time::Duration;
 
+    use camino::Utf8Path;
     use djls_ide::prime_template_library_products;
     use djls_project::Db as ProjectDb;
     use djls_project::PythonEnvironment;
+    use djls_source::FileStatus;
     use tempfile::tempdir;
     use tokio::spawn;
     use tokio::sync::Mutex;

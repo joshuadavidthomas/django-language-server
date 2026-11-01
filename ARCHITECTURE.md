@@ -61,7 +61,7 @@ A single coalescing reload worker runs full Project reloads and intrinsic-only r
 
 Optional cache warm-up and coalesced diagnostic-refresh transport run outside the reload worker. Database snapshots never cross client progress or refresh waits; optional warm-up reacquires current-generation readiness after progress setup.
 
-**Architecture Invariant:** `djls-server` is the only crate that speaks the LSP protocol — handling requests, managing the session, and transporting progress/notifications.
+**Architecture Invariant:** only `djls-server` and the browser server in `djls-wasm` speak the LSP protocol — handling requests, managing the session, and transporting progress/notifications. What they share (client negotiation, capabilities, open-document buffers, the overlay filesystem) lives in `djls-lsp`, so the two cannot drift.
 
 ### `crates/djls-db`
 

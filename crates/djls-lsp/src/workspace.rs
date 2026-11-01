@@ -40,7 +40,10 @@ use std::sync::Arc;
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_source::CaseSensitivity;
+use djls_source::ChangeEvent;
+use djls_source::Db as SourceDb;
 use djls_source::FileKind;
+use djls_source::FileStatus;
 use djls_source::FileSystem;
 use djls_source::FxDashMap;
 use djls_source::OsFileSystem;
@@ -58,7 +61,7 @@ use crate::document::TextDocument;
 /// `Workspace` stores open documents and exposes an overlay filesystem to the
 /// database. `Session` applies the matching project-visible file events after
 /// mutating this buffer state.
-pub(crate) struct Workspace {
+pub struct Workspace {
     /// Thread-safe shared buffer storage for open documents.
     buffers: Buffers,
     /// Immutable bundles, then open buffers, then disk.
@@ -70,9 +73,14 @@ pub(crate) struct Workspace {
 impl Workspace {
     /// Create a workspace with empty buffers and an OS-backed overlay.
     #[must_use]
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
+        Self::with_disk(Arc::new(OsFileSystem::default()))
+    }
+
+    /// Create a workspace whose buffers overlay `disk`, such as an in-memory project.
+    #[must_use]
+    pub fn with_disk(disk: Arc<dyn FileSystem>) -> Self {
         let buffers = Buffers::new();
-        let disk: Arc<dyn FileSystem> = Arc::new(OsFileSystem::default());
         let overlay = Arc::new(OverlayFileSystem::new(buffers.clone(), Arc::clone(&disk)));
 
         Self {
@@ -84,12 +92,13 @@ impl Workspace {
 
     /// Return the complete filesystem for database reads.
     #[must_use]
-    pub(crate) fn file_system(&self) -> Arc<dyn FileSystem> {
+    pub fn file_system(&self) -> Arc<dyn FileSystem> {
         Arc::clone(&self.file_system)
     }
 
     /// Return all currently open documents.
-    pub(crate) fn open_documents(&self) -> Vec<Arc<TextDocument>> {
+    #[must_use]
+    pub fn open_documents(&self) -> Vec<Arc<TextDocument>> {
         self.buffers
             .iter()
             .map(|(_path, document)| document)
@@ -97,22 +106,17 @@ impl Workspace {
     }
 
     #[must_use]
-    pub(crate) fn disk_is_file(&self, path: &Utf8Path) -> bool {
-        self.disk.is_file(path)
-    }
-
-    #[must_use]
-    #[cfg(test)]
-    pub(crate) fn get_document(&self, path: &Utf8Path) -> Option<Arc<TextDocument>> {
+    pub fn get_document(&self, path: &Utf8Path) -> Option<Arc<TextDocument>> {
         self.buffers.get(path)
     }
 
-    pub(crate) fn contains_document(&self, path: &Utf8Path) -> bool {
+    #[must_use]
+    pub fn contains_document(&self, path: &Utf8Path) -> bool {
         self.buffers.contains(path)
     }
 
     /// Open a document in memory.
-    pub(crate) fn open_document(
+    pub fn open_document(
         &mut self,
         path: &Utf8Path,
         content: &str,
@@ -125,12 +129,13 @@ impl Workspace {
     }
 
     /// Return the saved open document without changing buffered content.
-    pub(crate) fn save_document(&self, path: &Utf8Path) -> Option<Arc<TextDocument>> {
+    #[must_use]
+    pub fn save_document(&self, path: &Utf8Path) -> Option<Arc<TextDocument>> {
         self.buffers.get(path)
     }
 
     /// Apply LSP text changes to an open document.
-    pub(crate) fn update_document(
+    pub fn update_document(
         &mut self,
         path: &Utf8Path,
         changes: Vec<DocumentChange>,
@@ -158,8 +163,32 @@ impl Workspace {
     }
 
     /// Close a document, removing it from buffers.
-    pub(crate) fn close_document(&mut self, path: &Utf8Path) -> Option<Arc<TextDocument>> {
+    pub fn close_document(&mut self, path: &Utf8Path) -> Option<Arc<TextDocument>> {
         self.buffers.close(path)
+    }
+
+    /// The source change that opening a buffer at `path` makes visible to `db`.
+    pub fn open_document_change(&self, db: &dyn SourceDb, path: &Utf8Path) -> ChangeEvent {
+        if !self.disk.is_file(path) {
+            return ChangeEvent::BecameVisible(path.to_path_buf());
+        }
+
+        match db.files().try_file(path).map(|file| file.status(db)) {
+            Some(FileStatus::Exists) => ChangeEvent::Opened(path.to_path_buf()),
+            Some(FileStatus::IsADirectory | FileStatus::NotFound) | None => {
+                ChangeEvent::BecameVisible(path.to_path_buf())
+            }
+        }
+    }
+
+    /// The source change that closing the buffer at `path` makes visible.
+    #[must_use]
+    pub fn close_document_change(&self, path: &Utf8Path) -> ChangeEvent {
+        if self.disk.is_file(path) {
+            ChangeEvent::ContentChanged(path.to_path_buf())
+        } else {
+            ChangeEvent::Deleted(path.to_path_buf())
+        }
     }
 }
 
@@ -398,7 +427,6 @@ mod tests {
     use djls_conf::Settings;
     use djls_db::DjangoDatabase;
     use djls_source::ChangeEvent;
-    use djls_source::Db as _;
     use djls_source::FileRootKind;
     use djls_source::InMemoryFileSystem;
     use djls_source::SourceChanges;
