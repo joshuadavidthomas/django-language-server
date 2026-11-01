@@ -61,7 +61,7 @@ fn fallback_cache_dir() -> std::path::PathBuf {
 }
 
 // `std::env::temp_dir` panics without a host filesystem. Bundle paths only need a
-// stable identity; nothing is materialized there because navigation never runs.
+// stable identity; `materialize_bundled_path` writes nothing on this target.
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 fn fallback_cache_dir() -> std::path::PathBuf {
     std::path::PathBuf::from("/djls-cache")
@@ -209,6 +209,11 @@ pub(crate) fn source_root(version: DjangoVersion) -> io::Result<Utf8PathBuf> {
 
 /// Prepare an ordinary file URI target without changing its source identity.
 pub fn materialize_bundled_path(path: &Utf8Path) -> io::Result<()> {
+    // Without a host filesystem, navigation targets stay virtual bundle paths that callers
+    // read back through `BundledFileSystem`.
+    if cfg!(all(target_arch = "wasm32", target_os = "unknown")) {
+        return Ok(());
+    }
     if let Some(bundle) = bundle_for(path) {
         bundle.materialize(path)?;
     }

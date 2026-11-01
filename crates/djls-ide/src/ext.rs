@@ -287,8 +287,30 @@ pub(crate) trait Utf8PathExt {
 }
 
 impl Utf8PathExt for Utf8Path {
+    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
     fn to_lsp_uri(&self) -> Option<ls_types::Uri> {
         ls_types::Uri::from_file_path(self.as_std_path())
+    }
+
+    // `Uri::from_file_path` rejects every path here: `Path::is_absolute` needs a unix or
+    // wasi target, and the canonicalize fallback has no filesystem.
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    fn to_lsp_uri(&self) -> Option<ls_types::Uri> {
+        const PATH: &percent_encoding::AsciiSet = &percent_encoding::NON_ALPHANUMERIC
+            .remove(b'-')
+            .remove(b'.')
+            .remove(b'_')
+            .remove(b'~')
+            .remove(b'/');
+        if !self.has_root() {
+            return None;
+        }
+        format!(
+            "file://{}",
+            percent_encoding::utf8_percent_encode(self.as_str(), PATH)
+        )
+        .parse()
+        .ok()
     }
 
     fn to_navigation_uri(&self) -> Option<ls_types::Uri> {

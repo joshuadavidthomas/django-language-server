@@ -985,6 +985,7 @@ dependencies = [
  "djls-source",
  "djls-templates",
  "djls-testing",
+ "percent-encoding",
  "proptest",
  "tempfile",
  "tower-lsp-server",
@@ -1157,6 +1158,7 @@ dependencies = [
  "djls-project",
  "djls-source",
  "serde_json",
+ "tower-lsp-server",
  "wasm-bindgen",
 ]
 
