@@ -52,6 +52,7 @@ hawk *ARGS:
     cargo "+{{ hawk_channel }}" hawk check \
         --manifest-path "{{ justfile_directory() }}/Cargo.toml" \
         --target-dir "{{ justfile_directory() }}/target/hawk" \
+        --exclude-crate djls_wasm \
         -D warnings "$@"
 
 e2e *ARGS:
