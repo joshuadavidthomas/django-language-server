@@ -55,6 +55,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Fixed S103 reporting closing-tag arguments such as `{% endfor item %}` that Django ignores. Only tags whose Django source checks the closing name, such as `{% block %}`, report a mismatch, which now includes extra arguments like `{% endblock header extra %}`.
 - Fixed a mismatched `{% endpartialdef name %}` not reporting S103 with Django 6.0+.
 - Fixed a `{% load %}` of an unresolved library suppressing block structure diagnostics (S100–S103) for built-in tags such as `{% block %}` and `{% if %}`. Only a selective load that names the tag, such as `{% load block from unknown %}`, still suppresses them.
+- Fixed settings analysis never finishing for settings modules with an unresolved star import followed by many `if` statements, such as OpenStack Horizon's, which kept `djls check` and the language server from finishing.
 
 ### Fixed
 
