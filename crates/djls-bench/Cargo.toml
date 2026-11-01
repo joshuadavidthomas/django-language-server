@@ -8,7 +8,7 @@ djls = { workspace = true }
 djls-conf = { workspace = true }
 djls-db = { workspace = true }
 djls-ide = { workspace = true }
-djls-project = { workspace = true }
+djls-project = { workspace = true, features = ["bundled-django"] }
 djls-semantic = { workspace = true }
 djls-source = { workspace = true }
 djls-templates = { workspace = true }

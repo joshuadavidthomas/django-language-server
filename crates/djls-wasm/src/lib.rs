@@ -174,3 +174,13 @@ fn is_template(db: &DjangoDatabase, file: File) -> bool {
 fn project_path(path: &str) -> Utf8PathBuf {
     Utf8Path::new(PROJECT_ROOT).join(path.trim_start_matches('/'))
 }
+
+/// Supply a Django release this build does not embed: a Django wheel or a vendored bundle zip.
+///
+/// Returns its feature line, such as `"5.2"`. Register before any `Workspace` uses that release.
+#[wasm_bindgen(js_name = registerDjango)]
+pub fn register_django(archive: Vec<u8>) -> Result<String, JsError> {
+    Ok(djls_project::register_django_bundle(archive)?
+        .as_str()
+        .to_owned())
+}

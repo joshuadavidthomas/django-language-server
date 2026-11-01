@@ -10,6 +10,7 @@ use std::io::Read;
 use std::io::Write;
 use std::sync::Arc;
 use std::sync::LazyLock;
+use std::sync::OnceLock;
 
 use camino::Utf8Path;
 use camino::Utf8PathBuf;
@@ -36,7 +37,30 @@ struct Bundle {
     index: BTreeMap<Utf8PathBuf, WalkEntryKind>,
 }
 
-static BUNDLES: LazyLock<io::Result<Vec<Bundle>>> = LazyLock::new(|| {
+const VERSIONS: [DjangoVersion; 3] = [
+    DjangoVersion::Django52,
+    DjangoVersion::Django60,
+    DjangoVersion::Django61,
+];
+
+// Embedded releases fill their slot on first use; the others only when a host registers one.
+static BUNDLES: [OnceLock<Bundle>; 3] = [const { OnceLock::new() }; 3];
+
+// Size-sensitive builds (wasm) leave releases out and register them at runtime instead.
+#[cfg(feature = "django-5-2")]
+const DJANGO_5_2: Option<&[u8]> = Some(include_bytes!("../vendor/django-5.2.zip"));
+#[cfg(not(feature = "django-5-2"))]
+const DJANGO_5_2: Option<&[u8]> = None;
+#[cfg(feature = "django-6-0")]
+const DJANGO_6_0: Option<&[u8]> = Some(include_bytes!("../vendor/django-6.0.zip"));
+#[cfg(not(feature = "django-6-0"))]
+const DJANGO_6_0: Option<&[u8]> = None;
+#[cfg(feature = "django-6-1")]
+const DJANGO_6_1: Option<&[u8]> = Some(include_bytes!("../vendor/django-6.1.zip"));
+#[cfg(not(feature = "django-6-1"))]
+const DJANGO_6_1: Option<&[u8]> = None;
+
+static CACHE: LazyLock<io::Result<Utf8PathBuf>> = LazyLock::new(|| {
     let cache = ProjectDirs::from("", "", "djls")
         .map_or_else(fallback_cache_dir, |dirs| dirs.cache_dir().to_path_buf());
     let cache = Utf8PathBuf::from_path_buf(cache).map_err(|path| {
@@ -45,15 +69,80 @@ static BUNDLES: LazyLock<io::Result<Vec<Bundle>>> = LazyLock::new(|| {
             path.display()
         ))
     })?;
-    [
-        include_bytes!("../vendor/django-5.2.zip").as_slice(),
-        include_bytes!("../vendor/django-6.0.zip").as_slice(),
-        include_bytes!("../vendor/django-6.1.zip").as_slice(),
-    ]
-    .into_iter()
-    .map(|bytes| Bundle::new(&cache.join("django"), bytes))
-    .collect()
+    Ok(cache.join("django"))
 });
+
+const fn slot(version: DjangoVersion) -> usize {
+    match version {
+        DjangoVersion::Django52 => 0,
+        DjangoVersion::Django60 => 1,
+        DjangoVersion::Django61 => 2,
+    }
+}
+
+fn cache_root() -> io::Result<&'static Utf8Path> {
+    CACHE
+        .as_deref()
+        .map_err(|error| io::Error::other(error.to_string()))
+}
+
+/// `None` when the release is neither embedded nor registered.
+fn bundle(version: DjangoVersion) -> Option<io::Result<&'static Bundle>> {
+    let slot = &BUNDLES[slot(version)];
+    if let Some(bundle) = slot.get() {
+        return Some(Ok(bundle));
+    }
+    let bytes = match version {
+        DjangoVersion::Django52 => DJANGO_5_2,
+        DjangoVersion::Django60 => DJANGO_6_0,
+        DjangoVersion::Django61 => DJANGO_6_1,
+    }?;
+    Some(
+        cache_root()
+            .and_then(|cache| Bundle::new(cache, bytes))
+            .map(|bundle| slot.get_or_init(|| bundle)),
+    )
+}
+
+/// Supply a Django release at runtime to a build that does not embed it.
+///
+/// `bytes` is a Django wheel or vendored bundle; its `.dist-info` name selects the release.
+/// Register before the release is first used, because tag facts and Django Discovery keep a
+/// missing-bundle result. The archive stays in memory for the rest of the process.
+pub fn register_django_bundle(bytes: Vec<u8>) -> io::Result<DjangoVersion> {
+    let version = ZipArchive::new(Cursor::new(bytes.as_slice()))?
+        .file_names()
+        .find_map(|name| dist_info_release(&name.ok()?))
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "archive is not a supported Django release",
+            )
+        })?;
+    let already_loaded = || {
+        io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            format!("Django {} sources are already loaded", version.as_str()),
+        )
+    };
+    let slot = &BUNDLES[slot(version)];
+    if slot.get().is_some() {
+        return Err(already_loaded());
+    }
+    let bundle = Bundle::new(cache_root()?, Box::leak(bytes.into_boxed_slice()))?;
+    slot.set(bundle).map_err(|_rejected| already_loaded())?;
+    Ok(version)
+}
+
+/// The supported release named by a `django-<version>.dist-info/` archive entry.
+fn dist_info_release(name: &str) -> Option<DjangoVersion> {
+    let (directory, _) = name.split_once('/')?;
+    let (project, release) = directory.strip_suffix(".dist-info")?.split_once('-')?;
+    if !project.eq_ignore_ascii_case("django") {
+        return None;
+    }
+    crate::django_version::feature_line(&release.parse().ok()?)
+}
 
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 fn fallback_cache_dir() -> std::path::PathBuf {
@@ -187,24 +276,20 @@ impl Bundle {
 }
 
 fn bundle_for(path: &Utf8Path) -> Option<&'static Bundle> {
-    BUNDLES
-        .as_ref()
-        .ok()?
-        .iter()
+    VERSIONS
+        .into_iter()
+        .filter_map(|version| bundle(version)?.ok())
         .find(|bundle| path.starts_with(&bundle.root))
 }
 
 pub(crate) fn source_root(version: DjangoVersion) -> io::Result<Utf8PathBuf> {
-    let index = match version {
-        DjangoVersion::Django52 => 0,
-        DjangoVersion::Django60 => 1,
-        DjangoVersion::Django61 => 2,
-    };
-    Ok(BUNDLES
-        .as_ref()
-        .map_err(|error| io::Error::other(error.to_string()))?[index]
-        .root
-        .clone())
+    let bundle = bundle(version).unwrap_or_else(|| {
+        Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("Django {} sources are not bundled", version.as_str()),
+        ))
+    })?;
+    Ok(bundle.root.clone())
 }
 
 /// Prepare an ordinary file URI target without changing its source identity.
@@ -365,6 +450,26 @@ mod tests {
                 .map(|entry| entry.relative.as_str())
                 .collect();
             assert_eq!(names, ["defaultfilters.py", "defaulttags.py"]);
+        }
+    }
+
+    #[test]
+    fn runtime_bundles_are_identified_by_dist_info() {
+        for (name, expected) in [
+            (
+                "django-5.2.18.dist-info/licenses/LICENSE",
+                Some(DjangoVersion::Django52),
+            ),
+            ("Django-6.0.dist-info/RECORD", Some(DjangoVersion::Django60)),
+            (
+                "django-6.1.2.dist-info/METADATA",
+                Some(DjangoVersion::Django61),
+            ),
+            ("django-4.2.20.dist-info/METADATA", None),
+            ("django_crispy_forms-2.4.dist-info/METADATA", None),
+            ("django/__init__.py", None),
+        ] {
+            assert_eq!(dist_info_release(name), expected, "{name}");
         }
     }
 
