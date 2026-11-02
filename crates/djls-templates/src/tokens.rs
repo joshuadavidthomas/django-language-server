@@ -2,8 +2,9 @@ use std::sync::LazyLock;
 
 use djls_source::Span;
 use memchr::memmem::Finder;
+use serde::Serialize;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub enum TagDelimiter {
     Block,
     Variable,

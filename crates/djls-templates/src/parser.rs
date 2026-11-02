@@ -8,6 +8,7 @@ use crate::filters::parse_filter;
 use crate::filters::split_variable_expression;
 use crate::nodelist::Node;
 use crate::quotes::split_on_unquoted_whitespace;
+use crate::tokens::TagDelimiter;
 use crate::tokens::Token;
 
 pub(crate) struct Parser<'src> {
@@ -141,8 +142,7 @@ impl<'src> Parser<'src> {
                 let full_span = token.full_span().unwrap_or(*span);
                 Err(ParseError::MalformedConstruct {
                     position: full_span.start_usize(),
-                    opener: delimiter.opener(),
-                    closer: delimiter.closer(),
+                    delimiter: *delimiter,
                     content: error_text,
                 })
             }
@@ -287,11 +287,14 @@ pub enum ParseError {
     #[error("Empty tag at position {position}")]
     EmptyTag { position: usize },
 
-    #[error("Unclosed '{opener}' (no matching '{closer}' found): {content}")]
+    #[error(
+        "Unclosed '{}' (no matching '{}' found): {content}",
+        .delimiter.opener(),
+        .delimiter.closer()
+    )]
     MalformedConstruct {
         position: usize,
-        opener: &'static str,
-        closer: &'static str,
+        delimiter: TagDelimiter,
         content: String,
     },
 
@@ -316,8 +319,10 @@ impl ParseError {
     pub fn primary_span(&self) -> Option<(u32, u32)> {
         let (position, length) = match self {
             ParseError::MalformedConstruct {
-                position, opener, ..
-            } => (*position, opener.len().max(1)),
+                position,
+                delimiter,
+                ..
+            } => (*position, delimiter.opener().len()),
             ParseError::UnexpectedTokenKind { position, .. }
             | ParseError::EmptyTag { position }
             | ParseError::MalformedFilterExpression { position, .. } => (*position, 1),
@@ -359,8 +364,7 @@ mod tests {
     fn parser_errors_keep_legacy_diagnostic_code() {
         let error = ParseError::MalformedConstruct {
             position: 15,
-            opener: "{{",
-            closer: "}}",
+            delimiter: TagDelimiter::Variable,
             content: "value".to_string(),
         };
 
@@ -372,8 +376,7 @@ mod tests {
         assert_eq!(
             ParseError::MalformedConstruct {
                 position: 15,
-                opener: "{{",
-                closer: "}}",
+                delimiter: TagDelimiter::Variable,
                 content: "value".to_string(),
             }
             .primary_span(),
