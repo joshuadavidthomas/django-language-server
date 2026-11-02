@@ -44,16 +44,11 @@ fn library_name(name: &str) -> TestResult<LibraryName> {
     Ok(LibraryName::parse(name)?)
 }
 
-fn symbol(
-    kind: TemplateSymbolKind,
-    name: &str,
-    doc: Option<&str>,
-) -> TestResult<TemplateSymbol<'static>> {
+fn symbol(kind: TemplateSymbolKind, name: &str) -> TestResult<TemplateSymbol<'static>> {
     Ok(TemplateSymbol {
         kind,
         name: TemplateSymbolName::parse(name)?,
         definition: SymbolDefinition::Unknown,
-        doc: doc.map(str::to_string),
     })
 }
 
@@ -250,10 +245,10 @@ fn symbol_join_distinguishes_unanimous_and_partial_ambiguous_libraries() {
             "shared",
             "project.alpha",
             vec![
-                symbol(TemplateSymbolKind::Tag, "all_tag", None),
-                symbol(TemplateSymbolKind::Tag, "one_tag", None),
-                symbol(TemplateSymbolKind::Filter, "all_filter", None),
-                symbol(TemplateSymbolKind::Filter, "one_filter", None),
+                symbol(TemplateSymbolKind::Tag, "all_tag"),
+                symbol(TemplateSymbolKind::Tag, "one_tag"),
+                symbol(TemplateSymbolKind::Filter, "all_filter"),
+                symbol(TemplateSymbolKind::Filter, "one_filter"),
             ],
         )
         .expect("loadable library fixture should be valid"),
@@ -261,8 +256,8 @@ fn symbol_join_distinguishes_unanimous_and_partial_ambiguous_libraries() {
             "shared",
             "project.beta",
             vec![
-                symbol(TemplateSymbolKind::Tag, "all_tag", None),
-                symbol(TemplateSymbolKind::Filter, "all_filter", None),
+                symbol(TemplateSymbolKind::Tag, "all_tag"),
+                symbol(TemplateSymbolKind::Filter, "all_filter"),
             ],
         )
         .expect("loadable library fixture should be valid"),
@@ -389,19 +384,19 @@ fn effective_definition_preserves_absence_and_load_precedence_per_backend() {
         vec![
             builtin(
                 "django.template.defaulttags",
-                vec![symbol(TemplateSymbolKind::Tag, "if", None)],
+                vec![symbol(TemplateSymbolKind::Tag, "if")],
             )
             .expect("builtin library fixture should be valid"),
             loadable(
                 "alpha",
                 "project.alpha",
-                vec![symbol(TemplateSymbolKind::Tag, "if", None)],
+                vec![symbol(TemplateSymbolKind::Tag, "if")],
             )
             .expect("loadable library fixture should be valid"),
             loadable(
                 "beta",
                 "project.beta",
-                vec![symbol(TemplateSymbolKind::Tag, "if", None)],
+                vec![symbol(TemplateSymbolKind::Tag, "if")],
             )
             .expect("loadable library fixture should be valid"),
         ],
@@ -653,7 +648,7 @@ fn available_symbol_guidance_survives_open_remainder() {
                 "extra_tags",
                 "available_in_app",
                 "available_in_app.templatetags.extra_tags",
-                vec![symbol(TemplateSymbolKind::Tag, "extra", None)],
+                vec![symbol(TemplateSymbolKind::Tag, "extra")],
             )
             .expect("available-in-app library fixture should be valid"),
         ],
@@ -711,26 +706,18 @@ fn known_symbol_candidates_preserve_builtin_and_load_semantics() {
         vec![
             builtin(
                 "z_first",
-                vec![symbol(
-                    TemplateSymbolKind::Filter,
-                    "duplicate",
-                    Some("first"),
-                )],
+                vec![symbol(TemplateSymbolKind::Filter, "duplicate")],
             )
             .expect("builtin library fixture should be valid"),
             builtin(
                 "a_second",
-                vec![symbol(
-                    TemplateSymbolKind::Filter,
-                    "duplicate",
-                    Some("second"),
-                )],
+                vec![symbol(TemplateSymbolKind::Filter, "duplicate")],
             )
             .expect("builtin library fixture should be valid"),
             loadable(
                 "humanize",
                 "django.contrib.humanize.templatetags.humanize",
-                vec![symbol(TemplateSymbolKind::Filter, "intcomma", None)],
+                vec![symbol(TemplateSymbolKind::Filter, "intcomma")],
             )
             .expect("loadable library fixture should be valid"),
         ],
@@ -759,10 +746,9 @@ fn known_symbol_candidates_preserve_builtin_and_load_semantics() {
             .symbol(TemplateSymbolKind::Tag, "duplicate")
             .is_none()
     );
-    assert_eq!(candidates[0].symbol.doc.as_deref(), Some("second"));
     assert!(matches!(
-        candidates[0].availability,
-        TemplateSymbolAvailability::Builtin { .. }
+        &candidates[0].availability,
+        TemplateSymbolAvailability::Builtin { module } if module.as_str() == "a_second"
     ));
     assert!(matches!(
         &candidates[1].availability,

@@ -46,6 +46,7 @@ pub use registrations::template_library_inventory_dependencies;
 pub use registrations::template_library_registration_dependencies;
 pub use registrations::template_library_structure_facts;
 pub use registrations::template_library_tag_facts;
+pub use registrations::template_symbol_doc;
 pub use registrations::template_symbol_source;
 pub use resolution::InconclusiveTemplateResolution;
 pub use resolution::ScopedTemplateReferenceResolution;

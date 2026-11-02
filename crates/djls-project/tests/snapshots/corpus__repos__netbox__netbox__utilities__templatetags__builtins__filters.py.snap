@@ -5,19 +5,19 @@ expression: sorted_snapshot(&bundle)?
 definitions:
   "filter::bettertitle":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::content_type":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::content_type_id":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::fgcolor":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::getattr":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::isodate":
     kind: filter
     has_doc: false
@@ -29,31 +29,31 @@ definitions:
     has_doc: false
   "filter::json":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::linkify":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::markdown":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::meta":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::placeholder":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::split":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::truncate_middle":
     kind: filter
     has_doc: false
   "filter::tzoffset":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::yaml":
     kind: filter
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules: {}
 filter_arities:

@@ -5,64 +5,64 @@ expression: sorted_snapshot(&bundle)?
 definitions:
   "filter::as_range":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::divide":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::get_item":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::get_key":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::humanize_disk_megabytes":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::humanize_ram_megabytes":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::humanize_speed":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::icon_from_status":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::kg_to_pounds":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::meters_to_feet":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::percentage":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::startswith":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::status_from_tag":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::validated_viewname":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::viewname":
     kind: filter
-    has_doc: false
+    has_doc: true
   "tag::action_url":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::applied_filters":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::querystring":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::table_config_form":
     kind: tag
     has_doc: false
   "tag::utilization_graph":
     kind: tag
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules:
   "utilities.templatetags.helpers::tag::action_url":

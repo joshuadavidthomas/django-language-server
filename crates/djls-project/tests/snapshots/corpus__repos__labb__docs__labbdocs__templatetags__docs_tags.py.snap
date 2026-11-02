@@ -5,46 +5,46 @@ expression: sorted_snapshot(&bundle)?
 definitions:
   "filter::get_component_spec":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::is_full_url":
     kind: filter
-    has_doc: false
+    has_doc: true
   "tag::blocks_by_ref":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::doc_github_url":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::doc_url":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::generate_structured_data":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::get_all_component_names":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::get_blog_posts":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::get_components_menu":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::get_seo_metadata":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::labb_docs_banner":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::load_icon_metadata":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::search_enabled":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::show_component_example":
     kind: tag
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules:
   "docs.labbdocs.templatetags.docs_tags::tag::blocks_by_ref":

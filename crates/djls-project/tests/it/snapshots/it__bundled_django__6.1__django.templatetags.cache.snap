@@ -5,7 +5,7 @@ expression: "sorted_snapshot(&bundle).expect(\"extraction snapshot should serial
 definitions:
   "tag::cache":
     kind: tag
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules:
   "django.templatetags.cache::tag::cache":

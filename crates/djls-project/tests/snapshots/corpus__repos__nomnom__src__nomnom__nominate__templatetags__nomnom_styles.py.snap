@@ -5,7 +5,7 @@ expression: sorted_snapshot(&bundle)?
 definitions:
   "tag::site_stylesheet":
     kind: tag
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules:
   "nomnom.nominate.templatetags.nomnom_styles::tag::site_stylesheet":

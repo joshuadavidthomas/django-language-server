@@ -144,6 +144,57 @@ fn symbol_hover_follows_definition_collisions_at_each_load_position() {
 }
 
 #[test]
+fn symbol_hover_shows_docstrings_read_from_library_source() {
+    let mut db = TestDatabase::new();
+    let source =
+        "{% load custom %}{% for item in items %}{{ item|lower|shout }}{% endfor %}{% greet %}";
+    ProjectFixture::new("/test/project")
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".into()],
+            libraries: BTreeMap::from([("custom".into(), "custom_tags".into())]),
+            ..ProjectSettings::default()
+        })
+        .file(
+            "/test/project/custom_tags.py",
+            "from django import template\nregister = template.Library()\n\n@register.simple_tag\ndef greet():\n    \"\"\"Say hello.\n\n    Usage::\n\n        {% greet %}\n    \"\"\"\n    return 'hello'\n\ndef shout(value):\n    'Upper' \"case the value.\"\n    return value.upper()\n\nregister.filter('shout', shout)\n",
+        )
+        .file("/test/project/templates/page.html", source)
+        .install(&mut db)
+        .expect("docstring project fixture should install");
+    let file = db
+        .file(Utf8Path::new("/test/project/templates/page.html"))
+        .expect("template fixture file should exist");
+    let hover_at = |needle: &str| {
+        let offset = source
+            .find(needle)
+            .expect("test source should contain needle");
+        let offset = Offset::new(u32::try_from(offset).expect("offset should fit in u32"));
+        hover_markdown(hover(&db, file, offset).expect("symbol should have a hover"))
+            .expect("symbol hover should use markup content")
+    };
+
+    let for_tag = hover_at("for item");
+    assert!(
+        for_tag.starts_with(
+            "```text\n(tag) for\n```\n---\nLoop over each item in an array.\n\nFor example, to display a list of athletes given `athlete_list`:\n\n```htmldjango\n<ul>\n"
+        ),
+        "{for_tag}"
+    );
+    assert!(
+        hover_at("lower").contains("\n---\nConvert a string into all lowercase.\n---\n"),
+        "stringfilter-wrapped builtin filter should keep its docstring"
+    );
+    assert_eq!(
+        hover_at("greet"),
+        "```text\n(tag) greet\n```\n---\nSay hello.\n\nUsage:\n\n```htmldjango\n{% greet %}\n```\n---\nDefined in `custom_tags`."
+    );
+    assert_eq!(
+        hover_at("shout"),
+        "```text\n(filter) shout\n```\n---\nUppercase the value.\n---\nDefined in `custom_tags`."
+    );
+}
+
+#[test]
 fn captured_if_else_does_not_hover_a_colliding_custom_definition() {
     let mut db = TestDatabase::new();
     let source = "{% load custom %}{% if condition %}{% else %}{% endif %}{% else %}";

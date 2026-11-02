@@ -11,13 +11,13 @@ definitions:
     has_doc: false
   "tag::cotton":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::cotton:slot":
     kind: tag
     has_doc: false
   "tag::cotton:vars":
     kind: tag
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules:
   "django_cotton.templatetags.cotton::tag::cotton:slot":

@@ -5,22 +5,22 @@ expression: sorted_snapshot(&bundle)?
 definitions:
   "tag::inactive_plugin_list":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::mixin_available":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::mixin_enabled":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::plugin_list":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::plugin_settings":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::safe_url":
     kind: tag
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules:
   "plugin.templatetags.plugin_extras::tag::inactive_plugin_list":

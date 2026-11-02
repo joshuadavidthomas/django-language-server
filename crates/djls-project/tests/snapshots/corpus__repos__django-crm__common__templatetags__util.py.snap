@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "filter::crmadmin_urlname":
@@ -11,7 +11,7 @@ definitions:
     has_doc: false
   "filter::param":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::priority":
     kind: filter
     has_doc: false
@@ -26,7 +26,7 @@ definitions:
     has_doc: false
   "filter::task_completed_button":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::verbose_name":
     kind: filter
     has_doc: false

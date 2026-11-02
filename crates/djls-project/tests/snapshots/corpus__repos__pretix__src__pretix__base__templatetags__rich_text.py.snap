@@ -5,10 +5,10 @@ expression: sorted_snapshot(&bundle)?
 definitions:
   "filter::rich_text":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::rich_text_snippet":
     kind: filter
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules: {}
 filter_arities:

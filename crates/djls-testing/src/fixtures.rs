@@ -55,7 +55,6 @@ pub fn builtin_tag(name: &str, module: &str) -> serde_json::Value {
         "library_kind": "builtin",
         "library_module": module,
         "module": module,
-        "doc": null,
     })
 }
 
@@ -68,19 +67,6 @@ pub fn library_tag(name: &str, load_name: &str, module: &str) -> serde_json::Val
         "load_name": load_name,
         "library_module": module,
         "module": module,
-        "doc": null,
-    })
-}
-
-#[must_use]
-pub fn builtin_filter(name: &str, module: &str) -> serde_json::Value {
-    json!({
-        "kind": "filter",
-        "name": name,
-        "library_kind": "builtin",
-        "library_module": module,
-        "module": module,
-        "doc": null,
     })
 }
 
@@ -93,7 +79,6 @@ pub fn library_filter(name: &str, load_name: &str, module: &str) -> serde_json::
         "load_name": load_name,
         "library_module": module,
         "module": module,
-        "doc": null,
     })
 }
 
@@ -105,8 +90,6 @@ struct TemplateSymbolFixture {
     library: TemplateSymbolLibraryFixture,
     library_module: String,
     module: String,
-    #[serde(default)]
-    doc: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -198,7 +181,6 @@ fn add_fixture_symbol(
         library,
         library_module,
         module,
-        doc,
     } = fixture;
     let name = TemplateSymbolName::parse(&name)
         .with_context(|| format!("invalid fixture template symbol name `{name}`"))?;
@@ -208,7 +190,6 @@ fn add_fixture_symbol(
         kind,
         name,
         definition,
-        doc,
     };
 
     match library {

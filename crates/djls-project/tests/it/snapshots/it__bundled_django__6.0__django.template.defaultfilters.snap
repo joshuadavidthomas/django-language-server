@@ -5,175 +5,175 @@ expression: "sorted_snapshot(&bundle).expect(\"extraction snapshot should serial
 definitions:
   "filter::add":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::addslashes":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::capfirst":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::center":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::cut":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::date":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::default":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::default_if_none":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::dictsort":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::dictsortreversed":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::divisibleby":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::escape":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::escapejs":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::escapeseq":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::filesizeformat":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::first":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::floatformat":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::force_escape":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::get_digit":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::iriencode":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::join":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::json_script":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::last":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::length":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::linebreaks":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::linebreaksbr":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::linenumbers":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::ljust":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::lower":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::make_list":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::phone2numeric":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::pluralize":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::pprint":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::random":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::rjust":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::safe":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::safeseq":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::slice":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::slugify":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::stringformat":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::striptags":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::time":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::timesince":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::timeuntil":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::title":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::truncatechars":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::truncatechars_html":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::truncatewords":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::truncatewords_html":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::unordered_list":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::upper":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::urlencode":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::urlize":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::urlizetrunc":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::wordcount":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::wordwrap":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::yesno":
     kind: filter
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules: {}
 filter_arities:

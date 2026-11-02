@@ -5,55 +5,55 @@ expression: sorted_snapshot(&bundle)?
 definitions:
   "filter::lbr_bind_path":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::lbr_signals_json":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::strip_signal_attrs":
     kind: filter
-    has_doc: false
+    has_doc: true
   "tag::lbr_bind":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::lbr_build_signals":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::lbr_chart_signal":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::lbr_delete_action":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::lbr_get_action":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::lbr_post_action":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::lbr_props":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::lbr_query_sync_js":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::lbr_reactive_attr":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::lbr_reactive_text":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::lbr_replace_url_js":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::lbr_resolve_url":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::lbr_schema_signals":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::lbr_style_vars":
     kind: tag
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules:
   "labb.templatetags.lbr_tags::tag::lbr_bind":

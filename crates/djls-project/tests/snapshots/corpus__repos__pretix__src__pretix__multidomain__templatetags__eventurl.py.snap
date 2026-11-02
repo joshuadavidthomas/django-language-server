@@ -1,17 +1,17 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "tag::abseventurl":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::absmainurl":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::eventurl":
     kind: tag
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules:
   "pretix.multidomain.templatetags.eventurl::tag::abseventurl":

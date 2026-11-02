@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "tag::axes_lockout_message":
@@ -17,7 +17,7 @@ definitions:
     has_doc: false
   "tag::get_current_locale":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::get_current_timezone":
     kind: tag
     has_doc: false
@@ -26,7 +26,7 @@ definitions:
     has_doc: false
   "tag::relative_url":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::user_is_locked":
     kind: tag
     has_doc: false
@@ -35,7 +35,7 @@ definitions:
     has_doc: false
   "tag::version_string":
     kind: tag
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules:
   "babybuddy.templatetags.babybuddy::tag::axes_lockout_message":

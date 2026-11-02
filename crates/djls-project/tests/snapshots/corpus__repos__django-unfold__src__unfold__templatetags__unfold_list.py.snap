@@ -5,7 +5,7 @@ expression: sorted_snapshot(&bundle)?
 definitions:
   "tag::paginator_number":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::unfold_admin_actions":
     kind: tag
     has_doc: false

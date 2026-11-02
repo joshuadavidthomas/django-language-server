@@ -1,17 +1,17 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "filter::can_be_disconnected":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::has_github_app_account":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::is_access_revoked":
     kind: filter
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules: {}
 filter_arities:
