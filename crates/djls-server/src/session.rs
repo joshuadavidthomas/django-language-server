@@ -5,26 +5,24 @@
 
 use std::sync::Arc;
 
+use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_db::DjangoDatabase;
 use djls_ide::PrimedTemplateLibraries;
+use djls_lsp::Analysis;
 use djls_lsp::ClientInfo;
-use djls_lsp::InitializeParamsExt;
-use djls_lsp::PositionExt;
+use djls_lsp::DocumentUpdate;
+use djls_lsp::ProjectCoverage;
+pub(crate) use djls_lsp::ProjectWork;
+use djls_lsp::SessionCore;
 use djls_lsp::TextDocument;
-use djls_lsp::TextDocumentContentChangeEventExt;
-use djls_lsp::TextDocumentItemExt;
 use djls_lsp::UriExt;
 use djls_lsp::Workspace;
 use djls_project::Db as ProjectDb;
-use djls_source::ChangeEvent;
 use djls_source::Db as _;
 use djls_source::File;
-use djls_source::FileKind;
 use djls_source::Offset;
-use djls_source::SourceChanges;
 use djls_source::Span;
-use djls_source::path_to_file;
 use tokio::sync::watch;
 use tower_lsp_server::ls_types;
 
@@ -64,12 +62,6 @@ impl CancellationRetryState {
 
 pub(crate) type IntrinsicGeneration = u64;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum ProjectWork {
-    Reprime,
-    FullReload,
-}
-
 #[must_use = "document mutations can require project work to restore readiness"]
 #[derive(Clone, Copy)]
 pub(crate) enum DocumentMutation {
@@ -85,27 +77,6 @@ pub(crate) enum IntrinsicReadinessState {
     Failed(IntrinsicGeneration),
 }
 
-struct IntrinsicCoverage {
-    reprime_files: Arc<[File]>,
-    full_reload_files: Arc<[File]>,
-}
-
-impl IntrinsicCoverage {
-    fn with_reprime_file(&self, file: File) -> Self {
-        let reprime_files = if self.reprime_files.contains(&file) {
-            Arc::clone(&self.reprime_files)
-        } else {
-            let mut files = self.reprime_files.to_vec();
-            files.push(file);
-            files.into()
-        };
-        Self {
-            reprime_files,
-            full_reload_files: Arc::clone(&self.full_reload_files),
-        }
-    }
-}
-
 enum IntrinsicReadiness {
     NoProject {
         generation: IntrinsicGeneration,
@@ -115,23 +86,23 @@ enum IntrinsicReadiness {
     },
     Reprime {
         generation: IntrinsicGeneration,
-        coverage: IntrinsicCoverage,
+        coverage: ProjectCoverage,
     },
     RetryReprime {
         generation: IntrinsicGeneration,
-        coverage: IntrinsicCoverage,
+        coverage: ProjectCoverage,
         admitted_revisions: Arc<[(File, u64)]>,
     },
     Ready {
         generation: IntrinsicGeneration,
-        coverage: IntrinsicCoverage,
+        coverage: ProjectCoverage,
     },
     FailedFullDiscovery {
         generation: IntrinsicGeneration,
     },
     FailedReprime {
         generation: IntrinsicGeneration,
-        coverage: IntrinsicCoverage,
+        coverage: ProjectCoverage,
         admitted_revisions: Arc<[(File, u64)]>,
     },
 }
@@ -184,7 +155,7 @@ impl IntrinsicReadiness {
         }
     }
 
-    const fn coverage(&self) -> Option<&IntrinsicCoverage> {
+    const fn coverage(&self) -> Option<&ProjectCoverage> {
         match self {
             Self::Reprime { coverage, .. }
             | Self::RetryReprime { coverage, .. }
@@ -259,7 +230,7 @@ impl IntrinsicReadiness {
         true
     }
 
-    fn publish(&mut self, generation: IntrinsicGeneration, coverage: IntrinsicCoverage) -> bool {
+    fn publish(&mut self, generation: IntrinsicGeneration, coverage: ProjectCoverage) -> bool {
         let accepts_generation = match self {
             Self::FullDiscovery {
                 generation: current,
@@ -291,7 +262,7 @@ impl IntrinsicReadiness {
     fn fail(
         &mut self,
         generation: IntrinsicGeneration,
-        revisions: impl FnOnce(&IntrinsicCoverage) -> Arc<[(File, u64)]>,
+        revisions: impl FnOnce(&ProjectCoverage) -> Arc<[(File, u64)]>,
     ) -> bool {
         let next = match self {
             Self::FullDiscovery {
@@ -303,10 +274,7 @@ impl IntrinsicReadiness {
             } if *current == generation => Self::FailedReprime {
                 generation,
                 admitted_revisions: revisions(coverage),
-                coverage: IntrinsicCoverage {
-                    reprime_files: Arc::clone(&coverage.reprime_files),
-                    full_reload_files: Arc::clone(&coverage.full_reload_files),
-                },
+                coverage: coverage.clone(),
             },
             Self::RetryReprime {
                 generation: current,
@@ -314,10 +282,7 @@ impl IntrinsicReadiness {
                 admitted_revisions,
             } if *current == generation => Self::FailedReprime {
                 generation,
-                coverage: IntrinsicCoverage {
-                    reprime_files: Arc::clone(&coverage.reprime_files),
-                    full_reload_files: Arc::clone(&coverage.full_reload_files),
-                },
+                coverage: coverage.clone(),
                 admitted_revisions: Arc::clone(admitted_revisions),
             },
             Self::NoProject { .. }
@@ -350,28 +315,11 @@ impl IntrinsicReadiness {
     }
 }
 
-/// LSP Session managing project-specific state and database operations.
-///
-/// The Session serves as the main entry point for LSP operations, managing:
-/// - The Salsa database for incremental computation
-/// - Client capabilities and position encoding
-/// - Workspace operations (buffers and file system)
-/// - All Salsa inputs (`SessionState`, Project)
-///
-/// Following Ruff's architecture, the concrete database lives at this level
-/// and is passed down to operations that need it.
+/// The native server's session: the shared [`SessionCore`] plus intrinsic readiness and the
+/// push-diagnostics queue. Document mutations run under the server's `tokio::Mutex`; Project
+/// work they require is admitted into readiness here and scheduled by the reload worker.
 pub(crate) struct Session {
-    /// Workspace for buffer and file system management
-    ///
-    /// This manages document buffers and file system abstraction,
-    /// but not the database (which is owned directly by Session).
-    workspace: Workspace,
-
-    client_info: ClientInfo,
-
-    /// The Salsa database for incremental computation
-    db: DjangoDatabase,
-
+    core: SessionCore,
     intrinsic_readiness: IntrinsicReadiness,
     readiness_tx: watch::Sender<IntrinsicReadinessState>,
     pub(crate) diagnostics: DiagnosticQueue,
@@ -392,28 +340,12 @@ impl Session {
                     .and_then(|p| Utf8PathBuf::from_path_buf(p).ok())
             });
 
-        let client_options = params.client_options();
-
-        let workspace = Workspace::new();
-        let db = DjangoDatabase::new(
-            workspace.file_system(),
-            &client_options.settings,
-            project_path.as_deref(),
-        );
-
-        let client_info = ClientInfo::new(
-            &params.capabilities,
-            params.client_info.as_ref(),
-            client_options,
-        );
-
-        let intrinsic_readiness = IntrinsicReadiness::new(db.project().is_some());
+        let core = SessionCore::new(Workspace::new(), project_path.as_deref(), params);
+        let intrinsic_readiness = IntrinsicReadiness::new(core.db().project().is_some());
         let (readiness_tx, _readiness_rx) = watch::channel(intrinsic_readiness.watched_state());
 
         Self {
-            workspace,
-            client_info,
-            db,
+            core,
             intrinsic_readiness,
             readiness_tx,
             diagnostics: DiagnosticQueue::default(),
@@ -421,11 +353,10 @@ impl Session {
     }
 
     pub(crate) fn snapshot(&self) -> SessionSnapshot {
-        SessionSnapshot::new(
-            self.db.clone(),
-            self.client_info.clone(),
-            self.ready_generation(),
-        )
+        SessionSnapshot {
+            analysis: self.core.snapshot(),
+            intrinsic_generation: self.ready_generation(),
+        }
     }
 
     pub(crate) fn reprime_snapshot(&self) -> Option<(IntrinsicGeneration, SessionSnapshot)> {
@@ -458,7 +389,7 @@ impl Session {
     pub(crate) fn mark_project_changed(&mut self) -> IntrinsicGeneration {
         let generation = self
             .intrinsic_readiness
-            .mark_project_changed(self.db.project().is_some());
+            .mark_project_changed(self.core.db().project().is_some());
         self.publish_readiness();
         generation
     }
@@ -468,13 +399,9 @@ impl Session {
         generation: IntrinsicGeneration,
         primed: &PrimedTemplateLibraries,
     ) -> bool {
-        let published = self.intrinsic_readiness.publish(
-            generation,
-            IntrinsicCoverage {
-                reprime_files: primed.reprime_files().into(),
-                full_reload_files: primed.full_reload_files().into(),
-            },
-        );
+        let published = self
+            .intrinsic_readiness
+            .publish(generation, ProjectCoverage::from(primed));
         if published {
             self.publish_readiness();
         }
@@ -482,10 +409,10 @@ impl Session {
     }
 
     pub(crate) fn fail_intrinsic_readiness(&mut self, generation: IntrinsicGeneration) -> bool {
-        let db = &self.db;
+        let db = self.core.db();
         let failed = self.intrinsic_readiness.fail(generation, |coverage| {
             coverage
-                .reprime_files
+                .reprime_files()
                 .iter()
                 .map(|file| (*file, file.revision(db)))
                 .collect::<Vec<_>>()
@@ -505,10 +432,7 @@ impl Session {
     ) {
         self.intrinsic_readiness = IntrinsicReadiness::Ready {
             generation: self.desired_generation(),
-            coverage: IntrinsicCoverage {
-                reprime_files: reprime_files.into(),
-                full_reload_files: full_reload_files.into(),
-            },
+            coverage: ProjectCoverage::new(reprime_files, full_reload_files),
         };
         self.publish_readiness();
     }
@@ -522,71 +446,38 @@ impl Session {
             .send_replace(self.intrinsic_readiness.watched_state());
     }
 
+    #[cfg(test)]
     fn mark_intrinsic_change(
         &mut self,
-        change: &ChangeEvent,
-        kind: FileKind,
+        change: &djls_source::ChangeEvent,
+        kind: djls_source::FileKind,
     ) -> Option<ProjectWork> {
-        if self.db.project().is_none() || kind != FileKind::Python {
-            return None;
-        }
-
+        let work = self
+            .core
+            .project_work(change, kind, self.intrinsic_readiness.coverage());
         let path = match change {
-            ChangeEvent::Opened(path)
-            | ChangeEvent::BecameVisible(path)
-            | ChangeEvent::ContentChanged(path)
-            | ChangeEvent::Deleted(path) => path,
-            ChangeEvent::Rescan => return None,
+            djls_source::ChangeEvent::Opened(path)
+            | djls_source::ChangeEvent::BecameVisible(path)
+            | djls_source::ChangeEvent::ContentChanged(path)
+            | djls_source::ChangeEvent::Deleted(path) => path,
+            djls_source::ChangeEvent::Rescan => return None,
         };
-        let changed_membership = matches!(
-            change,
-            ChangeEvent::BecameVisible(_) | ChangeEvent::Deleted(_)
-        );
+        self.admit_project_work(work, path)
+    }
 
-        let coverage = self.intrinsic_readiness.coverage();
-        let reprime_file = coverage
-            .and_then(|coverage| {
-                coverage
-                    .reprime_files
-                    .iter()
-                    .find(|file| file.path(&self.db) == path)
-            })
-            .copied()
-            .or_else(|| {
-                // Readiness covers inventory and structure, not every lazy rule dependency.
-                // SourceChanges has already synchronized this file and its revision.
-                self.db
-                    .files()
-                    .root(&self.db, path)
-                    .and_then(|_| self.db.files().try_file(path))
-            });
-        let work = if changed_membership
-            || coverage.is_some_and(|coverage| {
-                coverage
-                    .full_reload_files
-                    .iter()
-                    .any(|file| file.path(&self.db) == path)
-            }) {
-            ProjectWork::FullReload
-        } else if coverage.is_none() {
-            // Until current coverage publishes, every Python source is a
-            // possible settings or catalog dependency. Full discovery is the
-            // only operation that can safely classify it.
-            ProjectWork::FullReload
-        } else if reprime_file.is_some() {
-            ProjectWork::Reprime
-        } else {
-            return None;
-        };
-
-        match work {
+    /// Move readiness to the generation `work` on `path` produces; `None` when readiness
+    /// already accounts for it.
+    fn admit_project_work(
+        &mut self,
+        work: Option<ProjectWork>,
+        path: &Utf8Path,
+    ) -> Option<ProjectWork> {
+        match work? {
             ProjectWork::Reprime => {
-                let reprime_file = reprime_file?;
-                let revision = reprime_file.revision(&self.db);
-                if !self
-                    .intrinsic_readiness
-                    .begin_reprime(reprime_file, revision)
-                {
+                let db = self.core.db();
+                let file = db.files().try_file(path)?;
+                let revision = file.revision(db);
+                if !self.intrinsic_readiness.begin_reprime(file, revision) {
                     return None;
                 }
             }
@@ -595,70 +486,48 @@ impl Session {
             }
         }
         self.publish_readiness();
-        Some(work)
+        work
     }
 
     pub(crate) fn client_info(&self) -> &ClientInfo {
-        &self.client_info
+        self.core.client_info()
     }
 
     pub(crate) fn db(&self) -> &DjangoDatabase {
-        &self.db
+        self.core.db()
     }
 
     pub(crate) fn db_mut(&mut self) -> &mut DjangoDatabase {
-        &mut self.db
+        self.core.db_mut()
     }
 
-    /// Open a document in the session.
-    ///
-    /// Updates the workspace buffer first, then applies the project-visible
-    /// file event against the overlay-backed database.
     pub(crate) fn open_document(
         &mut self,
         text_document: &ls_types::TextDocumentItem,
     ) -> DocumentMutation {
-        let Some(path) = text_document.uri.to_utf8_path_buf() else {
-            tracing::debug!(
-                outcome = "skipped",
-                reason = "non_file_uri",
-                "Skip opening document"
-            );
+        let Some(path) = file_uri_path(&text_document.uri, "Skip opening document") else {
             return DocumentMutation::Ignored;
         };
-
-        let kind = text_document.language_id_to_file_kind(self.client_info.client());
-        let change = self.workspace.open_document_change(&self.db, &path);
-        let document =
-            self.workspace
-                .open_document(&path, &text_document.text, text_document.version, kind);
-        SourceChanges::new([change.clone()]).apply(&mut self.db);
-        let project_work = self.mark_intrinsic_change(&change, kind);
-        self.queue_document_diagnostics(&document);
-        DocumentMutation::Applied { project_work }
+        let update =
+            self.core
+                .open_document(&path, text_document, self.intrinsic_readiness.coverage());
+        self.apply_document_update(&update)
     }
 
     pub(crate) fn save_document(
         &mut self,
         text_document: &ls_types::TextDocumentIdentifier,
     ) -> DocumentMutation {
-        let Some(path) = text_document.uri.to_utf8_path_buf() else {
-            tracing::debug!(
-                outcome = "skipped",
-                reason = "non_file_uri",
-                "Skip saving document"
-            );
+        let Some(path) = file_uri_path(&text_document.uri, "Skip saving document") else {
             return DocumentMutation::Ignored;
         };
-
-        let Some(document) = self.workspace.save_document(&path) else {
+        let Some(update) = self
+            .core
+            .save_document(&path, self.intrinsic_readiness.coverage())
+        else {
             return DocumentMutation::Ignored;
         };
-        let change = ChangeEvent::ContentChanged(path);
-        SourceChanges::new([change.clone()]).apply(&mut self.db);
-        let project_work = self.mark_intrinsic_change(&change, document.kind());
-        self.queue_document_diagnostics(&document);
-        DocumentMutation::Applied { project_work }
+        self.apply_document_update(&update)
     }
 
     pub(crate) fn update_document(
@@ -666,72 +535,56 @@ impl Session {
         text_document: &ls_types::VersionedTextDocumentIdentifier,
         changes: Vec<ls_types::TextDocumentContentChangeEvent>,
     ) -> DocumentMutation {
-        let Some(path) = text_document.uri.to_utf8_path_buf() else {
-            tracing::debug!(
-                outcome = "skipped",
-                reason = "non_file_uri",
-                "Skip updating document"
-            );
+        let Some(path) = file_uri_path(&text_document.uri, "Skip updating document") else {
             return DocumentMutation::Ignored;
         };
-
-        let change = if self.workspace.contains_document(&path) {
-            ChangeEvent::ContentChanged(path.clone())
-        } else {
-            self.workspace.open_document_change(&self.db, &path)
-        };
-        let Some(document) = self.workspace.update_document(
+        let Some(update) = self.core.update_document(
             &path,
-            changes.to_document_changes(),
             text_document.version,
-            self.client_info.position_encoding(),
+            changes,
+            self.intrinsic_readiness.coverage(),
         ) else {
             return DocumentMutation::Ignored;
         };
-        SourceChanges::new([change.clone()]).apply(&mut self.db);
-        let project_work = self.mark_intrinsic_change(&change, document.kind());
-        self.queue_document_diagnostics(&document);
-        DocumentMutation::Applied { project_work }
+        self.apply_document_update(&update)
     }
 
-    /// Close a document.
-    ///
-    /// Removes the document from workspace buffers, invalidates cached source state,
-    /// and lets future reads fall back to disk.
+    /// Close a document, letting future reads fall back to disk.
     pub(crate) fn close_document(
         &mut self,
         text_document: &ls_types::TextDocumentIdentifier,
     ) -> DocumentMutation {
-        let Some(path) = text_document.uri.to_utf8_path_buf() else {
-            tracing::debug!(
-                outcome = "skipped",
-                reason = "non_file_uri",
-                "Skip closing document"
-            );
+        let Some(path) = file_uri_path(&text_document.uri, "Skip closing document") else {
             return DocumentMutation::Ignored;
         };
 
         self.diagnostics.close(&path);
-        let change = self.workspace.close_document_change(&path);
-        let Some(document) = self.workspace.close_document(&path) else {
+        let Some(update) = self
+            .core
+            .close_document(&path, self.intrinsic_readiness.coverage())
+        else {
             return DocumentMutation::Ignored;
         };
-        SourceChanges::new([change.clone()]).apply(&mut self.db);
-        let project_work = self.mark_intrinsic_change(&change, document.kind());
+        let project_work = self.admit_project_work(update.project_work, &path);
+        DocumentMutation::Applied { project_work }
+    }
 
+    fn apply_document_update(&mut self, update: &DocumentUpdate) -> DocumentMutation {
+        let project_work = self.admit_project_work(update.project_work, update.document.path());
+        self.queue_document_diagnostics(&update.document);
         DocumentMutation::Applied { project_work }
     }
 
     /// Get a document from the buffer if it's open.
     #[cfg(test)]
-    fn get_document(&self, path: &camino::Utf8Path) -> Option<Arc<TextDocument>> {
-        self.workspace.get_document(path)
+    fn get_document(&self, path: &Utf8Path) -> Option<Arc<TextDocument>> {
+        self.core.workspace().get_document(path)
     }
 
     fn queue_document_diagnostics(&mut self, document: &TextDocument) {
         // Diagnostic eligibility belongs to the IDE's path-derived source kind,
         // not the client language kind used for Project invalidation.
-        if !self.client_info.supports_pull_diagnostics()
+        if !self.client_info().supports_pull_diagnostics()
             || self.diagnostics.has_outstanding(document.path())
         {
             self.diagnostics.schedule(document);
@@ -739,7 +592,7 @@ impl Session {
     }
 
     pub(crate) fn queue_all_diagnostics(&mut self) {
-        for document in self.workspace.open_documents() {
+        for document in self.core.workspace().open_documents() {
             self.diagnostics.schedule(&document);
         }
     }
@@ -751,100 +604,77 @@ impl Default for Session {
     }
 }
 
-/// Immutable snapshot of session state.
+/// The server handles only `file://` documents.
+fn file_uri_path(uri: &ls_types::Uri, skipped: &'static str) -> Option<Utf8PathBuf> {
+    let path = uri.to_utf8_path_buf();
+    if path.is_none() {
+        tracing::debug!(outcome = "skipped", reason = "non_file_uri", "{skipped}");
+    }
+    path
+}
+
+/// Immutable snapshot of session state, tagged with the intrinsic generation it was
+/// captured at when readiness was current.
 #[derive(Clone)]
 pub(crate) struct SessionSnapshot {
-    db: DjangoDatabase,
-    client_info: ClientInfo,
+    analysis: Analysis,
     intrinsic_generation: Option<IntrinsicGeneration>,
 }
 
 impl SessionSnapshot {
-    fn new(
-        db: DjangoDatabase,
-        client_info: ClientInfo,
-        intrinsic_generation: Option<IntrinsicGeneration>,
-    ) -> Self {
-        Self {
-            db,
-            client_info,
-            intrinsic_generation,
-        }
+    pub(crate) fn analysis(&self) -> &Analysis {
+        &self.analysis
     }
 
     pub(crate) fn db(&self) -> &DjangoDatabase {
-        &self.db
+        self.analysis.db()
     }
 
     pub(crate) fn client_info(&self) -> &ClientInfo {
-        &self.client_info
+        self.analysis.client_info()
     }
 
     pub(crate) const fn intrinsic_generation(&self) -> Option<IntrinsicGeneration> {
         self.intrinsic_generation
     }
 
-    /// Resolve an LSP document request to the tracked file for that URI.
-    ///
-    /// Open editor buffers are exposed to Salsa through the workspace overlay,
-    /// so feature code should read current text through [`File::source`]
-    /// instead of reaching back into [`TextDocument`] state.
+    /// The database path of a request's `file://` document.
+    pub(crate) fn document_path(
+        text_document: &ls_types::TextDocumentIdentifier,
+    ) -> Option<Utf8PathBuf> {
+        file_uri_path(&text_document.uri, "Skipping document request")
+    }
+
     pub(crate) fn file_for_document_request(
         &self,
         text_document: &ls_types::TextDocumentIdentifier,
     ) -> Option<File> {
-        let Some(path) = text_document.uri.to_utf8_path_buf() else {
-            tracing::debug!(
-                outcome = "skipped",
-                reason = "non_file_uri",
-                "Skipping document request"
-            );
-            return None;
-        };
-
-        path_to_file(&self.db, &path).ok()
+        self.analysis.file(&Self::document_path(text_document)?)
     }
 
-    /// Resolve an LSP positioned document request to a tracked file and byte offset.
-    pub(crate) fn position_for_document_request(
+    pub(crate) fn template_for_document_request(
+        &self,
+        text_document: &ls_types::TextDocumentIdentifier,
+    ) -> Option<File> {
+        self.analysis.template(&Self::document_path(text_document)?)
+    }
+
+    pub(crate) fn template_position_for_document_request(
         &self,
         text_document: &ls_types::TextDocumentIdentifier,
         position: ls_types::Position,
     ) -> Option<(File, Offset)> {
-        let file = self.file_for_document_request(text_document)?;
-        let source = file.try_source(&self.db).ok()?;
-        let line_index = file.line_index(&self.db);
-        let offset = position.to_offset(
-            source.as_str(),
-            line_index,
-            self.client_info.position_encoding(),
-        );
-
-        Some((file, offset))
+        self.analysis
+            .template_position(&Self::document_path(text_document)?, position)
     }
 
-    /// Resolve an LSP ranged document request to a tracked file and byte span.
-    pub(crate) fn range_for_document_request(
+    pub(crate) fn template_range_for_document_request(
         &self,
         text_document: &ls_types::TextDocumentIdentifier,
         range: ls_types::Range,
     ) -> Option<(File, Span)> {
-        let file = self.file_for_document_request(text_document)?;
-        let source = file.try_source(&self.db).ok()?;
-        let line_index = file.line_index(&self.db);
-        let start = range.start.to_offset(
-            source.as_str(),
-            line_index,
-            self.client_info.position_encoding(),
-        );
-        let end = range.end.to_offset(
-            source.as_str(),
-            line_index,
-            self.client_info.position_encoding(),
-        );
-        let span = Span::saturating_from_bounds_usize(start.get() as usize, end.get() as usize);
-
-        Some((file, span))
+        self.analysis
+            .template_range(&Self::document_path(text_document)?, range)
     }
 }
 
@@ -860,7 +690,10 @@ mod tests {
     use djls_ide::prime_template_library_products;
     use djls_project::Db as ProjectDb;
     use djls_project::PythonEnvironment;
+    use djls_source::ChangeEvent;
+    use djls_source::FileKind;
     use djls_source::FileStatus;
+    use djls_source::path_to_file;
     use tempfile::tempdir;
     use tokio::spawn;
     use tokio::sync::Mutex;
@@ -1211,10 +1044,7 @@ mod tests {
         let mut mutation = Arc::clone(&session).lock_owned().await;
         mutation.intrinsic_readiness = IntrinsicReadiness::Reprime {
             generation: 1,
-            coverage: IntrinsicCoverage {
-                reprime_files: Arc::from([]),
-                full_reload_files: Arc::from([]),
-            },
+            coverage: ProjectCoverage::new([], []),
         };
         assert_eq!(
             mutation
@@ -1450,7 +1280,7 @@ mod tests {
                     .intrinsic_readiness
                     .coverage()
                     .expect("temporary coverage")
-                    .reprime_files
+                    .reprime_files()
                     .contains(&file)
             );
             if version == 2 {
@@ -1490,7 +1320,7 @@ mod tests {
                 .intrinsic_readiness
                 .coverage()
                 .expect("published coverage")
-                .reprime_files
+                .reprime_files()
                 .contains(&file)
         );
     }

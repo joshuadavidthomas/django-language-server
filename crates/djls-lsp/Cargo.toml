@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 djls-conf = { workspace = true }
+djls-db = { workspace = true }
 djls-ide = { workspace = true }
 djls-project = { workspace = true }
 djls-source = { workspace = true }
@@ -17,7 +18,6 @@ tower-lsp-server = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
-djls-db = { workspace = true }
 djls-project = { workspace = true, features = ["bundled-django"] }
 djls-testing = { workspace = true }
 tempfile = { workspace = true }

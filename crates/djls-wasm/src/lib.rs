@@ -1,8 +1,9 @@
 //! Browser entry point: a synchronous LSP server (`LanguageServer`) over an in-memory
 //! Django project, analyzed with the production database.
 
-mod project;
 mod server;
+mod session;
+mod uri;
 
 pub use server::LanguageServer;
 use wasm_bindgen::prelude::*;
