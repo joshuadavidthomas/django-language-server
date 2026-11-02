@@ -674,6 +674,11 @@ impl PythonEvaluationState {
         self.bindings
             .iter()
             .filter(|(candidate_name, candidate)| {
+                // Constraining only drops or merges cases, so a binding that
+                // reaches no wanted site cannot reach one once constrained.
+                if candidate.allocation_site_occurrences(&wanted) == 0 {
+                    return false;
+                }
                 let occurrences = (*candidate)
                     .clone()
                     .intersect_constraints(active_constraints)

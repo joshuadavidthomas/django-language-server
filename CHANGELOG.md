@@ -36,6 +36,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Changed tag behavior for `{% block %}`, `{% extends %}`, `{% include %}`, `{% url %}`, `{% static %}`, and `elif` validation to follow Django's compile function rather than the tag name, so a library that registers `do_include` or `do_if` under another name gets the same navigation, completions, and validation, and a project tag that only shares a builtin's name does not.
 - Changed library loading to recognize any tag whose compile function calls `parser.add_library`, rather than only a tag named `load`.
 - Changed `{% if %}` and `{% elif %}` condition checks (S114) to skip a tag that an unresolved `{% load %}` could shadow, like other compiled-argument checks.
+- Changed settings evaluation to check only names that can still reach a mutated list or dict when looking for stale aliases, which makes `.append()` and similar calls cheaper in large settings modules.
 - **Internal**: Removed hand-written end tags and intermediates for Django's builtin tags; test fixtures now mount the bundled Django by default.
 - **Internal**: Moved the remaining hand-written Django tag facts into Fallback Rules in `djls-project`, keyed by compile function and citing bundled Django source; `djls-semantic` no longer defines Django tag knowledge.
 - **Internal**: Renamed outline kind `ControlTag` to `BlockTag`.
