@@ -26,6 +26,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - **Internal**: Added `just ecosystem` and an `ecosystem` workflow that run `djls check` from the base and pull request builds across the corpus and report the diagnostic diff.
 - **Internal**: Added `just mutants` for mutation testing with `cargo-mutants`.
 - **Internal**: Added a `proptest` property in `djls-ide` that applies random file edits to one database the way the server does and checks that every Template's diagnostics match a fresh database. It uses a fixed seed by default; set `PROPTEST_CASES` and `PROPTEST_RNG_SEED` for a deeper run.
+- **Internal**: Added a `proptest` property in `djls-project` that runs generated settings modules under CPython in several environments and checks that the static Python evaluator admits every value CPython produces. It uses a fixed seed by default; set `DJLS_TEST_PYTHON` to choose the interpreter, and `PROPTEST_CASES` and `PROPTEST_RNG_SEED` for a deeper run. A nightly `deep-tests` workflow runs the property tests with a fresh seed and more cases.
 
 ### Changed
 

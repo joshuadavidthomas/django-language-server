@@ -8,6 +8,8 @@ use salsa::plumbing::AsId as _;
 mod allocation;
 mod binding;
 mod constraints;
+#[cfg(test)]
+mod cpython_differential;
 mod evaluator;
 mod mapping;
 mod module_object;
