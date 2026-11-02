@@ -33,11 +33,13 @@ impl<'a> TemplateString<'a> {
     }
 }
 
+// Quote, escape, and delimiter characters are all ASCII, so scanning bytes is
+// safe: UTF-8 continuation bytes can never match them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum State {
     Outside,
-    Quoted(char),
-    Escaped(char),
+    Quoted(u8),
+    Escaped(u8),
 }
 
 impl State {
@@ -45,21 +47,21 @@ impl State {
         matches!(self, Self::Outside)
     }
 
-    fn feed(self, ch: char) -> Self {
+    fn feed(self, byte: u8) -> Self {
         match self {
-            Self::Outside if matches!(ch, '"' | '\'') => Self::Quoted(ch),
+            Self::Outside if matches!(byte, b'"' | b'\'') => Self::Quoted(byte),
             Self::Outside => Self::Outside,
-            Self::Quoted(quote) if ch == quote => Self::Outside,
+            Self::Quoted(quote) if byte == quote => Self::Outside,
             Self::Quoted(quote) | Self::Escaped(quote) => Self::Quoted(quote),
         }
     }
 
-    fn feed_escaped(self, ch: char) -> Self {
+    fn feed_escaped(self, byte: u8) -> Self {
         match self {
-            Self::Outside if matches!(ch, '"' | '\'') => Self::Quoted(ch),
+            Self::Outside if matches!(byte, b'"' | b'\'') => Self::Quoted(byte),
             Self::Outside => Self::Outside,
-            Self::Quoted(quote) if ch == '\\' => Self::Escaped(quote),
-            Self::Quoted(quote) if ch == quote => Self::Outside,
+            Self::Quoted(quote) if byte == b'\\' => Self::Escaped(quote),
+            Self::Quoted(quote) if byte == quote => Self::Outside,
             Self::Quoted(quote) | Self::Escaped(quote) => Self::Quoted(quote),
         }
     }
@@ -68,12 +70,13 @@ impl State {
 struct DelimiterIndices<'a> {
     input: &'a str,
     cursor: usize,
-    delimiter: char,
+    delimiter: u8,
     state: State,
 }
 
 impl<'a> DelimiterIndices<'a> {
-    fn new(input: &'a str, delimiter: char) -> Self {
+    fn new(input: &'a str, delimiter: u8) -> Self {
+        debug_assert!(delimiter.is_ascii());
         Self {
             input,
             cursor: 0,
@@ -81,41 +84,21 @@ impl<'a> DelimiterIndices<'a> {
             state: State::Outside,
         }
     }
-
-    fn segments(mut self) -> Vec<Segment<'a>> {
-        let mut segments = Vec::with_capacity((self.input.len() / 8).clamp(2, 8));
-        let mut start_byte = 0;
-        let delimiter_len = self.delimiter.len_utf8();
-
-        while let Some(delimiter_byte) = self.next() {
-            segments.push(Segment {
-                text: &self.input[start_byte..delimiter_byte],
-                start_byte,
-            });
-            start_byte = delimiter_byte + delimiter_len;
-        }
-
-        segments.push(Segment {
-            text: &self.input[start_byte..],
-            start_byte,
-        });
-        segments
-    }
 }
 
 impl Iterator for DelimiterIndices<'_> {
     type Item = usize;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let cursor = self.cursor;
-        for (relative_byte, ch) in self.input[cursor..].char_indices() {
-            let byte_index = cursor + relative_byte;
-            self.cursor = byte_index + ch.len_utf8();
+        let bytes = self.input.as_bytes();
+        while let Some(&byte) = bytes.get(self.cursor) {
+            let byte_index = self.cursor;
+            self.cursor += 1;
 
-            if self.state.is_outside() && ch == self.delimiter {
+            if self.state.is_outside() && byte == self.delimiter {
                 return Some(byte_index);
             }
-            self.state = self.state.feed(ch);
+            self.state = self.state.feed(byte);
         }
         None
     }
@@ -128,44 +111,78 @@ pub(crate) struct Segment<'a> {
 }
 
 #[must_use]
-pub(crate) fn first_unquoted_delimiter_index(input: &str, delimiter: char) -> Option<usize> {
+pub(crate) fn first_unquoted_delimiter_index(input: &str, delimiter: u8) -> Option<usize> {
     DelimiterIndices::new(input, delimiter).next()
 }
 
-pub(crate) fn split_on_unquoted_delimiter(input: &str, delimiter: char) -> Vec<Segment<'_>> {
-    DelimiterIndices::new(input, delimiter).segments()
+pub(crate) fn split_on_unquoted_delimiter(
+    input: &str,
+    delimiter: u8,
+) -> impl Iterator<Item = Segment<'_>> {
+    let mut indices = DelimiterIndices::new(input, delimiter);
+    let mut start_byte = Some(0);
+
+    std::iter::from_fn(move || {
+        let segment_start = start_byte?;
+        let segment_end = if let Some(delimiter_byte) = indices.next() {
+            start_byte = Some(delimiter_byte + 1);
+            delimiter_byte
+        } else {
+            start_byte = None;
+            input.len()
+        };
+        Some(Segment {
+            text: &input[segment_start..segment_end],
+            start_byte: segment_start,
+        })
+    })
 }
 
-pub(crate) fn split_on_unquoted_whitespace(input: &str) -> Vec<Segment<'_>> {
-    let mut segments = Vec::with_capacity((input.len() / 8).clamp(2, 8));
-    let mut start_byte = None;
-    let mut state = State::Outside;
+pub(crate) fn split_on_unquoted_whitespace(input: &str) -> impl Iterator<Item = Segment<'_>> {
+    let bytes = input.as_bytes();
+    let mut cursor = 0;
 
-    for (byte_index, ch) in input.char_indices() {
-        if state.is_outside() && ch.is_whitespace() {
-            if let Some(segment_start_byte) = start_byte.take() {
-                segments.push(Segment {
-                    text: &input[segment_start_byte..byte_index],
-                    start_byte: segment_start_byte,
-                });
+    std::iter::from_fn(move || {
+        while cursor < bytes.len() {
+            let width = whitespace_width_at(input, cursor);
+            if width == 0 {
+                break;
             }
-            continue;
+            cursor += width;
+        }
+        if cursor >= bytes.len() {
+            return None;
         }
 
-        if start_byte.is_none() {
-            start_byte = Some(byte_index);
+        let start_byte = cursor;
+        let mut state = State::Outside;
+        while cursor < bytes.len() {
+            if state.is_outside() && whitespace_width_at(input, cursor) > 0 {
+                break;
+            }
+            state = state.feed_escaped(bytes[cursor]);
+            cursor += 1;
         }
-        state = state.feed_escaped(ch);
-    }
 
-    if let Some(segment_start_byte) = start_byte {
-        segments.push(Segment {
-            text: &input[segment_start_byte..],
-            start_byte: segment_start_byte,
-        });
-    }
+        Some(Segment {
+            text: &input[start_byte..cursor],
+            start_byte,
+        })
+    })
+}
 
-    segments
+// Byte width of the Unicode whitespace character starting at `index`, or 0.
+fn whitespace_width_at(input: &str, index: usize) -> usize {
+    match input.as_bytes()[index] {
+        b'\t'..=b'\r' | b' ' => 1,
+        // Other ASCII bytes and UTF-8 continuation bytes never start whitespace.
+        ..0xC0 => 0,
+        _ => input[index..]
+            .chars()
+            .next()
+            .filter(|ch| ch.is_whitespace())
+            .map_or(0, char::len_utf8),
+    }
 }
 
 #[cfg(test)]
@@ -258,19 +275,18 @@ mod tests {
 
     fn split_on_unquoted_whitespace_text(input: &str) -> Vec<String> {
         split_on_unquoted_whitespace(input)
-            .into_iter()
             .map(|segment| segment.text.to_owned())
             .collect()
     }
 
     #[test]
     fn first_unquoted_delimiter_index_returns_first_delimiter() {
-        assert_eq!(first_unquoted_delimiter_index("a|b|c", '|'), Some(1));
+        assert_eq!(first_unquoted_delimiter_index("a|b|c", b'|'), Some(1));
     }
 
     #[test]
     fn split_unquoted_delimiters() {
-        let segments = split_on_unquoted_delimiter("a|b|c", '|');
+        let segments = split_on_unquoted_delimiter("a|b|c", b'|').collect::<Vec<_>>();
         assert_eq!(
             segments,
             vec![
@@ -292,7 +308,7 @@ mod tests {
 
     #[test]
     fn quoted_delimiters_skipped() {
-        let segments = split_on_unquoted_delimiter("a|'b|c'|d", '|');
+        let segments = split_on_unquoted_delimiter("a|'b|c'|d", b'|').collect::<Vec<_>>();
         assert_eq!(
             segments,
             vec![
@@ -314,7 +330,7 @@ mod tests {
 
     #[test]
     fn double_quotes() {
-        let segments = split_on_unquoted_delimiter(r#"a|"b|c"|d"#, '|');
+        let segments = split_on_unquoted_delimiter(r#"a|"b|c"|d"#, b'|').collect::<Vec<_>>();
         assert_eq!(
             segments,
             vec![
@@ -336,7 +352,7 @@ mod tests {
 
     #[test]
     fn escape_ignored_when_backslash_is_literal() {
-        let segments = split_on_unquoted_delimiter(r#""a\"b"|c"#, '|');
+        let segments = split_on_unquoted_delimiter(r#""a\"b"|c"#, b'|').collect::<Vec<_>>();
 
         // With literal backslashes, \" closes the quote, then b" opens a new one.
         assert_eq!(
@@ -373,6 +389,14 @@ mod tests {
     }
 
     #[test]
+    fn split_unquoted_whitespace_handles_non_ascii_whitespace() {
+        assert_eq!(
+            split_on_unquoted_whitespace_text("a\u{a0}'b\u{3000}c'\u{3000}é"),
+            vec!["a", "'b\u{3000}c'", "é"]
+        );
+    }
+
+    #[test]
     fn split_unquoted_whitespace_empty() {
         assert!(split_on_unquoted_whitespace_text("").is_empty());
         assert!(split_on_unquoted_whitespace_text("   ").is_empty());
@@ -380,7 +404,8 @@ mod tests {
 
     #[test]
     fn split_unquoted_whitespace_offsets() {
-        let segments = split_on_unquoted_whitespace(r#"  url "view name" as view"#);
+        let segments =
+            split_on_unquoted_whitespace(r#"  url "view name" as view"#).collect::<Vec<_>>();
 
         assert_eq!(
             segments,

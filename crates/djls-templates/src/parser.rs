@@ -99,8 +99,7 @@ impl<'src> Parser<'src> {
         content: &str,
         position: usize,
     ) -> Result<(String, Span, Vec<TagBit>), ParseError> {
-        let segments = split_on_unquoted_whitespace(content);
-        let mut iter = segments.into_iter();
+        let mut iter = split_on_unquoted_whitespace(content);
         let name = iter.next().ok_or(ParseError::EmptyTag { position })?;
         let name_span =
             Span::saturating_from_parts_usize(position + name.start_byte, name.text.len());
