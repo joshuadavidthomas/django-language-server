@@ -28,27 +28,57 @@ const FILES: &[(&str, &[&str])] = &[
     (
         SETTINGS,
         &[
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/project/templates'], 'OPTIONS': {'builtins': ['project_tags']}}]\n",
-            "INSTALLED_APPS = ['app']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/project/templates'], 'OPTIONS': {}}]\n",
-            "INSTALLED_APPS = ['app']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/project/templates'], 'OPTIONS': {'builtins': ['project_tags'], 'libraries': {'alias': 'app.templatetags.app_tags'}}}]\n",
-            "from base_settings import *\n",
-            "from base_settings import *\nINSTALLED_APPS = INSTALLED_APPS + ['app']\n",
+            "INSTALLED_APPS = []
+TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/project/templates'], 'OPTIONS': {'builtins': ['project_tags']}}]
+",
+            "INSTALLED_APPS = ['app']
+TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/project/templates'], 'OPTIONS': {}}]
+",
+            "INSTALLED_APPS = ['app']
+TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/project/templates'], 'OPTIONS': {'builtins': ['project_tags'], 'libraries': {'alias': 'app.templatetags.app_tags'}}}]
+",
+            "from base_settings import *
+",
+            "from base_settings import *
+INSTALLED_APPS = INSTALLED_APPS + ['app']
+",
         ],
     ),
     (
         "/project/base_settings.py",
         &[
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/project/templates'], 'OPTIONS': {'builtins': ['project_tags']}}]\n",
-            "INSTALLED_APPS = ['app']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/project/templates'], 'APP_DIRS': True, 'OPTIONS': {}}]\n",
+            "INSTALLED_APPS = []
+TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/project/templates'], 'OPTIONS': {'builtins': ['project_tags']}}]
+",
+            "INSTALLED_APPS = ['app']
+TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/project/templates'], 'APP_DIRS': True, 'OPTIONS': {}}]
+",
         ],
     ),
     (
         "/project/project_tags.py",
         &[
-            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef hello(): pass\n",
-            "from django import template\nregister = template.Library()\n@register.tag\ndef panel(parser, token):\n    nodelist = parser.parse(('endpanel',))\n    parser.delete_first_token()\n    return template.Node()\n",
-            "from django import template\nregister = template.Library()\n@register.filter\ndef shout(value): pass\n",
-            "from django import template\nregister = template.Library(\n",
+            "from django import template
+register = template.Library()
+@register.simple_tag
+def hello(): pass
+",
+            "from django import template
+register = template.Library()
+@register.tag
+def panel(parser, token):
+    nodelist = parser.parse(('endpanel',))
+    parser.delete_first_token()
+    return template.Node()
+",
+            "from django import template
+register = template.Library()
+@register.filter
+def shout(value): pass
+",
+            "from django import template
+register = template.Library(
+",
         ],
     ),
     ("/project/app/__init__.py", &[""]),
@@ -56,16 +86,39 @@ const FILES: &[(&str, &[&str])] = &[
     (
         "/project/app/templatetags/app_tags.py",
         &[
-            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef widget(value): pass\n",
-            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef widget(): pass\n@register.filter\ndef shout(value, arg): pass\n",
-            "from django import template\nfrom app.helpers import compile_widget\nregister = template.Library()\nregister.tag('widget', compile_widget)\n",
+            "from django import template
+register = template.Library()
+@register.simple_tag
+def widget(value): pass
+",
+            "from django import template
+register = template.Library()
+@register.simple_tag
+def widget(): pass
+@register.filter
+def shout(value, arg): pass
+",
+            "from django import template
+from app.helpers import compile_widget
+register = template.Library()
+register.tag('widget', compile_widget)
+",
         ],
     ),
     (
         "/project/app/helpers.py",
         &[
-            "from django import template\ndef compile_widget(parser, token):\n    bits = token.split_contents()\n    if len(bits) != 2:\n        raise template.TemplateSyntaxError('widget takes one argument')\n    return template.Node()\n",
-            "from django import template\ndef compile_widget(parser, token):\n    return template.Node()\n",
+            "from django import template
+def compile_widget(parser, token):
+    bits = token.split_contents()
+    if len(bits) != 2:
+        raise template.TemplateSyntaxError('widget takes one argument')
+    return template.Node()
+",
+            "from django import template
+def compile_widget(parser, token):
+    return template.Node()
+",
         ],
     ),
     (
