@@ -7,6 +7,7 @@ use std::sync::Weak;
 
 use djls_source::Origin;
 use rustc_hash::FxHashMap;
+use rustc_hash::FxHashSet;
 use rustc_hash::FxHasher;
 
 use super::StructuralOrd;
@@ -351,10 +352,19 @@ impl ConstraintNode {
         })
     }
 
-    fn collect_joins<'a>(&'a self, joins: &mut Vec<&'a BranchJoin>) {
+    /// Visits each shared node once; walking the diagram as a tree repeats a
+    /// shared residual once per path that reaches it.
+    fn collect_joins<'a>(
+        &'a self,
+        joins: &mut Vec<&'a BranchJoin>,
+        visited: &mut FxHashSet<*const ConstraintBranch>,
+    ) {
         let Self::Branch(branch) = self else {
             return;
         };
+        if !visited.insert(Arc::as_ptr(branch)) {
+            return;
+        }
         let ConstraintBranch { join, arms, .. } = branch.as_ref();
         if let Some(existing) = joins.iter().find(|existing| existing.same_identity(join)) {
             existing.assert_same_domain(join);
@@ -362,19 +372,24 @@ impl ConstraintNode {
             joins.push(join);
         }
         for arm in arms {
-            arm.collect_joins(joins);
+            arm.collect_joins(joins, visited);
         }
     }
 
+    /// Debug-only: the walk costs as much as the operation it guards.
     fn assert_compatible_domains(&self, other: &Self) {
+        if !cfg!(debug_assertions) {
+            return;
+        }
         let mut joins = Vec::new();
-        self.collect_joins(&mut joins);
-        other.collect_joins(&mut joins);
+        let mut visited = FxHashSet::default();
+        self.collect_joins(&mut joins, &mut visited);
+        other.collect_joins(&mut joins, &mut visited);
     }
 
     fn widen_predicates(self, interner: &mut ConstraintInterner) -> Self {
         let mut joins = Vec::new();
-        self.collect_joins(&mut joins);
+        self.collect_joins(&mut joins, &mut FxHashSet::default());
         let mut predicates = joins
             .into_iter()
             .filter(|join| join.kind == BranchJoinKind::Predicate)

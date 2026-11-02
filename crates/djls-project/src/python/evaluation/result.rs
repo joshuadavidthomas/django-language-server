@@ -225,8 +225,8 @@ impl PythonImportTrace {
     }
 
     pub(super) fn absorb(&mut self, other: &Self) {
-        self.files.extend(other.files.iter().copied());
-        self.imports.extend(other.imports.iter().cloned());
+        self.files.absorb(&other.files);
+        self.imports.absorb(&other.imports);
     }
 
     /// Record a directly loaded component before its transitive import trace so

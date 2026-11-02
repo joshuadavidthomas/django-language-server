@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::rc::Rc;
 
 use djls_source::Origin;
 use ruff_python_ast as ast;
@@ -485,7 +486,9 @@ impl PythonEvaluationState {
         let receiver_sites = self
             .bindings
             .get(target.binding)
-            .and_then(|binding| binding.clone().intersect_constraints(active_constraints))
+            .and_then(|binding| {
+                PythonBinding::clone(binding).intersect_constraints(active_constraints)
+            })
             .map(|binding| {
                 let mut sites = ReachableAllocationSites::default();
                 for alternative in binding.alternatives() {
@@ -515,19 +518,21 @@ impl PythonEvaluationState {
         let Some(binding) = self.bindings.get_mut(target.binding) else {
             return false;
         };
-        let Some(feasible) = binding.clone().intersect_constraints(active_constraints) else {
+        let Some(mut feasible) =
+            PythonBinding::clone(binding).intersect_constraints(active_constraints)
+        else {
             return false;
         };
-        *binding = feasible;
-        let applied = binding
+        let applied = feasible
             .try_mutate_all_bound(|value| target.path.try_apply_exact(value, mutation, origin));
         if applied {
-            binding.replace_predicate_identities(
+            feasible.replace_predicate_identities(
                 target.binding,
                 origin,
                 self.predicate_module.as_ref(),
             );
         }
+        *binding = Rc::new(feasible);
         applied
     }
 }
