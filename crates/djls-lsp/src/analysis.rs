@@ -1,9 +1,9 @@
-//! The synchronous session both LSP hosts wrap.
+//! The synchronous analysis state both LSP hosts wrap.
 //!
-//! [`SessionCore`] owns the database, the open-document [`Workspace`], and the negotiated
+//! [`AnalysisHost`] owns the database, the open-document [`Workspace`], and the negotiated
 //! [`ClientInfo`]. It applies document and file mutations to the database and classifies the
 //! Project work each one calls for; hosts decide when and how that work runs. [`Analysis`] is
-//! the read side requests compute against, either borrowed from the core or cloned as a
+//! the read side requests compute against, either borrowed from the host or cloned as a
 //! snapshot.
 //!
 //! The API is path-based: hosts map their document URIs to database paths.
@@ -99,12 +99,12 @@ pub struct DocumentUpdate {
     pub project_work: Option<ProjectWork>,
 }
 
-pub struct SessionCore {
+pub struct AnalysisHost {
     workspace: Workspace,
     analysis: Analysis,
 }
 
-impl SessionCore {
+impl AnalysisHost {
     /// A session over `workspace` for the project at `root`, configured by the client's
     /// initialization options.
     #[must_use]

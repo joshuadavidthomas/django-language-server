@@ -2,7 +2,6 @@
 //! Django project, analyzed with the production database.
 
 mod server;
-mod session;
 mod uri;
 
 pub use server::LanguageServer;

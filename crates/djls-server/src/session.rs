@@ -10,11 +10,11 @@ use camino::Utf8PathBuf;
 use djls_db::DjangoDatabase;
 use djls_ide::PrimedTemplateLibraries;
 use djls_lsp::Analysis;
+use djls_lsp::AnalysisHost;
 use djls_lsp::ClientInfo;
 use djls_lsp::DocumentUpdate;
 use djls_lsp::ProjectCoverage;
 pub(crate) use djls_lsp::ProjectWork;
-use djls_lsp::SessionCore;
 use djls_lsp::TextDocument;
 use djls_lsp::UriExt;
 use djls_lsp::Workspace;
@@ -315,11 +315,11 @@ impl IntrinsicReadiness {
     }
 }
 
-/// The native server's session: the shared [`SessionCore`] plus intrinsic readiness and the
+/// The native server's session: the shared [`AnalysisHost`] plus intrinsic readiness and the
 /// push-diagnostics queue. Document mutations run under the server's `tokio::Mutex`; Project
 /// work they require is admitted into readiness here and scheduled by the reload worker.
 pub(crate) struct Session {
-    core: SessionCore,
+    host: AnalysisHost,
     intrinsic_readiness: IntrinsicReadiness,
     readiness_tx: watch::Sender<IntrinsicReadinessState>,
     pub(crate) diagnostics: DiagnosticQueue,
@@ -340,12 +340,12 @@ impl Session {
                     .and_then(|p| Utf8PathBuf::from_path_buf(p).ok())
             });
 
-        let core = SessionCore::new(Workspace::new(), project_path.as_deref(), params);
-        let intrinsic_readiness = IntrinsicReadiness::new(core.db().project().is_some());
+        let host = AnalysisHost::new(Workspace::new(), project_path.as_deref(), params);
+        let intrinsic_readiness = IntrinsicReadiness::new(host.db().project().is_some());
         let (readiness_tx, _readiness_rx) = watch::channel(intrinsic_readiness.watched_state());
 
         Self {
-            core,
+            host,
             intrinsic_readiness,
             readiness_tx,
             diagnostics: DiagnosticQueue::default(),
@@ -354,7 +354,7 @@ impl Session {
 
     pub(crate) fn snapshot(&self) -> SessionSnapshot {
         SessionSnapshot {
-            analysis: self.core.snapshot(),
+            analysis: self.host.snapshot(),
             intrinsic_generation: self.ready_generation(),
         }
     }
@@ -389,7 +389,7 @@ impl Session {
     pub(crate) fn mark_project_changed(&mut self) -> IntrinsicGeneration {
         let generation = self
             .intrinsic_readiness
-            .mark_project_changed(self.core.db().project().is_some());
+            .mark_project_changed(self.host.db().project().is_some());
         self.publish_readiness();
         generation
     }
@@ -409,7 +409,7 @@ impl Session {
     }
 
     pub(crate) fn fail_intrinsic_readiness(&mut self, generation: IntrinsicGeneration) -> bool {
-        let db = self.core.db();
+        let db = self.host.db();
         let failed = self.intrinsic_readiness.fail(generation, |coverage| {
             coverage
                 .reprime_files()
@@ -453,7 +453,7 @@ impl Session {
         kind: djls_source::FileKind,
     ) -> Option<ProjectWork> {
         let work = self
-            .core
+            .host
             .project_work(change, kind, self.intrinsic_readiness.coverage());
         let path = match change {
             djls_source::ChangeEvent::Opened(path)
@@ -474,7 +474,7 @@ impl Session {
     ) -> Option<ProjectWork> {
         match work? {
             ProjectWork::Reprime => {
-                let db = self.core.db();
+                let db = self.host.db();
                 let file = db.files().try_file(path)?;
                 let revision = file.revision(db);
                 if !self.intrinsic_readiness.begin_reprime(file, revision) {
@@ -490,15 +490,15 @@ impl Session {
     }
 
     pub(crate) fn client_info(&self) -> &ClientInfo {
-        self.core.client_info()
+        self.host.client_info()
     }
 
     pub(crate) fn db(&self) -> &DjangoDatabase {
-        self.core.db()
+        self.host.db()
     }
 
     pub(crate) fn db_mut(&mut self) -> &mut DjangoDatabase {
-        self.core.db_mut()
+        self.host.db_mut()
     }
 
     pub(crate) fn open_document(
@@ -509,7 +509,7 @@ impl Session {
             return DocumentMutation::Ignored;
         };
         let update =
-            self.core
+            self.host
                 .open_document(&path, text_document, self.intrinsic_readiness.coverage());
         self.apply_document_update(&update)
     }
@@ -522,7 +522,7 @@ impl Session {
             return DocumentMutation::Ignored;
         };
         let Some(update) = self
-            .core
+            .host
             .save_document(&path, self.intrinsic_readiness.coverage())
         else {
             return DocumentMutation::Ignored;
@@ -538,7 +538,7 @@ impl Session {
         let Some(path) = file_uri_path(&text_document.uri, "Skip updating document") else {
             return DocumentMutation::Ignored;
         };
-        let Some(update) = self.core.update_document(
+        let Some(update) = self.host.update_document(
             &path,
             text_document.version,
             changes,
@@ -560,7 +560,7 @@ impl Session {
 
         self.diagnostics.close(&path);
         let Some(update) = self
-            .core
+            .host
             .close_document(&path, self.intrinsic_readiness.coverage())
         else {
             return DocumentMutation::Ignored;
@@ -578,7 +578,7 @@ impl Session {
     /// Get a document from the buffer if it's open.
     #[cfg(test)]
     fn get_document(&self, path: &Utf8Path) -> Option<Arc<TextDocument>> {
-        self.core.workspace().get_document(path)
+        self.host.workspace().get_document(path)
     }
 
     fn queue_document_diagnostics(&mut self, document: &TextDocument) {
@@ -592,7 +592,7 @@ impl Session {
     }
 
     pub(crate) fn queue_all_diagnostics(&mut self) {
-        for document in self.core.workspace().open_documents() {
+        for document in self.host.workspace().open_documents() {
             self.diagnostics.schedule(&document);
         }
     }
