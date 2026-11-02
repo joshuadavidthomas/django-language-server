@@ -396,6 +396,33 @@ fn ambiguous_while_degrades_writes_and_retains_branch_effects() {
     );
 }
 
+// Minimized from OpenStack horizon's settings, where evaluation never finished
+// because every `if` doubled the open-namespace causes.
+#[test]
+fn open_namespace_causes_stay_bounded_across_sequential_ifs() {
+    let mut source = String::from(
+        "from missing import *\nfor snippet in SNIPPETS:\n    try:\n        exec(snippet)\n    except Exception:\n        pass\n",
+    );
+    for index in 0..24 {
+        writeln!(
+            source,
+            "if URL_{index} is None:\n    URL_{index} = '/{index}/'"
+        )
+        .expect("writing to a String cannot fail");
+    }
+    source.push_str("INSTALLED_APPS = ['app']\n");
+
+    let settings = extract(&source).expect("settings extraction fixture should build");
+
+    let app_cases = cases(&settings, "/installed_apps/cases")
+        .expect("settings JSON pointer should identify an array");
+    assert_eq!(
+        installed_app_alternatives(app_cases),
+        Some(["app".to_string()].into_iter().collect()),
+        "{settings:#}"
+    );
+}
+
 #[test]
 fn canonical_unknown_origins_merge_dynamic_namespace_import_edges() {
     let source = "from a import *\nfrom b import *\n";

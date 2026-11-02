@@ -6,6 +6,7 @@ mod statement;
 use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
+use std::mem;
 #[cfg(test)]
 use std::rc::Rc;
 
@@ -437,6 +438,13 @@ impl PythonEvaluationState {
             self.import_trace,
             self.module_effects,
         )
+    }
+
+    /// Every branch join copies each cause into each arm. Merging the copies
+    /// keeps a sequence of joins from doubling the causes at every join.
+    fn merge_namespace_causes(&mut self) {
+        self.namespace_causes =
+            PythonNamespaceRemainder::new(mem::take(&mut self.namespace_causes)).into_causes();
     }
 
     fn binding(&self, name: &str) -> Option<&PythonBinding> {
@@ -926,6 +934,7 @@ impl PythonEvaluationState {
             base.mutations.extend(branch.mutations.iter().cloned());
             base.import_trace.absorb(&branch.import_trace);
         }
+        base.merge_namespace_causes();
         let branch_effects = branches
             .iter()
             .map(|(arm, branch)| (*arm, &branch.module_effects))
@@ -980,6 +989,7 @@ impl PythonEvaluationState {
             base.mutations.extend(branch.mutations.iter().cloned());
             base.import_trace.absorb(&branch.import_trace);
         }
+        base.merge_namespace_causes();
         let branch_effects = branches
             .iter()
             .map(|(arm, constraints, branch)| (*arm, constraints, &branch.module_effects))
