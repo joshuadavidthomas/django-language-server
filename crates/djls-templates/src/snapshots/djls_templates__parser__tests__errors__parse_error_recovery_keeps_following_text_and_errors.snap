@@ -1,0 +1,62 @@
+---
+source: crates/djls-templates/src/parser.rs
+expression: test_nodelist
+---
+nodelist:
+  - type: Error
+    span:
+      - 2
+      - 0
+    full_span:
+      - 0
+      - 4
+    error:
+      EmptyTag:
+        position: 2
+  - type: Text
+    span:
+      - 4
+      - 1
+    full_span:
+      - 4
+      - 1
+  - type: Error
+    span:
+      - 7
+      - 2
+    full_span:
+      - 5
+      - 4
+    error:
+      MalformedConstruct:
+        position: 5
+        opener: "{{"
+        closer: "}}"
+        content: a
+  - type: Text
+    span:
+      - 9
+      - 1
+    full_span:
+      - 9
+      - 1
+  - type: Error
+    span:
+      - 12
+      - 2
+    full_span:
+      - 10
+      - 4
+    error:
+      MalformedConstruct:
+        position: 10
+        opener: "{{"
+        closer: "}}"
+        content: b
+  - type: Text
+    span:
+      - 14
+      - 1
+    full_span:
+      - 14
+      - 1
