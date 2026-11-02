@@ -92,7 +92,7 @@ impl Workspace {
 
     /// Return the complete filesystem for database reads.
     #[must_use]
-    pub fn file_system(&self) -> Arc<dyn FileSystem> {
+    pub(crate) fn file_system(&self) -> Arc<dyn FileSystem> {
         Arc::clone(&self.file_system)
     }
 
@@ -116,7 +116,7 @@ impl Workspace {
     }
 
     /// Open a document in memory.
-    pub fn open_document(
+    pub(crate) fn open_document(
         &mut self,
         path: &Utf8Path,
         content: &str,
@@ -130,12 +130,12 @@ impl Workspace {
 
     /// Return the saved open document without changing buffered content.
     #[must_use]
-    pub fn save_document(&self, path: &Utf8Path) -> Option<Arc<TextDocument>> {
+    pub(crate) fn save_document(&self, path: &Utf8Path) -> Option<Arc<TextDocument>> {
         self.buffers.get(path)
     }
 
     /// Apply LSP text changes to an open document.
-    pub fn update_document(
+    pub(crate) fn update_document(
         &mut self,
         path: &Utf8Path,
         changes: Vec<DocumentChange>,
@@ -163,12 +163,12 @@ impl Workspace {
     }
 
     /// Close a document, removing it from buffers.
-    pub fn close_document(&mut self, path: &Utf8Path) -> Option<Arc<TextDocument>> {
+    pub(crate) fn close_document(&mut self, path: &Utf8Path) -> Option<Arc<TextDocument>> {
         self.buffers.close(path)
     }
 
     /// The source change that opening a buffer at `path` makes visible to `db`.
-    pub fn open_document_change(&self, db: &dyn SourceDb, path: &Utf8Path) -> ChangeEvent {
+    pub(crate) fn open_document_change(&self, db: &dyn SourceDb, path: &Utf8Path) -> ChangeEvent {
         if !self.disk.is_file(path) {
             return ChangeEvent::BecameVisible(path.to_path_buf());
         }
@@ -183,7 +183,7 @@ impl Workspace {
 
     /// The source change that closing the buffer at `path` makes visible.
     #[must_use]
-    pub fn close_document_change(&self, path: &Utf8Path) -> ChangeEvent {
+    pub(crate) fn close_document_change(&self, path: &Utf8Path) -> ChangeEvent {
         if self.disk.is_file(path) {
             ChangeEvent::ContentChanged(path.to_path_buf())
         } else {

@@ -616,16 +616,9 @@ impl LanguageServer for DjangoLanguageServer {
 
         let response = self
             .with_ready_snapshot(move |snapshot| {
-                let (file, range) = snapshot.range_for_document_request(
-                    &params.text_document,
-                    params.range,
-                )?;
+                let (file, range) = snapshot
+                    .template_range_for_document_request(&params.text_document, params.range)?;
                 let db = snapshot.db();
-
-                if !matches!(file.try_source(db), Ok(source) if *source.kind() == FileKind::Template)
-                {
-                    return None;
-                }
 
                 djls_ide::code_actions(db, file, range, snapshot.client_info().position_encoding())
             })
@@ -699,16 +692,11 @@ impl LanguageServer for DjangoLanguageServer {
         let mut timer = RequestTimer::request();
         let response = self
             .with_ready_snapshot(move |snapshot| {
-                let (file, offset) = snapshot.position_for_document_request(
+                let (file, offset) = snapshot.template_position_for_document_request(
                     &params.text_document_position.text_document,
                     params.text_document_position.position,
                 )?;
                 let db = snapshot.db();
-
-                if !matches!(file.try_source(db), Ok(source) if *source.kind() == FileKind::Template)
-                {
-                    return None;
-                }
 
                 djls_ide::completion(
                     db,
@@ -740,23 +728,13 @@ impl LanguageServer for DjangoLanguageServer {
         let mut timer = RequestTimer::request();
         let response = self
             .with_ready_snapshot(move |snapshot| {
-                let (file, offset) = snapshot.position_for_document_request(
+                let (file, offset) = snapshot.template_position_for_document_request(
                     &params.text_document_position_params.text_document,
                     params.text_document_position_params.position,
                 )?;
                 let db = snapshot.db();
 
-                if !matches!(file.try_source(db), Ok(source) if *source.kind() == FileKind::Template)
-                {
-                    return None;
-                }
-
-                djls_ide::hover(
-                    db,
-                    file,
-                    offset,
-                    snapshot.client_info().position_encoding(),
-                )
+                djls_ide::hover(db, file, offset, snapshot.client_info().position_encoding())
             })
             .await;
 
@@ -819,17 +797,11 @@ impl LanguageServer for DjangoLanguageServer {
         let mut timer = RequestTimer::request();
         let ranges = self
             .with_ready_snapshot(move |snapshot| {
-                let Some(file) =
-                    snapshot.file_for_document_request(&params.text_document)
+                let Some(file) = snapshot.template_for_document_request(&params.text_document)
                 else {
                     return Vec::new();
                 };
                 let db = snapshot.db();
-
-                if !matches!(file.try_source(db), Ok(source) if *source.kind() == FileKind::Template)
-                {
-                    return Vec::new();
-                }
 
                 djls_ide::collect_folding_ranges(db, file)
             })
@@ -853,23 +825,13 @@ impl LanguageServer for DjangoLanguageServer {
         let mut timer = RequestTimer::request();
         let symbols = self
             .with_ready_snapshot(move |snapshot| {
-                let Some(file) =
-                    snapshot.file_for_document_request(&params.text_document)
+                let Some(file) = snapshot.template_for_document_request(&params.text_document)
                 else {
                     return Vec::new();
                 };
                 let db = snapshot.db();
 
-                if !matches!(file.try_source(db), Ok(source) if *source.kind() == FileKind::Template)
-                {
-                    return Vec::new();
-                }
-
-                djls_ide::document_symbols(
-                    db,
-                    file,
-                    snapshot.client_info().position_encoding(),
-                )
+                djls_ide::document_symbols(db, file, snapshot.client_info().position_encoding())
             })
             .await;
 
@@ -891,23 +853,13 @@ impl LanguageServer for DjangoLanguageServer {
         let mut timer = RequestTimer::request();
         let links = self
             .with_ready_snapshot(move |snapshot| {
-                let Some(file) =
-                    snapshot.file_for_document_request(&params.text_document)
+                let Some(file) = snapshot.template_for_document_request(&params.text_document)
                 else {
                     return Vec::new();
                 };
                 let db = snapshot.db();
 
-                if !matches!(file.try_source(db), Ok(source) if *source.kind() == FileKind::Template)
-                {
-                    return Vec::new();
-                }
-
-                djls_ide::document_links(
-                    db,
-                    file,
-                    snapshot.client_info().position_encoding(),
-                )
+                djls_ide::document_links(db, file, snapshot.client_info().position_encoding())
             })
             .await;
 
@@ -929,16 +881,11 @@ impl LanguageServer for DjangoLanguageServer {
         let mut timer = RequestTimer::request();
         let response = self
             .with_ready_snapshot(move |snapshot| {
-                let (file, offset) = snapshot.position_for_document_request(
+                let (file, offset) = snapshot.template_position_for_document_request(
                     &params.text_document_position_params.text_document,
                     params.text_document_position_params.position,
                 )?;
                 let db = snapshot.db();
-
-                if !matches!(file.try_source(db), Ok(source) if *source.kind() == FileKind::Template)
-                {
-                    return None;
-                }
 
                 djls_ide::goto_definition(
                     db,
@@ -974,16 +921,11 @@ impl LanguageServer for DjangoLanguageServer {
         let mut timer = RequestTimer::request();
         let response = self
             .with_ready_snapshot(move |snapshot| {
-                let (file, offset) = snapshot.position_for_document_request(
+                let (file, offset) = snapshot.template_position_for_document_request(
                     &params.text_document_position.text_document,
                     params.text_document_position.position,
                 )?;
                 let db = snapshot.db();
-
-                if !matches!(file.try_source(db), Ok(source) if *source.kind() == FileKind::Template)
-                {
-                    return None;
-                }
 
                 djls_ide::find_references(
                     db,
@@ -1012,30 +954,9 @@ impl LanguageServer for DjangoLanguageServer {
         let mut timer = RequestTimer::request();
         let edits = self
             .with_snapshot(move |snapshot| {
-                let Some(file) = snapshot.file_for_document_request(&params.text_document) else {
-                    return Vec::new();
-                };
-                let db = snapshot.db();
-                let format_config = db.settings().format().clone();
-
-                if !format_config.enabled() {
-                    return Vec::new();
-                }
-
-                let Ok(source) = file.try_source(db) else {
-                    return Vec::new();
-                };
-                if *source.kind() != FileKind::Template {
-                    return Vec::new();
-                }
-
-                djls_ide::format_document(
-                    db,
-                    file,
-                    snapshot.client_info().position_encoding(),
-                    format_config.backend(),
-                    &params.options,
-                )
+                SessionSnapshot::document_path(&params.text_document)
+                    .map(|path| snapshot.analysis().format(&path, &params.options))
+                    .unwrap_or_default()
             })
             .await;
 

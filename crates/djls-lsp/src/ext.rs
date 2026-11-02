@@ -13,7 +13,7 @@ use crate::client::Client;
 use crate::client::ClientOptions;
 use crate::document::DocumentChange;
 
-pub trait PositionExt {
+pub(crate) trait PositionExt {
     fn to_line_col(&self) -> LineCol;
     fn to_offset(&self, text: &str, line_index: &LineIndex, encoding: PositionEncoding) -> Offset;
 }
@@ -70,7 +70,7 @@ impl RangeExt for ls_types::Range {
     }
 }
 
-pub trait TextDocumentContentChangeEventExt {
+pub(crate) trait TextDocumentContentChangeEventExt {
     fn to_document_changes(self) -> Vec<DocumentChange>;
 }
 
@@ -144,7 +144,7 @@ impl ClientInfoExt for Option<&ls_types::ClientInfo> {
     }
 }
 
-pub trait TextDocumentItemExt {
+pub(crate) trait TextDocumentItemExt {
     fn language_id_to_file_kind(&self, client: Client) -> FileKind;
 }
 

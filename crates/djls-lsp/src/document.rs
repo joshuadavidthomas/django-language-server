@@ -56,7 +56,7 @@ impl TextDocument {
     }
 
     #[must_use]
-    pub fn kind(&self) -> FileKind {
+    pub(crate) fn kind(&self) -> FileKind {
         self.kind
     }
 
@@ -79,7 +79,7 @@ impl TextDocument {
     }
 }
 
-pub struct DocumentChange {
+pub(crate) struct DocumentChange {
     range: Option<Range>,
     text: String,
 }
