@@ -990,7 +990,7 @@ impl PythonEvaluationState {
                     cause.select_branch(join.to_owned(), *arm);
                     cause
                 }));
-            base.mutations.extend(branch.mutations.iter().cloned());
+            base.mutations.absorb(&branch.mutations);
             base.import_trace.absorb(&branch.import_trace);
         }
         base.merge_namespace_causes();
@@ -1045,7 +1045,7 @@ impl PythonEvaluationState {
                     cause.constraints = cause.constraints.intersection(constraints);
                     (!cause.constraints.is_impossible()).then_some(cause)
                 }));
-            base.mutations.extend(branch.mutations.iter().cloned());
+            base.mutations.absorb(&branch.mutations);
             base.import_trace.absorb(&branch.import_trace);
         }
         base.merge_namespace_causes();
