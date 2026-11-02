@@ -84,18 +84,12 @@ pub enum Token<T = String> {
         delimiter: TagDelimiter,
     },
     Eof,
-    Newline {
-        span: Span,
-    },
     Text {
         content: T,
         span: Span,
     },
     Variable {
         content: T,
-        span: Span,
-    },
-    Whitespace {
         span: Span,
     },
 }
@@ -110,14 +104,6 @@ impl<T: AsRef<str>> Token<T> {
             | Token::Error { content, .. }
             | Token::Text { content, .. }
             | Token::Variable { content, .. } => content.as_ref().to_string(),
-            Token::Whitespace { span, .. } => " ".repeat(span.length_usize()),
-            Token::Newline { span, .. } => {
-                if span.length() == 2 {
-                    "\r\n".to_string()
-                } else {
-                    "\n".to_string()
-                }
-            }
             Token::Eof => String::new(),
         }
     }
@@ -131,9 +117,7 @@ impl<T: AsRef<str>> Token<T> {
             | Token::Variable { span, .. } => {
                 Some(span.start().saturating_sub(TagDelimiter::LENGTH_U32))
             }
-            Token::Text { span, .. }
-            | Token::Whitespace { span, .. }
-            | Token::Newline { span, .. } => Some(span.start()),
+            Token::Text { span, .. } => Some(span.start()),
             Token::Eof => None,
         }
     }
@@ -147,7 +131,6 @@ impl<T: AsRef<str>> Token<T> {
             | Token::Error { content, .. }
             | Token::Text { content, .. }
             | Token::Variable { content, .. } => content.as_ref().len(),
-            Token::Whitespace { span, .. } | Token::Newline { span, .. } => span.length_usize(),
             Token::Eof => 0,
         };
         u32::try_from(len).unwrap_or(u32::MAX)
@@ -162,9 +145,7 @@ impl<T: AsRef<str>> Token<T> {
                 Some(span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32))
             }
             Token::Error { span, .. } => Some(span.expand(TagDelimiter::LENGTH_U32, 0)),
-            Token::Newline { span, .. }
-            | Token::Text { span, .. }
-            | Token::Whitespace { span, .. } => Some(*span),
+            Token::Text { span, .. } => Some(*span),
             Token::Eof => None,
         }
     }
@@ -176,9 +157,7 @@ impl<T: AsRef<str>> Token<T> {
             | Token::Comment { span, .. }
             | Token::Error { span, .. }
             | Token::Text { span, .. }
-            | Token::Variable { span, .. }
-            | Token::Whitespace { span, .. }
-            | Token::Newline { span, .. } => Some(*span),
+            | Token::Variable { span, .. } => Some(*span),
             Token::Eof => None,
         }
     }
@@ -232,8 +211,6 @@ impl Token<&str> {
                 span,
             },
             Self::Eof => Token::Eof,
-            Self::Newline { span } => Token::Newline { span },
-            Self::Whitespace { span } => Token::Whitespace { span },
         }
     }
 }

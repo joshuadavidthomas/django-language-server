@@ -65,9 +65,7 @@ impl<'src> Parser<'src> {
             Token::Comment { .. } => self.parse_comment(),
             Token::Eof => Err(ParseError::stream_error(StreamError::AtEnd)),
             Token::Error { .. } => self.parse_error(),
-            Token::Newline { .. } | Token::Text { .. } | Token::Whitespace { .. } => {
-                self.parse_text()
-            }
+            Token::Text { .. } => self.parse_text(),
             Token::Variable { .. } => self.parse_variable(),
         }
     }
@@ -152,10 +150,8 @@ impl<'src> Parser<'src> {
             Token::Block { .. }
             | Token::Comment { .. }
             | Token::Eof
-            | Token::Newline { .. }
             | Token::Text { .. }
-            | Token::Variable { .. }
-            | Token::Whitespace { .. } => Err(ParseError::UnexpectedTokenKind {
+            | Token::Variable { .. } => Err(ParseError::UnexpectedTokenKind {
                 position: token.content_span_or_fallback().start_usize(),
                 context: "Expected Error token".to_string(),
             }),
@@ -174,7 +170,7 @@ impl<'src> Parser<'src> {
                 | Token::Comment { .. }
                 | Token::Error { .. }
                 | Token::Eof => break, // Stop at Django constructs, errors, or EOF
-                Token::Text { .. } | Token::Whitespace { .. } | Token::Newline { .. } => {
+                Token::Text { .. } => {
                     // Update end position
                     let token_end = token.full_span_or_fallback().end();
                     end = end.max(token_end);
