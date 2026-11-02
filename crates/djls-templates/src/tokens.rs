@@ -1,5 +1,7 @@
+use std::sync::LazyLock;
+
 use djls_source::Span;
-use memchr::memmem;
+use memchr::memmem::Finder;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TagDelimiter {
@@ -52,7 +54,17 @@ impl TagDelimiter {
     }
 
     pub(crate) fn find_closer(self, source: &str) -> Option<usize> {
-        memmem::find(source.as_bytes(), self.closer().as_bytes())
+        // `memmem::find` rebuilds its searcher per call, which dominated lexing tag-dense input.
+        static BLOCK: LazyLock<Finder<'static>> = LazyLock::new(|| Finder::new("%}"));
+        static VARIABLE: LazyLock<Finder<'static>> = LazyLock::new(|| Finder::new("}}"));
+        static COMMENT: LazyLock<Finder<'static>> = LazyLock::new(|| Finder::new("#}"));
+
+        let finder = match self {
+            Self::Block => &BLOCK,
+            Self::Variable => &VARIABLE,
+            Self::Comment => &COMMENT,
+        };
+        finder.find(source.as_bytes())
     }
 }
 
