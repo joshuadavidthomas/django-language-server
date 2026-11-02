@@ -7,7 +7,6 @@ use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::mem;
-#[cfg(test)]
 use std::rc::Rc;
 
 use djls_source::File;
@@ -158,8 +157,11 @@ impl<'db> PythonModuleEvaluator<'db> {
             .map(|(arm, evaluator)| (arm, evaluator.state))
             .collect::<Vec<_>>();
         let join = BranchJoin::new(self.module.clone(), origin, arm_count);
-        self.state =
-            PythonEvaluationState::join_indexed_branches(self.state.clone(), &branches, &join);
+        self.state = PythonEvaluationState::join_indexed_branches(
+            mem::take(&mut self.state),
+            &branches,
+            &join,
+        );
     }
 
     fn join_guarded_forks(&mut self, forks: Vec<(usize, Self)>, origin: Origin, arm_count: usize) {
@@ -168,8 +170,11 @@ impl<'db> PythonModuleEvaluator<'db> {
             .map(|(arm, evaluator)| (arm, evaluator.active_constraints, evaluator.state))
             .collect::<Vec<_>>();
         let join = BranchJoin::new(self.module.clone(), origin, arm_count);
-        self.state =
-            PythonEvaluationState::join_guarded_branches(self.state.clone(), &branches, &join);
+        self.state = PythonEvaluationState::join_guarded_branches(
+            mem::take(&mut self.state),
+            &branches,
+            &join,
+        );
     }
 
     pub(super) fn origin<T: RangedExt>(&self, ranged: &T) -> Origin {
@@ -385,9 +390,10 @@ impl<'db> PythonModuleEvaluator<'db> {
 }
 
 /// Cloneable abstract state for context-free evaluation transitions.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(super) struct PythonEvaluationState {
-    pub(super) bindings: BTreeMap<String, PythonBinding>,
+    /// Shared so forks copy pointers; a write clones only the binding it changes.
+    pub(super) bindings: BTreeMap<String, Rc<PythonBinding>>,
     namespace_causes: Vec<PythonNamespaceCause>,
     pub(super) mutations: UniqueVec<PythonMutation>,
     import_trace: PythonImportTrace,
@@ -428,7 +434,11 @@ impl PythonEvaluationState {
     ) -> (PythonModuleFacts, PythonImportTrace, PythonModuleEffects) {
         (
             PythonModuleFacts {
-                bindings: self.bindings,
+                bindings: self
+                    .bindings
+                    .into_iter()
+                    .map(|(name, binding)| (name, Rc::unwrap_or_clone(binding)))
+                    .collect(),
                 namespace_remainder: (!self.namespace_causes.is_empty())
                     .then(|| PythonNamespaceRemainder::new(self.namespace_causes)),
                 syntax_errors,
@@ -448,7 +458,7 @@ impl PythonEvaluationState {
     }
 
     fn binding(&self, name: &str) -> Option<&PythonBinding> {
-        self.bindings.get(name)
+        self.bindings.get(name).map(Rc::as_ref)
     }
 
     fn binding_with_intrinsic(
@@ -516,14 +526,14 @@ impl PythonEvaluationState {
         origin: Origin,
         active_constraints: &BranchConstraints,
     ) {
-        let updated = self.bindings.get(name).cloned().and_then(|binding| {
+        let updated = self.binding(name).cloned().and_then(|binding| {
             let mut binding = binding.intersect_constraints(active_constraints)?;
             binding.single_bound_mut()?.value = value;
             binding.replace_predicate_identities(name, origin, self.predicate_module.as_ref());
             Some(binding)
         });
         if let Some(binding) = updated {
-            self.bindings.insert(name.to_string(), binding);
+            self.bindings.insert(name.to_string(), Rc::new(binding));
         } else {
             self.assign_value(
                 name,
@@ -536,8 +546,10 @@ impl PythonEvaluationState {
     fn assign_binding(&mut self, name: &str, mut binding: PythonBinding, origin: Origin) {
         self.mutations.retain(|mutation| mutation.binding != name);
         binding.discriminate_predicates(name, origin, self.predicate_module.as_ref());
-        self.bindings
-            .insert(name.to_string(), binding.rebase_binding_origin(origin));
+        self.bindings.insert(
+            name.to_string(),
+            Rc::new(binding.rebase_binding_origin(origin)),
+        );
     }
 
     fn assign_from_name(
@@ -548,8 +560,10 @@ impl PythonEvaluationState {
         origin: Origin,
     ) {
         binding.discriminate_predicates(name, origin, self.predicate_module.as_ref());
-        self.bindings
-            .insert(name.to_string(), binding.rebase_binding_origin(origin));
+        self.bindings.insert(
+            name.to_string(),
+            Rc::new(binding.rebase_binding_origin(origin)),
+        );
         let copied = self
             .mutations
             .iter()
@@ -679,8 +693,7 @@ impl PythonEvaluationState {
                 if candidate.allocation_site_occurrences(&wanted) == 0 {
                     return false;
                 }
-                let occurrences = (*candidate)
-                    .clone()
+                let occurrences = PythonBinding::clone(candidate)
                     .intersect_constraints(active_constraints)
                     .map_or(0, |candidate| {
                         candidate.allocation_site_occurrences(&wanted)
@@ -750,6 +763,7 @@ impl PythonEvaluationState {
             return;
         };
         for (name, binding) in &mut self.bindings {
+            let binding = Rc::make_mut(binding);
             let mut degraded = unknown.clone();
             degraded.discriminate_predicates(name, origin, self.predicate_module.as_ref());
             if let Some(module) = &self.predicate_module {
@@ -860,10 +874,10 @@ impl PythonEvaluationState {
             let mut unknown = PythonBinding::unknown_reaching(cause, origin, sites);
             unknown.discriminate_predicates(&name, origin, self.predicate_module.as_ref());
             let binding = match self.bindings.remove(&name) {
-                Some(binding) => binding.join(unknown, origin),
+                Some(binding) => Rc::unwrap_or_clone(binding).join(unknown, origin),
                 None => unknown,
             };
-            self.bindings.insert(name, binding);
+            self.bindings.insert(name, Rc::new(binding));
         }
     }
 
@@ -965,7 +979,7 @@ impl PythonEvaluationState {
                     .reduce(|current, candidate| current.join(candidate, origin))
                     .unwrap_or_else(PythonBinding::unbound)
             };
-            base.bindings.insert(name, joined);
+            base.bindings.insert(name, Rc::new(joined));
         }
         base.namespace_causes.clear();
         base.mutations.clear();
@@ -1016,7 +1030,7 @@ impl PythonEvaluationState {
                 });
             }
             if let Some(binding) = joined {
-                base.bindings.insert(name, binding);
+                base.bindings.insert(name, Rc::new(binding));
             }
         }
 
@@ -1051,11 +1065,18 @@ impl PythonEvaluationState {
     }
 
     fn changed_names_from(&self, base: &Self) -> BTreeSet<String> {
-        let mut changed = base
+        // `Rc` equality checks pointers first, so bindings a fork never
+        // rewrote compare in constant time.
+        let mut changed = self
             .bindings
-            .keys()
-            .chain(self.bindings.keys())
-            .filter(|name| base.binding(name) != self.binding(name))
+            .iter()
+            .filter(|(name, binding)| base.bindings.get(*name) != Some(binding))
+            .map(|(name, _)| name)
+            .chain(
+                base.bindings
+                    .keys()
+                    .filter(|name| !self.bindings.contains_key(*name)),
+            )
             .cloned()
             .collect::<BTreeSet<_>>();
         let mutation_roots = base
@@ -6012,7 +6033,8 @@ else:
             PythonBinding::bound(
                 PythonValue::string("value".to_string(), binding_origin),
                 binding_origin,
-            ),
+            )
+            .into(),
         );
         state
     }
@@ -6041,7 +6063,8 @@ else:
             PythonBinding::bound(
                 PythonValue::module(namespace_module("pkg"), origin(1)),
                 origin(1),
-            ),
+            )
+            .into(),
         );
         assert_eq!(
             state.known_truthiness("MOD"),
@@ -6057,7 +6080,7 @@ else:
             PythonBinding::unknown(&PythonUnknownCause::Cycle, origin(2)),
             origin(3),
         );
-        state.bindings.insert("MIXED".to_string(), mixed);
+        state.bindings.insert("MIXED".to_string(), mixed.into());
         assert_eq!(
             state.known_truthiness("MIXED"),
             None,
@@ -6066,7 +6089,7 @@ else:
 
         state.bindings.insert(
             "FLAG".to_string(),
-            PythonBinding::bound(PythonValue::bool(true, origin(1)), origin(1)),
+            PythonBinding::bound(PythonValue::bool(true, origin(1)), origin(1)).into(),
         );
         assert_eq!(state.known_truthiness("FLAG"), Some(Truthiness::Truthy));
     }
@@ -6117,11 +6140,13 @@ else:
     fn changed_names_include_constraint_only_binding_changes() {
         let base = state_with_binding();
         let mut changed = base.clone();
-        changed
-            .bindings
-            .get_mut("VALUE")
-            .expect("the fixture binding should exist")
-            .select_branch(origin(2), 0);
+        Rc::make_mut(
+            changed
+                .bindings
+                .get_mut("VALUE")
+                .expect("the fixture binding should exist"),
+        )
+        .select_branch(origin(2), 0);
 
         assert_eq!(
             changed.changed_names_from(&base),

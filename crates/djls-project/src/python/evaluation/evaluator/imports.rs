@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use djls_source::File;
@@ -597,7 +598,7 @@ impl PythonModuleEvaluator<'_> {
                 source,
                 name,
                 name_paths,
-                caller_bindings.get(name),
+                caller_bindings.get(name).map(Rc::as_ref),
                 exact_bindings.get(name),
                 import_origin,
             );
@@ -690,7 +691,9 @@ impl PythonModuleEvaluator<'_> {
             && (selected || caller_had_name)
         {
             binding.discriminate_predicates(name, origin, self.state.predicate_module.as_ref());
-            self.state.bindings.insert(name.to_string(), binding);
+            self.state
+                .bindings
+                .insert(name.to_string(), Rc::new(binding));
         }
 
         let selected_on_some_path = paths.exact.is_some() || paths.absent.is_some();
