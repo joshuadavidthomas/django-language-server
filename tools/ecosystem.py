@@ -1,24 +1,31 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["typer>=0.27.0"]
+# ///
 """Run `djls check` across the corpus and diff two runs.
 
 `run` records every diagnostic one build reports for each corpus repository.
 `diff` compares two recordings, usually the base branch and a pull request,
 so a reviewer sees each diagnostic a change adds or removes on real projects.
+
+    uv run tools/ecosystem.py run --djls target/release/djls --output head.json
+    uv run tools/ecosystem.py diff base.json head.json
 """
 
 from __future__ import annotations
 
-import argparse
 import json
 import os
 import re
 import subprocess
-import sys
 import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import Annotated
 
 import tomllib
+import typer
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = REPO_ROOT / "crates/djls-testing/manifest.toml"
@@ -28,50 +35,40 @@ HEADER = re.compile(r"^(error|warning|info|hint)\[(\w+)\]: (.*)$")
 LOCATION = re.compile(r"^\s*--> (.*):(\d+):(\d+)$")
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    commands = parser.add_subparsers(dest="command", required=True)
-
-    run_parser = commands.add_parser("run", help="record diagnostics for one build")
-    run_parser.add_argument("--djls", type=Path, required=True)
-    run_parser.add_argument("--output", type=Path, required=True)
-    run_parser.add_argument("--repo", action="append", default=[])
-    run_parser.add_argument("--timeout", type=float, default=120)
-    run_parser.add_argument("--jobs", type=int, default=os.cpu_count() or 1)
-
-    diff_parser = commands.add_parser("diff", help="compare two recordings")
-    diff_parser.add_argument("base", type=Path)
-    diff_parser.add_argument("head", type=Path)
-    diff_parser.add_argument("--max-lines", type=int, default=20)
-
-    args = parser.parse_args()
-    if args.command == "run":
-        return run(args)
-    return diff(args)
+app = typer.Typer(help=__doc__, add_completion=False)
 
 
-def run(args: argparse.Namespace) -> int:
-    djls = args.djls.resolve()
-    repos = selected_repos(args.repo)
+@app.command()
+def run(
+    djls: Annotated[Path, typer.Option(help="DJLS executable.")],
+    output: Annotated[Path, typer.Option(help="Where to write the recording.")],
+    repo: Annotated[
+        list[str] | None, typer.Option(help="Manifest repository name; repeatable.")
+    ] = None,
+    timeout: Annotated[float, typer.Option(help="Seconds per repository.")] = 120,
+    jobs: Annotated[int, typer.Option(help="Parallel checks.")] = os.cpu_count() or 1,
+) -> None:
+    """Record diagnostics for one build."""
+    djls = djls.resolve()
+    repos = selected_repos(repo or [])
 
-    def check(repo: dict) -> dict:
-        return check_repo(djls, repo, args.timeout)
+    def check(entry: dict) -> dict:
+        return check_repo(djls, entry, timeout)
 
-    with ThreadPoolExecutor(max_workers=args.jobs) as pool:
+    with ThreadPoolExecutor(max_workers=jobs) as pool:
         results = list(pool.map(check, repos))
 
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(
         json.dumps({"repos": results}, indent=1, sort_keys=True) + "\n",
         encoding="utf-8",
     )
     for result in results:
-        print(
+        typer.echo(
             f"{result['repo']}: {result['status']}, "
             f"{len(result['diagnostics'])} diagnostics, {result['seconds']}s",
-            file=sys.stderr,
+            err=True,
         )
-    return 0
 
 
 def selected_repos(names: list[str]) -> list[dict]:
@@ -79,7 +76,7 @@ def selected_repos(names: list[str]) -> list[dict]:
     repos = [repo for repo in manifest["repo"] if not names or repo["name"] in names]
     missing = sorted(set(names) - {repo["name"] for repo in repos})
     if missing:
-        sys.exit(f"unknown corpus repos: {', '.join(missing)}")
+        raise typer.BadParameter(f"unknown corpus repos: {', '.join(missing)}")
     return repos
 
 
@@ -150,9 +147,17 @@ def parse_diagnostics(stdout: str, project_root: Path) -> list[str]:
     return sorted(diagnostics)
 
 
-def diff(args: argparse.Namespace) -> int:
-    base = load(args.base)
-    head = load(args.head)
+@app.command()
+def diff(
+    base_path: Annotated[Path, typer.Argument(metavar="BASE", help="Base recording.")],
+    head_path: Annotated[Path, typer.Argument(metavar="HEAD", help="Head recording.")],
+    max_lines: Annotated[
+        int, typer.Option(help="Diagnostic lines shown per repository.")
+    ] = 20,
+) -> None:
+    """Compare two recordings as Markdown."""
+    base = load(base_path)
+    head = load(head_path)
     sections = []
     added_total = removed_total = 0
     added_codes: Counter[str] = Counter()
@@ -179,9 +184,9 @@ def diff(args: argparse.Namespace) -> int:
         changes = [f"+ {line}" for line in added] + [f"- {line}" for line in removed]
         if changes:
             lines.append("```diff")
-            lines.extend(changes[: args.max_lines])
-            if len(changes) > args.max_lines:
-                lines.append(f"... {len(changes) - args.max_lines} more")
+            lines.extend(changes[: max_lines])
+            if len(changes) > max_lines:
+                lines.append(f"... {len(changes) - max_lines} more")
             lines.append("```")
             lines.append("")
         sections.append("\n".join(lines))
@@ -197,7 +202,7 @@ def diff(args: argparse.Namespace) -> int:
         print()
     if not sections:
         print(f"No changes across {len(head)} corpus repositories.")
-        return 0
+        return
     print(
         f"{added_total} added and {removed_total} removed diagnostics "
         f"in {len(sections)} of {len(head)} corpus repositories."
@@ -210,7 +215,6 @@ def diff(args: argparse.Namespace) -> int:
         print(f"| {code} | {added_codes[code]} | {removed_codes[code]} |")
     print()
     print("\n".join(sections))
-    return 0
 
 
 def load(path: Path) -> dict[str, dict]:
@@ -223,4 +227,4 @@ def code_of(line: str) -> str:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    app()

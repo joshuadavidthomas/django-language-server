@@ -63,9 +63,9 @@ ecosystem BASE="origin/main":
     trap 'git worktree remove --force "$out/base-src"' EXIT
     cargo build --release -q -p djls --manifest-path "$out/base-src/Cargo.toml" --target-dir "$out/base-target"
     cargo build --release -q -p djls
-    python3 tools/ecosystem.py run --djls "$out/base-target/release/djls" --output "$out/base.json"
-    python3 tools/ecosystem.py run --djls target/release/djls --output "$out/head.json"
-    python3 tools/ecosystem.py diff "$out/base.json" "$out/head.json"
+    uv run tools/ecosystem.py run --djls "$out/base-target/release/djls" --output "$out/base.json"
+    uv run tools/ecosystem.py run --djls target/release/djls --output "$out/head.json"
+    uv run tools/ecosystem.py diff "$out/base.json" "$out/head.json"
 
 # Mutation-test a crate or file, e.g. `just mutants -p djls-semantic -f crates/djls-semantic/src/scoping/loads.rs`
 mutants *ARGS:
