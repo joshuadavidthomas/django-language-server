@@ -68,6 +68,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Fixed a `{% load %}` of an unresolved library suppressing block structure diagnostics (S100–S103) for built-in tags such as `{% block %}` and `{% if %}`. Only a selective load that names the tag, such as `{% load block from unknown %}`, still suppresses them.
 - Fixed settings analysis never finishing for settings modules with an unresolved star import followed by many `if` statements, such as OpenStack Horizon's, which kept `djls check` and the language server from finishing.
 - Fixed settings evaluation treating a value as certain when a `for` or `while` loop body changes it only on a later iteration, such as a list appended to in an `if` arm that an earlier iteration enables.
+- Fixed `{{% block a %}` and `{{#x#}` with no later `}}` being reported as an unclosed `{{` (T100) and hiding the tag or comment. Like Django, the first `{` is now text and the tag after it is parsed, so an unclosed `{{% block a %}` reports S100.
 
 ### Fixed
 

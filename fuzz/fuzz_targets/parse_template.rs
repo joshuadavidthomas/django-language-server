@@ -91,11 +91,6 @@ fn check_against_django(source: &str, nodes: &[Node]) {
     if source.contains("verbatim") {
         return;
     }
-    // Known bug: in `{{% if x %}`, Django's regex fails `{{` and retries one byte later, finding
-    // the `{%` tag. DJLS reports an unclosed `{{` and loses the tag. Excluded until fixed.
-    if source.contains("{{%") || source.contains("{{#") {
-        return;
-    }
     let djls: Vec<(Option<u8>, Span)> = nodes
         .iter()
         .filter_map(|node| match node {

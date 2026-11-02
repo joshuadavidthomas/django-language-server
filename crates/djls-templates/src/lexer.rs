@@ -92,6 +92,20 @@ impl<'src> Lexer<'src> {
                 }
             }
             Err(err_text) => {
+                // Django's `tag_re` retries one character later when an opener has
+                // no closer. If an opener starts there (`{{%`, `{{#`, `{{{`), lex it
+                // as the next token and leave this `{` as text, as Django does.
+                // Otherwise keep the Error token as an editor hint for the
+                // unclosed opener, even though Django renders it as text.
+                let next = self.start + TagDelimiter::CHAR_OPEN.len_utf8();
+                if TagDelimiter::from_input(&self.source[next..]).is_some() {
+                    self.current = next;
+                    return Token::Text {
+                        content: &self.source[self.start..next],
+                        span: Span::saturating_from_bounds_usize(self.start, next),
+                    };
+                }
+
                 let len = err_text.len();
                 let span = if len == 0 {
                     Span::saturating_from_bounds_usize(content_start, self.current)
@@ -356,6 +370,83 @@ mod tests {
             ),
         ] {
             assert_eq!(Lexer::new(source).tokenize(), vec![expected, Token::Eof]);
+        }
+    }
+
+    #[test]
+    fn unclosed_opener_yields_brace_to_overlapping_opener_like_django() {
+        let text = |start| Token::Text {
+            content: "{",
+            span: Span::new(start, 1),
+        };
+        for (source, expected) in [
+            (
+                "{{% block a %}",
+                vec![
+                    text(0),
+                    Token::Block {
+                        content: " block a ",
+                        span: Span::new(3, 9),
+                    },
+                ],
+            ),
+            (
+                "{{#x#}",
+                vec![
+                    text(0),
+                    Token::Comment {
+                        content: "x",
+                        span: Span::new(3, 1),
+                    },
+                ],
+            ),
+            (
+                "{{{% if %}",
+                vec![
+                    text(0),
+                    text(1),
+                    Token::Block {
+                        content: " if ",
+                        span: Span::new(4, 4),
+                    },
+                ],
+            ),
+            (
+                "{{% if",
+                vec![
+                    text(0),
+                    Token::Error {
+                        content: " if",
+                        span: Span::new(3, 3),
+                        delimiter: TagDelimiter::Block,
+                    },
+                ],
+            ),
+            (
+                "{{% if %}}",
+                vec![Token::Variable {
+                    content: "% if %",
+                    span: Span::new(2, 6),
+                }],
+            ),
+            (
+                "{{ x {% if %}",
+                vec![
+                    Token::Error {
+                        content: " x ",
+                        span: Span::new(2, 3),
+                        delimiter: TagDelimiter::Variable,
+                    },
+                    Token::Block {
+                        content: " if ",
+                        span: Span::new(7, 4),
+                    },
+                ],
+            ),
+        ] {
+            let mut expected = expected;
+            expected.push(Token::Eof);
+            assert_eq!(Lexer::new(source).tokenize(), expected, "{source:?}");
         }
     }
 
