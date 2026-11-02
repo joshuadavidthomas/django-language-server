@@ -1777,6 +1777,44 @@ mod tests {
     }
 
     #[test]
+    fn python_environment_metadata_edits_request_discovery() {
+        for (filename, expected) in [
+            (".venv/pyvenv.cfg", Some(ProjectWork::FullReload)),
+            (
+                ".venv/lib/python3.12/site-packages/editable.pth",
+                Some(ProjectWork::FullReload),
+            ),
+            (".venv/notes.txt", None),
+        ] {
+            let mut session = Session::default();
+            let (_, uri) = test_file_uri(filename);
+            let DocumentMutation::Applied { .. } =
+                session.open_document(&ls_types::TextDocumentItem {
+                    uri: uri.clone(),
+                    language_id: "plaintext".to_string(),
+                    version: 1,
+                    text: String::new(),
+                })
+            else {
+                panic!("{filename} should open");
+            };
+            session.install_ready_coverage_for_test(Vec::new(), Vec::new());
+
+            let DocumentMutation::Applied { project_work } = session.update_document(
+                &ls_types::VersionedTextDocumentIdentifier { uri, version: 2 },
+                vec![ls_types::TextDocumentContentChangeEvent {
+                    range: None,
+                    range_length: None,
+                    text: "include-system-site-packages = true\n".to_string(),
+                }],
+            ) else {
+                panic!("{filename} should update");
+            };
+            assert_eq!(project_work, expected, "editing {filename}");
+        }
+    }
+
+    #[test]
     fn full_reload_clears_coverage_and_classifies_conservatively_until_publish() {
         let mut session = Session::default();
         let settings_path = Utf8Path::new("/tmp/settings.py");

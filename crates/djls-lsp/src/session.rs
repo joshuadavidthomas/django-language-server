@@ -260,6 +260,10 @@ impl SessionCore {
         let db = self.db();
         db.project()?;
         let path = changed_path(change)?;
+        // Python Environment discovery reads these; their kind is not Python.
+        if path.file_name() == Some("pyvenv.cfg") || path.extension() == Some("pth") {
+            return Some(ProjectWork::FullReload);
+        }
         if kind != FileKind::Python {
             return None;
         }
