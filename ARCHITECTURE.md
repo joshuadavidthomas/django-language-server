@@ -61,7 +61,15 @@ A single coalescing reload worker runs full Project reloads and intrinsic-only r
 
 Optional cache warm-up and coalesced diagnostic-refresh transport run outside the reload worker. Database snapshots never cross client progress or refresh waits; optional warm-up reacquires current-generation readiness after progress setup.
 
-**Architecture Invariant:** only `djls-server` and the browser server in `djls-wasm` speak the LSP protocol — handling requests, managing the session, and transporting progress/notifications. What they share (client negotiation, capabilities, open-document buffers, the overlay filesystem) lives in `djls-lsp`, so the two cannot drift.
+**Architecture Invariant:** only `djls-server` and the browser server in `djls-wasm` speak the LSP protocol — handling requests, managing the session, and transporting progress/notifications. What they share (client negotiation, capabilities, open-document buffers, the overlay filesystem) lives in `djls-lsp`.
+
+### `crates/djls-lsp`
+
+Transport-independent LSP pieces shared by `djls-server` and `djls-wasm`: client negotiation (`ClientInfo`), advertised capabilities, open-document buffers, and the overlay `Workspace` filesystem that exposes those buffers to the database ahead of the underlying files. It has no async runtime, so it compiles for the browser.
+
+### `crates/djls-wasm`
+
+The browser build, compiled for `wasm32-unknown-unknown` with wasm-bindgen. `LanguageServer.handle` is a synchronous LSP server for a web worker: one JSON-RPC message in, every resulting message out. The host pushes workspace files in with the `djls/syncFiles` and `djls/removeFiles` notifications, because the browser gives djls no filesystem; they land in an in-memory filesystem beneath the shared overlay. Non-`file://` workspace URIs such as `vscode-vfs://` map to stable in-memory paths and back. The default build embeds no Django; hosts call `registerDjango` with a release archive before creating a server. Its public items are JavaScript exports, so `just hawk` excludes the crate.
 
 ### `crates/djls-db`
 

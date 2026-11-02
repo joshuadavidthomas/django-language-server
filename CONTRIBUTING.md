@@ -57,6 +57,7 @@ From the bottom up:
 | `djls-ide` | Translation. Turns analysis into LSP-shaped answers: completions, diagnostics, definitions, references. Everything below it is LSP-unaware. |
 | `djls-lsp` | Transport-independent LSP pieces both servers share: client negotiation, advertised capabilities, open-document buffers and the overlay filesystem. |
 | `djls-server` | The protocol. The native server: the session, request handling, readiness, and push diagnostics. The JSON-RPC transport and request dispatch come from [tower-lsp-server](https://github.com/tower-lsp-community/tower-lsp-server); this crate implements the handlers on top. |
+| `djls-wasm` | The browser build. A synchronous LSP server over an in-memory project, used by the VS Code web extension. |
 | `djls` | The CLI. `djls serve` starts the server; `djls check` runs the same validation in a terminal. |
 
 Tying the layers together is [Salsa](https://github.com/salsa-rs/salsa), the incremental computation framework also used by rust-analyzer. You write analysis as queries over inputs, and when a file changes only the affected queries recompute. That keeps re-analysis on every keystroke cheap.

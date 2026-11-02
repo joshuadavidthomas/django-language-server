@@ -19,6 +19,7 @@ djls-server = { path = "crates/djls-server" }
 djls-source = { path = "crates/djls-source" }
 djls-templates = { path = "crates/djls-templates" }
 djls-testing = { path = "crates/djls-testing" }
+djls-wasm = { path = "crates/djls-wasm" }
 
 # core deps, pin exact versions
 salsa = "0.28.0"
@@ -71,6 +72,8 @@ tower-service = "0.3"
 tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "time"] }
+# Keep paired with wasm-bindgen-cli in mise.toml; the CLI must match exactly.
+wasm-bindgen = "0.2"
 which = "8.0"
 zip = { version = "9.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
