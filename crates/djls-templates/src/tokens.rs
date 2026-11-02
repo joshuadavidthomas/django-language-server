@@ -96,19 +96,6 @@ pub enum Token<T = String> {
 }
 
 impl<T: AsRef<str>> Token<T> {
-    /// Get the content text for content-bearing tokens
-    #[must_use]
-    pub(crate) fn content(&self) -> String {
-        match self {
-            Token::Block { content, .. }
-            | Token::Comment { content, .. }
-            | Token::Error { content, .. }
-            | Token::Text { content, .. }
-            | Token::Variable { content, .. } => content.as_ref().to_string(),
-            Token::Eof => String::new(),
-        }
-    }
-
     #[must_use]
     fn offset(&self) -> Option<u32> {
         match self {
@@ -164,12 +151,6 @@ impl<T: AsRef<str>> Token<T> {
     }
 
     #[must_use]
-    pub(crate) fn full_span_or_fallback(&self) -> Span {
-        self.full_span()
-            .unwrap_or_else(|| self.content_span_or_fallback())
-    }
-
-    #[must_use]
     pub(crate) fn content_span_or_fallback(&self) -> Span {
         self.content_span()
             .unwrap_or_else(|| Span::new(self.offset().unwrap_or(0), self.length()))
@@ -213,41 +194,5 @@ impl Token<&str> {
             },
             Self::Eof => Token::Eof,
         }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct TokenStream<'src>(Vec<Token<&'src str>>);
-
-impl<'src> TokenStream<'src> {
-    const CHARS_PER_TOKEN: usize = 6;
-    const MIN_CAPACITY: usize = 32;
-    const MAX_CAPACITY: usize = 1024;
-
-    #[must_use]
-    pub(crate) fn with_estimated_capacity(source: &str) -> Self {
-        let capacity =
-            (source.len() / Self::CHARS_PER_TOKEN).clamp(Self::MIN_CAPACITY, Self::MAX_CAPACITY);
-        Self(Vec::with_capacity(capacity))
-    }
-
-    #[inline]
-    pub(crate) fn push(&mut self, token: Token<&'src str>) {
-        self.0.push(token);
-    }
-}
-
-impl<'src> From<TokenStream<'src>> for Vec<Token<&'src str>> {
-    fn from(val: TokenStream<'src>) -> Self {
-        val.0
-    }
-}
-
-impl<'src> IntoIterator for TokenStream<'src> {
-    type Item = Token<&'src str>;
-    type IntoIter = std::vec::IntoIter<Self::Item>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
     }
 }

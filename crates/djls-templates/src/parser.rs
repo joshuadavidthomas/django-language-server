@@ -1,3 +1,5 @@
+use std::iter::Peekable;
+
 use djls_source::Span;
 use serde::Serialize;
 use thiserror::Error;
@@ -6,46 +8,49 @@ use crate::bits::TagBit;
 use crate::filters::Filter;
 use crate::filters::parse_filter;
 use crate::filters::split_variable_expression;
+use crate::lexer::Lexer;
 use crate::nodelist::Node;
 use crate::quotes::split_on_unquoted_whitespace;
 use crate::tokens::TagDelimiter;
 use crate::tokens::Token;
 
+/// Parses tokens as the lexer produces them, without buffering a token list.
 pub(crate) struct Parser<'src> {
-    tokens: Vec<Token<&'src str>>,
-    current: usize,
+    tokens: Peekable<Lexer<'src>>,
 }
 
 impl<'src> Parser<'src> {
     #[must_use]
-    pub(crate) fn new(tokens: Vec<Token<&'src str>>) -> Self {
-        Self { tokens, current: 0 }
+    pub(crate) fn new(lexer: Lexer<'src>) -> Self {
+        Self {
+            tokens: lexer.peekable(),
+        }
     }
 
     pub(crate) fn parse(&mut self) -> (Vec<Node>, Vec<ParseError>) {
-        let mut nodelist = Vec::with_capacity(self.tokens.len() / 2);
-        let mut errors = Vec::with_capacity(4);
+        let mut nodelist = Vec::new();
+        let mut errors = Vec::new();
 
-        while !self.is_at_end() {
-            match self.next_node() {
-                Ok(node) => {
-                    nodelist.push(node);
-                }
+        while let Some(token) = self.tokens.next() {
+            let node = match &token {
+                Token::Block { content, span } => Self::parse_block(content, *span),
+                Token::Comment { content, span } => Ok(Node::Comment {
+                    content: (*content).to_string(),
+                    span: *span,
+                }),
+                Token::Error {
+                    content, delimiter, ..
+                } => Err(Self::parse_error(&token, content, *delimiter)),
+                Token::Text { span, .. } => Ok(self.parse_text(*span)),
+                Token::Variable { content, span } => Self::parse_variable(content, *span),
+                Token::Eof => break,
+            };
+
+            match node {
+                Ok(node) => nodelist.push(node),
                 Err(error) => {
-                    let (span, full_span) = self
-                        .peek_previous()
-                        .ok()
-                        .or_else(|| self.peek().ok())
-                        .map_or(
-                            {
-                                let empty = Span::new(0, 0);
-                                (empty, empty)
-                            },
-                            super::tokens::Token::spans,
-                        );
-
+                    let (span, full_span) = token.spans();
                     errors.push(error.clone());
-
                     nodelist.push(Node::Error {
                         span,
                         full_span,
@@ -58,35 +63,23 @@ impl<'src> Parser<'src> {
         (nodelist, errors)
     }
 
-    fn next_node(&mut self) -> Result<Node, ParseError> {
-        let token = self.consume()?;
-
-        match token {
-            Token::Block { .. } => self.parse_block(),
-            Token::Comment { .. } => self.parse_comment(),
-            Token::Eof => Err(ParseError::stream_error(StreamError::AtEnd)),
-            Token::Error { .. } => self.parse_error(),
-            Token::Text { .. } => self.parse_text(),
-            Token::Variable { .. } => self.parse_variable(),
+    // The lexer emits one Text token per run, plus a lone `{` before an
+    // overlapping opener; fold adjacent ones into a single Text node.
+    fn parse_text(&mut self, first: Span) -> Node {
+        let mut end = first.end();
+        while let Some(Token::Text { span, .. }) = self
+            .tokens
+            .next_if(|token| matches!(token, Token::Text { .. }))
+        {
+            end = span.end();
+        }
+        Node::Text {
+            span: Span::saturating_from_bounds_usize(first.start_usize(), end as usize),
         }
     }
 
-    fn parse_block(&mut self) -> Result<Node, ParseError> {
-        let token = self.peek_previous()?;
-
-        let Token::Block {
-            content: content_ref,
-            ..
-        } = token
-        else {
-            return Err(ParseError::UnexpectedTokenKind {
-                position: token.content_span_or_fallback().start_usize(),
-                context: "Expected Block token".to_string(),
-            });
-        };
-
-        let span = token.content_span_or_fallback();
-        let (name, name_span, bits) = Self::parse_tag_args(content_ref, span.start_usize())?;
+    fn parse_block(content: &str, span: Span) -> Result<Node, ParseError> {
+        let (name, name_span, bits) = Self::parse_tag_args(content, span.start_usize())?;
 
         Ok(Node::Tag {
             name,
@@ -119,89 +112,19 @@ impl<'src> Parser<'src> {
         Ok((name.text.to_string(), name_span, bits))
     }
 
-    fn parse_comment(&mut self) -> Result<Node, ParseError> {
-        let token = self.peek_previous()?;
-
-        let span = token.content_span_or_fallback();
-        Ok(Node::Comment {
-            content: token.content(),
-            span,
-        })
-    }
-
-    fn parse_error(&mut self) -> Result<Node, ParseError> {
-        let token = self.peek_previous()?;
-
-        match token {
-            Token::Error {
-                content,
-                span,
-                delimiter,
-            } => {
-                let error_text = truncate_content(content);
-                let full_span = token.full_span().unwrap_or(*span);
-                Err(ParseError::MalformedConstruct {
-                    position: full_span.start_usize(),
-                    delimiter: *delimiter,
-                    content: error_text,
-                })
-            }
-            Token::Block { .. }
-            | Token::Comment { .. }
-            | Token::Eof
-            | Token::Text { .. }
-            | Token::Variable { .. } => Err(ParseError::UnexpectedTokenKind {
-                position: token.content_span_or_fallback().start_usize(),
-                context: "Expected Error token".to_string(),
-            }),
+    fn parse_error(token: &Token<&str>, content: &str, delimiter: TagDelimiter) -> ParseError {
+        let (_, full_span) = token.spans();
+        ParseError::MalformedConstruct {
+            position: full_span.start_usize(),
+            delimiter,
+            content: truncate_content(content),
         }
     }
 
-    fn parse_text(&mut self) -> Result<Node, ParseError> {
-        let first_span = self.peek_previous()?.full_span_or_fallback();
-        let start = first_span.start();
-        let mut end = first_span.end();
-
-        while let Ok(token) = self.peek() {
-            match token {
-                Token::Block { .. }
-                | Token::Variable { .. }
-                | Token::Comment { .. }
-                | Token::Error { .. }
-                | Token::Eof => break, // Stop at Django constructs, errors, or EOF
-                Token::Text { .. } => {
-                    // Update end position
-                    let token_end = token.full_span_or_fallback().end();
-                    end = end.max(token_end);
-                    self.consume()?;
-                }
-            }
-        }
-
-        let length = end.saturating_sub(start);
-        let span = Span::new(start, length);
-
-        Ok(Node::Text { span })
-    }
-
-    fn parse_variable(&mut self) -> Result<Node, ParseError> {
-        let token = self.peek_previous()?;
-
-        let Token::Variable {
-            content: content_ref,
-            ..
-        } = token
-        else {
-            return Err(ParseError::UnexpectedTokenKind {
-                position: token.content_span_or_fallback().start_usize(),
-                context: "Expected Variable token".to_string(),
-            });
-        };
-
-        let span = token.content_span_or_fallback();
+    fn parse_variable(content: &str, span: Span) -> Result<Node, ParseError> {
         let base_offset = span.start();
 
-        let mut parts = split_variable_expression(content_ref);
+        let mut parts = split_variable_expression(content);
 
         let (var_raw, var_offset) = parts.next().ok_or(ParseError::EmptyTag {
             position: span.start_usize(),
@@ -233,57 +156,10 @@ impl<'src> Parser<'src> {
             span,
         })
     }
-
-    #[inline]
-    fn peek(&self) -> Result<&Token<&'src str>, ParseError> {
-        self.tokens.get(self.current).ok_or_else(|| {
-            if self.tokens.is_empty() {
-                ParseError::stream_error(StreamError::Empty)
-            } else {
-                ParseError::stream_error(StreamError::AtEnd)
-            }
-        })
-    }
-
-    #[inline]
-    fn peek_previous(&self) -> Result<&Token<&'src str>, ParseError> {
-        if self.current == 0 {
-            return Err(ParseError::stream_error(StreamError::BeforeStart));
-        }
-        self.tokens
-            .get(self.current - 1)
-            .ok_or_else(|| ParseError::stream_error(StreamError::InvalidAccess))
-    }
-
-    #[inline]
-    fn is_at_end(&self) -> bool {
-        self.current + 1 >= self.tokens.len()
-    }
-
-    #[inline]
-    fn consume(&mut self) -> Result<&Token<&'src str>, ParseError> {
-        if self.is_at_end() {
-            return Err(ParseError::stream_error(StreamError::AtEnd));
-        }
-        self.current += 1;
-        self.peek_previous()
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub enum StreamError {
-    AtBeginning,
-    BeforeStart,
-    AtEnd,
-    Empty,
-    InvalidAccess,
 }
 
 #[derive(Clone, Debug, Error, PartialEq, Eq, Serialize)]
 pub enum ParseError {
-    #[error("Unexpected token kind at position {position}: {context}")]
-    UnexpectedTokenKind { position: usize, context: String },
-
     #[error("Empty tag at position {position}")]
     EmptyTag { position: usize },
 
@@ -300,16 +176,9 @@ pub enum ParseError {
 
     #[error("Malformed filter expression at position {position}: {content}")]
     MalformedFilterExpression { position: usize, content: String },
-
-    #[error("Stream error: {kind:?}")]
-    StreamError { kind: StreamError },
 }
 
 impl ParseError {
-    fn stream_error(kind: impl Into<StreamError>) -> Self {
-        Self::StreamError { kind: kind.into() }
-    }
-
     #[must_use]
     pub fn diagnostic_code(&self) -> &'static str {
         "T100"
@@ -323,10 +192,8 @@ impl ParseError {
                 delimiter,
                 ..
             } => (*position, delimiter.opener().len()),
-            ParseError::UnexpectedTokenKind { position, .. }
-            | ParseError::EmptyTag { position }
+            ParseError::EmptyTag { position }
             | ParseError::MalformedFilterExpression { position, .. } => (*position, 1),
-            ParseError::StreamError { .. } => return None,
         };
 
         Some((position.try_into().ok()?, length.try_into().ok()?))
@@ -349,15 +216,10 @@ mod tests {
     use serde::Serialize;
 
     use super::*;
-    use crate::lexer::Lexer;
     use crate::lexer::TagLines;
 
     fn parse_test_template(source: &str) -> Vec<Node> {
-        let mut lexer = Lexer::new(source, TagLines::Multi);
-        let tokens = lexer.tokenize();
-        let mut parser = Parser::new(tokens);
-        let (nodes, _errors) = parser.parse();
-        nodes
+        crate::parse_template_impl(source, TagLines::Multi).0
     }
 
     #[test]
@@ -385,17 +247,6 @@ mod tests {
         assert_eq!(
             ParseError::EmptyTag { position: 4 }.primary_span(),
             Some((4, 1))
-        );
-    }
-
-    #[test]
-    fn stream_errors_remain_spanless() {
-        assert_eq!(
-            ParseError::StreamError {
-                kind: StreamError::AtEnd,
-            }
-            .primary_span(),
-            None
         );
     }
 

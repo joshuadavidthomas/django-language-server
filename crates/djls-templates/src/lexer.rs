@@ -4,7 +4,6 @@ use memchr::memchr3;
 
 use crate::tokens::TagDelimiter;
 use crate::tokens::Token;
-use crate::tokens::TokenStream;
 
 /// Whether a Django tag, variable, or comment may span lines.
 ///
@@ -53,6 +52,8 @@ pub(crate) struct Lexer<'src> {
     // End of the line containing `current`, cached so a line with many unmatched
     // openers is scanned for its newline once.
     line_end: usize,
+    missing_closers: MissingTagClosers,
+    emitted_eof: bool,
 }
 
 impl<'src> Lexer<'src> {
@@ -64,38 +65,20 @@ impl<'src> Lexer<'src> {
             start: 0,
             current: 0,
             line_end: 0,
+            missing_closers: MissingTagClosers::default(),
+            emitted_eof: false,
         }
     }
 
     pub(crate) fn tokenize(&mut self) -> Vec<Token<&'src str>> {
-        let mut tokens = TokenStream::with_estimated_capacity(self.source);
-        let mut missing_closers = MissingTagClosers::default();
-
-        while !self.is_at_end() {
-            self.start = self.current;
-
-            let token = match TagDelimiter::from_input(self.remaining_source()) {
-                Some(delimiter) => self.lex_django_tag(delimiter, &mut missing_closers),
-                None => self.lex_text(),
-            };
-
-            tokens.push(token);
-        }
-
-        tokens.push(Token::Eof);
-
-        tokens.into()
+        self.collect()
     }
 
-    fn lex_django_tag(
-        &mut self,
-        delimiter: TagDelimiter,
-        missing_closers: &mut MissingTagClosers,
-    ) -> Token<&'src str> {
+    fn lex_django_tag(&mut self, delimiter: TagDelimiter) -> Token<&'src str> {
         let content_start = self.start + TagDelimiter::LENGTH;
         self.current = content_start;
 
-        if let Some(content_end) = self.find_closer(delimiter, content_start, missing_closers) {
+        if let Some(content_end) = self.find_closer(delimiter, content_start) {
             self.current = content_end + delimiter.closer().len();
             let content = &self.source[content_start..content_end];
             let span = Span::saturating_from_bounds_usize(content_start, content_end);
@@ -160,21 +143,16 @@ impl<'src> Lexer<'src> {
 
     /// Return where the content opened at `from` ends, if its closer appears
     /// before the search boundary.
-    fn find_closer(
-        &mut self,
-        delimiter: TagDelimiter,
-        from: usize,
-        missing_closers: &mut MissingTagClosers,
-    ) -> Option<usize> {
+    fn find_closer(&mut self, delimiter: TagDelimiter, from: usize) -> Option<usize> {
         let boundary = self.closer_search_boundary();
-        if missing_closers.contains(delimiter, boundary) {
+        if self.missing_closers.contains(delimiter, boundary) {
             return None;
         }
         let found = delimiter
             .find_closer(&self.source[from..boundary])
             .map(|pos| from + pos);
         if found.is_none() {
-            missing_closers.insert(delimiter, boundary);
+            self.missing_closers.insert(delimiter, boundary);
         }
         found
     }
@@ -235,6 +213,26 @@ impl<'src> Lexer<'src> {
         }
 
         offset
+    }
+}
+
+impl<'src> Iterator for Lexer<'src> {
+    type Item = Token<&'src str>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.is_at_end() {
+            if self.emitted_eof {
+                return None;
+            }
+            self.emitted_eof = true;
+            return Some(Token::Eof);
+        }
+
+        self.start = self.current;
+        Some(match TagDelimiter::from_input(self.remaining_source()) {
+            Some(delimiter) => self.lex_django_tag(delimiter),
+            None => self.lex_text(),
+        })
     }
 }
 
@@ -381,7 +379,7 @@ mod tests {
                 )
             })
             .map(|token| {
-                let span = token.full_span_or_fallback();
+                let span = token.spans().1;
                 (span.start() as usize, span.end() as usize)
             })
             .collect()
@@ -573,7 +571,7 @@ mod tests {
                     &ContentToken {
                         content: content.as_ref(),
                         span: span.into(),
-                        full_span: self.full_span_or_fallback().into(),
+                        full_span: self.spans().1.into(),
                     },
                 ),
                 Token::Comment { content, span } => serializer.serialize_newtype_variant(
@@ -583,7 +581,7 @@ mod tests {
                     &ContentToken {
                         content: content.as_ref(),
                         span: span.into(),
-                        full_span: self.full_span_or_fallback().into(),
+                        full_span: self.spans().1.into(),
                     },
                 ),
                 Token::Eof => serializer.serialize_unit_variant("Token", 2, "Eof"),
@@ -594,7 +592,7 @@ mod tests {
                     &ContentToken {
                         content: content.as_ref(),
                         span: span.into(),
-                        full_span: self.full_span_or_fallback().into(),
+                        full_span: self.spans().1.into(),
                     },
                 ),
                 Token::Text { content, span } => serializer.serialize_newtype_variant(
@@ -614,7 +612,7 @@ mod tests {
                     &ContentToken {
                         content: content.as_ref(),
                         span: span.into(),
-                        full_span: self.full_span_or_fallback().into(),
+                        full_span: self.spans().1.into(),
                     },
                 ),
             }
