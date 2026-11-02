@@ -40,6 +40,18 @@ corpus *ARGS:
 clippy *ARGS:
     cargo clippy --all-targets --all-features --benches --fix --allow-dirty {{ ARGS }} -- -D warnings
 
+# Needs `just corpus sync --source-only`. ARGS go to libFuzzer, such as `-max_total_time=600`.
+# Fuzz the template parser against Django's lexer, seeded from corpus templates
+[positional-arguments]
+fuzz *ARGS:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    seeds=fuzz/corpus/parse_template
+    mkdir -p "$seeds"
+    find crates/djls-testing/.corpus/repos -type f \( -name '*.html' -o -name '*.htm' -o -name '*.djhtml' \) -size -64k -print0 \
+        | while IFS= read -r -d '' file; do cp "$file" "$seeds/$(sha1sum < "$file" | cut -c1-40)"; done
+    cargo "+{{ rustfmt_channel }}" fuzz run --fuzz-dir fuzz parse_template "$seeds" -- -max_len=65536 "$@"
+
 # cargo-hawk must run on the toolchain it was built against.
 # Keep this paired with the Hawk version in mise.toml.
 hawk_channel := `sed -n 's/^channel = "\([^"]*\)"/\1/p' tools/hawk/rust-toolchain.toml`

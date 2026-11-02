@@ -53,6 +53,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - **Internal**: Replaced the corpus-backed `djls-ide` code action test fixture with in-memory stubs and tightened weak `djls-ide` test assertions.
 - **Internal**: Moved corpus-backed `djls-semantic` validation tests into the `corpus` nox session and tightened `djls-semantic` tests and mdtest harness checks.
 - **Internal**: Added `djls-semantic` mdtest cases covering unloaded-symbol diagnostics (S109, S110) after a selective import from an unresolved library, and after a resolved load that does not define the symbol.
+- **Internal**: Added `just fuzz`, a cargo-fuzz target for the template parser seeded from corpus templates, which checks span invariants and compares tag positions with Django's lexer.
 
 ### Fixed
 
