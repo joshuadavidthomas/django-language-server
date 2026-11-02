@@ -5,10 +5,10 @@ expression: sorted_snapshot(&bundle)?
 definitions:
   "tag::eventsignal":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::signal":
     kind: tag
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules:
   "pretix.base.templatetags.eventsignal::tag::eventsignal":

@@ -5,10 +5,10 @@ expression: sorted_snapshot(&bundle)?
 definitions:
   "tag::inlinei18n":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::statici18n":
     kind: tag
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules:
   "statici18n.templatetags.statici18n::tag::inlinei18n":

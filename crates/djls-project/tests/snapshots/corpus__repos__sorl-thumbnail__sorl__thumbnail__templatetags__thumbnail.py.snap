@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "filter::background_margin":
@@ -20,7 +20,7 @@ definitions:
     has_doc: false
   "filter::resolution":
     kind: filter
-    has_doc: false
+    has_doc: true
   "tag::thumbnail":
     kind: tag
     has_doc: false

@@ -23,19 +23,19 @@ definitions:
     has_doc: false
   "filter::has_unrendered_errors":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::intcomma":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::naturaltime":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::render_with_errors":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::timesince_simple":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::user_display_name":
     kind: filter
     has_doc: false
@@ -44,22 +44,22 @@ definitions:
     has_doc: false
   "tag::admin_edit_url":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::admin_theme_classname":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::admin_url_name":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::allow_unicode_slugs":
     kind: tag
     has_doc: false
   "tag::avatar":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::avatar_url":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::base_url_setting":
     kind: tag
     has_doc: false
@@ -71,7 +71,7 @@ definitions:
     has_doc: false
   "tag::classnames":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::component":
     kind: tag
     has_doc: false
@@ -92,13 +92,13 @@ definitions:
     has_doc: false
   "tag::formattedfield":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::formattedfieldfromcontext":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::fragment":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::get_comments_enabled":
     kind: tag
     has_doc: false
@@ -107,7 +107,7 @@ definitions:
     has_doc: false
   "tag::hook_output":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::human_readable_date":
     kind: tag
     has_doc: false
@@ -116,37 +116,37 @@ definitions:
     has_doc: false
   "tag::icon":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::icon_sprite_url":
     kind: tag
     has_doc: false
   "tag::is_page":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::js_translation_strings":
     kind: tag
     has_doc: false
   "tag::keyboard_shortcuts_dialog":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::latest_str":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::locale_label_from_id":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::locales":
     kind: tag
     has_doc: false
   "tag::message_level_tag":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::message_tags":
     kind: tag
     has_doc: false
   "tag::notification_static":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::page_breadcrumbs":
     kind: tag
     has_doc: false
@@ -158,19 +158,19 @@ definitions:
     has_doc: false
   "tag::page_permissions":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::paginate":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::pagination_querystring":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::panel":
     kind: tag
     has_doc: false
   "tag::querystring":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::rawformattedfield":
     kind: tag
     has_doc: false
@@ -188,19 +188,19 @@ definitions:
     has_doc: false
   "tag::status":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::test_collection_is_public":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::test_page_is_public":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::timesince_last_update":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::versioned_static":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::wagtail_config":
     kind: tag
     has_doc: false

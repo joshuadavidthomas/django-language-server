@@ -5,13 +5,13 @@ expression: "sorted_snapshot(&bundle).expect(\"extraction snapshot should serial
 definitions:
   "filter::localize":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::unlocalize":
     kind: filter
-    has_doc: false
+    has_doc: true
   "tag::localize":
     kind: tag
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules:
   "django.templatetags.l10n::tag::localize":

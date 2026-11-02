@@ -49,6 +49,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Fixed
 
+- Fixed hover and completion documentation for template tags and filters, which has been missing since template libraries moved to static extraction. Docstrings are now read from library source, including Django's builtins and functions registered with `simple_tag`, `inclusion_tag`, `simple_block_tag`, `stringfilter`, or `register.tag("name", func)`.
 - Fixed `{% elif %}` conditions never being checked for expression syntax errors (S114).
 - Fixed `{% verbatim name %}` ending at a plain `{% endverbatim %}`; like Django, it now ends only at `{% endverbatim name %}`.
 - Fixed argument validation for tags and filters that a library registers by passing an already-decorated function, such as `register.tag("url", url)` or humanize filters re-registered by Wagtail.

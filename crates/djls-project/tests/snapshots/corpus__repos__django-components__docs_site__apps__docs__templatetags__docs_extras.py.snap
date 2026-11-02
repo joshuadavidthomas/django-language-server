@@ -5,22 +5,22 @@ expression: sorted_snapshot(&bundle)?
 definitions:
   "tag::docstring":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::example":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::image":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::include_file":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::people":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::version":
     kind: tag
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules:
   "docs_site.apps.docs.templatetags.docs_extras::tag::docstring":

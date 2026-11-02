@@ -1,11 +1,11 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "tag::get_admin_log":
     kind: tag
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules:
   "django.contrib.admin.templatetags.log::tag::get_admin_log":

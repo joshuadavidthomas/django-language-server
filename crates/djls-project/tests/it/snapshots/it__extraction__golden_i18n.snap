@@ -5,16 +5,16 @@ expression: "sorted_snapshot(&result).expect(\"i18n extraction snapshot should s
 definitions:
   "tag::blocktrans":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::blocktranslate":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::trans":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::translate":
     kind: tag
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules:
   "django.templatetags.i18n::tag::blocktrans":

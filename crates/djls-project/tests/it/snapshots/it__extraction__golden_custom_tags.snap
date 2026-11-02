@@ -8,19 +8,19 @@ definitions:
     has_doc: false
   "tag::no_params":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::no_params_with_context":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::one_param":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::simple_one_default":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::simple_two_params":
     kind: tag
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules:
   "tests.template_tests.templatetags.custom::tag::div":

@@ -5,22 +5,22 @@ expression: "sorted_snapshot(&bundle).expect(\"extraction snapshot should serial
 definitions:
   "filter::localtime":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::timezone":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::utc":
     kind: filter
-    has_doc: false
+    has_doc: true
   "tag::get_current_timezone":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::localtime":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::timezone":
     kind: tag
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules:
   "django.templatetags.tz::tag::get_current_timezone":

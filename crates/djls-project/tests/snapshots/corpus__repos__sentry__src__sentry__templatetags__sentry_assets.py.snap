@@ -5,22 +5,22 @@ expression: sorted_snapshot(&bundle)?
 definitions:
   "tag::absolute_asset_url":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::asset_url":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::crossorigin":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::frontend_app_asset_url":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::injected_script_assets":
     kind: tag
     has_doc: false
   "tag::script":
     kind: tag
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules:
   "sentry.templatetags.sentry_assets::tag::absolute_asset_url":

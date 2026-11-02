@@ -1,29 +1,29 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "filter::child_age_string":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::dayssince":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::deltasince":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::duration_string":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::hours":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::minutes":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::seconds":
     kind: filter
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules: {}
 filter_arities:

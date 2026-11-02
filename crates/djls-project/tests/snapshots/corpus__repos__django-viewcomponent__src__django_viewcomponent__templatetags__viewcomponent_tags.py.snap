@@ -8,7 +8,7 @@ definitions:
     has_doc: false
   "tag::component":
     kind: tag
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules: {}
 filter_arities: {}

@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "tag::pagination":
@@ -8,7 +8,7 @@ definitions:
     has_doc: false
   "tag::paginator_number":
     kind: tag
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules:
   "common.templatetags.crm_list::tag::paginator_number":

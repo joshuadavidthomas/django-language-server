@@ -11,11 +11,11 @@ use djls_project::ScopedTemplateLibraries;
 use djls_project::ScopedTemplateSymbolLookup;
 use djls_project::TagRole;
 use djls_project::TemplateLibrary;
-use djls_project::TemplateSymbol;
 use djls_project::TemplateSymbolAvailability;
 use djls_project::TemplateSymbolCandidate;
 use djls_project::TemplateSymbolKind;
 use djls_project::template_resolution;
+use djls_project::template_symbol_doc;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::TagSpec;
 use djls_semantic::TagSpecs;
@@ -274,15 +274,15 @@ impl CompletionCandidate {
     }
 
     fn tag_name(
-        symbol: &TemplateSymbol,
+        candidate: &TemplateSymbolCandidate,
+        doc: Option<&str>,
         prefix: &OffsetPrefix<'_>,
         needs_leading_space: bool,
         close: TagClose,
         spec: Option<&TagSpec>,
-        availability: &TemplateSymbolAvailability,
         supports_snippets: bool,
     ) -> Self {
-        let name = symbol.name();
+        let name = candidate.symbol.name();
         let edit = if supports_snippets {
             spec.and_then(|spec| {
                 CompletionEdit::tag_snippet(name, spec, prefix, needs_leading_space, close)
@@ -296,8 +296,8 @@ impl CompletionCandidate {
             label: name.to_string(),
             kind: CompletionCandidateKind::TagName,
             edit,
-            detail: Some(tag_completion_detail(availability)),
-            documentation: symbol.doc().map(str::to_string),
+            detail: Some(tag_completion_detail(&candidate.availability)),
+            documentation: doc.map(str::to_string),
         }
     }
 
@@ -602,6 +602,7 @@ pub fn completion(
             library,
             needs_trailing_space,
         }) => generate_load_symbol_candidates(
+            db,
             prefix,
             suffix,
             *library,
@@ -745,12 +746,12 @@ fn generate_tag_name_candidates(
             TemplateSymbolKind::Tag,
         ) {
             candidates.push(CompletionCandidate::tag_name(
-                &candidate.symbol,
+                &candidate,
+                template_symbol_doc(db, &candidate.symbol),
                 prefix,
                 needs_leading_space,
                 close,
                 tag_specs.get(name),
-                &candidate.availability,
                 supports_snippets,
             ));
         }
@@ -926,6 +927,7 @@ fn generate_library_name_candidates(
 }
 
 fn generate_load_symbol_candidates(
+    db: &dyn SemanticDb,
     prefix: &OffsetPrefix<'_>,
     suffix: &OffsetSuffix<'_>,
     library: Option<&str>,
@@ -951,7 +953,7 @@ fn generate_load_symbol_candidates(
                 prefix,
                 suffix,
                 needs_trailing_space,
-                symbol.doc(),
+                template_symbol_doc(db, symbol),
             )
         })
         .collect::<Vec<_>>();
@@ -986,7 +988,7 @@ fn generate_filter_candidates(
                 name,
                 prefix,
                 &candidate.availability,
-                candidate.symbol.doc(),
+                template_symbol_doc(db, &candidate.symbol),
             ));
         }
     }
@@ -1069,14 +1071,12 @@ mod tests {
         kind: TemplateSymbolKind,
         name: &str,
         module: &PythonModuleName,
-        doc: Option<&str>,
     ) -> TemplateSymbol<'static> {
         TemplateSymbol {
             kind,
             name: TemplateSymbolName::parse(name)
                 .expect("test template symbol name should be valid"),
             definition: SymbolDefinition::Module(module.clone()),
-            doc: doc.map(str::to_string),
         }
     }
 
@@ -1085,8 +1085,7 @@ mod tests {
     ) -> Result<TemplateLibraryCatalog<'_>, Box<dyn std::error::Error>> {
         let libraries =
             HashMap::from([("i18n".to_string(), "django.templatetags.i18n".to_string())]);
-        let mut filter = djls_testing::library_filter("trans", "i18n", "django.templatetags.i18n");
-        filter["doc"] = "Translate text.".into();
+        let filter = djls_testing::library_filter("trans", "i18n", "django.templatetags.i18n");
 
         Ok(djls_testing::make_template_library_catalog(
             db,
@@ -1135,10 +1134,16 @@ mod tests {
         }
     }
 
-    fn test_tag_symbol(name: &str) -> TemplateSymbol<'static> {
+    fn test_tag_candidate(
+        name: &str,
+        availability: &TemplateSymbolAvailability,
+    ) -> TemplateSymbolCandidate<'static> {
         let module = PythonModuleName::parse("django.template.defaulttags")
             .expect("test Python module name should be valid");
-        template_symbol(TemplateSymbolKind::Tag, name, &module, None)
+        TemplateSymbolCandidate {
+            symbol: template_symbol(TemplateSymbolKind::Tag, name, &module),
+            availability: availability.clone(),
+        }
     }
 
     fn choice_tag_specs() -> TagSpecs {
@@ -1233,6 +1238,7 @@ mod tests {
         let suffix = suffix("", 5);
         let scoped_libraries = ScopedTemplateLibraries::from_project_inventory(&libraries);
         let candidates = generate_load_symbol_candidates(
+            &db,
             &prefix("trans"),
             &suffix,
             Some("i18n"),
@@ -1253,6 +1259,7 @@ mod tests {
         let suffix = suffix("", 0);
         let scoped_libraries = ScopedTemplateLibraries::from_project_inventory(&libraries);
         let candidates = generate_load_symbol_candidates(
+            &db,
             &prefix(""),
             &suffix,
             Some("i18n"),
@@ -1433,14 +1440,14 @@ mod tests {
             builtin_availability().expect("builtin tag availability fixture should be valid");
         let spec = block_tag_spec();
         let candidate = CompletionCandidate::tag_name(
-            &test_tag_symbol("block"),
+            &test_tag_candidate("block", &availability),
+            None,
             &prefix("blo"),
             false,
             TagClose::Full {
                 replacement_suffix_len: 3,
             },
             Some(&spec),
-            &availability,
             true,
         );
 
@@ -1456,7 +1463,7 @@ mod tests {
     }
 
     #[test]
-    fn filter_candidates_include_detail_and_documentation() {
+    fn filter_candidates_include_load_detail() {
         let db = TestDatabase::new();
         db.add_file("/test.html", "")
             .expect("filter completion fixture should be added");
@@ -1476,10 +1483,6 @@ mod tests {
 
         assert_eq!(labels(&candidates), vec!["trans"]);
         assert_eq!(candidates[0].detail.as_deref(), Some("{% load i18n %}"));
-        assert_eq!(
-            candidates[0].documentation.as_deref(),
-            Some("Translate text.")
-        );
     }
 
     #[test]
@@ -1528,14 +1531,14 @@ mod tests {
         let availability =
             builtin_availability().expect("builtin tag availability fixture should be valid");
         let candidate = CompletionCandidate::tag_name(
-            &test_tag_symbol("load"),
+            &test_tag_candidate("load", &availability),
+            None,
             &prefix("lo"),
             false,
             TagClose::Partial {
                 replacement_suffix_len: 1,
             },
             None,
-            &availability,
             false,
         );
 
@@ -1548,14 +1551,14 @@ mod tests {
         let availability =
             builtin_availability().expect("builtin tag availability fixture should be valid");
         let candidate = CompletionCandidate::tag_name(
-            &test_tag_symbol("load"),
+            &test_tag_candidate("load", &availability),
+            None,
             &prefix("lo"),
             false,
             TagClose::Partial {
                 replacement_suffix_len: 2,
             },
             None,
-            &availability,
             false,
         );
 
@@ -1571,22 +1574,22 @@ mod tests {
         let mut candidates = vec![
             CompletionCandidate::tag_argument_placeholder("<arg>".to_string(), &empty),
             CompletionCandidate::tag_name(
-                &test_tag_symbol("url"),
+                &test_tag_candidate("url", &availability),
+                None,
                 &empty,
                 false,
                 full_close(),
                 None,
-                &availability,
                 false,
             ),
             CompletionCandidate::end_tag("if", "endif", &empty, false, full_close()),
             CompletionCandidate::tag_name(
-                &test_tag_symbol("block"),
+                &test_tag_candidate("block", &availability),
+                None,
                 &empty,
                 false,
                 full_close(),
                 None,
-                &availability,
                 false,
             ),
         ];

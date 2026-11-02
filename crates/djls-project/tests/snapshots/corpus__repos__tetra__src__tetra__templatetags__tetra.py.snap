@@ -17,13 +17,13 @@ definitions:
     has_doc: false
   "tag::livevar":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::router_view":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::slot":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::tetra_scripts":
     kind: tag
     has_doc: false

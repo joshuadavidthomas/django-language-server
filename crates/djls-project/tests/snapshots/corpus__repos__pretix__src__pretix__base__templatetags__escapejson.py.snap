@@ -5,13 +5,13 @@ expression: sorted_snapshot(&bundle)?
 definitions:
   "filter::attr_escapejson_dumps":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::escapejson":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::escapejson_dumps":
     kind: filter
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules: {}
 filter_arities:

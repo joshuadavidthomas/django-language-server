@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "filter::add6days":
@@ -8,13 +8,13 @@ definitions:
     has_doc: false
   "filter::break_underscore":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::decode":
     kind: filter
     has_doc: false
   "filter::down_title":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::first5":
     kind: filter
     has_doc: false
@@ -23,7 +23,7 @@ definitions:
     has_doc: false
   "filter::format_ping_endpoint":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::guess_schedule":
     kind: filter
     has_doc: false
@@ -59,10 +59,10 @@ definitions:
     has_doc: false
   "filter::sortbydowntime":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::sortchecks":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::timestamp":
     kind: filter
     has_doc: false
@@ -74,7 +74,7 @@ definitions:
     has_doc: false
   "tag::absolute_site_logo_url":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::debug_warning":
     kind: tag
     has_doc: false

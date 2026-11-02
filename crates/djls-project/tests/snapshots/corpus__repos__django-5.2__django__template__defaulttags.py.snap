@@ -1,74 +1,74 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "tag::autoescape":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::comment":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::csrf_token":
     kind: tag
     has_doc: false
   "tag::cycle":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::debug":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::filter":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::firstof":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::for":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::if":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::ifchanged":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::load":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::lorem":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::now":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::querystring":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::regroup":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::resetcycle":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::spaceless":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::templatetag":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::url":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::verbatim":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::widthratio":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::with":
     kind: tag
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules:
   "django.template.defaulttags::tag::autoescape":

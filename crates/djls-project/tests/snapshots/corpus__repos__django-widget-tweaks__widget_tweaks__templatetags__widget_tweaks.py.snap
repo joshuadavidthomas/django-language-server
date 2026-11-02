@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "filter::add_class":
@@ -26,7 +26,7 @@ definitions:
     has_doc: false
   "filter::field_type":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::remove_attr":
     kind: filter
     has_doc: false
@@ -35,10 +35,10 @@ definitions:
     has_doc: false
   "filter::widget_type":
     kind: filter
-    has_doc: false
+    has_doc: true
   "tag::render_field":
     kind: tag
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules:
   "widget_tweaks.templatetags.widget_tweaks::tag::render_field":

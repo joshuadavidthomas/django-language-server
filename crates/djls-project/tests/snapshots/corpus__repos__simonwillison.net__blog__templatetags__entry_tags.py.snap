@@ -1,14 +1,14 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "filter::break_up_long_words":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::ends_with_punctuation":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::first_paragraph":
     kind: filter
     has_doc: false
@@ -32,7 +32,7 @@ definitions:
     has_doc: false
   "filter::text_ago":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::typography":
     kind: filter
     has_doc: false

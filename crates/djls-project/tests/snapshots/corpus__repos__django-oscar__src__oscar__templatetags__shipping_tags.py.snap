@@ -5,13 +5,13 @@ expression: sorted_snapshot(&bundle)?
 definitions:
   "tag::shipping_charge":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::shipping_charge_discount":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::shipping_charge_excl_discount":
     kind: tag
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules:
   "oscar.templatetags.shipping_tags::tag::shipping_charge":

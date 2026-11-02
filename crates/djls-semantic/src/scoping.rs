@@ -498,16 +498,7 @@ pub fn effective_symbol_candidate_at<'db>(
         return None;
     }
 
-    let symbol = candidates
-        .iter()
-        .map(|(_, candidate)| &candidate.symbol)
-        .max_by_key(|symbol| {
-            symbol
-                .doc()
-                .filter(|doc| !doc.trim().is_empty())
-                .map(str::trim)
-        })?
-        .clone();
+    let symbol = first.1.symbol.clone();
     let mut availability = first.1.availability.clone();
     for (_, candidate) in &candidates[1..] {
         if availability == candidate.availability {

@@ -5,7 +5,7 @@ expression: sorted_snapshot(&bundle)?
 definitions:
   "tag::category_tree":
     kind: tag
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules:
   "oscar.templatetags.category_tags::tag::category_tree":
