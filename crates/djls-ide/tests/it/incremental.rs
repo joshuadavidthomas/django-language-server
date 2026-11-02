@@ -29,13 +29,34 @@ const FILES: &[(&str, &[&str])] = &[
         SETTINGS,
         &[
             "INSTALLED_APPS = []
-TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/project/templates'], 'OPTIONS': {'builtins': ['project_tags']}}]
+TEMPLATES = [
+    {
+        'BACKEND': 'django.template.backends.django.DjangoTemplates',
+        'DIRS': ['/project/templates'],
+        'OPTIONS': {'builtins': ['project_tags']},
+    },
+]
 ",
             "INSTALLED_APPS = ['app']
-TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/project/templates'], 'OPTIONS': {}}]
+TEMPLATES = [
+    {
+        'BACKEND': 'django.template.backends.django.DjangoTemplates',
+        'DIRS': ['/project/templates'],
+        'OPTIONS': {},
+    },
+]
 ",
             "INSTALLED_APPS = ['app']
-TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/project/templates'], 'OPTIONS': {'builtins': ['project_tags'], 'libraries': {'alias': 'app.templatetags.app_tags'}}}]
+TEMPLATES = [
+    {
+        'BACKEND': 'django.template.backends.django.DjangoTemplates',
+        'DIRS': ['/project/templates'],
+        'OPTIONS': {
+            'builtins': ['project_tags'],
+            'libraries': {'alias': 'app.templatetags.app_tags'},
+        },
+    },
+]
 ",
             "from base_settings import *
 ",
@@ -48,10 +69,23 @@ INSTALLED_APPS = INSTALLED_APPS + ['app']
         "/project/base_settings.py",
         &[
             "INSTALLED_APPS = []
-TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/project/templates'], 'OPTIONS': {'builtins': ['project_tags']}}]
+TEMPLATES = [
+    {
+        'BACKEND': 'django.template.backends.django.DjangoTemplates',
+        'DIRS': ['/project/templates'],
+        'OPTIONS': {'builtins': ['project_tags']},
+    },
+]
 ",
             "INSTALLED_APPS = ['app']
-TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/project/templates'], 'APP_DIRS': True, 'OPTIONS': {}}]
+TEMPLATES = [
+    {
+        'BACKEND': 'django.template.backends.django.DjangoTemplates',
+        'DIRS': ['/project/templates'],
+        'APP_DIRS': True,
+        'OPTIONS': {},
+    },
+]
 ",
         ],
     ),
