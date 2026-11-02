@@ -25,7 +25,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Added structure and outline entries for Django 6.0+ `{% partialdef %}` and `{% partial %}`: `{% partialdef %}` is matched with `{% endpartialdef %}`, and both appear in the outline under the partial's name.
 - **Internal**: Added `just ecosystem` and an `ecosystem` workflow that run `djls check` from the base and pull request builds across the corpus and report the diagnostic diff.
 - **Internal**: Added `just mutants` for mutation testing with `cargo-mutants`.
-- **Internal**: Added a `proptest` property in `djls-ide` that applies random file edits to one database the way the server does and checks that every Template's diagnostics match a fresh database. Set `PROPTEST_CASES` for a deeper run.
+- **Internal**: Added a `proptest` property in `djls-ide` that applies random file edits to one database the way the server does and checks that every Template's diagnostics match a fresh database. It uses a fixed seed by default; set `PROPTEST_CASES` and `PROPTEST_RNG_SEED` for a deeper run.
 
 ### Changed
 
