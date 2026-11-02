@@ -1,14 +1,14 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "filter::classes":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::css_class":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::is_checkbox":
     kind: filter
     has_doc: false
@@ -35,10 +35,10 @@ definitions:
     has_doc: false
   "tag::crispy_addon":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::crispy_field":
     kind: tag
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules:
   "crispy_forms.templatetags.crispy_forms_field::tag::crispy_addon":

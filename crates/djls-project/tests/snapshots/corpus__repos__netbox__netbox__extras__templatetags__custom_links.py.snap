@@ -5,7 +5,7 @@ expression: sorted_snapshot(&bundle)?
 definitions:
   "tag::custom_links":
     kind: tag
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules:
   "extras.templatetags.custom_links::tag::custom_links":

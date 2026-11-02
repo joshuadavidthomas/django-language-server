@@ -105,7 +105,6 @@ mod tests {
                 "load_name": "extras",
                 "library_module": "example.extras",
                 "module": "example.extras",
-                "doc": null,
             })],
             &[],
             &HashMap::from([("extras".to_string(), "example.extras".to_string())]),

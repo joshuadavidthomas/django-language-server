@@ -5,7 +5,7 @@ expression: sorted_snapshot(&bundle)?
 definitions:
   "tag::get_parameters":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::iffeature":
     kind: tag
     has_doc: false

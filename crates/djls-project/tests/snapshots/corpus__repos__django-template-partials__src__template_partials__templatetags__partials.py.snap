@@ -5,10 +5,10 @@ expression: sorted_snapshot(&bundle)?
 definitions:
   "tag::partial":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::partialdef":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::startpartial":
     kind: tag
     has_doc: false

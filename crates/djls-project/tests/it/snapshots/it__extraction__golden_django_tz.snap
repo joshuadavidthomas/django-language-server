@@ -5,13 +5,13 @@ expression: "sorted_snapshot(&result).expect(\"timezone extraction snapshot shou
 definitions:
   "tag::get_current_timezone":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::localtime":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::timezone":
     kind: tag
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules:
   "django.templatetags.tz::tag::get_current_timezone":

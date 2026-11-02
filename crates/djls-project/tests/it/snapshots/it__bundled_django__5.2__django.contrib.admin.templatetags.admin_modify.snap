@@ -5,10 +5,10 @@ expression: "sorted_snapshot(&bundle).expect(\"extraction snapshot should serial
 definitions:
   "filter::cell_count":
     kind: filter
-    has_doc: false
+    has_doc: true
   "tag::change_form_object_tools":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::prepopulated_fields_js":
     kind: tag
     has_doc: false

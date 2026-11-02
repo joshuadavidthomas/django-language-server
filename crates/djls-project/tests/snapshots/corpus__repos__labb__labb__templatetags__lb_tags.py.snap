@@ -5,52 +5,52 @@ expression: sorted_snapshot(&bundle)?
 definitions:
   "filter::get_dict_item":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::is_half_rate":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::is_whole_rate":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::lb_icon_exists":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::make_range":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::remove_l_attrs":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::strip_icon_attrs":
     kind: filter
-    has_doc: false
+    has_doc: true
   "tag::labb_theme":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::labb_theme_val":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::lb_chart_deps":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::lb_css_path":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::lb_load_stack":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::lb_push_stack":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::lb_stack_has":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::parse_icon":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::resolve_labb_link":
     kind: tag
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules:
   "labb.templatetags.lb_tags::tag::labb_theme":

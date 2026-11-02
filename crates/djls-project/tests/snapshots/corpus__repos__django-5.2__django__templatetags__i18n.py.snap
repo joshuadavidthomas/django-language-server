@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "filter::language_bidi":
@@ -17,34 +17,34 @@ definitions:
     has_doc: false
   "tag::blocktrans":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::blocktranslate":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::get_available_languages":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::get_current_language":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::get_current_language_bidi":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::get_language_info":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::get_language_info_list":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::language":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::trans":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::translate":
     kind: tag
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules:
   "django.templatetags.i18n::tag::blocktrans":

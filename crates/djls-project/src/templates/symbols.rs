@@ -102,7 +102,6 @@ pub struct TemplateSymbol<'db> {
     pub kind: TemplateSymbolKind,
     pub name: TemplateSymbolName,
     pub definition: SymbolDefinition<'db>,
-    pub doc: Option<String>,
 }
 
 impl TemplateSymbol<'_> {
@@ -111,14 +110,9 @@ impl TemplateSymbol<'_> {
         self.name.as_str()
     }
 
-    #[must_use]
-    pub fn doc(&self) -> Option<&str> {
-        self.doc.as_deref()
-    }
-
     /// Return whether both symbols identify the same known definition.
     ///
-    /// Presentation metadata such as documentation and library availability does not establish
+    /// Presentation metadata such as library availability does not establish
     /// identity. Unknown provenance cannot prove that two otherwise identical symbols agree.
     #[must_use]
     pub fn has_same_definition(&self, other: &Self) -> bool {

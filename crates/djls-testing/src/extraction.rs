@@ -15,6 +15,7 @@ use djls_project::TemplateSymbolKind;
 use djls_project::template_library_definition_facts;
 use djls_project::template_library_filter_facts;
 use djls_project::template_library_tag_facts;
+use djls_project::template_symbol_doc;
 use djls_source::File;
 use serde::Serialize;
 
@@ -54,7 +55,7 @@ pub fn extract_bundle(
                 format!("{kind}::{}", symbol.name()),
                 ExtractedDefinition {
                     kind: symbol.kind,
-                    has_doc: symbol.doc().is_some(),
+                    has_doc: template_symbol_doc(db, symbol).is_some(),
                 },
             )
         })

@@ -12,6 +12,7 @@ use djls_project::TemplateSymbolAvailability;
 use djls_project::TemplateSymbolCandidate;
 use djls_project::TemplateSymbolKind;
 use djls_project::template_resolution;
+use djls_project::template_symbol_doc;
 use djls_semantic::Db as SemanticDb;
 use djls_semantic::SemanticOffsetContext;
 use djls_semantic::resolve_reference_for_file;
@@ -58,7 +59,7 @@ pub fn hover(
             library,
             span,
         } => Some((
-            render_library_symbol_hover(scoped_libraries, &name, &library, None)?,
+            render_library_symbol_hover(db, scoped_libraries, &name, &library, None)?,
             span,
         )),
         SemanticOffsetContext::Tag {
@@ -67,6 +68,7 @@ pub fn hover(
             span,
         } => Some((
             render_effective_symbol_hover(
+                db,
                 scoped_libraries,
                 &name,
                 TemplateSymbolKind::Tag,
@@ -80,6 +82,7 @@ pub fn hover(
             span,
         } => Some((
             render_effective_symbol_hover(
+                db,
                 scoped_libraries,
                 &name,
                 TemplateSymbolKind::Filter,
@@ -153,6 +156,7 @@ fn render_template_reference_hover(
 }
 
 fn render_effective_symbol_hover(
+    db: &dyn SemanticDb,
     scoped_libraries: ScopedTemplateLibraries<'_, '_>,
     name: &str,
     kind: TemplateSymbolKind,
@@ -187,20 +191,17 @@ fn render_effective_symbol_hover(
 
     // The same definition may be exposed as a builtin in one backend and through a loaded
     // library in another. Select presentation metadata independently of that exposure.
-    let (library, symbol) = candidates.into_iter().max_by_key(|(library, symbol)| {
+    let (library, symbol) = candidates.into_iter().max_by_key(|(library, _)| {
         (
-            symbol
-                .doc()
-                .filter(|doc| !doc.trim().is_empty())
-                .map(str::trim),
             library.module_name_str(),
             library.load_name().map(LibraryName::as_str),
         )
     })?;
-    render_symbol_hover(symbol, library.module_name(), None)
+    render_symbol_hover(db, symbol, library.module_name(), None)
 }
 
 fn render_library_symbol_hover(
+    db: &dyn SemanticDb,
     scoped_libraries: ScopedTemplateLibraries<'_, '_>,
     name: &str,
     library: &str,
@@ -210,10 +211,11 @@ fn render_library_symbol_hover(
     else {
         return None;
     };
-    render_symbol_from_library(library, name, kind)
+    render_symbol_from_library(db, library, name, kind)
 }
 
 fn render_symbol_from_library(
+    db: &dyn SemanticDb,
     library: &TemplateLibrary,
     name: &str,
     kind: Option<TemplateSymbolKind>,
@@ -223,8 +225,7 @@ fn render_symbol_from_library(
         .iter()
         .filter(|symbol| symbol.name() == name && kind.is_none_or(|kind| symbol.kind == kind))
         .max_by_key(|symbol| {
-            symbol
-                .doc()
+            template_symbol_doc(db, symbol)
                 .filter(|doc| !doc.trim().is_empty())
                 .map(str::trim)
         })?;
@@ -234,10 +235,11 @@ fn render_symbol_from_library(
             .map(|load_name| TemplateSymbolAvailability::RequiresLoad {
                 load_name: load_name.clone(),
             });
-    render_symbol_hover(symbol, library.module_name(), availability)
+    render_symbol_hover(db, symbol, library.module_name(), availability)
 }
 
 fn render_symbol_hover(
+    db: &dyn SemanticDb,
     symbol: &TemplateSymbol,
     module_name: &PythonModuleName,
     availability: Option<TemplateSymbolAvailability>,
@@ -248,21 +250,21 @@ fn render_symbol_hover(
             module: module_name.clone(),
         }),
     }];
-    let mut markdown = render_template_symbol_hover(&candidates)?;
+    let mut markdown = render_template_symbol_hover(db, &candidates)?;
     markdown.push_str("\n---\nDefined in `");
     markdown.push_str(module_name.as_str());
     markdown.push_str("`.");
     Some(markdown)
 }
 
-fn render_template_symbol_hover(candidates: &[TemplateSymbolCandidate]) -> Option<String> {
+fn render_template_symbol_hover(
+    db: &dyn SemanticDb,
+    candidates: &[TemplateSymbolCandidate],
+) -> Option<String> {
     let candidate = candidates
         .iter()
         .find(|candidate| {
-            candidate
-                .symbol
-                .doc()
-                .is_some_and(|doc| !doc.trim().is_empty())
+            template_symbol_doc(db, &candidate.symbol).is_some_and(|doc| !doc.trim().is_empty())
         })
         .or_else(|| candidates.first())?;
 
@@ -273,9 +275,7 @@ fn render_template_symbol_hover(candidates: &[TemplateSymbolCandidate]) -> Optio
     };
     let mut sections = vec![format!("```text\n({kind}) {name}\n```")];
 
-    if let Some(doc) = candidate
-        .symbol
-        .doc()
+    if let Some(doc) = template_symbol_doc(db, &candidate.symbol)
         .map(format_docstring)
         .filter(|doc| !doc.is_empty())
     {
@@ -372,101 +372,25 @@ fn format_docstring(doc: &str) -> String {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    use std::io;
 
     use super::*;
-
-    #[derive(Clone, Copy)]
-    enum TestOrigin {
-        Builtin(&'static str),
-        Loadable(&'static str),
-    }
-
-    fn candidate<'db>(
-        db: &'db djls_testing::TestDatabase,
-        kind: TemplateSymbolKind,
-        name: &str,
-        doc: Option<&str>,
-        origin: TestOrigin,
-    ) -> Result<TemplateSymbolCandidate<'db>, Box<dyn std::error::Error>> {
-        let mut libraries = HashMap::new();
-        let mut builtins = Vec::new();
-        let mut fixture = match (kind, origin) {
-            (TemplateSymbolKind::Tag, TestOrigin::Builtin(module)) => {
-                builtins.push(module.to_string());
-                djls_testing::builtin_tag(name, module)
-            }
-            (TemplateSymbolKind::Filter, TestOrigin::Builtin(module)) => {
-                builtins.push(module.to_string());
-                djls_testing::builtin_filter(name, module)
-            }
-            (TemplateSymbolKind::Tag, TestOrigin::Loadable(load_name)) => {
-                let module = format!("django.contrib.{load_name}.templatetags.{load_name}");
-                libraries.insert(load_name.to_string(), module.clone());
-                djls_testing::library_tag(name, load_name, &module)
-            }
-            (TemplateSymbolKind::Filter, TestOrigin::Loadable(load_name)) => {
-                let module = format!("django.contrib.{load_name}.templatetags.{load_name}");
-                libraries.insert(load_name.to_string(), module.clone());
-                djls_testing::library_filter(name, load_name, &module)
-            }
-        };
-        if let Some(doc) = doc {
-            fixture["doc"] = doc.into();
-        }
-
-        let (tags, filters) = match kind {
-            TemplateSymbolKind::Tag => (vec![fixture], Vec::new()),
-            TemplateSymbolKind::Filter => (Vec::new(), vec![fixture]),
-        };
-        let libraries = djls_testing::make_template_library_catalog(
-            db, &tags, &filters, &libraries, &builtins,
-        )?;
-
-        Ok(ScopedTemplateLibraries::from_project_inventory(&libraries)
-            .scoped_symbol_candidates(name, kind)
-            .into_iter()
-            .next()
-            .ok_or_else(|| io::Error::other("hover candidate should exist"))?)
-    }
-
-    #[test]
-    fn tag_hover_includes_signature_and_docstring() {
-        let db = djls_testing::TestDatabase::new();
-        let candidates = vec![
-            candidate(
-                &db,
-                TemplateSymbolKind::Tag,
-                "if",
-                Some("Evaluate a condition."),
-                TestOrigin::Builtin("django.template.defaulttags"),
-            )
-            .expect("tag hover candidate fixture should be valid"),
-        ];
-
-        let markdown = render_template_symbol_hover(&candidates);
-
-        assert_eq!(
-            markdown.as_deref(),
-            Some("```text\n(tag) if\n```\n---\nEvaluate a condition."),
-        );
-    }
 
     #[test]
     fn filter_hover_falls_back_to_load_hint() {
         let db = djls_testing::TestDatabase::new();
-        let candidates = vec![
-            candidate(
-                &db,
-                TemplateSymbolKind::Filter,
-                "intcomma",
-                None,
-                TestOrigin::Loadable("humanize"),
-            )
-            .expect("filter hover candidate fixture should be valid"),
-        ];
+        let module = "django.contrib.humanize.templatetags.humanize";
+        let libraries = djls_testing::make_template_library_catalog(
+            &db,
+            &[],
+            &[djls_testing::library_filter("intcomma", "humanize", module)],
+            &HashMap::from([("humanize".to_string(), module.to_string())]),
+            &[],
+        )
+        .expect("humanize filter fixture should be valid");
+        let candidates = ScopedTemplateLibraries::from_project_inventory(&libraries)
+            .scoped_symbol_candidates("intcomma", TemplateSymbolKind::Filter);
 
-        let markdown = render_template_symbol_hover(&candidates);
+        let markdown = render_template_symbol_hover(&db, &candidates);
 
         assert_eq!(
             markdown.as_deref(),

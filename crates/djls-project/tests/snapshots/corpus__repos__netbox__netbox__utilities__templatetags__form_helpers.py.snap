@@ -5,25 +5,25 @@ expression: sorted_snapshot(&bundle)?
 definitions:
   "filter::getfield":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::widget_type":
     kind: filter
-    has_doc: false
+    has_doc: true
   "tag::render_custom_fields":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::render_errors":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::render_field":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::render_fieldset":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::render_form":
     kind: tag
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules:
   "utilities.templatetags.form_helpers::tag::render_custom_fields":

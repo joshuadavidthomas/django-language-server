@@ -65,7 +65,7 @@ definitions:
     has_doc: false
   "tag::org_url":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::percent":
     kind: tag
     has_doc: false

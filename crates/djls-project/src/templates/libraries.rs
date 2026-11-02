@@ -329,7 +329,6 @@ impl<'db> TemplateLibrary<'db> {
             kind: TemplateSymbolKind::Tag,
             name,
             definition: SymbolDefinition::Unknown,
-            doc: None,
         });
         self.symbols
             .sort_by(|left, right| left.kind.cmp(&right.kind).then(left.name.cmp(&right.name)));
@@ -362,20 +361,6 @@ fn merge_symbols(mut symbols: Vec<TemplateSymbol<'_>>) -> Vec<TemplateSymbol<'_>
     symbols.sort_by(|left, right| left.kind.cmp(&right.kind).then(left.name.cmp(&right.name)));
     symbols.dedup_by(|new_symbol, existing| {
         if existing.kind == new_symbol.kind && existing.name == new_symbol.name {
-            let existing_doc = existing
-                .doc
-                .as_deref()
-                .filter(|doc| !doc.trim().is_empty())
-                .map(str::trim);
-            let new_doc = new_symbol
-                .doc
-                .as_deref()
-                .filter(|doc| !doc.trim().is_empty())
-                .map(str::trim);
-            if new_doc > existing_doc {
-                existing.doc.clone_from(&new_symbol.doc);
-            }
-
             if new_symbol.definition.rank() > existing.definition.rank() {
                 existing.definition.clone_from(&new_symbol.definition);
             }
@@ -2516,7 +2501,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn symbol_merge_preserves_kind_rank_documentation_and_stable_ties() {
+    fn symbol_merge_preserves_kind_rank_and_stable_ties() {
         let first = PythonModuleName::parse("first.tags").expect("module");
         let later = PythonModuleName::parse("later.tags").expect("module");
         let symbols = vec![
@@ -2524,31 +2509,26 @@ mod tests {
                 kind: TemplateSymbolKind::Tag,
                 name: TemplateSymbolName::parse("z").expect("name"),
                 definition: SymbolDefinition::Unknown,
-                doc: Some("  ".to_string()),
             },
             TemplateSymbol {
                 kind: TemplateSymbolKind::Filter,
                 name: TemplateSymbolName::parse("z").expect("name"),
                 definition: SymbolDefinition::Unknown,
-                doc: None,
             },
             TemplateSymbol {
                 kind: TemplateSymbolKind::Tag,
                 name: TemplateSymbolName::parse("z").expect("name"),
                 definition: SymbolDefinition::Module(first.clone()),
-                doc: Some(" alpha ".to_string()),
             },
             TemplateSymbol {
                 kind: TemplateSymbolKind::Tag,
                 name: TemplateSymbolName::parse("a").expect("name"),
                 definition: SymbolDefinition::Unknown,
-                doc: None,
             },
             TemplateSymbol {
                 kind: TemplateSymbolKind::Tag,
                 name: TemplateSymbolName::parse("z").expect("name"),
                 definition: SymbolDefinition::Module(later),
-                doc: Some(" zulu ".to_string()),
             },
         ];
         let merged = merge_symbols(symbols);
@@ -2557,9 +2537,7 @@ mod tests {
         assert_eq!(merged[1].name(), "z");
         assert_eq!(merged[1].kind, TemplateSymbolKind::Tag);
         assert_eq!(merged[1].definition, SymbolDefinition::Module(first));
-        assert_eq!(merged[1].doc(), Some(" zulu "));
         assert_eq!(merged[2].kind, TemplateSymbolKind::Filter);
-        assert_eq!(merged[2].doc(), None);
     }
 
     #[test]

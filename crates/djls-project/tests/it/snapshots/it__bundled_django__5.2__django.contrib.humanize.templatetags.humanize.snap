@@ -5,22 +5,22 @@ expression: "sorted_snapshot(&bundle).expect(\"extraction snapshot should serial
 definitions:
   "filter::apnumber":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::intcomma":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::intword":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::naturalday":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::naturaltime":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::ordinal":
     kind: filter
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules: {}
 filter_arities:

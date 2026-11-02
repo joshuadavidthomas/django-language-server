@@ -8,7 +8,7 @@ definitions:
     has_doc: false
   "filter::truncated_unordered_list":
     kind: filter
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules: {}
 filter_arities:

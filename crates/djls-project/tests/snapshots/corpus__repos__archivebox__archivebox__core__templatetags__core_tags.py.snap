@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "filter::file_size":
@@ -8,10 +8,10 @@ definitions:
     has_doc: false
   "filter::plugin_display_name":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::plugin_name":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::split":
     kind: filter
     has_doc: false
@@ -20,16 +20,16 @@ definitions:
     has_doc: false
   "tag::api_token":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::plugin_card":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::plugin_full":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::plugin_icon":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::snapshot_base_url":
     kind: tag
     has_doc: false

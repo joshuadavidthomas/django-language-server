@@ -5,67 +5,67 @@ expression: sorted_snapshot(&bundle)?
 definitions:
   "filter::bootstrap_message_classes":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::bootstrap_setting":
     kind: filter
-    has_doc: false
+    has_doc: true
   "tag::bootstrap_alert":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::bootstrap_button":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::bootstrap_css":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::bootstrap_css_url":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::bootstrap_field":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::bootstrap_form":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::bootstrap_form_errors":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::bootstrap_formset":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::bootstrap_formset_errors":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::bootstrap_icon":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::bootstrap_javascript":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::bootstrap_javascript_url":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::bootstrap_jquery_url":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::bootstrap_label":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::bootstrap_messages":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::bootstrap_pagination":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::bootstrap_theme_url":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::bootstrap_url_replace_param":
     kind: tag
     has_doc: false
   "tag::buttons":
     kind: tag
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules:
   "bootstrap3.templatetags.bootstrap3::tag::bootstrap_alert":

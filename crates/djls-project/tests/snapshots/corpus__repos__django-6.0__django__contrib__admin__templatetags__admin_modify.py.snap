@@ -1,14 +1,14 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "filter::cell_count":
     kind: filter
-    has_doc: false
+    has_doc: true
   "tag::change_form_object_tools":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::prepopulated_fields_js":
     kind: tag
     has_doc: false

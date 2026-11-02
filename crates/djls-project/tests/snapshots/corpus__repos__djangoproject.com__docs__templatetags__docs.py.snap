@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "filter::fragment":
@@ -8,13 +8,13 @@ definitions:
     has_doc: false
   "tag::code_links":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::get_all_doc_versions":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::pygment":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::search_form":
     kind: tag
     has_doc: false

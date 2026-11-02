@@ -2423,7 +2423,7 @@ fn template_symbol_location_shift_backdates_semantic_products() {
         let definitions = template_library_definition_facts(&db, key);
         let definition_values = definitions
             .symbols()
-            .map(|symbol| (symbol.kind, symbol.name().to_owned(), symbol.doc.clone()))
+            .map(|symbol| (symbol.kind, symbol.name().to_owned()))
             .collect::<Vec<_>>();
         let tag_facts = template_library_tag_facts(&db, key).clone();
         let filter_facts = template_library_filter_facts(&db, key).clone();
@@ -2457,7 +2457,7 @@ fn template_symbol_location_shift_backdates_semantic_products() {
     assert_eq!(
         definitions_after
             .symbols()
-            .map(|symbol| (symbol.kind, symbol.name().to_owned(), symbol.doc.clone()))
+            .map(|symbol| (symbol.kind, symbol.name().to_owned()))
             .collect::<Vec<_>>(),
         definitions_before
     );

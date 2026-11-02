@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "tag::qr_for_contact":
@@ -17,10 +17,10 @@ definitions:
     has_doc: false
   "tag::qr_for_geolocation":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::qr_for_google_maps":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::qr_for_google_play":
     kind: tag
     has_doc: false
@@ -62,10 +62,10 @@ definitions:
     has_doc: false
   "tag::qr_url_for_geolocation":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::qr_url_for_google_maps":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::qr_url_for_google_play":
     kind: tag
     has_doc: false

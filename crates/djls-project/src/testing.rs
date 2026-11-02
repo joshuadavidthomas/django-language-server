@@ -503,7 +503,6 @@ struct TemplateSymbolSnapshot {
     kind: TemplateSymbolKind,
     name: String,
     definition: SymbolDefinitionSnapshot,
-    doc: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -551,7 +550,6 @@ pub fn template_library_definition_facts_snapshot<'db>(
                     }
                     SymbolDefinition::Unknown => SymbolDefinitionSnapshot::Unknown,
                 },
-                doc: symbol.doc.clone(),
             })
             .collect(),
     }

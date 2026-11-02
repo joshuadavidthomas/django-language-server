@@ -74,7 +74,7 @@ definitions:
     has_doc: false
   "tag::preserve_filters":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::querystring_params":
     kind: tag
     has_doc: false
@@ -89,7 +89,7 @@ definitions:
     has_doc: false
   "tag::unfold_querystring":
     kind: tag
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules:
   "unfold.templatetags.unfold::tag::action_item_classes":

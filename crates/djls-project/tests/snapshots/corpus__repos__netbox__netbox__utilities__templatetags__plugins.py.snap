@@ -5,28 +5,28 @@ expression: sorted_snapshot(&bundle)?
 definitions:
   "tag::plugin_alerts":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::plugin_buttons":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::plugin_full_width_page":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::plugin_head":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::plugin_left_page":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::plugin_list_buttons":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::plugin_navbar":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::plugin_right_page":
     kind: tag
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules:
   "utilities.templatetags.plugins::tag::plugin_alerts":

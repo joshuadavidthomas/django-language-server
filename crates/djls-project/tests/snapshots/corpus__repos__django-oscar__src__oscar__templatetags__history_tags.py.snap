@@ -5,10 +5,10 @@ expression: sorted_snapshot(&bundle)?
 definitions:
   "tag::get_back_button":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::recently_viewed_products":
     kind: tag
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules:
   "oscar.templatetags.history_tags::tag::get_back_button":

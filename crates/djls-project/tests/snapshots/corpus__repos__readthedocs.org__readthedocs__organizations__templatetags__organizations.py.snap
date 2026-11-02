@@ -1,26 +1,26 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "filter::admin_teams":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::has_sso_enabled":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::org_owner":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::organization":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::owner_organizations":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::teams":
     kind: filter
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules: {}
 filter_arities:

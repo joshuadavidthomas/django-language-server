@@ -1624,7 +1624,6 @@ fn template_library_registration_inventory<'db>(
                     kind,
                     name,
                     definition: SymbolDefinition::Exact { library: key },
-                    doc: None,
                 };
                 let symbol_name = symbol.name().to_string();
                 match kind {
@@ -1992,6 +1991,112 @@ pub fn template_symbol_source<'db>(
         return None;
     };
     template_library_symbol_sources(db, *library).symbol(symbol.kind, symbol.name())
+}
+
+/// The registered callable's `__doc__`, cleaned as `inspect.cleandoc` would.
+#[must_use]
+pub fn template_symbol_doc<'db>(
+    db: &'db dyn ProjectDb,
+    symbol: &TemplateSymbol<'db>,
+) -> Option<&'db str> {
+    let SymbolDefinition::Exact { library } = &symbol.definition else {
+        return None;
+    };
+    let docs = template_library_symbol_docs(db, *library);
+    match symbol.kind {
+        TemplateSymbolKind::Tag => docs.tags.get(symbol.name()),
+        TemplateSymbolKind::Filter => docs.filters.get(symbol.name()),
+    }
+    .map(String::as_str)
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct TemplateLibrarySymbolDocs {
+    tags: BTreeMap<String, String>,
+    filters: BTreeMap<String, String>,
+}
+
+/// Docstrings stay out of the definition facts so docstring edits and inner-decorator
+/// resolution do not invalidate symbol inventories.
+#[salsa::tracked(returns(ref))]
+fn template_library_symbol_docs<'db>(
+    db: &'db dyn ProjectDb,
+    key: TemplateLibraryId<'db>,
+) -> TemplateLibrarySymbolDocs {
+    let mut docs = TemplateLibrarySymbolDocs::default();
+    for descriptor in &template_library_registration_inventory(db, key).descriptors {
+        let symbols = match descriptor.kind.symbol_kind() {
+            TemplateSymbolKind::Tag => &mut docs.tags,
+            TemplateSymbolKind::Filter => &mut docs.filters,
+        };
+        // A later registration replaces the earlier callable, and with it the docstring.
+        symbols.remove(&descriptor.key.name);
+        let Some(definition) = &descriptor.function else {
+            continue;
+        };
+        // Django's `simple_tag`, `inclusion_tag`, `simple_block_tag`, and `stringfilter`
+        // wrappers use `functools.wraps`, so they keep the declared function's `__doc__`.
+        // Other inner decorators may replace it.
+        if !descriptor.signature_is_preserved(db, definition) {
+            continue;
+        }
+        if let Some(doc) = definition.statement(db).and_then(function_docstring) {
+            symbols.insert(descriptor.key.name.clone(), doc);
+        }
+    }
+    docs
+}
+
+fn function_docstring(function: &StmtFunctionDef) -> Option<String> {
+    let Some(Stmt::Expr(StmtExpr { value, .. })) = function.body.first() else {
+        return None;
+    };
+    let doc = clean_docstring(value.string_literal()?);
+    (!doc.is_empty()).then_some(doc)
+}
+
+/// Port of Python's `inspect.cleandoc`.
+fn clean_docstring(doc: &str) -> String {
+    let lines: Vec<String> = doc.split('\n').map(expand_tabs).collect();
+    let indent = |line: &str| line.chars().take_while(|c| c.is_whitespace()).count();
+    let margin = lines
+        .iter()
+        .skip(1)
+        .filter(|line| !line.trim_start().is_empty())
+        .map(|line| indent(line))
+        .min()
+        .unwrap_or(0);
+    let mut cleaned: Vec<&str> = lines
+        .iter()
+        .enumerate()
+        .map(|(index, line)| {
+            let skip = if index == 0 { indent(line) } else { margin };
+            let start = line.char_indices().nth(skip).map_or(line.len(), |(i, _)| i);
+            &line[start..]
+        })
+        .collect();
+    while cleaned.last().is_some_and(|line| line.is_empty()) {
+        cleaned.pop();
+    }
+    let leading = cleaned.iter().take_while(|line| line.is_empty()).count();
+    cleaned[leading..].join("\n")
+}
+
+/// Python's `str.expandtabs()` with its default tab size of 8.
+fn expand_tabs(line: &str) -> String {
+    let mut expanded = String::with_capacity(line.len());
+    let mut column = 0;
+    for c in line.chars() {
+        if c == '\t' {
+            let spaces = 8 - column % 8;
+            expanded.extend(std::iter::repeat_n(' ', spaces));
+            column += spaces;
+        } else {
+            expanded.push(c);
+            column += 1;
+        }
+    }
+    expanded
 }
 
 #[salsa::tracked(returns(ref))]

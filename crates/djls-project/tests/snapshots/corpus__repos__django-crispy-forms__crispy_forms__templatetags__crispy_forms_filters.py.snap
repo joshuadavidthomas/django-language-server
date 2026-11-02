@@ -1,23 +1,23 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "filter::as_crispy_errors":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::as_crispy_field":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::crispy":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::flatatt":
     kind: filter
     has_doc: false
   "filter::optgroups":
     kind: filter
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules: {}
 filter_arities:

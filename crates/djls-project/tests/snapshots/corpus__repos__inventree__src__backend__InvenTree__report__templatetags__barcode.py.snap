@@ -5,16 +5,16 @@ expression: sorted_snapshot(&bundle)?
 definitions:
   "tag::barcode":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::clean_barcode":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::datamatrix":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::qrcode":
     kind: tag
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules:
   "report.templatetags.barcode::tag::barcode":

@@ -8,7 +8,7 @@ definitions:
     has_doc: false
   "tag::call":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::dj_angles_scripts":
     kind: tag
     has_doc: false
@@ -17,10 +17,10 @@ definitions:
     has_doc: false
   "tag::template":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::view":
     kind: tag
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules:
   "dj_angles.templatetags.dj_angles::tag::dj_angles_scripts":

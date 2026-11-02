@@ -785,6 +785,51 @@ fn project_backed_for_completes_correlated_django_forms() {
 }
 
 #[test]
+fn tag_name_completion_documents_tag_from_library_source() {
+    let (source, offset) = source_and_offset("{% fo§ %}").expect("for cursor marker");
+    let mut db = TestDatabase::new();
+    ProjectFixture::new("/test/project")
+        .settings(&ProjectSettings {
+            dirs: vec!["/test/project/templates".into()],
+            builtins: vec!["django.template.defaulttags".into()],
+            ..ProjectSettings::default()
+        })
+        .file("/test/project/django/__init__.py", "")
+        .file("/test/project/django/template/__init__.py", "")
+        .file(
+            "/test/project/django/template/defaulttags.py",
+            include_str!("../../../djls-project/src/templates/tags/testdata/django_defaulttags.py"),
+        )
+        .file("/test/project/templates/page.html", source)
+        .install(&mut db)
+        .expect("tag completion fixture");
+    let file = db
+        .file(Utf8Path::new("/test/project/templates/page.html"))
+        .expect("page template");
+
+    let items = match completion(&db, file, offset, PositionEncoding::Utf16, false) {
+        Some(ls_types::CompletionResponse::Array(items)) => items,
+        Some(ls_types::CompletionResponse::List(list)) => list.items,
+        None => Vec::new(),
+    };
+    let item = items
+        .iter()
+        .find(|item| item.label == "for")
+        .expect("for should complete");
+
+    let Some(ls_types::Documentation::String(documentation)) = &item.documentation else {
+        panic!(
+            "for should carry its docstring, got {:?}",
+            item.documentation
+        );
+    };
+    assert!(
+        documentation.starts_with("Loop over each item in an array."),
+        "{documentation}"
+    );
+}
+
+#[test]
 fn template_name_completions_do_not_leak_names_from_another_backend() {
     let mut db = TestDatabase::new();
     let (source, offset) = source_and_offset(r#"{% extends "§" %}"#)

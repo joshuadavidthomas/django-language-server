@@ -1,11 +1,11 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "tag::get_latest_micro_release":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::release_notes":
     kind: tag
     has_doc: false

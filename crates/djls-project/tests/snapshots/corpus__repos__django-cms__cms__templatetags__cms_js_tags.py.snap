@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "filter::bool":
@@ -8,7 +8,7 @@ definitions:
     has_doc: false
   "filter::json":
     kind: filter
-    has_doc: false
+    has_doc: true
   "tag::render_cms_structure_js":
     kind: tag
     has_doc: false

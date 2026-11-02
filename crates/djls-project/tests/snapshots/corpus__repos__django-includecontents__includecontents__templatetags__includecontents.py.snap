@@ -5,19 +5,19 @@ expression: sorted_snapshot(&bundle)?
 definitions:
   "filter::not":
     kind: filter
-    has_doc: false
+    has_doc: true
   "tag::attrs":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::contents":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::includecontents":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::wrapif":
     kind: tag
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules:
   "includecontents.templatetags.includecontents::tag::contents":

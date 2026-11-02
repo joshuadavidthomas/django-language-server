@@ -5,10 +5,10 @@ expression: sorted_snapshot(&bundle)?
 definitions:
   "tag::spa_bundle":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::spa_settings":
     kind: tag
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules:
   "web.templatetags.spa_helper::tag::spa_bundle":

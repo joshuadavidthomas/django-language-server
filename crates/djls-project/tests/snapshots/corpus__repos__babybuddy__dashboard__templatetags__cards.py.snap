@@ -1,50 +1,50 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "tag::card_breastfeeding":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::card_diaperchange_last":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::card_diaperchange_types":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::card_feeding_last":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::card_feeding_last_method":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::card_feeding_recent":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::card_pumping_last":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::card_sleep_last":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::card_sleep_naps_day":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::card_sleep_recent":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::card_statistics":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::card_timer_list":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::card_tummytime_day":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::card_tummytime_last":
     kind: tag
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules:
   "dashboard.templatetags.cards::tag::card_breastfeeding":

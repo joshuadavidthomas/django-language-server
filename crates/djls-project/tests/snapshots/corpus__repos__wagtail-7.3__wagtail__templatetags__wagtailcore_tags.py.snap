@@ -1,6 +1,6 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "filter::richtext":
@@ -8,16 +8,16 @@ definitions:
     has_doc: false
   "tag::fullpageurl":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::include_block":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::pageurl":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::slugurl":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::wagtail_documentation_path":
     kind: tag
     has_doc: false
@@ -32,7 +32,7 @@ definitions:
     has_doc: false
   "tag::wagtail_site":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::wagtail_version":
     kind: tag
     has_doc: false

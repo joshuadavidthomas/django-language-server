@@ -11,7 +11,7 @@ definitions:
     has_doc: false
   "tag::change_list_object_tools":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::date_hierarchy":
     kind: tag
     has_doc: false
@@ -20,7 +20,7 @@ definitions:
     has_doc: false
   "tag::paginator_number":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::result_list":
     kind: tag
     has_doc: false

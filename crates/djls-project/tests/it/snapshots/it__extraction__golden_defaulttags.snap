@@ -5,49 +5,49 @@ expression: "sorted_snapshot(&result).expect(\"default-tags extraction snapshot 
 definitions:
   "tag::autoescape":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::comment":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::cycle":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::for":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::if":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::now":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::partial":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::partialdef":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::querystring":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::regroup":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::spaceless":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::templatetag":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::url":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::verbatim":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::widthratio":
     kind: tag
-    has_doc: false
+    has_doc: true
 symbols_are_unobserved: false
 tag_rules:
   "django.template.defaulttags::tag::autoescape":

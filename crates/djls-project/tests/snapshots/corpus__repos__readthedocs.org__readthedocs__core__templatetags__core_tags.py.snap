@@ -1,11 +1,11 @@
 ---
 source: crates/djls-project/tests/corpus.rs
-expression: "sorted_snapshot(&bundle).expect(\"corpus extraction snapshot should serialize\")"
+expression: sorted_snapshot(&bundle)?
 ---
 definitions:
   "filter::escapejson":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::get_key_or_none":
     kind: filter
     has_doc: false
@@ -17,13 +17,13 @@ definitions:
     has_doc: false
   "filter::is_rich_select":
     kind: filter
-    has_doc: false
+    has_doc: true
   "filter::key":
     kind: filter
     has_doc: false
   "tag::doc_url":
     kind: tag
-    has_doc: false
+    has_doc: true
   "tag::readthedocs_version":
     kind: tag
     has_doc: false
