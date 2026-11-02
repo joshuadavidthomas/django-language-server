@@ -151,7 +151,7 @@ impl<T: AsRef<str>> Token<T> {
     }
 
     #[must_use]
-    pub(crate) fn content_span_or_fallback(&self) -> Span {
+    fn content_span_or_fallback(&self) -> Span {
         self.content_span()
             .unwrap_or_else(|| Span::new(self.offset().unwrap_or(0), self.length()))
     }
