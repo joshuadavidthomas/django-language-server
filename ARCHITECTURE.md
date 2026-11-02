@@ -51,7 +51,7 @@ The CLI application. It parses command-line arguments, starts the LSP server for
 
 The LSP server. This is the crate that wires everything together at runtime.
 
-`Session` owns the `DjangoDatabase`, open-document state, and intrinsic-product readiness. Open documents live in server-local buffers, and an overlay filesystem exposes those buffers through the `djls-source` filesystem seam before falling back to disk. Document mutations acquire the session's `tokio::Mutex` asynchronously, then move the guard to a blocking worker to update the overlay and apply Salsa source changes before scheduling any required Project work. This preserves mutation ordering without blocking the event loop while Salsa waits for background snapshots to be released.
+`Session` wraps the shared `SessionCore` from `djls-lsp` (the `DjangoDatabase`, open-document buffers, and client info) with intrinsic-product readiness and the push-diagnostics queue. The core classifies the Project work each mutation needs against the coverage held in readiness; the server admits it into readiness and hands it to the reload worker. Document mutations acquire the session's `tokio::Mutex` asynchronously, then move the guard to a blocking worker to update the overlay and apply Salsa source changes before scheduling any required Project work. This preserves mutation ordering without blocking the event loop while Salsa waits for background snapshots to be released.
 
 Project-aware requests use generation-checked `SessionSnapshot`s rather than computing under the session lock. A request waits on a race-safe readiness watch, locks the session long enough to verify the observed generation and clone a snapshot atomically, releases the lock, and computes on a blocking worker. Salsa cancellation restarts this sequence at readiness waiting. Syntax-only operations, currently formatting, may use an ungated snapshot.
 
@@ -61,11 +61,21 @@ A single coalescing reload worker runs full Project reloads and intrinsic-only r
 
 Optional cache warm-up and coalesced diagnostic-refresh transport run outside the reload worker. Database snapshots never cross client progress or refresh waits; optional warm-up reacquires current-generation readiness after progress setup.
 
-**Architecture Invariant:** `djls-server` is the only crate that speaks the LSP protocol — handling requests, managing the session, and transporting progress/notifications.
+**Architecture Invariant:** only `djls-server` and the browser server in `djls-wasm` speak the LSP protocol — handling requests, scheduling Project work, and transporting progress/notifications. What they share (client negotiation, capabilities, open-document buffers, the overlay filesystem, and the session core) lives in `djls-lsp`, so session behavior is written once.
+
+### `crates/djls-lsp`
+
+Transport-independent LSP pieces shared by `djls-server` and `djls-wasm`: client negotiation (`ClientInfo`), advertised capabilities, open-document buffers, the overlay `Workspace` filesystem that exposes those buffers to the database ahead of the underlying files, and the synchronous `SessionCore`.
+
+`SessionCore` owns the `DjangoDatabase`, the `Workspace`, and `ClientInfo`, and holds the one implementation of document and file mutations (overlay update, then `SourceChanges`), Project-work classification (full reload, re-prime, or nothing, given the coverage of the last priming), and a synchronous run of that work for hosts without a background worker. Its read side, `Analysis`, resolves document requests to tracked files, template files, offsets, and spans, and gates formatting on `format.enabled`; the server clones it into snapshots. The API is path-based: each host maps its own document URIs. Hosts differ only in when Project work runs and how output is delivered, so they wrap the core rather than implement a trait. It has no async runtime, so it compiles for the browser.
+
+### `crates/djls-wasm`
+
+The browser build, compiled for `wasm32-unknown-unknown` with wasm-bindgen. `LanguageServer.handle` is a synchronous LSP server for a web worker: one JSON-RPC message in, every resulting message out. Its `BrowserSession` wraps `SessionCore` and runs pending Project work inline before the next result that needs it. The host pushes workspace files in with the `djls/syncFiles` and `djls/removeFiles` notifications, because the browser gives djls no filesystem; they land in an in-memory filesystem beneath the shared overlay. Non-`file://` workspace URIs such as `vscode-vfs://` map to stable in-memory paths and back. The default build embeds no Django; hosts call `registerDjango` with a release archive before creating a server. Its public items are JavaScript exports, so `just hawk` excludes the crate.
 
 ### `crates/djls-db`
 
-The concrete Salsa database. `DjangoDatabase` owns Salsa storage plus runtime infrastructure: the overlay-backed file reader, the source-file registry, the current `Project` input handle, and settings. It implements the database traits defined by the lower crates. Both the LSP server and the `djls check` CLI use it.
+The concrete Salsa database. `DjangoDatabase` owns Salsa storage plus runtime infrastructure: the overlay-backed file reader, the source-file registry, the current `Project` input handle, and settings. It implements the database traits defined by the lower crates. The LSP session core in `djls-lsp` and the `djls check` CLI use it.
 
 This crate should stay boring. It wires traits to concrete state and handles local mutation such as settings updates and file creation. Django Discovery workflows live in `djls-project`; IDE cache warm-up lives in `djls-ide`; CLI and LSP orchestration live in `djls` and `djls-server`.
 

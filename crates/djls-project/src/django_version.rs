@@ -445,7 +445,7 @@ fn dependency_metadata_kind(path: &Utf8Path) -> &'static str {
     }
 }
 
-fn feature_line(version: &Version) -> Option<DjangoVersion> {
+pub(crate) fn feature_line(version: &Version) -> Option<DjangoVersion> {
     match version.release() {
         [5, 2, ..] => Some(DjangoVersion::Django52),
         [6, 0, ..] | [6] => Some(DjangoVersion::Django60),

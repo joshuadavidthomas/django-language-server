@@ -230,7 +230,7 @@ jobs:
 
       - name: Run hawk
         working-directory: tools/hawk
-        run: cargo hawk check --manifest-path "${{ github.workspace }}/Cargo.toml" --target-dir "${{ github.workspace }}/target/hawk" -D warnings
+        run: cargo hawk check --manifest-path "${{ github.workspace }}/Cargo.toml" --target-dir "${{ github.workspace }}/target/hawk" --exclude-crate djls_wasm -D warnings
 
   cargo-check:
     runs-on: ubuntu-24.04

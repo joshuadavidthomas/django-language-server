@@ -313,7 +313,7 @@ A coherent slice of **Project Facts** — settings, models, urls, views, the tem
 _Avoid_: fact crates, per-feature crates, domain crates
 
 **Infrastructure Crate**:
-A workspace crate that supports the language server rather than analyzing a subject — `djls-source`, `djls-conf`, `djls-db`, `djls-ide`, `djls-server`, `djls-format`, `djls-testing`, `djls-bench`, and the `djls` binary. Exempt from the subject-layer naming pattern.
+A workspace crate that supports the language server rather than analyzing a subject — `djls-source`, `djls-conf`, `djls-db`, `djls-ide`, `djls-lsp`, `djls-server`, `djls-wasm`, `djls-format`, `djls-testing`, `djls-bench`, and the `djls` binary. Exempt from the subject-layer naming pattern.
 _Avoid_: retrofitting subject-layer names onto infrastructure
 
 ## Relationships

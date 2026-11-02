@@ -47,11 +47,13 @@ When extraction cannot prove a fact, add a Fallback Rule to `crates/djls-project
 - `djls-conf`: config schema/loading.
 - `djls-format`: formatter backend adapter boundary.
 - `djls-ide`: IDE feature behavior and LSP-shaped outputs.
+- `djls-lsp`: transport-independent LSP pieces shared by `djls-server` and `djls-wasm`: client negotiation, capabilities, open document buffers, overlay filesystem, and the synchronous session core (owns `DjangoDatabase`; document mutations, Project-work classification, document-request resolution, formatting gate).
 - `djls-project`: project model, Python environment discovery, module resolution, template discovery/resolution, derived Django facts, static source recognizers, and Python spec extraction (tag rules, block specs, filter arities, model graph). This is where Django template knowledge comes from.
 - `djls-semantic`: Django project meaning: template validation, scoping, structure, fusion of extracted tag facts into tag specs, and template-reference relationships.
-- `djls-server`: LSP/session glue, open document buffers, overlay filesystem adapter. Resolve documents, check file kind, call `djls-ide`.
+- `djls-server`: native LSP transport around the session core: tokio session lock, readiness generations, snapshots, diagnostics queue, reload worker. Map `file://` URIs, call `djls-ide`.
 - `djls-source`: files, filesystem access/discovery, spans, line indexes, diagnostics primitives.
 - `djls-templates`: template syntax only.
+- `djls-wasm`: browser entry point. wasm-bindgen exports, a synchronous LSP server wrapping the session core over an in-memory project, non-`file://` URI mapping, and runtime Django source registration.
 
 Run `just hawk` when changing public APIs, moving code across crates, or cleaning up visibility. It is compile-intensive and may run multiple Cargo analysis passes. Review visibility findings against crate responsibilities before using `--fix`; run normal lint/test checks afterward for dead-code cleanup.
 

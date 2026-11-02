@@ -7,7 +7,8 @@ edition.workspace = true
 djls-conf = { workspace = true }
 djls-db = { workspace = true }
 djls-ide = { workspace = true }
-djls-project = { workspace = true }
+djls-lsp = { workspace = true }
+djls-project = { workspace = true, features = ["bundled-django"] }
 djls-source = { workspace = true }
 
 anyhow = { workspace = true }
@@ -29,9 +30,6 @@ djls-testing = { workspace = true }
 futures-util = { workspace = true }
 tempfile = { workspace = true }
 tower-service = { workspace = true }
-
-[build-dependencies]
-toml = { workspace = true }
 
 [lints]
 workspace = true

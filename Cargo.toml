@@ -12,12 +12,14 @@ djls-conf = { path = "crates/djls-conf" }
 djls-db = { path = "crates/djls-db" }
 djls-format = { path = "crates/djls-format" }
 djls-ide = { path = "crates/djls-ide" }
-djls-project = { path = "crates/djls-project" }
+djls-lsp = { path = "crates/djls-lsp" }
+djls-project = { path = "crates/djls-project", default-features = false }
 djls-semantic = { path = "crates/djls-semantic" }
 djls-server = { path = "crates/djls-server" }
 djls-source = { path = "crates/djls-source" }
 djls-templates = { path = "crates/djls-templates" }
 djls-testing = { path = "crates/djls-testing" }
+djls-wasm = { path = "crates/djls-wasm" }
 
 # core deps, pin exact versions
 salsa = "0.28.0"
@@ -70,6 +72,8 @@ tower-service = "0.3"
 tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "time"] }
+# Keep paired with wasm-bindgen-cli in mise.toml; the CLI must match exactly.
+wasm-bindgen = "0.2"
 which = "8.0"
 zip = { version = "9.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
@@ -108,6 +112,17 @@ debug = 2
 
 [profile.dev]
 debug = "line-tables-only"
+
+# Browser builds: `cargo build -p djls-wasm --target wasm32-unknown-unknown --profile wasm-release`.
+# Measured against `release`, "z" was smaller and no slower. Running wasm-opt afterwards
+# shrinks the raw module but grows it after gzip/brotli, so it is left out.
+[profile.wasm-release]
+inherits = "release"
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
 
 [profile.dev.package]
 insta.opt-level = 3

@@ -35,7 +35,13 @@ use proc_macro2::TokenTree;
 use serde::Deserialize;
 use syn::visit::Visit;
 
-const SCANNED_CRATES: &[&str] = &["djls-semantic", "djls-ide", "djls-server"];
+const SCANNED_CRATES: &[&str] = &[
+    "djls-semantic",
+    "djls-ide",
+    "djls-lsp",
+    "djls-server",
+    "djls-wasm",
+];
 const ALLOWLIST: &str = "tests/django_knowledge_allowlist.toml";
 
 #[test]

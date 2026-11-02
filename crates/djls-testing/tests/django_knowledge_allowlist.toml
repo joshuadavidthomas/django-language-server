@@ -1,4 +1,4 @@
-# Production literals in djls-semantic, djls-ide, and djls-server that equal a Django Tag or Filter
+# Production literals in djls-semantic, djls-ide, djls-lsp, djls-server, and djls-wasm that equal a Django Tag or Filter
 # name (or start with "django.") but are not Django knowledge. Each entry needs a one-line reason.
 # See Extraction First in AGENTS.md.
 

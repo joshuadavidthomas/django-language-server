@@ -1,8 +1,10 @@
 //! Tag facts extracted once per process from an immutable bundled Django release.
 
+use std::io;
 use std::sync::Arc;
 use std::sync::OnceLock;
 
+use camino::Utf8PathBuf;
 use djls_conf::DjangoVersion;
 use djls_conf::TagSpecDef;
 use djls_source::FileSystem;
@@ -64,24 +66,60 @@ impl BundledDjangoLibrary {
     }
 }
 
+static LIBRARIES: [OnceLock<Vec<BundledDjangoLibrary>>; 3] = [const { OnceLock::new() }; 3];
+
 /// Extract Tag facts from Django's tag libraries in one bundled release.
 ///
 /// The bundle is mounted as site-packages, exactly as Django Discovery mounts it for a project
 /// without installed Django, so canonical-identity summaries such as `token_kwargs` apply. The
-/// result is computed on first use and shared by every database in the process.
+/// result is computed on first use and shared by every database in the process. A release that
+/// is neither embedded nor registered has no facts.
 #[must_use]
 pub fn bundled_django_libraries(version: DjangoVersion) -> &'static [BundledDjangoLibrary] {
-    static LIBRARIES: [OnceLock<Vec<BundledDjangoLibrary>>; 3] =
-        [OnceLock::new(), OnceLock::new(), OnceLock::new()];
-    let index = match version {
-        DjangoVersion::Django52 => 0,
-        DjangoVersion::Django60 => 1,
-        DjangoVersion::Django61 => 2,
+    let libraries = &LIBRARIES[super::slot(version)];
+    if let Some(libraries) = libraries.get() {
+        return libraries;
+    }
+    let root = match super::source_root(version) {
+        Ok(root) => root,
+        // Not cached: a host may still register this release.
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return &[],
+        Err(error) => {
+            tracing::warn!(
+                error_kind = ?error.kind(),
+                "Could not prepare bundled Django sources for tag facts"
+            );
+            return libraries.get_or_init(Vec::new);
+        }
     };
-    LIBRARIES[index].get_or_init(|| {
+    extract_from_query(version, root, libraries)
+}
+
+/// Extract facts for every embedded or registered release on the calling thread.
+///
+/// Must be called outside any query. Hosts without threads (wasm) prime here, because the lazy
+/// path in [`bundled_django_libraries`] would need a second thread.
+pub fn prime_bundled_django_libraries() {
+    for version in super::VERSIONS {
+        let libraries = &LIBRARIES[super::slot(version)];
+        if libraries.get().is_none()
+            && let Ok(root) = super::source_root(version)
+        {
+            libraries.get_or_init(|| extract_libraries(version, root));
+        }
+    }
+}
+
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+fn extract_from_query(
+    version: DjangoVersion,
+    root: Utf8PathBuf,
+    libraries: &'static OnceLock<Vec<BundledDjangoLibrary>>,
+) -> &'static [BundledDjangoLibrary] {
+    libraries.get_or_init(|| {
         // Callers may be inside another database's query, and Salsa permits one attached
         // database per thread.
-        std::thread::spawn(move || extract_libraries(version))
+        std::thread::spawn(move || extract_libraries(version, root))
             .join()
             .unwrap_or_else(|_| {
                 tracing::error!("Bundled Django tag fact extraction panicked");
@@ -90,17 +128,22 @@ pub fn bundled_django_libraries(version: DjangoVersion) -> &'static [BundledDjan
     })
 }
 
-fn extract_libraries(version: DjangoVersion) -> Vec<BundledDjangoLibrary> {
-    let root = match super::source_root(version) {
-        Ok(root) => root,
-        Err(error) => {
-            tracing::warn!(
-                error_kind = ?error.kind(),
-                "Could not prepare bundled Django sources for tag facts"
-            );
-            return Vec::new();
-        }
-    };
+// No threads, and extracting here would attach a second database mid-query. Not cached, so
+// facts appear once the host primes them.
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+fn extract_from_query(
+    version: DjangoVersion,
+    _root: Utf8PathBuf,
+    _libraries: &'static OnceLock<Vec<BundledDjangoLibrary>>,
+) -> &'static [BundledDjangoLibrary] {
+    tracing::warn!(
+        django_version = version.as_str(),
+        "Bundled Django tag facts were not primed before analysis"
+    );
+    &[]
+}
+
+fn extract_libraries(version: DjangoVersion, root: Utf8PathBuf) -> Vec<BundledDjangoLibrary> {
     let mut db = ExtractionDb {
         storage: salsa::Storage::default(),
         fs: Arc::new(BundledFileSystem::new(Arc::new(InMemoryFileSystem::new()))),

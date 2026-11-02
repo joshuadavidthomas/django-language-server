@@ -968,9 +968,31 @@ dependencies = [
  "djls-source",
  "djls-templates",
  "djls-testing",
+ "percent-encoding",
  "tempfile",
  "tower-lsp-server",
  "tracing",
+]
+
+[[package]]
+name = "djls-lsp"
+version = "0.0.0"
+dependencies = [
+ "camino",
+ "djls-conf",
+ "djls-db",
+ "djls-ide",
+ "djls-project",
+ "djls-source",
+ "djls-testing",
+ "rustc-hash",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "toml",
+ "tower-lsp-server",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -1040,6 +1062,7 @@ dependencies = [
  "djls-conf",
  "djls-db",
  "djls-ide",
+ "djls-lsp",
  "djls-project",
  "djls-source",
  "djls-testing",
@@ -1051,7 +1074,6 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
- "toml",
  "tower-lsp-server",
  "tower-service",
  "tracing",
@@ -1123,6 +1145,24 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "djls-wasm"
+version = "0.0.0"
+dependencies = [
+ "camino",
+ "djls-conf",
+ "djls-db",
+ "djls-ide",
+ "djls-lsp",
+ "djls-project",
+ "djls-source",
+ "percent-encoding",
+ "serde",
+ "serde_json",
+ "tower-lsp-server",
+ "wasm-bindgen",
 ]
 
 [[package]]
