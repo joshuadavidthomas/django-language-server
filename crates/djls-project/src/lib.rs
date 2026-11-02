@@ -146,6 +146,7 @@ pub use templates::template_library_tag_facts;
 pub use templates::template_resolution;
 pub use templates::template_symbol_doc;
 pub use templates::template_symbol_source;
+pub use templates::template_tag_lines;
 
 // Test and benchmark support only; not part of the stable Project Facts façade.
 #[doc(hidden)]

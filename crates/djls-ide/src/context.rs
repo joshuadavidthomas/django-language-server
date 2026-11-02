@@ -582,7 +582,8 @@ mod tests {
         assert: impl for<'source> FnOnce(&'source str, CompletionOffsetContext<'source>) -> R,
     ) -> R {
         let (source, offset) = source_with_offset_marker(input);
-        let tokens = djls_templates::lex_template_impl(source.as_str());
+        let tokens =
+            djls_templates::lex_template_impl(source.as_str(), djls_templates::TagLines::Multi);
         let context = CompletionOffsetContext::new(
             FileKind::Template,
             source.as_str(),

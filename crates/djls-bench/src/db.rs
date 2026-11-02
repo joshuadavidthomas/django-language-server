@@ -225,6 +225,16 @@ impl ProjectDb for Db {
 }
 
 #[salsa::db]
+impl djls_templates::Db for Db {
+    fn tag_lines(&self) -> djls_templates::TagLines {
+        self.project()
+            .map_or(djls_templates::TagLines::Multi, |project| {
+                djls_project::template_tag_lines(self, project)
+            })
+    }
+}
+
+#[salsa::db]
 impl SemanticDb for Db {
     fn projectless_tag_specs(&self) -> &TagSpecs {
         &self.projectless_tag_specs

@@ -6,6 +6,7 @@ edition.workspace = true
 [dependencies]
 djls-conf = { workspace = true }
 djls-source = { workspace = true }
+djls-templates = { workspace = true }
 
 camino = { workspace = true }
 configparser = { workspace = true }

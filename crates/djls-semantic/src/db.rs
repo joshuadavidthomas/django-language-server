@@ -4,13 +4,14 @@ use djls_project::ScopedTemplateLibraries;
 use djls_project::TemplateLibraryCatalog;
 use djls_project::scoped_template_libraries;
 use djls_source::File;
+use djls_templates::Db as TemplatesDb;
 
 use crate::errors::ValidationError;
 use crate::filters::FilterAritySpecs;
 use crate::tags::TagSpecs;
 
 #[salsa::db]
-pub trait Db: ProjectDb {
+pub trait Db: ProjectDb + TemplatesDb {
     /// Tag specs for analysis without a Project.
     ///
     /// Production returns [`crate::bundled_django_tag_specs`]; fixtures may substitute their own.

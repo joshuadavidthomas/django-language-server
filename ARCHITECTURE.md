@@ -99,7 +99,7 @@ The supported boundary is static `import a`, `import a as x`, `import a.b`, `imp
 
 The template parser — a hand-written recursive descent parser for Django's template syntax. It's inspired by Django's own parser but designed around IDE needs: error recovery, partial results, and position tracking rather than template rendering.
 
-It lexes and parses template source into a flat `NodeList` — the same representation Django's own template engine uses internally. Each `Node` is a `Tag`, `Variable`, `Comment`, `Text`, or `Error`. The parser always produces a node list; parse errors become `Node::Error` entries in the list and are also emitted through a Salsa accumulator (`TemplateErrorAccumulator`).
+It lexes and parses template source into a flat `NodeList` — the same representation Django's own template engine uses internally. Lexing follows the crate's `TagLines`: with `Single`, a tag must close on the line where it opens, as Django's default `tag_re` requires; with `Multi`, tags may span lines, as in projects that compile `tag_re` with `re.DOTALL`. The crate's `Db` trait supplies it; project-backed databases return the `template_tag_lines` Extracted Fact from `djls-project`, which is `Multi` when extraction cannot tell, and `Multi` without a Project. Each `Node` is a `Tag`, `Variable`, `Comment`, `Text`, or `Error`. The parser always produces a node list; parse errors become `Node::Error` entries in the list and are also emitted through a Salsa accumulator (`TemplateErrorAccumulator`).
 
 **Architecture Invariant:** the parser never fails. It produces `(Vec<Node>, Vec<ParseError>)` rather than `Result<NodeList, Error>`. This is critical for an IDE: users are *always* in the middle of typing something invalid, and the rest of the pipeline needs to keep working around the errors.
 
@@ -168,11 +168,12 @@ Salsa requires a single concrete database type, but each crate should see only t
 ```
 salsa::Database
 └── SourceDb   (djls-source)  — source-file registry, tracked files, filesystem reads/walks
+     ├── TemplatesDb (djls-templates) — the TagLines templates are lexed with
      └── ProjectDb  (djls-project) — current Project input
-          └── SemanticDb (djls-semantic) — semantic accessors used by validation and IDE features
+          └── SemanticDb (djls-semantic, also TemplatesDb) — semantic accessors used by validation and IDE features
 ```
 
-Template parsing does not need its own database trait. `parse_template` depends directly on `SourceDb` because it only needs source text. Filesystem access also enters through `SourceDb`: Django Discovery walks source roots through the database filesystem, and `DjangoDatabase` observes LSP buffer state through the server's overlay filesystem adapter.
+Template parsing needs source text plus one project-derived value, the `TagLines` that decides whether tags may span lines. `TemplatesDb` exposes only that value, so `djls-templates` stays independent of how a Project derives it. Filesystem access also enters through `SourceDb`: Django Discovery walks source roots through the database filesystem, and `DjangoDatabase` observes LSP buffer state through the server's overlay filesystem adapter.
 
 `DjangoDatabase` in `djls-db` implements the production stack. Test databases and `BenchDatabase` implement the same traits with fixture-backed source and project state. Project-backed tests install a `Project` and derive each Template's effective Template Library scope from its discovered backend, Template Libraries, and builtins; Template Library inventory is not global database state.
 

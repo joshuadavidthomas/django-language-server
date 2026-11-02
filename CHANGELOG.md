@@ -23,6 +23,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Added S114 expression syntax checks, with Django's error messages, for tag arguments that Django compiles as filter expressions, such as `{% firstof a| b %}` or `{% url "view" key= %}`. Which arguments are checked comes from each tag's extracted Argument Consumption, so custom tags that compile arguments with `parser.compile_filter`, `FilterExpression`, or `kwarg_re` are checked too.
 - Added filter availability (S111) and arity (S115, S116) checks for filters used inside tag arguments, such as `{% for x in items|dictsort:"name" %}`.
 - Added structure and outline entries for Django 6.0+ `{% partialdef %}` and `{% partial %}`: `{% partialdef %}` is matched with `{% endpartialdef %}`, and both appear in the outline under the partial's name.
+- Added detection of multi-line template tags. The server reads a project's startup code for an assignment of a `re.DOTALL` pattern to `django.template.base.tag_re`. Without one, a tag, variable, or comment must close on the line where it opens, as in Django; when the server cannot tell, tags may still span lines.
 - **Internal**: Added `just ecosystem` and an `ecosystem` workflow that run `djls check` from the base and pull request builds across the corpus and report the diagnostic diff.
 - **Internal**: Added `just mutants` for mutation testing with `cargo-mutants`.
 - **Internal**: Added a `proptest` property in `djls-ide` that applies random file edits to one database the way the server does and checks that every Template's diagnostics match a fresh database. It uses a fixed seed by default; set `PROPTEST_CASES` and `PROPTEST_RNG_SEED` for a deeper run.
@@ -53,7 +54,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - **Internal**: Replaced the corpus-backed `djls-ide` code action test fixture with in-memory stubs and tightened weak `djls-ide` test assertions.
 - **Internal**: Moved corpus-backed `djls-semantic` validation tests into the `corpus` nox session and tightened `djls-semantic` tests and mdtest harness checks.
 - **Internal**: Added `djls-semantic` mdtest cases covering unloaded-symbol diagnostics (S109, S110) after a selective import from an unresolved library, and after a resolved load that does not define the symbol.
-- **Internal**: Added `just fuzz`, a cargo-fuzz target for the template parser seeded from corpus templates, which checks span invariants and compares tag positions with Django's lexer.
+- **Internal**: Added `just fuzz`, a cargo-fuzz target for the template parser seeded from corpus templates, which checks that node spans stay on char boundaries and cover the source exactly, with both single-line and multi-line tags.
 
 ### Fixed
 

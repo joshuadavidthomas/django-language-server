@@ -164,6 +164,16 @@ impl SemanticDb for DjangoDatabase {
 }
 
 #[salsa::db]
+impl djls_templates::Db for DjangoDatabase {
+    fn tag_lines(&self) -> djls_templates::TagLines {
+        self.project()
+            .map_or(djls_templates::TagLines::Multi, |project| {
+                djls_project::template_tag_lines(self, project)
+            })
+    }
+}
+
+#[salsa::db]
 impl ProjectDb for DjangoDatabase {
     fn project(&self) -> Option<Project> {
         self.project

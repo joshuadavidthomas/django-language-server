@@ -538,6 +538,16 @@ impl ProjectDb for OsTestDatabase {
 }
 
 #[salsa::db]
+impl djls_templates::Db for OsTestDatabase {
+    fn tag_lines(&self) -> djls_templates::TagLines {
+        self.project()
+            .map_or(djls_templates::TagLines::Multi, |project| {
+                djls_project::template_tag_lines(self, project)
+            })
+    }
+}
+
+#[salsa::db]
 impl SemanticDb for OsTestDatabase {
     fn projectless_tag_specs(&self) -> &TagSpecs {
         &self.projectless_tag_specs
@@ -549,6 +559,16 @@ impl SemanticDb for OsTestDatabase {
 
     fn projectless_filter_arity_specs(&self) -> &FilterAritySpecs {
         FilterAritySpecs::empty_ref()
+    }
+}
+
+#[salsa::db]
+impl djls_templates::Db for TestDatabase {
+    fn tag_lines(&self) -> djls_templates::TagLines {
+        self.project()
+            .map_or(djls_templates::TagLines::Multi, |project| {
+                djls_project::template_tag_lines(self, project)
+            })
     }
 }
 
