@@ -8,7 +8,6 @@ use djls_testing::ProjectSettings;
 use djls_testing::SalsaEventLog;
 use djls_testing::TestDatabase;
 use djls_testing::execution_count;
-use salsa::Setter;
 
 const APP_INIT: &str = "/proj/blog/__init__.py";
 const PATCH: &str = "import re\nfrom django.template import base\nbase.tag_re = re.compile(base.tag_re.pattern, re.DOTALL)\n";
@@ -37,10 +36,10 @@ fn edit(db: &mut TestDatabase, path: &str, source: &str) -> anyhow::Result<()> {
 }
 
 #[test]
-fn template_lexing_follows_tag_re_patches_and_the_multiline_tags_setting() {
+fn template_lexing_follows_tag_re_patches() {
     let events = SalsaEventLog::default();
     let mut db = TestDatabase::with_event_log(events.clone());
-    let project = ProjectFixture::new("/proj")
+    ProjectFixture::new("/proj")
         .settings(&ProjectSettings {
             installed_apps: vec!["blog".to_string()],
             ..ProjectSettings::default()
@@ -48,7 +47,7 @@ fn template_lexing_follows_tag_re_patches_and_the_multiline_tags_setting() {
         .file(APP_INIT, "")
         .file("/proj/page.html", "{% if a\n %}{% endif %}")
         .install(&mut db)
-        .expect("lexer mode fixture should install");
+        .expect("tag lines fixture should install");
 
     assert_eq!(
         block_contents(&db).expect("template should lex"),
@@ -80,11 +79,4 @@ fn template_lexing_follows_tag_re_patches_and_the_multiline_tags_setting() {
         .expect("cached lexing events should be readable");
     assert_eq!(execution_count(&names, "startup_module_scan"), 1);
     assert_eq!(execution_count(&names, "lex_template"), 0);
-
-    project.set_multiline_tags(&mut db).to(Some(false));
-    assert_eq!(
-        block_contents(&db).expect("template should lex"),
-        [" endif "],
-        "configured override"
-    );
 }

@@ -30,9 +30,9 @@
 //! let errors = parse_template::accumulated::<TemplateErrorAccumulator>(db, file);
 //!
 //! // For direct parsing (testing/debugging):
-//! use djls_templates::{LexerMode, parse_template_impl};
+//! use djls_templates::{TagLines, parse_template_impl};
 //!
-//! let (nodelist, errors) = parse_template_impl(source, LexerMode::SingleLine);
+//! let (nodelist, errors) = parse_template_impl(source, TagLines::Single);
 //! ```
 
 mod bits;
@@ -52,7 +52,7 @@ use djls_source::File;
 use djls_source::FileKind;
 use djls_source::FileReadError;
 pub use filters::Filter;
-pub use lexer::LexerMode;
+pub use lexer::TagLines;
 pub use nodelist::Node;
 pub use nodelist::NodeList;
 pub use parser::ParseError;
@@ -96,13 +96,13 @@ pub fn lex_template(db: &dyn Db, file: File) -> Result<Vec<Token>, FileReadError
         return Ok(Vec::new());
     }
 
-    Ok(lex_template_impl(source.as_ref(), db.lexer_mode()))
+    Ok(lex_template_impl(source.as_ref(), db.tag_lines()))
 }
 
 /// Lex a template using the pure lexer.
 #[must_use]
-pub fn lex_template_impl(source: &str, mode: LexerMode) -> Vec<Token> {
-    let mut lexer = lexer::Lexer::new(source, mode);
+pub fn lex_template_impl(source: &str, tag_lines: TagLines) -> Vec<Token> {
+    let mut lexer = lexer::Lexer::new(source, tag_lines);
     lexer
         .tokenize()
         .into_iter()
@@ -127,7 +127,7 @@ pub fn parse_template(db: &dyn Db, file: File) -> TemplateParseResult<'_> {
         return TemplateParseResult::NotTemplate;
     }
 
-    let (nodes, errors) = parse_template_impl(source.as_ref(), db.lexer_mode());
+    let (nodes, errors) = parse_template_impl(source.as_ref(), db.tag_lines());
 
     // Accumulate any errors via Salsa
     for error in errors {
@@ -141,8 +141,8 @@ pub fn parse_template(db: &dyn Db, file: File) -> TemplateParseResult<'_> {
 /// Parse a template using the pure parser (no database needed)
 /// Returns a tuple of (nodes, errors) where nodes include Error nodes for parse errors
 #[must_use]
-pub fn parse_template_impl(source: &str, mode: LexerMode) -> (Vec<Node>, Vec<ParseError>) {
-    let tokens = lexer::Lexer::new(source, mode).tokenize();
+pub fn parse_template_impl(source: &str, tag_lines: TagLines) -> (Vec<Node>, Vec<ParseError>) {
+    let tokens = lexer::Lexer::new(source, tag_lines).tokenize();
     let mut parser = parser::Parser::new(tokens);
     parser.parse()
 }

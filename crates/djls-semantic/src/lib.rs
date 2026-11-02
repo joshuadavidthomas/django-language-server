@@ -13,7 +13,6 @@ mod validation;
 
 pub use db::Db;
 pub use db::ValidationErrorAccumulator;
-pub use db::project_lexer_mode;
 pub use db::scoped_template_libraries_for_file;
 pub use diagnostics::TemplateDiagnostics;
 pub use diagnostics::collect_template_diagnostics;

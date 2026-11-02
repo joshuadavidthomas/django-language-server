@@ -13,11 +13,11 @@ use crate::tokens::TokenStream;
 /// must close on the line where it opens. Projects that compile `tag_re` with
 /// `re.DOTALL` let constructs span lines.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum LexerMode {
+pub enum TagLines {
     /// Django's default `tag_re`: a closer must appear before the next `\n`.
-    SingleLine,
+    Single,
     /// `tag_re` compiled with `re.DOTALL`: a closer may appear on any later line.
-    MultiLine,
+    Multi,
 }
 
 // Closing delimiter kinds proven absent between the cursor and a search boundary.
@@ -47,7 +47,7 @@ impl MissingTagClosers {
 
 pub(crate) struct Lexer<'src> {
     source: &'src str,
-    mode: LexerMode,
+    tag_lines: TagLines,
     start: usize,
     current: usize,
     // End of the line containing `current`, cached so a line with many unmatched
@@ -57,10 +57,10 @@ pub(crate) struct Lexer<'src> {
 
 impl<'src> Lexer<'src> {
     #[must_use]
-    pub(crate) fn new(source: &'src str, mode: LexerMode) -> Self {
+    pub(crate) fn new(source: &'src str, tag_lines: TagLines) -> Self {
         Lexer {
             source,
-            mode,
+            tag_lines,
             start: 0,
             current: 0,
             line_end: 0,
@@ -234,9 +234,9 @@ impl<'src> Lexer<'src> {
     }
 
     fn closer_search_boundary(&mut self) -> usize {
-        match self.mode {
-            LexerMode::MultiLine => self.source.len(),
-            LexerMode::SingleLine => {
+        match self.tag_lines {
+            TagLines::Multi => self.source.len(),
+            TagLines::Single => {
                 if self.current >= self.line_end {
                     self.line_end = memchr(b'\n', self.remaining_source().as_bytes())
                         .map_or(self.source.len(), |pos| self.current + pos);
@@ -301,7 +301,7 @@ mod tests {
     fn public_tokens_own_their_contents() {
         let tokens = {
             let source = String::from("a\n{{v}}{%t%}{#c#}{{x");
-            crate::lex_template_impl(&source, LexerMode::MultiLine)
+            crate::lex_template_impl(&source, TagLines::Multi)
         };
         assert_eq!(
             tokens,
@@ -337,7 +337,7 @@ mod tests {
 
     #[test]
     fn missing_closers_are_independent_and_preserve_recovery_spans() {
-        let mut lexer = Lexer::new("{{é\r\n{%x%}{#y#}{{z", LexerMode::MultiLine);
+        let mut lexer = Lexer::new("{{é\r\n{%x%}{#y#}{{z", TagLines::Multi);
         assert_eq!(
             lexer.tokenize(),
             vec![
@@ -393,7 +393,7 @@ mod tests {
             ),
         ] {
             assert_eq!(
-                Lexer::new(source, LexerMode::MultiLine).tokenize(),
+                Lexer::new(source, TagLines::Multi).tokenize(),
                 vec![expected, Token::Eof]
             );
         }
@@ -401,17 +401,17 @@ mod tests {
 
     // Django's `django.template.base.tag_re`, with and without `re.DOTALL`.
     // Rust's `regex` uses leftmost-first alternation like Python's `re`.
-    fn django_tag_re(mode: LexerMode) -> regex::Regex {
-        let flags = match mode {
-            LexerMode::SingleLine => "",
-            LexerMode::MultiLine => "(?s)",
+    fn django_tag_re(tag_lines: TagLines) -> regex::Regex {
+        let flags = match tag_lines {
+            TagLines::Single => "",
+            TagLines::Multi => "(?s)",
         };
         regex::Regex::new(&format!(r"{flags}\{{%.*?%\}}|\{{\{{.*?\}}\}}|\{{#.*?#\}}"))
             .expect("tag_re should compile")
     }
 
-    fn lexed_tag_spans(source: &str, mode: LexerMode) -> Vec<(usize, usize)> {
-        Lexer::new(source, mode)
+    fn lexed_tag_spans(source: &str, tag_lines: TagLines) -> Vec<(usize, usize)> {
+        Lexer::new(source, tag_lines)
             .tokenize()
             .iter()
             .filter(|token| {
@@ -428,12 +428,12 @@ mod tests {
     }
 
     #[test]
-    fn tags_match_django_tag_re_in_both_modes() {
+    fn tags_match_django_tag_re_for_single_and_multi_line_tags() {
         const ALPHABET: [char; 7] = ['{', '%', '#', '}', '\n', '\r', 'x'];
         const MAX_LEN: u32 = 6;
 
-        let tag_res =
-            [LexerMode::SingleLine, LexerMode::MultiLine].map(|mode| (mode, django_tag_re(mode)));
+        let tag_res = [TagLines::Single, TagLines::Multi]
+            .map(|tag_lines| (tag_lines, django_tag_re(tag_lines)));
         let mut mismatches = Vec::new();
         for len in 1..=MAX_LEN {
             for index in 0..ALPHABET.len().pow(len) {
@@ -445,14 +445,14 @@ mod tests {
                         ch
                     })
                     .collect();
-                for (mode, tag_re) in &tag_res {
-                    let mode = *mode;
+                for (tag_lines, tag_re) in &tag_res {
+                    let tag_lines = *tag_lines;
                     let expected: Vec<_> = tag_re
                         .find_iter(&source)
                         .map(|found| (found.start(), found.end()))
                         .collect();
-                    if lexed_tag_spans(&source, mode) != expected && mismatches.len() < 10 {
-                        mismatches.push((source.clone(), mode, expected));
+                    if lexed_tag_spans(&source, tag_lines) != expected && mismatches.len() < 10 {
+                        mismatches.push((source.clone(), tag_lines, expected));
                     }
                 }
             }
@@ -465,7 +465,7 @@ mod tests {
         // Default Django sees text, then `{% if x %}`; DOTALL sees one tag named `}}`.
         let source = "{%}}\n{% if x %}";
         assert_eq!(
-            Lexer::new(source, LexerMode::SingleLine).tokenize(),
+            Lexer::new(source, TagLines::Single).tokenize(),
             vec![
                 Token::Error {
                     content: "}}",
@@ -483,7 +483,7 @@ mod tests {
             ]
         );
         assert_eq!(
-            Lexer::new(source, LexerMode::MultiLine).tokenize(),
+            Lexer::new(source, TagLines::Multi).tokenize(),
             vec![
                 Token::Block {
                     content: "}}\n{% if x ",
@@ -568,7 +568,7 @@ mod tests {
             let mut expected = expected;
             expected.push(Token::Eof);
             assert_eq!(
-                Lexer::new(source, LexerMode::MultiLine).tokenize(),
+                Lexer::new(source, TagLines::Multi).tokenize(),
                 expected,
                 "{source:?}"
             );
@@ -579,7 +579,7 @@ mod tests {
     fn repeated_unmatched_delimiters_recover_at_each_opener() {
         for repetitions in [4096, 8192] {
             let source = "{{x\r\n{%é\n{#z\n".repeat(repetitions);
-            let mut lexer = Lexer::new(&source, LexerMode::MultiLine);
+            let mut lexer = Lexer::new(&source, TagLines::Multi);
             let tokens = lexer.tokenize();
             assert_eq!(tokens.len(), 6 * repetitions + 1);
             assert_eq!(
@@ -680,7 +680,7 @@ mod tests {
     #[test]
     fn test_tokenize_html() {
         let source = r#"<div class="container" id="main" disabled></div>"#;
-        let mut lexer = Lexer::new(source, LexerMode::MultiLine);
+        let mut lexer = Lexer::new(source, TagLines::Multi);
         let snapshot = lexer.tokenize();
         insta::assert_yaml_snapshot!(snapshot);
     }
@@ -688,7 +688,7 @@ mod tests {
     #[test]
     fn test_tokenize_django_variable() {
         let source = "{{ user.name|default:\"Anonymous\"|title }}";
-        let mut lexer = Lexer::new(source, LexerMode::MultiLine);
+        let mut lexer = Lexer::new(source, TagLines::Multi);
         let snapshot = lexer.tokenize();
         insta::assert_yaml_snapshot!(snapshot);
     }
@@ -696,7 +696,7 @@ mod tests {
     #[test]
     fn test_tokenize_django_block() {
         let source = "{% if user.is_staff %}Admin{% else %}User{% endif %}";
-        let mut lexer = Lexer::new(source, LexerMode::MultiLine);
+        let mut lexer = Lexer::new(source, TagLines::Multi);
         let snapshot = lexer.tokenize();
         insta::assert_yaml_snapshot!(snapshot);
     }
@@ -713,7 +713,7 @@ mod tests {
 <style>
     /* CSS comment */
 </style>";
-        let mut lexer = Lexer::new(source, LexerMode::MultiLine);
+        let mut lexer = Lexer::new(source, TagLines::Multi);
         let snapshot = lexer.tokenize();
         insta::assert_yaml_snapshot!(snapshot);
     }
@@ -727,7 +727,7 @@ mod tests {
        comment */
     console.log(x);
 </script>"#;
-        let mut lexer = Lexer::new(source, LexerMode::MultiLine);
+        let mut lexer = Lexer::new(source, TagLines::Multi);
         let snapshot = lexer.tokenize();
         insta::assert_yaml_snapshot!(snapshot);
     }
@@ -740,7 +740,7 @@ mod tests {
         color: blue;
     }
 </style>"#;
-        let mut lexer = Lexer::new(source, LexerMode::MultiLine);
+        let mut lexer = Lexer::new(source, TagLines::Multi);
         let snapshot = lexer.tokenize();
         insta::assert_yaml_snapshot!(snapshot);
     }
@@ -752,7 +752,7 @@ mod tests {
 {# comment #}
 <!-- html comment -->
 <div>text</div>";
-        let mut lexer = Lexer::new(source, LexerMode::MultiLine);
+        let mut lexer = Lexer::new(source, TagLines::Multi);
         let snapshot = lexer.tokenize();
         insta::assert_yaml_snapshot!(snapshot);
     }
@@ -789,7 +789,7 @@ mod tests {
     </div>
 </body>
 </html>"#;
-        let mut lexer = Lexer::new(source, LexerMode::MultiLine);
+        let mut lexer = Lexer::new(source, TagLines::Multi);
         let snapshot = lexer.tokenize();
         insta::assert_yaml_snapshot!(snapshot);
     }
@@ -797,7 +797,7 @@ mod tests {
     #[test]
     fn test_tokenize_unclosed_style() {
         let source = "<style>body { color: blue; ";
-        let mut lexer = Lexer::new(source, LexerMode::MultiLine);
+        let mut lexer = Lexer::new(source, TagLines::Multi);
         let snapshot = lexer.tokenize();
         insta::assert_yaml_snapshot!(snapshot);
     }

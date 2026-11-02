@@ -119,7 +119,6 @@ fn extract_libraries(version: DjangoVersion) -> Vec<BundledDjangoLibrary> {
         Vec::new(),
         Vec::new(),
         TagSpecDef::default(),
-        None,
     ));
 
     [

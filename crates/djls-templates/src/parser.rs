@@ -350,10 +350,10 @@ mod tests {
 
     use super::*;
     use crate::lexer::Lexer;
-    use crate::lexer::LexerMode;
+    use crate::lexer::TagLines;
 
     fn parse_test_template(source: &str) -> Vec<Node> {
-        let mut lexer = Lexer::new(source, LexerMode::MultiLine);
+        let mut lexer = Lexer::new(source, TagLines::Multi);
         let tokens = lexer.tokenize();
         let mut parser = Parser::new(tokens);
         let (nodes, _errors) = parser.parse();
@@ -404,7 +404,7 @@ mod tests {
     #[test]
     fn malformed_construct_span_survives_parse_pipeline() {
         let source = "Hello {{ value";
-        let (_, errors) = crate::parse_template_impl(source, LexerMode::MultiLine);
+        let (_, errors) = crate::parse_template_impl(source, TagLines::Multi);
 
         assert_eq!(errors.len(), 1);
         let error = errors

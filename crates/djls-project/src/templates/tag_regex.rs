@@ -19,6 +19,7 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::collections::VecDeque;
 
+use djls_templates::TagLines;
 use ruff_python_ast::Expr;
 use ruff_python_ast::Number;
 use ruff_python_ast::Operator;
@@ -48,36 +49,37 @@ const TAG_RE: &str = "tag_re";
 // `re.DOTALL`'s value, for flags written as integers.
 const RE_DOTALL_BIT: i64 = 16;
 
-/// Django's `tag_re` after a Project's startup code runs.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum TemplateTagRegex {
-    /// No startup module assigns a `re.DOTALL` pattern: a tag closes on the line it opens.
-    Default,
-    /// A startup module assigns a pattern compiled with `re.DOTALL`: tags may span lines.
-    DotAll,
-    /// A startup module could not be found or read, or assigns `tag_re` a value
-    /// extraction cannot classify.
-    Unknown,
-}
-
-impl TemplateTagRegex {
-    // Any DOTALL assignment can run, so it decides the fact. Otherwise an
-    // unclassified source leaves the fact open.
-    fn join(self, other: Self) -> Self {
-        match (self, other) {
-            (Self::DotAll, _) | (_, Self::DotAll) => Self::DotAll,
-            (Self::Unknown, _) | (_, Self::Unknown) => Self::Unknown,
-            (Self::Default, Self::Default) => Self::Default,
-        }
+/// Join two classifications of `tag_re`, where `None` means extraction could
+/// not classify one.
+///
+/// Any assignment of a DOTALL pattern can run, so it decides the result.
+/// Otherwise an unclassified source leaves it open.
+fn join(left: Option<TagLines>, right: Option<TagLines>) -> Option<TagLines> {
+    match (left, right) {
+        (Some(TagLines::Multi), _) | (_, Some(TagLines::Multi)) => Some(TagLines::Multi),
+        (None, _) | (_, None) => None,
+        (Some(TagLines::Single), Some(TagLines::Single)) => Some(TagLines::Single),
     }
 }
 
+/// The [`TagLines`] to lex a Project's templates with: what Django's `tag_re`
+/// allows after the Project's startup code runs.
+///
+/// [`TagLines::Single`] only when every startup module was read and none
+/// assigns a DOTALL pattern. When a startup module cannot be found or read, or
+/// assigns `tag_re` a value extraction cannot classify, tags may span lines:
+/// lexing a single-line project that way only misreads stray openers that a
+/// later line closes, while lexing a patched project as single-line would break
+/// every multi-line tag into errors.
 #[salsa::tracked(returns(copy))]
-pub fn template_tag_regex(db: &dyn ProjectDb, project: Project) -> TemplateTagRegex {
-    let Some(settings) = settings_module(db, project) else {
-        return TemplateTagRegex::Unknown;
-    };
-    let mut result = TemplateTagRegex::Default;
+pub fn template_tag_lines(db: &dyn ProjectDb, project: Project) -> TagLines {
+    startup_tag_lines(db, project).unwrap_or(TagLines::Multi)
+}
+
+/// `tag_re` after startup, or `None` when extraction cannot tell.
+fn startup_tag_lines(db: &dyn ProjectDb, project: Project) -> Option<TagLines> {
+    let settings = settings_module(db, project)?;
+    let mut result = Some(TagLines::Single);
     let mut queue = VecDeque::from([settings.name().clone()]);
 
     for case in django_settings(db, project).feasible_cases() {
@@ -89,7 +91,7 @@ pub fn template_tag_regex(db: &dyn ProjectDb, project: Project) -> TemplateTagRe
                 .filter_map(|evidence| match evidence {
                     InstalledAppEvidence::Known(app) => Some(app.value.as_str()),
                     InstalledAppEvidence::Issue(_) => {
-                        result = result.join(TemplateTagRegex::Unknown);
+                        result = None;
                         None
                     }
                 })
@@ -98,7 +100,7 @@ pub fn template_tag_regex(db: &dyn ProjectDb, project: Project) -> TemplateTagRe
         };
         for entry in entries {
             let Some(package) = installed_app_package_module(db, project, entry) else {
-                result = result.join(TemplateTagRegex::Unknown);
+                result = None;
                 continue;
             };
             queue.extend(package.prefixes());
@@ -120,18 +122,17 @@ pub fn template_tag_regex(db: &dyn ProjectDb, project: Project) -> TemplateTagRe
             continue;
         };
         let scan = startup_module_scan(db, project, module);
-        if let Some(tag_regex) = scan.tag_regex {
-            result = result.join(tag_regex);
-        }
+        result = join(result, scan.tag_lines);
         queue.extend(scan.imports.iter().cloned());
     }
     result
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct StartupModuleScan {
-    /// The joined classification of this module's `tag_re` assignments, if any.
-    tag_regex: Option<TemplateTagRegex>,
+    /// The joined classification of this module's `tag_re` assignments;
+    /// [`TagLines::Single`] when it makes none.
+    tag_lines: Option<TagLines>,
     /// Modules this module imports from its own top-level package.
     imports: BTreeSet<PythonModuleName>,
 }
@@ -146,13 +147,16 @@ fn startup_module_scan(
 ) -> StartupModuleScan {
     let Ok(Some(parsed)) = RecoveredPythonModule::from_file(db, module.file()) else {
         return StartupModuleScan {
-            tag_regex: Some(TemplateTagRegex::Unknown),
+            tag_lines: None,
             imports: BTreeSet::new(),
         };
     };
     let mut scanner = Scanner {
         module: &module,
-        scan: StartupModuleScan::default(),
+        scan: StartupModuleScan {
+            tag_lines: Some(TagLines::Single),
+            imports: BTreeSet::new(),
+        },
         functions: Vec::new(),
     };
     let mut env = Env::new();
@@ -200,8 +204,8 @@ enum Value {
     ReRegexFlag,
     /// Regex flags; whether `re.DOTALL` is among them.
     Flags(bool),
-    /// A compiled pattern.
-    Pattern(TemplateTagRegex),
+    /// A compiled pattern, classified when extraction can tell.
+    Pattern(Option<TagLines>),
 }
 
 type Env = BTreeMap<String, Value>;
@@ -422,18 +426,12 @@ impl<'a> Scanner<'a> {
             return;
         };
         if attribute.attr.as_str() == TAG_RE && is_template_base(&attribute.value, env) {
-            self.record(value.map_or(TemplateTagRegex::Unknown, |value| {
-                classify_pattern(value, env)
-            }));
+            self.record(value.and_then(|value| classify_pattern(value, env)));
         }
     }
 
-    fn record(&mut self, tag_regex: TemplateTagRegex) {
-        self.scan.tag_regex = Some(
-            self.scan
-                .tag_regex
-                .map_or(tag_regex, |recorded| recorded.join(tag_regex)),
-        );
+    fn record(&mut self, tag_lines: Option<TagLines>) {
+        self.scan.tag_lines = join(self.scan.tag_lines, tag_lines);
     }
 }
 
@@ -501,15 +499,15 @@ fn eval(expression: &Expr, env: &Env) -> Option<Value> {
     }
 }
 
-fn classify_pattern(expression: &Expr, env: &Env) -> TemplateTagRegex {
+fn classify_pattern(expression: &Expr, env: &Env) -> Option<TagLines> {
     match eval(expression, env) {
-        Some(Value::Pattern(tag_regex)) => tag_regex,
-        _ => TemplateTagRegex::Unknown,
+        Some(Value::Pattern(tag_lines)) => tag_lines,
+        _ => None,
     }
 }
 
 // `re.compile(pattern, flags=0)`.
-fn classify_compile(call: &ruff_python_ast::ExprCall, env: &Env) -> TemplateTagRegex {
+fn classify_compile(call: &ruff_python_ast::ExprCall, env: &Env) -> Option<TagLines> {
     let arguments = &call.arguments;
     let keyword = |name: &str| {
         arguments
@@ -525,7 +523,7 @@ fn classify_compile(call: &ruff_python_ast::ExprCall, env: &Env) -> TemplateTagR
             .iter()
             .any(|keyword| keyword.arg.is_none())
     {
-        return TemplateTagRegex::Unknown;
+        return None;
     }
     let pattern = arguments.args.first().or_else(|| keyword("pattern"));
     let flags = arguments.args.get(1).or_else(|| keyword("flags"));
@@ -533,20 +531,18 @@ fn classify_compile(call: &ruff_python_ast::ExprCall, env: &Env) -> TemplateTagR
     let flags_dotall = match flags.map(|flags| eval(flags, env)) {
         None => false,
         Some(Some(Value::Flags(dotall))) => dotall,
-        Some(_) => return TemplateTagRegex::Unknown,
+        Some(_) => return None,
     };
     if flags_dotall {
-        return TemplateTagRegex::DotAll;
+        return Some(TagLines::Multi);
     }
-    let Some(pattern) = pattern else {
-        return TemplateTagRegex::Unknown;
-    };
+    let pattern = pattern?;
     if let Some(literal) = pattern.string_literal() {
-        return if has_inline_dotall(literal) {
-            TemplateTagRegex::DotAll
+        return Some(if has_inline_dotall(literal) {
+            TagLines::Multi
         } else {
-            TemplateTagRegex::Default
-        };
+            TagLines::Single
+        });
     }
     // `base.tag_re.pattern` is Django's own pattern, which has no inline flags.
     if let Expr::Attribute(attribute) = pattern
@@ -555,9 +551,9 @@ fn classify_compile(call: &ruff_python_ast::ExprCall, env: &Env) -> TemplateTagR
         && owner.attr.as_str() == TAG_RE
         && is_template_base(&owner.value, env)
     {
-        return TemplateTagRegex::Default;
+        return Some(TagLines::Single);
     }
-    TemplateTagRegex::Unknown
+    None
 }
 
 // A leading global flag group such as `(?s)` or `(?si)`.

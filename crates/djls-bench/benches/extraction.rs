@@ -299,7 +299,6 @@ fn settings_cold_corpus(bencher: Bencher, name: &str) {
                 Vec::new(),
                 Vec::new(),
                 djls_conf::Settings::default().tagspecs().clone(),
-                None,
             );
             db.set_project(project);
             require(
@@ -376,7 +375,6 @@ fn settings_cold_pretix_with_django(bencher: Bencher) {
                 Vec::new(),
                 Vec::new(),
                 djls_conf::Settings::default().tagspecs().clone(),
-                None,
             );
             db.set_project(project);
             require(

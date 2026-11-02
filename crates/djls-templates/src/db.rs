@@ -1,7 +1,7 @@
 //! Template parser Salsa database and diagnostics.
 //!
-//! The parser needs file source text and the [`LexerMode`] that decides
-//! whether tags may span lines. The database supplies the mode so this crate
+//! The parser needs file source text and the [`TagLines`] that decides
+//! whether tags may span lines. The database supplies it so this crate
 //! stays independent of how a project derives it.
 //!
 //! ## Architecture
@@ -41,7 +41,7 @@
 //! }
 //! ```
 
-use crate::lexer::LexerMode;
+use crate::lexer::TagLines;
 use crate::parser::ParseError;
 
 #[salsa::db]
@@ -50,7 +50,7 @@ pub trait Db: djls_source::Db {
     ///
     /// Tracked queries that lex call this, so an implementation backed by
     /// tracked project queries invalidates lexing when those queries change.
-    fn lexer_mode(&self) -> LexerMode;
+    fn tag_lines(&self) -> TagLines;
 }
 
 /// Accumulator for template parse errors.

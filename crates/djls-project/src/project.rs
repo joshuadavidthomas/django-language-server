@@ -53,9 +53,6 @@ pub struct Project {
     /// Manual TagSpecs configuration from TOML (fallback for extraction gaps)
     #[returns(ref)]
     pub tagspecs: TagSpecDef,
-    /// Configured override for whether template tags may span lines.
-    #[returns(copy)]
-    pub multiline_tags: Option<bool>,
 }
 
 impl Project {
@@ -114,7 +111,6 @@ impl Project {
             pythonpath,
             env_vars,
             tagspecs,
-            settings.multiline_tags(),
         )
         .durability(Durability::MEDIUM)
         .root_durability(Durability::HIGH)
@@ -150,7 +146,6 @@ impl Project {
             pythonpath,
             env_vars,
             tagspecs,
-            settings.multiline_tags(),
         )
         .durability(Durability::MEDIUM)
         .root_durability(Durability::HIGH)
@@ -195,10 +190,6 @@ impl Project {
 
         if self.tagspecs(db) != &tagspecs {
             self.set_tagspecs(db).to(tagspecs);
-        }
-
-        if self.multiline_tags(db) != settings.multiline_tags() {
-            self.set_multiline_tags(db).to(settings.multiline_tags());
         }
     }
 }

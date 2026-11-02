@@ -1000,6 +1000,7 @@ dependencies = [
  "directories",
  "djls-conf",
  "djls-source",
+ "djls-templates",
  "djls-testing",
  "dotenvy",
  "ignore",

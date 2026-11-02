@@ -129,7 +129,6 @@ fn bundled_django_names() -> BTreeSet<String> {
             Vec::new(),
             Vec::new(),
             TagSpecDef::default(),
-            None,
         );
         db.set_project(project);
 

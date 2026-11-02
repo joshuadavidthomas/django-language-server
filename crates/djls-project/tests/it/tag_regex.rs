@@ -1,6 +1,7 @@
 use djls_project::*;
 use djls_source::ChangeEvent;
 use djls_source::SourceChanges;
+use djls_templates::TagLines;
 use djls_testing::ProjectFixture;
 use djls_testing::ProjectSettings;
 use djls_testing::TestDatabase;
@@ -19,10 +20,10 @@ class ComponentsConfig(AppConfig):
             base.tag_re = re.compile(base.tag_re.pattern, re.DOTALL)
 "#;
 
-fn tag_regex_for(
+fn tag_lines_for(
     installed_apps: &[&str],
     files: &[(&str, &str)],
-) -> Result<TemplateTagRegex, Box<dyn std::error::Error>> {
+) -> Result<TagLines, Box<dyn std::error::Error>> {
     let db = TestDatabase::new();
     let settings = ProjectSettings {
         installed_apps: installed_apps.iter().map(ToString::to_string).collect(),
@@ -35,17 +36,17 @@ fn tag_regex_for(
             |fixture, (path, source)| fixture.file(format!("{ROOT}/{path}"), *source),
         )
         .build(&db)?;
-    Ok(template_tag_regex(&db, project))
+    Ok(template_tag_lines(&db, project))
 }
 
-fn patched_app(patch: &str) -> Result<TemplateTagRegex, Box<dyn std::error::Error>> {
-    tag_regex_for(&["blog"], &[("blog/__init__.py", patch)])
+fn patched_app(patch: &str) -> Result<TagLines, Box<dyn std::error::Error>> {
+    tag_lines_for(&["blog"], &[("blog/__init__.py", patch)])
 }
 
 #[test]
 fn startup_code_without_a_patch_keeps_the_default_pattern() {
     assert_eq!(
-        tag_regex_for(
+        tag_lines_for(
             &["blog", "django.contrib.admin"],
             &[
                 (
@@ -56,7 +57,7 @@ fn startup_code_without_a_patch_keeps_the_default_pattern() {
             ],
         )
         .expect("fixture should build"),
-        TemplateTagRegex::Default
+        TagLines::Single
     );
 }
 
@@ -76,7 +77,7 @@ fn dotall_assignments_in_common_spellings_are_recognized() {
     ] {
         assert_eq!(
             patched_app(patch).expect("fixture should build"),
-            TemplateTagRegex::DotAll,
+            TagLines::Multi,
             "{patch}"
         );
     }
@@ -87,27 +88,27 @@ fn tag_re_assignments_without_proven_dotall_are_classified() {
     for (patch, expected) in [
         (
             "import re\nfrom django.template import base\nbase.tag_re = re.compile(base.tag_re.pattern, re.MULTILINE)\n",
-            TemplateTagRegex::Default,
+            TagLines::Single,
         ),
         (
             "import re\nbase = object()\nbase.tag_re = re.compile('x', re.DOTALL)\n",
-            TemplateTagRegex::Default,
+            TagLines::Single,
         ),
         (
             "import re\nfrom django.template import base\nfrom django.template import loader as base\nbase.tag_re = re.compile('x', re.DOTALL)\n",
-            TemplateTagRegex::Default,
+            TagLines::Single,
         ),
         (
             "from django.template import base\nbase.tag_re = build_pattern()\n",
-            TemplateTagRegex::Unknown,
+            TagLines::Multi,
         ),
         (
             "from django.template import base\nimport re\nre = load_regex_module()\nbase.tag_re = re.compile(base.tag_re.pattern, re.DOTALL)\n",
-            TemplateTagRegex::Unknown,
+            TagLines::Multi,
         ),
         (
             "import re\nfrom django.template import base\nbase.tag_re = re.compile(base.tag_re.pattern, FLAGS)\n",
-            TemplateTagRegex::Unknown,
+            TagLines::Multi,
         ),
     ] {
         assert_eq!(
@@ -122,8 +123,8 @@ fn tag_re_assignments_without_proven_dotall_are_classified() {
 fn patches_are_found_where_django_runs_them_at_startup() {
     let patch = "import re\nfrom django.template import base\nbase.tag_re = re.compile(base.tag_re.pattern, re.DOTALL)\n";
     assert_eq!(
-        tag_regex_for(&[], &[("unused_patch.py", patch)]).expect("fixture should build"),
-        TemplateTagRegex::Default,
+        tag_lines_for(&[], &[("unused_patch.py", patch)]).expect("fixture should build"),
+        TagLines::Single,
         "a module nothing imports never runs"
     );
     // The settings module itself.
@@ -134,10 +135,10 @@ fn patches_are_found_where_django_runs_them_at_startup() {
         .file(format!("{ROOT}/settings.py"), settings)
         .build(&db)
         .expect("fixture should build");
-    assert_eq!(template_tag_regex(&db, project), TemplateTagRegex::DotAll);
+    assert_eq!(template_tag_lines(&db, project), TagLines::Multi);
     // An app's `AppConfig.ready()`, in the conditional, function-local form django-components uses.
     assert_eq!(
-        tag_regex_for(
+        tag_lines_for(
             &["blog.apps.ComponentsConfig"],
             &[
                 ("blog/__init__.py", ""),
@@ -145,7 +146,7 @@ fn patches_are_found_where_django_runs_them_at_startup() {
             ],
         )
         .expect("fixture should build"),
-        TemplateTagRegex::DotAll
+        TagLines::Multi
     );
     // A module the app package imports, relatively or absolutely.
     for init in [
@@ -154,18 +155,18 @@ fn patches_are_found_where_django_runs_them_at_startup() {
         "from .patches import *\n",
     ] {
         assert_eq!(
-            tag_regex_for(
+            tag_lines_for(
                 &["blog"],
                 &[("blog/__init__.py", init), ("blog/patches.py", patch)],
             )
             .expect("fixture should build"),
-            TemplateTagRegex::DotAll,
+            TagLines::Multi,
             "{init}"
         );
     }
     // A module the app's `models` imports from the app package.
     assert_eq!(
-        tag_regex_for(
+        tag_lines_for(
             &["blog"],
             &[
                 ("blog/__init__.py", ""),
@@ -178,15 +179,15 @@ fn patches_are_found_where_django_runs_them_at_startup() {
             ],
         )
         .expect("fixture should build"),
-        TemplateTagRegex::DotAll
+        TagLines::Multi
     );
 }
 
 #[test]
-fn startup_code_extraction_cannot_read_leaves_the_pattern_unknown() {
+fn startup_code_extraction_cannot_read_lets_tags_span_lines() {
     assert_eq!(
-        tag_regex_for(&["missing_app"], &[]).expect("fixture should build"),
-        TemplateTagRegex::Unknown,
+        tag_lines_for(&["missing_app"], &[]).expect("fixture should build"),
+        TagLines::Multi,
         "an installed app outside the search paths"
     );
 
@@ -195,8 +196,8 @@ fn startup_code_extraction_cannot_read_leaves_the_pattern_unknown() {
         .build(&db)
         .expect("fixture should build");
     assert_eq!(
-        template_tag_regex(&db, project),
-        TemplateTagRegex::Unknown,
+        template_tag_lines(&db, project),
+        TagLines::Multi,
         "no Django settings module"
     );
 }
@@ -214,12 +215,12 @@ fn editing_a_startup_module_recomputes_the_pattern() {
         .file(&path, "")
         .build(&db)
         .expect("fixture should build");
-    assert_eq!(template_tag_regex(&db, project), TemplateTagRegex::Default);
+    assert_eq!(template_tag_lines(&db, project), TagLines::Single);
 
     db.add_file(
         &path,
         "import re\nfrom django.template import base\nbase.tag_re = re.compile(base.tag_re.pattern, re.DOTALL)\n",
     ).expect("fixture should build");
     SourceChanges::new([ChangeEvent::ContentChanged(path.into())]).apply(&mut db);
-    assert_eq!(template_tag_regex(&db, project), TemplateTagRegex::DotAll);
+    assert_eq!(template_tag_lines(&db, project), TagLines::Multi);
 }
