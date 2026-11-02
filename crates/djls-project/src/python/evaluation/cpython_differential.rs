@@ -20,6 +20,7 @@ use djls_source::Db as _;
 use djls_testing::TestDatabase;
 use proptest::prelude::*;
 use proptest::strategy::Union;
+use proptest::test_runner::RngSeed;
 use salsa::Setter as _;
 use serde_json::Value as Json;
 
@@ -597,9 +598,14 @@ fn describe_binding(facts: &PythonModuleFacts, name: &str) -> String {
 }
 
 proptest! {
-    // Small enough for every `cargo test`; set PROPTEST_CASES for a deeper run.
+    // Small and seeded for every `cargo test`, so a run fails only when the evaluator changes.
+    // Set PROPTEST_CASES and PROPTEST_RNG_SEED for a deeper run with new programs.
     #![proptest_config(ProptestConfig {
         cases: std::env::var("PROPTEST_CASES").ok().and_then(|cases| cases.parse().ok()).unwrap_or(64),
+        rng_seed: match ProptestConfig::default().rng_seed {
+            RngSeed::Random => RngSeed::Fixed(0),
+            seed @ RngSeed::Fixed(_) => seed,
+        },
         ..ProptestConfig::default()
     })]
 

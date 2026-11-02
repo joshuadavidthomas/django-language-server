@@ -1,0 +1,53 @@
+name: deep-tests
+
+# Property tests run with a fixed seed on every PR. This runs them with a fresh seed and many
+# more cases to find new failures. Reproduce one locally with the logged PROPTEST_RNG_SEED and
+# PROPTEST_CASES, then turn the shrunk input into a fixed regression test.
+
+on:
+  schedule:
+    - cron: "17 7 * * *"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  PROPTEST_RNG_SEED: ${{ github.run_id }}
+
+permissions: {}
+
+jobs:
+  properties:
+    name: Property tests with a fresh seed
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+        with:
+          install_args: rust
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: Static Python evaluator against CPython
+        if: ${{ !cancelled() }}
+        env:
+          PROPTEST_CASES: "5000"
+        run: cargo test -p djls-project --lib cpython_differential
+
+      - name: Incremental diagnostics against a fresh database
+        if: ${{ !cancelled() }}
+        env:
+          PROPTEST_CASES: "500"
+        run: cargo test -p djls-ide --test it incremental
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
+        with:
+          name: proptest-regressions
+          path: crates/*/proptest-regressions/
+          if-no-files-found: ignore
