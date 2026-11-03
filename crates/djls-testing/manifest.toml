@@ -309,6 +309,7 @@ environment = { python = ">=3.12,<3.14", dependencies = { kind = "uv_lock" } }
 name = "djangoproject.com"
 url = "https://github.com/django/djangoproject.com.git"
 ref = "main"
+django_settings_module = "djangoproject.settings.dev"
 environment = { dependencies = { kind = "requirements", inputs = ["requirements/dev.txt"] } }
 
 [[repo]]

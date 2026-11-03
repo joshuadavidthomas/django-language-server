@@ -43,6 +43,7 @@ mod lock;
 mod manifest;
 mod sync;
 
+pub use environment::CorpusEnvironmentProject;
 pub use lock::LockFilter;
 pub use lock::Lockfile;
 pub use lock::lock_corpus;
@@ -722,6 +723,11 @@ mod tests {
                     "django-allauth".to_string(),
                     ".".to_string(),
                     vec!["tests.projects.account_only.settings".to_string()],
+                ),
+                (
+                    "djangoproject.com".to_string(),
+                    ".".to_string(),
+                    vec!["djangoproject.settings.dev".to_string()],
                 ),
                 (
                     "healthchecks".to_string(),

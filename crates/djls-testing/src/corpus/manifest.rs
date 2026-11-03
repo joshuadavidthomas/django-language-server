@@ -215,6 +215,7 @@ mod tests {
 
         for (repo, settings) in [
             ("archivebox", &["archivebox.core.settings"][..]),
+            ("djangoproject.com", &["djangoproject.settings.dev"]),
             ("healthchecks", &["hc.settings"]),
             ("inventree", &["InvenTree.settings"]),
             ("netbox", &["netbox.settings"]),
@@ -274,6 +275,7 @@ mod tests {
                     ".",
                     vec!["tests.projects.account_only.settings"]
                 ),
+                ("djangoproject.com", ".", vec!["djangoproject.settings.dev"]),
                 ("healthchecks", ".", vec!["hc.settings"]),
                 (
                     "inventree",

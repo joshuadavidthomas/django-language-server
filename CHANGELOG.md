@@ -65,6 +65,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - **Internal**: Added `just fuzz`, a cargo-fuzz target for the template parser seeded from corpus templates, which checks that node spans stay on char boundaries and cover the source exactly, with both single-line and multi-line tags.
 - **Internal**: The nightly `deep-tests` workflow now runs the template parser fuzzer for 10 minutes, seeded from corpus templates, and uploads any crashing input.
 - **Internal**: Changed the `default_tag_products[warm_detail]` benchmark to repeat its warm hit 10,000 times per sample and to drop the primed database outside the measurement.
+- **Internal**: Added `real_project` benchmarks that open `djangoproject.com` and `netbox` with their own Python environments through the server's `AnalysisHost`. `cold_start_check_templates` runs the server's reload sequence from a fresh database and computes diagnostics for every project template; `keystroke_diagnostics` types one character into an open template and recomputes its diagnostics. The bench workflow builds the two environments, and the corpus manifest now selects `djangoproject.settings.dev` for `djangoproject.com`.
 
 ### Fixed
 

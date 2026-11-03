@@ -74,6 +74,17 @@ fn below_python_ceiling(request: &str) -> String {
     }
 }
 
+/// A corpus checkout paired with its ready Python environment.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CorpusEnvironmentProject {
+    pub checkout_root: Utf8PathBuf,
+    pub project_root: Utf8PathBuf,
+    pub environment_root: Utf8PathBuf,
+    pub django_settings_module: Option<String>,
+    /// Absolute source roots the project adds to its Python path.
+    pub source_roots: Vec<Utf8PathBuf>,
+}
+
 fn default_source_roots() -> Vec<Utf8PathBuf> {
     vec![Utf8PathBuf::from(".")]
 }
@@ -423,15 +434,24 @@ impl Corpus {
         Ok(root)
     }
 
-    /// Use the checkout and its own environment, with no ambient Python fallback.
-    pub fn environment_database(&self, name: &str) -> anyhow::Result<OsTestDatabase> {
+    /// Whether `name` has a synchronized environment, ready or stale.
+    #[must_use]
+    pub fn environment_is_synced(&self, name: &str) -> bool {
+        self.root
+            .join("environments")
+            .join(name)
+            .join(".ready")
+            .is_file()
+    }
+
+    /// Describe the checkout and its ready environment the way a user would configure djls.
+    pub fn environment_project(&self, name: &str) -> anyhow::Result<CorpusEnvironmentProject> {
         if let Some(reason) = self.environment_deferral(name)? {
             anyhow::bail!("corpus environment `{name}` is deferred: {reason}");
         }
-        let root = self.require_environment(name)?;
+        let environment_root = self.require_environment(name)?;
         let (environment, _) = self.environment_recipe(name)?;
-        let checkout = self.root.join("repos").join(name);
-        let mut db = OsTestDatabase::with_disk_roots([checkout.clone(), root.clone()]);
+        let checkout_root = self.root.join("repos").join(name);
         let manifest = Manifest::load(&self.manifest_path)?;
         let declaration = manifest
             .repo_settings_projects()
@@ -440,30 +460,60 @@ impl Corpus {
         let project_root = declaration
             .as_ref()
             .and_then(|project| project.relative_root)
-            .map_or_else(|| checkout.clone(), |relative| checkout.join(relative));
-        let mut fixture = ProjectFixture::new(project_root)
-            .python_environment(PythonEnvironment::Path(root))
-            .without_bundled_django();
-        if let Some(declaration) = declaration {
-            ensure!(
-                declaration.django_settings_modules.len() == 1,
-                "corpus environment `{name}` needs an explicit settings selection for its multiple projects"
+            .map_or_else(
+                || checkout_root.clone(),
+                |relative| checkout_root.join(relative),
             );
-            fixture = fixture.django_settings_module(declaration.django_settings_modules[0]);
+        let django_settings_module = match declaration {
+            Some(declaration) => {
+                ensure!(
+                    declaration.django_settings_modules.len() == 1,
+                    "corpus environment `{name}` needs an explicit settings selection for its multiple projects"
+                );
+                Some(declaration.django_settings_modules[0].to_string())
+            }
+            None => None,
+        };
+        let source_roots = environment
+            .source_roots
+            .iter()
+            .map(|root| checkout_root.join(root))
+            .collect();
+        Ok(CorpusEnvironmentProject {
+            checkout_root,
+            project_root,
+            environment_root,
+            django_settings_module,
+            source_roots,
+        })
+    }
+
+    /// Use the checkout and its own environment, with no ambient Python fallback.
+    pub fn environment_database(&self, name: &str) -> anyhow::Result<OsTestDatabase> {
+        let project = self.environment_project(name)?;
+        let mut db = OsTestDatabase::with_disk_roots([
+            project.checkout_root.clone(),
+            project.environment_root.clone(),
+        ]);
+        let mut fixture = ProjectFixture::new(project.project_root)
+            .python_environment(PythonEnvironment::Path(project.environment_root))
+            .without_bundled_django();
+        if let Some(settings_module) = &project.django_settings_module {
+            fixture = fixture.django_settings_module(settings_module);
         }
-        for source_root in environment.source_roots {
-            fixture = fixture.pythonpath(checkout.join(source_root));
+        for source_root in project.source_roots {
+            fixture = fixture.pythonpath(source_root);
         }
-        let project = fixture.install(&mut db)?;
+        let installed = fixture.install(&mut db)?;
         ensure!(
-            project
+            installed
                 .search_paths(&db)
                 .iter()
                 .any(|path| matches!(path, SearchPath::SitePackages(_))),
             "corpus environment `{name}` has no discoverable site-packages; run `just corpus environment sync {name}`"
         );
         ensure!(
-            PythonSourceModule::resolve(&db, project, PythonModuleName::parse("django")?,)
+            PythonSourceModule::resolve(&db, installed, PythonModuleName::parse("django")?,)
                 .is_some(),
             "corpus environment `{name}` cannot resolve Django; review its upstream dependency inputs"
         );
