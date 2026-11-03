@@ -254,9 +254,11 @@ pub fn full_corpus_templates() -> Result<Option<&'static CorpusTemplates>, Corpu
     static CORPUS: OnceLock<Result<Option<CorpusTemplates>, CorpusLoadError>> = OnceLock::new();
     match CORPUS.get_or_init(|| {
         load_corpus_templates("full", |corpus| {
-            let corpus_root = corpus.root().to_path_buf();
-            let paths = corpus.templates_in(&corpus_root);
-            Ok((corpus_root, paths))
+            // Environments and interpreters also live under the corpus root; benchmark only
+            // repository sources so local and CI workloads match.
+            let repos_root = corpus.root().join("repos");
+            let paths = corpus.templates_in(&repos_root);
+            Ok((repos_root, paths))
         })
     }) {
         Ok(corpus) => Ok(corpus.as_ref()),
@@ -461,7 +463,7 @@ mod tests {
         }
 
         let corpus = Corpus::require().expect("benchmark corpus should load");
-        let paths = corpus.model_files_in(corpus.root());
+        let paths = corpus.model_files_in(&corpus.root().join("repos"));
         let mut names = HashSet::with_capacity(paths.len());
         for path in paths {
             let name = model_benchmark_module_name(&path);
