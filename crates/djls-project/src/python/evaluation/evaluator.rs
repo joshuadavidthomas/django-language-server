@@ -4,6 +4,7 @@ mod statement;
 
 #[cfg(test)]
 use std::cell::Cell;
+use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::mem;
@@ -1065,20 +1066,46 @@ impl PythonEvaluationState {
     }
 
     fn changed_names_from(&self, base: &Self) -> BTreeSet<String> {
-        // `Rc` equality checks pointers first, so bindings a fork never
-        // rewrote compare in constant time.
-        let mut changed = self
-            .bindings
-            .iter()
-            .filter(|(name, binding)| base.bindings.get(*name) != Some(binding))
-            .map(|(name, _)| name)
-            .chain(
-                base.bindings
-                    .keys()
-                    .filter(|name| !self.bindings.contains_key(*name)),
-            )
-            .cloned()
-            .collect::<BTreeSet<_>>();
+        // Both maps are sorted by name, so one merged walk replaces a lookup
+        // per name. `Rc` equality checks pointers first, so bindings a fork
+        // never rewrote compare in constant time.
+        let mut changed = BTreeSet::new();
+        let mut ours = self.bindings.iter().peekable();
+        let mut theirs = base.bindings.iter().peekable();
+        loop {
+            let name = match (ours.peek().copied(), theirs.peek().copied()) {
+                (None, None) => break,
+                (Some((name, _)), None) => {
+                    ours.next();
+                    name
+                }
+                (None, Some((name, _))) => {
+                    theirs.next();
+                    name
+                }
+                (Some((our_name, our_binding)), Some((their_name, their_binding))) => {
+                    match our_name.cmp(their_name) {
+                        Ordering::Less => {
+                            ours.next();
+                            our_name
+                        }
+                        Ordering::Greater => {
+                            theirs.next();
+                            their_name
+                        }
+                        Ordering::Equal => {
+                            ours.next();
+                            theirs.next();
+                            if our_binding == their_binding {
+                                continue;
+                            }
+                            our_name
+                        }
+                    }
+                }
+            };
+            changed.insert(name.clone());
+        }
         let mutation_roots = base
             .mutations
             .iter()
