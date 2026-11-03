@@ -56,6 +56,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - **Internal**: Added `djls-semantic` mdtest cases covering unloaded-symbol diagnostics (S109, S110) after a selective import from an unresolved library, and after a resolved load that does not define the symbol.
 - **Internal**: Added `just fuzz`, a cargo-fuzz target for the template parser seeded from corpus templates, which checks that node spans stay on char boundaries and cover the source exactly, with both single-line and multi-line tags.
 - **Internal**: The nightly `deep-tests` workflow now runs the template parser fuzzer for 10 minutes, seeded from corpus templates, and uploads any crashing input.
+- **Internal**: Changed the `default_tag_products[warm_detail]` benchmark to repeat its warm hit 10,000 times per sample and to drop the primed database outside the measurement.
 
 ### Fixed
 

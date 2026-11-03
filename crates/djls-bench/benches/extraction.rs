@@ -577,9 +577,14 @@ fn scoped_template_operations(bencher: Bencher, operation: &str) {
         });
 }
 
+/// Warm hits per `warm_detail` sample. `CodSpeed` simulates one sample with cold
+/// caches, so a single hit would mostly measure first-touch cache misses.
+const WARM_DETAIL_ITERS: usize = 10_000;
+
 /// Split default-tag products with prerequisite products primed, except for
-/// the cold inventory. The warm detail case also primes its own result. Each
-/// measurement includes re-interning the library key.
+/// the cold inventory. The warm detail case also primes its own result and
+/// repeats the warm hit `WARM_DETAIL_ITERS` times per sample. Each measurement
+/// includes re-interning the library key.
 #[divan::bench(args = ["inventory", "structure", "detail", "warm_detail"])]
 fn default_tag_products(bencher: Bencher, operation: &str) {
     let module = require(
@@ -615,6 +620,15 @@ fn default_tag_products(bencher: Bencher, operation: &str) {
             (db, file)
         })
         .bench_local_values(|(db, file)| {
+            if operation == "warm_detail" {
+                for _ in 0..WARM_DETAIL_ITERS {
+                    let key = TemplateLibraryId::new(&db, Some(file), module.clone());
+                    divan::black_box(template_library_tag_facts(&db, key));
+                }
+                // Dropping the primed database costs far more than the hits and
+                // is mostly cache misses, so drop it outside the measurement.
+                return Some(db);
+            }
             let key = TemplateLibraryId::new(&db, Some(file), module.clone());
             match operation {
                 "inventory" => {
@@ -623,11 +637,12 @@ fn default_tag_products(bencher: Bencher, operation: &str) {
                 "structure" => {
                     divan::black_box(template_library_structure_facts(&db, key));
                 }
-                "detail" | "warm_detail" => {
+                "detail" => {
                     divan::black_box(template_library_tag_facts(&db, key));
                 }
                 _ => fail(format_args!("unknown default tag product: {operation}")),
             }
+            None
         });
 }
 
