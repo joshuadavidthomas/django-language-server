@@ -4,6 +4,7 @@ use std::mem;
 use djls_source::Origin;
 
 use super::BranchConstraints;
+use super::ConstraintRestriction;
 use super::StructuralOrd;
 
 /// An abstract source identity for a freshly allocated mutable object.
@@ -49,9 +50,9 @@ impl AllocationSites {
         self.normalize();
     }
 
-    pub(super) fn constrain(&mut self, constraints: &BranchConstraints) {
+    pub(super) fn restrict(&mut self, restriction: &mut ConstraintRestriction<'_>) {
         for site in &mut self.0 {
-            site.constraints = site.constraints.intersection(constraints);
+            site.constraints = restriction.restrict(&site.constraints);
         }
         self.normalize();
     }
@@ -190,7 +191,7 @@ mod tests {
 
     fn constrained_site(site: Origin, join: Origin, arm: usize) -> AllocationSites {
         let mut sites = AllocationSites::one(site);
-        sites.constrain(&selected(join, arm));
+        sites.restrict(&mut super::ConstraintRestriction::new(&selected(join, arm)));
         sites
     }
 

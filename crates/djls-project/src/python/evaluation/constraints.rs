@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::collections::hash_map::Entry;
 use std::fmt;
 use std::hash::Hash;
 use std::hash::Hasher;
@@ -748,6 +749,49 @@ impl BranchConstraints {
 
     pub(crate) fn compatible_with(&self, other: &Self) -> bool {
         !self.intersection(other).is_impossible()
+    }
+}
+
+/// Intersects many constraints with one fixed constraint.
+///
+/// A value's nested evidence often shares diagram nodes, and intersection is a
+/// pure function of node identity, so one interner and one result per distinct
+/// node serve the whole walk.
+pub(super) struct ConstraintRestriction<'a> {
+    constraints: &'a BranchConstraints,
+    interner: ConstraintInterner,
+    // Each entry keeps its key node alive so a freed address cannot be reused.
+    memo: FxHashMap<*const ConstraintBranch, (Arc<ConstraintBranch>, ConstraintNode)>,
+}
+
+impl<'a> ConstraintRestriction<'a> {
+    pub(super) fn new(constraints: &'a BranchConstraints) -> Self {
+        Self {
+            constraints,
+            interner: ConstraintInterner::new(MAX_INTERNED_BRANCHES),
+            memo: FxHashMap::default(),
+        }
+    }
+
+    pub(super) fn restrict(&mut self, target: &BranchConstraints) -> BranchConstraints {
+        let Some(branch) = target.root.as_branch() else {
+            return BranchConstraints {
+                root: target
+                    .root
+                    .intersection(&self.constraints.root, &mut self.interner),
+            };
+        };
+        let root = match self.memo.entry(Arc::as_ptr(branch)) {
+            Entry::Occupied(entry) => entry.get().1.clone(),
+            Entry::Vacant(entry) => {
+                let root = target
+                    .root
+                    .intersection(&self.constraints.root, &mut self.interner);
+                entry.insert((Arc::clone(branch), root.clone()));
+                root
+            }
+        };
+        BranchConstraints { root }
     }
 }
 

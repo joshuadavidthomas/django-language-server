@@ -3,6 +3,7 @@ use std::cmp::Ordering;
 use djls_source::Origin;
 
 use super::BranchConstraints;
+use super::ConstraintRestriction;
 use super::MAX_EXACT_PYTHON_ALTERNATIVES;
 use super::OriginSet;
 use super::PythonUnknown;
@@ -127,9 +128,9 @@ impl PythonList {
         self.allocation_sites.rebase(origin);
     }
 
-    pub(super) fn constrain_value_evidence(&mut self, constraints: &BranchConstraints) {
-        self.sequence.constrain_value_evidence(constraints);
-        self.allocation_sites.constrain(constraints);
+    pub(super) fn restrict_value_evidence(&mut self, restriction: &mut ConstraintRestriction<'_>) {
+        self.sequence.restrict_value_evidence(restriction);
+        self.allocation_sites.restrict(restriction);
     }
 
     pub(super) fn normalize(&mut self) {
@@ -230,8 +231,8 @@ impl PythonTuple {
         self.sequence.contains_origin(wanted)
     }
 
-    pub(super) fn constrain_value_evidence(&mut self, constraints: &BranchConstraints) {
-        self.sequence.constrain_value_evidence(constraints);
+    pub(super) fn restrict_value_evidence(&mut self, restriction: &mut ConstraintRestriction<'_>) {
+        self.sequence.restrict_value_evidence(restriction);
     }
 
     pub(super) fn normalize(&mut self) {
@@ -311,11 +312,11 @@ impl SequenceFacts {
             }))
     }
 
-    fn constrain_value_evidence(&mut self, constraints: &BranchConstraints) {
+    fn restrict_value_evidence(&mut self, restriction: &mut ConstraintRestriction<'_>) {
         for item in &mut self.summary {
-            item.constrain_value_evidence(constraints);
+            item.restrict_value_evidence(restriction);
         }
-        self.alternatives.constrain_value_evidence(constraints);
+        self.alternatives.restrict_value_evidence(restriction);
         self.debug_assert_semantic_equivalence();
     }
 
@@ -525,15 +526,15 @@ impl SequenceAlternatives {
         }
     }
 
-    fn constrain_value_evidence(&mut self, constraints: &BranchConstraints) {
+    fn restrict_value_evidence(&mut self, restriction: &mut ConstraintRestriction<'_>) {
         for alternative in &mut self.exact {
-            alternative.constraints = alternative.constraints.intersection(constraints);
+            alternative.constraints = restriction.restrict(&alternative.constraints);
             for item in &mut alternative.items {
-                item.constrain_value_evidence(constraints);
+                item.restrict_value_evidence(restriction);
             }
         }
         if let Some(remainder) = &mut self.remainder {
-            remainder.constraints = remainder.constraints.intersection(constraints);
+            remainder.constraints = restriction.restrict(&remainder.constraints);
         }
         self.normalize(None);
     }
@@ -825,9 +826,9 @@ impl PythonSequenceItem {
         }
     }
 
-    fn constrain_value_evidence(&mut self, constraints: &BranchConstraints) {
+    fn restrict_value_evidence(&mut self, restriction: &mut ConstraintRestriction<'_>) {
         if let Self::Value(value) = self {
-            value.constrain_value_evidence(constraints);
+            value.restrict_value_evidence(restriction);
         }
     }
 
@@ -1354,7 +1355,8 @@ mod tests {
             let mut constraints = BranchConstraints::unconstrained();
             constraints.select(join, arm);
             let mut exact_item = summary_item.clone();
-            exact_item.constrain_value_evidence(&constraints);
+            exact_item
+                .restrict_value_evidence(&mut super::ConstraintRestriction::new(&constraints));
             SequenceFacts {
                 summary: vec![summary_item],
                 alternatives: SequenceAlternatives {
