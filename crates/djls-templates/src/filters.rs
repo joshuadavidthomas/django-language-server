@@ -42,8 +42,7 @@ fn usize_to_u32(val: usize) -> u32 {
 ///
 /// Returns an iterator of `(segment_str, byte_offset_within_content)` pairs.
 pub(crate) fn split_variable_expression(content: &str) -> impl Iterator<Item = (&str, u32)> {
-    split_on_unquoted_delimiter(content, '|')
-        .into_iter()
+    split_on_unquoted_delimiter(content, b'|')
         .map(|segment| (segment.text, usize_to_u32(segment.start_byte)))
 }
 
@@ -57,7 +56,7 @@ pub(crate) fn parse_filter(raw: &str, base_offset: u32) -> Result<Filter, Filter
 
     let filter_offset = base_offset + usize_to_u32(trimmed_start);
 
-    let colon_pos = first_unquoted_delimiter_index(trimmed, ':');
+    let colon_pos = first_unquoted_delimiter_index(trimmed, b':');
 
     let (name, arg) = match colon_pos {
         Some(pos) => {

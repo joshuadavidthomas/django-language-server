@@ -102,9 +102,7 @@ impl<'source> TemplateCompletionContext<'source> {
                 delimiter: TagDelimiter::Comment,
                 ..
             }
-            | Token::Newline { .. }
-            | Token::Text { .. }
-            | Token::Whitespace { .. } => Self::Text,
+            | Token::Text { .. } => Self::Text,
         }
     }
 

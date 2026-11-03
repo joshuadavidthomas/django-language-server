@@ -1,7 +1,10 @@
-use djls_source::Span;
-use memchr::memmem;
+use std::sync::LazyLock;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+use djls_source::Span;
+use memchr::memmem::Finder;
+use serde::Serialize;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub enum TagDelimiter {
     Block,
     Variable,
@@ -52,7 +55,17 @@ impl TagDelimiter {
     }
 
     pub(crate) fn find_closer(self, source: &str) -> Option<usize> {
-        memmem::find(source.as_bytes(), self.closer().as_bytes())
+        // `memmem::find` rebuilds its searcher per call, which dominated lexing tag-dense input.
+        static BLOCK: LazyLock<Finder<'static>> = LazyLock::new(|| Finder::new("%}"));
+        static VARIABLE: LazyLock<Finder<'static>> = LazyLock::new(|| Finder::new("}}"));
+        static COMMENT: LazyLock<Finder<'static>> = LazyLock::new(|| Finder::new("#}"));
+
+        let finder = match self {
+            Self::Block => &BLOCK,
+            Self::Variable => &VARIABLE,
+            Self::Comment => &COMMENT,
+        };
+        finder.find(source.as_bytes())
     }
 }
 
@@ -72,9 +85,6 @@ pub enum Token<T = String> {
         delimiter: TagDelimiter,
     },
     Eof,
-    Newline {
-        span: Span,
-    },
     Text {
         content: T,
         span: Span,
@@ -83,33 +93,9 @@ pub enum Token<T = String> {
         content: T,
         span: Span,
     },
-    Whitespace {
-        span: Span,
-    },
 }
 
 impl<T: AsRef<str>> Token<T> {
-    /// Get the content text for content-bearing tokens
-    #[must_use]
-    pub(crate) fn content(&self) -> String {
-        match self {
-            Token::Block { content, .. }
-            | Token::Comment { content, .. }
-            | Token::Error { content, .. }
-            | Token::Text { content, .. }
-            | Token::Variable { content, .. } => content.as_ref().to_string(),
-            Token::Whitespace { span, .. } => " ".repeat(span.length_usize()),
-            Token::Newline { span, .. } => {
-                if span.length() == 2 {
-                    "\r\n".to_string()
-                } else {
-                    "\n".to_string()
-                }
-            }
-            Token::Eof => String::new(),
-        }
-    }
-
     #[must_use]
     fn offset(&self) -> Option<u32> {
         match self {
@@ -119,9 +105,7 @@ impl<T: AsRef<str>> Token<T> {
             | Token::Variable { span, .. } => {
                 Some(span.start().saturating_sub(TagDelimiter::LENGTH_U32))
             }
-            Token::Text { span, .. }
-            | Token::Whitespace { span, .. }
-            | Token::Newline { span, .. } => Some(span.start()),
+            Token::Text { span, .. } => Some(span.start()),
             Token::Eof => None,
         }
     }
@@ -135,7 +119,6 @@ impl<T: AsRef<str>> Token<T> {
             | Token::Error { content, .. }
             | Token::Text { content, .. }
             | Token::Variable { content, .. } => content.as_ref().len(),
-            Token::Whitespace { span, .. } | Token::Newline { span, .. } => span.length_usize(),
             Token::Eof => 0,
         };
         u32::try_from(len).unwrap_or(u32::MAX)
@@ -150,9 +133,7 @@ impl<T: AsRef<str>> Token<T> {
                 Some(span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32))
             }
             Token::Error { span, .. } => Some(span.expand(TagDelimiter::LENGTH_U32, 0)),
-            Token::Newline { span, .. }
-            | Token::Text { span, .. }
-            | Token::Whitespace { span, .. } => Some(*span),
+            Token::Text { span, .. } => Some(*span),
             Token::Eof => None,
         }
     }
@@ -164,21 +145,13 @@ impl<T: AsRef<str>> Token<T> {
             | Token::Comment { span, .. }
             | Token::Error { span, .. }
             | Token::Text { span, .. }
-            | Token::Variable { span, .. }
-            | Token::Whitespace { span, .. }
-            | Token::Newline { span, .. } => Some(*span),
+            | Token::Variable { span, .. } => Some(*span),
             Token::Eof => None,
         }
     }
 
     #[must_use]
-    pub(crate) fn full_span_or_fallback(&self) -> Span {
-        self.full_span()
-            .unwrap_or_else(|| self.content_span_or_fallback())
-    }
-
-    #[must_use]
-    pub(crate) fn content_span_or_fallback(&self) -> Span {
+    fn content_span_or_fallback(&self) -> Span {
         self.content_span()
             .unwrap_or_else(|| Span::new(self.offset().unwrap_or(0), self.length()))
     }
@@ -220,44 +193,6 @@ impl Token<&str> {
                 span,
             },
             Self::Eof => Token::Eof,
-            Self::Newline { span } => Token::Newline { span },
-            Self::Whitespace { span } => Token::Whitespace { span },
         }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct TokenStream<'src>(Vec<Token<&'src str>>);
-
-impl<'src> TokenStream<'src> {
-    const CHARS_PER_TOKEN: usize = 6;
-    const MIN_CAPACITY: usize = 32;
-    const MAX_CAPACITY: usize = 1024;
-
-    #[must_use]
-    pub(crate) fn with_estimated_capacity(source: &str) -> Self {
-        let capacity =
-            (source.len() / Self::CHARS_PER_TOKEN).clamp(Self::MIN_CAPACITY, Self::MAX_CAPACITY);
-        Self(Vec::with_capacity(capacity))
-    }
-
-    #[inline]
-    pub(crate) fn push(&mut self, token: Token<&'src str>) {
-        self.0.push(token);
-    }
-}
-
-impl<'src> From<TokenStream<'src>> for Vec<Token<&'src str>> {
-    fn from(val: TokenStream<'src>) -> Self {
-        val.0
-    }
-}
-
-impl<'src> IntoIterator for TokenStream<'src> {
-    type Item = Token<&'src str>;
-    type IntoIter = std::vec::IntoIter<Self::Item>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
     }
 }

@@ -142,7 +142,5 @@ pub fn parse_template(db: &dyn Db, file: File) -> TemplateParseResult<'_> {
 /// Returns a tuple of (nodes, errors) where nodes include Error nodes for parse errors
 #[must_use]
 pub fn parse_template_impl(source: &str, tag_lines: TagLines) -> (Vec<Node>, Vec<ParseError>) {
-    let tokens = lexer::Lexer::new(source, tag_lines).tokenize();
-    let mut parser = parser::Parser::new(tokens);
-    parser.parse()
+    parser::Parser::new(lexer::Lexer::new(source, tag_lines)).parse()
 }

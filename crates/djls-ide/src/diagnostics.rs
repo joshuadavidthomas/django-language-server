@@ -57,6 +57,7 @@ mod tests {
     use djls_conf::DiagnosticSeverity;
     use djls_source::LineIndex;
     use djls_templates::ParseError;
+    use djls_templates::TagDelimiter;
 
     use super::*;
     use crate::ext::DiagnosticSeverityExt;
@@ -67,8 +68,7 @@ mod tests {
         let line_index = LineIndex::from(source);
         let error = ParseError::MalformedConstruct {
             position: 6,
-            opener: "{{",
-            closer: "}}",
+            delimiter: TagDelimiter::Variable,
             content: "value".to_string(),
         };
 
@@ -95,8 +95,7 @@ mod tests {
         let line_index = LineIndex::from(source);
         let error = ParseError::MalformedConstruct {
             position: 7,
-            opener: "{{",
-            closer: "}}",
+            delimiter: TagDelimiter::Variable,
             content: "value".to_string(),
         };
         let config = djls_conf::DiagnosticsConfig::default();

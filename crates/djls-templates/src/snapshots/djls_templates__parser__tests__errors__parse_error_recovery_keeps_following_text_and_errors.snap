@@ -30,8 +30,7 @@ nodelist:
     error:
       MalformedConstruct:
         position: 5
-        opener: "{{"
-        closer: "}}"
+        delimiter: Variable
         content: a
   - type: Text
     span:
@@ -50,8 +49,7 @@ nodelist:
     error:
       MalformedConstruct:
         position: 10
-        opener: "{{"
-        closer: "}}"
+        delimiter: Variable
         content: b
   - type: Text
     span:

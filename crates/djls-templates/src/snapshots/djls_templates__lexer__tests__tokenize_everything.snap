@@ -3,277 +3,13 @@ source: crates/djls-templates/src/lexer.rs
 expression: snapshot
 ---
 - Text:
-    content: "<!DOCTYPE html>"
+    content: "<!DOCTYPE html>\n<html>\n<head>\n    <style type=\"text/css\">\n        /* Style header */\n        .header { color: blue; }\n    </style>\n    <script type=\"text/javascript\">\n        // Init app\n        const app = {\n            /* Config */\n            debug: true\n        };\n    </script>\n</head>\n<body>\n    <!-- Header section -->\n    <div class=\"header\" id=\"main\" data-value=\"123\" disabled>\n        "
     span:
       - 0
-      - 15
+      - 395
     full_span:
       - 0
-      - 15
-- Newline:
-    span:
-      - 15
-      - 1
-- Text:
-    content: "<html>"
-    span:
-      - 16
-      - 6
-    full_span:
-      - 16
-      - 6
-- Newline:
-    span:
-      - 22
-      - 1
-- Text:
-    content: "<head>"
-    span:
-      - 23
-      - 6
-    full_span:
-      - 23
-      - 6
-- Newline:
-    span:
-      - 29
-      - 1
-- Whitespace:
-    span:
-      - 30
-      - 4
-- Text:
-    content: "<style type=\"text/css\">"
-    span:
-      - 34
-      - 23
-    full_span:
-      - 34
-      - 23
-- Newline:
-    span:
-      - 57
-      - 1
-- Whitespace:
-    span:
-      - 58
-      - 8
-- Text:
-    content: /* Style header */
-    span:
-      - 66
-      - 18
-    full_span:
-      - 66
-      - 18
-- Newline:
-    span:
-      - 84
-      - 1
-- Whitespace:
-    span:
-      - 85
-      - 8
-- Text:
-    content: ".header { color: blue; }"
-    span:
-      - 93
-      - 24
-    full_span:
-      - 93
-      - 24
-- Newline:
-    span:
-      - 117
-      - 1
-- Whitespace:
-    span:
-      - 118
-      - 4
-- Text:
-    content: "</style>"
-    span:
-      - 122
-      - 8
-    full_span:
-      - 122
-      - 8
-- Newline:
-    span:
-      - 130
-      - 1
-- Whitespace:
-    span:
-      - 131
-      - 4
-- Text:
-    content: "<script type=\"text/javascript\">"
-    span:
-      - 135
-      - 31
-    full_span:
-      - 135
-      - 31
-- Newline:
-    span:
-      - 166
-      - 1
-- Whitespace:
-    span:
-      - 167
-      - 8
-- Text:
-    content: // Init app
-    span:
-      - 175
-      - 11
-    full_span:
-      - 175
-      - 11
-- Newline:
-    span:
-      - 186
-      - 1
-- Whitespace:
-    span:
-      - 187
-      - 8
-- Text:
-    content: "const app = {"
-    span:
-      - 195
-      - 13
-    full_span:
-      - 195
-      - 13
-- Newline:
-    span:
-      - 208
-      - 1
-- Whitespace:
-    span:
-      - 209
-      - 12
-- Text:
-    content: /* Config */
-    span:
-      - 221
-      - 12
-    full_span:
-      - 221
-      - 12
-- Newline:
-    span:
-      - 233
-      - 1
-- Whitespace:
-    span:
-      - 234
-      - 12
-- Text:
-    content: "debug: true"
-    span:
-      - 246
-      - 11
-    full_span:
-      - 246
-      - 11
-- Newline:
-    span:
-      - 257
-      - 1
-- Whitespace:
-    span:
-      - 258
-      - 8
-- Text:
-    content: "};"
-    span:
-      - 266
-      - 2
-    full_span:
-      - 266
-      - 2
-- Newline:
-    span:
-      - 268
-      - 1
-- Whitespace:
-    span:
-      - 269
-      - 4
-- Text:
-    content: "</script>"
-    span:
-      - 273
-      - 9
-    full_span:
-      - 273
-      - 9
-- Newline:
-    span:
-      - 282
-      - 1
-- Text:
-    content: "</head>"
-    span:
-      - 283
-      - 7
-    full_span:
-      - 283
-      - 7
-- Newline:
-    span:
-      - 290
-      - 1
-- Text:
-    content: "<body>"
-    span:
-      - 291
-      - 6
-    full_span:
-      - 291
-      - 6
-- Newline:
-    span:
-      - 297
-      - 1
-- Whitespace:
-    span:
-      - 298
-      - 4
-- Text:
-    content: "<!-- Header section -->"
-    span:
-      - 302
-      - 23
-    full_span:
-      - 302
-      - 23
-- Newline:
-    span:
-      - 325
-      - 1
-- Whitespace:
-    span:
-      - 326
-      - 4
-- Text:
-    content: "<div class=\"header\" id=\"main\" data-value=\"123\" disabled>"
-    span:
-      - 330
-      - 56
-    full_span:
-      - 330
-      - 56
-- Newline:
-    span:
-      - 386
-      - 1
-- Whitespace:
-    span:
-      - 387
-      - 8
+      - 395
 - Block:
     content: " if user.is_authenticated "
     span:
@@ -282,14 +18,14 @@ expression: snapshot
     full_span:
       - 395
       - 30
-- Newline:
+- Text:
+    content: "\n            "
     span:
       - 425
-      - 1
-- Whitespace:
-    span:
-      - 426
-      - 12
+      - 13
+    full_span:
+      - 425
+      - 13
 - Comment:
     content: " Welcome message "
     span:
@@ -298,22 +34,14 @@ expression: snapshot
     full_span:
       - 438
       - 21
-- Newline:
+- Text:
+    content: "\n            <h1>Welcome, "
     span:
       - 459
-      - 1
-- Whitespace:
-    span:
-      - 460
-      - 12
-- Text:
-    content: "<h1>Welcome, "
-    span:
-      - 472
-      - 13
+      - 26
     full_span:
-      - 472
-      - 13
+      - 459
+      - 26
 - Variable:
     content: " user.name|default:\"Guest\"|title "
     span:
@@ -323,21 +51,13 @@ expression: snapshot
       - 485
       - 37
 - Text:
-    content: "!</h1>"
+    content: "!</h1>\n            "
     span:
       - 522
-      - 6
+      - 19
     full_span:
       - 522
-      - 6
-- Newline:
-    span:
-      - 528
-      - 1
-- Whitespace:
-    span:
-      - 529
-      - 12
+      - 19
 - Block:
     content: " if user.is_staff "
     span:
@@ -346,30 +66,14 @@ expression: snapshot
     full_span:
       - 541
       - 22
-- Newline:
+- Text:
+    content: "\n                <span>Admin</span>\n            "
     span:
       - 563
-      - 1
-- Whitespace:
-    span:
-      - 564
-      - 16
-- Text:
-    content: "<span>Admin</span>"
-    span:
-      - 580
-      - 18
+      - 48
     full_span:
-      - 580
-      - 18
-- Newline:
-    span:
-      - 598
-      - 1
-- Whitespace:
-    span:
-      - 599
-      - 12
+      - 563
+      - 48
 - Block:
     content: " else "
     span:
@@ -378,30 +82,14 @@ expression: snapshot
     full_span:
       - 611
       - 10
-- Newline:
+- Text:
+    content: "\n                <span>User</span>\n            "
     span:
       - 621
-      - 1
-- Whitespace:
-    span:
-      - 622
-      - 16
-- Text:
-    content: "<span>User</span>"
-    span:
-      - 638
-      - 17
+      - 47
     full_span:
-      - 638
-      - 17
-- Newline:
-    span:
-      - 655
-      - 1
-- Whitespace:
-    span:
-      - 656
-      - 12
+      - 621
+      - 47
 - Block:
     content: " endif "
     span:
@@ -410,14 +98,14 @@ expression: snapshot
     full_span:
       - 668
       - 11
-- Newline:
+- Text:
+    content: "\n        "
     span:
       - 679
-      - 1
-- Whitespace:
-    span:
-      - 680
-      - 8
+      - 9
+    full_span:
+      - 679
+      - 9
 - Block:
     content: " endif "
     span:
@@ -426,44 +114,12 @@ expression: snapshot
     full_span:
       - 688
       - 11
-- Newline:
+- Text:
+    content: "\n    </div>\n</body>\n</html>"
     span:
       - 699
-      - 1
-- Whitespace:
-    span:
-      - 700
-      - 4
-- Text:
-    content: "</div>"
-    span:
-      - 704
-      - 6
+      - 27
     full_span:
-      - 704
-      - 6
-- Newline:
-    span:
-      - 710
-      - 1
-- Text:
-    content: "</body>"
-    span:
-      - 711
-      - 7
-    full_span:
-      - 711
-      - 7
-- Newline:
-    span:
-      - 718
-      - 1
-- Text:
-    content: "</html>"
-    span:
-      - 719
-      - 7
-    full_span:
-      - 719
-      - 7
+      - 699
+      - 27
 - Eof

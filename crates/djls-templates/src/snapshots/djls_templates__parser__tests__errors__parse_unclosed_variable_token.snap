@@ -13,6 +13,5 @@ nodelist:
     error:
       MalformedConstruct:
         position: 0
-        opener: "{{"
-        closer: "}}"
+        delimiter: Variable
         content: user

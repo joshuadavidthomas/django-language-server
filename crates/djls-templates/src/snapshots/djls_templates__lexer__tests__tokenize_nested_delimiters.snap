@@ -10,8 +10,12 @@ expression: snapshot
     full_span:
       - 0
       - 15
-- Newline:
+- Text:
+    content: "\n"
     span:
+      - 15
+      - 1
+    full_span:
       - 15
       - 1
 - Block:
@@ -22,8 +26,12 @@ expression: snapshot
     full_span:
       - 16
       - 13
-- Newline:
+- Text:
+    content: "\n"
     span:
+      - 29
+      - 1
+    full_span:
       - 29
       - 1
 - Comment:
@@ -34,28 +42,12 @@ expression: snapshot
     full_span:
       - 30
       - 13
-- Newline:
+- Text:
+    content: "\n<!-- html comment -->\n<div>text</div>"
     span:
       - 43
-      - 1
-- Text:
-    content: "<!-- html comment -->"
-    span:
-      - 44
-      - 21
+      - 38
     full_span:
-      - 44
-      - 21
-- Newline:
-    span:
-      - 65
-      - 1
-- Text:
-    content: "<div>text</div>"
-    span:
-      - 66
-      - 15
-    full_span:
-      - 66
-      - 15
+      - 43
+      - 38
 - Eof

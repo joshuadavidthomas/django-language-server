@@ -4,7 +4,6 @@ use memchr::memchr3;
 
 use crate::tokens::TagDelimiter;
 use crate::tokens::Token;
-use crate::tokens::TokenStream;
 
 /// Whether a Django tag, variable, or comment may span lines.
 ///
@@ -53,6 +52,8 @@ pub(crate) struct Lexer<'src> {
     // End of the line containing `current`, cached so a line with many unmatched
     // openers is scanned for its newline once.
     line_end: usize,
+    missing_closers: MissingTagClosers,
+    emitted_eof: bool,
 }
 
 impl<'src> Lexer<'src> {
@@ -64,46 +65,20 @@ impl<'src> Lexer<'src> {
             start: 0,
             current: 0,
             line_end: 0,
+            missing_closers: MissingTagClosers::default(),
+            emitted_eof: false,
         }
     }
 
     pub(crate) fn tokenize(&mut self) -> Vec<Token<&'src str>> {
-        let mut tokens = TokenStream::with_estimated_capacity(self.source);
-        let mut missing_closers = MissingTagClosers::default();
-
-        while !self.is_at_end() {
-            self.start = self.current;
-
-            let token = match self.peek() {
-                TagDelimiter::CHAR_OPEN => {
-                    let remaining = self.remaining_source();
-
-                    match TagDelimiter::from_input(remaining) {
-                        Some(delimiter) => self.lex_django_tag(delimiter, &mut missing_closers),
-                        None => self.lex_text(),
-                    }
-                }
-                c if c.is_whitespace() => self.lex_whitespace(c),
-                _ => self.lex_text(),
-            };
-
-            tokens.push(token);
-        }
-
-        tokens.push(Token::Eof);
-
-        tokens.into()
+        self.collect()
     }
 
-    fn lex_django_tag(
-        &mut self,
-        delimiter: TagDelimiter,
-        missing_closers: &mut MissingTagClosers,
-    ) -> Token<&'src str> {
+    fn lex_django_tag(&mut self, delimiter: TagDelimiter) -> Token<&'src str> {
         let content_start = self.start + TagDelimiter::LENGTH;
-        self.consume_n(TagDelimiter::LENGTH);
+        self.current = content_start;
 
-        if let Some(content_end) = self.find_closer(delimiter, content_start, missing_closers) {
+        if let Some(content_end) = self.find_closer(delimiter, content_start) {
             self.current = content_end + delimiter.closer().len();
             let content = &self.source[content_start..content_end];
             let span = Span::saturating_from_bounds_usize(content_start, content_end);
@@ -138,50 +113,17 @@ impl<'src> Lexer<'src> {
         }
     }
 
-    fn lex_whitespace(&mut self, c: char) -> Token<&'src str> {
-        self.consume();
-
-        if c == '\n' || c == '\r' {
-            if c == '\r' && self.peek() == '\n' {
-                self.consume();
-            }
-            let span = Span::saturating_from_bounds_usize(self.start, self.current);
-            return Token::Newline { span };
-        }
-
-        while !self.is_at_end() {
-            let remaining = self.remaining_source().as_bytes();
-
-            match remaining.first() {
-                Some(&b'\n' | &b'\r') | None => break,
-                Some(&b' ' | &b'\t') => self.current += 1,
-                Some(_) => {
-                    if !self.peek().is_whitespace() {
-                        break;
-                    }
-                    self.consume();
-                }
-            }
-        }
-
-        let span = Span::saturating_from_bounds_usize(self.start, self.current);
-        Token::Whitespace { span }
-    }
-
+    // Text runs to the next Django opener; the parser only needs its span, so
+    // splitting it into whitespace and newline tokens would be wasted work.
     fn lex_text(&mut self) -> Token<&'src str> {
         let text_start = self.current;
-        self.current += self.consume_until_stop_char();
+        self.current += self.offset_of_next_opener();
         let text = self.consumed_source_from(text_start);
         let span = Span::saturating_from_bounds_usize(self.start, self.current);
         Token::Text {
             content: text,
             span,
         }
-    }
-
-    #[inline]
-    fn peek(&self) -> char {
-        self.remaining_source().chars().next().unwrap_or('\0')
     }
 
     #[inline]
@@ -199,36 +141,18 @@ impl<'src> Lexer<'src> {
         self.current >= self.source.len()
     }
 
-    #[inline]
-    fn consume(&mut self) {
-        if let Some(ch) = self.remaining_source().chars().next() {
-            self.current += ch.len_utf8();
-        }
-    }
-
-    fn consume_n(&mut self, count: usize) {
-        for _ in 0..count {
-            self.consume();
-        }
-    }
-
     /// Return where the content opened at `from` ends, if its closer appears
     /// before the search boundary.
-    fn find_closer(
-        &mut self,
-        delimiter: TagDelimiter,
-        from: usize,
-        missing_closers: &mut MissingTagClosers,
-    ) -> Option<usize> {
+    fn find_closer(&mut self, delimiter: TagDelimiter, from: usize) -> Option<usize> {
         let boundary = self.closer_search_boundary();
-        if missing_closers.contains(delimiter, boundary) {
+        if self.missing_closers.contains(delimiter, boundary) {
             return None;
         }
         let found = delimiter
             .find_closer(&self.source[from..boundary])
             .map(|pos| from + pos);
         if found.is_none() {
-            missing_closers.insert(delimiter, boundary);
+            self.missing_closers.insert(delimiter, boundary);
         }
         found
     }
@@ -244,6 +168,22 @@ impl<'src> Lexer<'src> {
                 self.line_end
             }
         }
+    }
+
+    // Starts one byte in: the main loop only lexes text where no opener begins.
+    fn offset_of_next_opener(&self) -> usize {
+        let remaining = self.remaining_source().as_bytes();
+        let mut offset = 1;
+
+        while let Some(pos) = memchr(b'{', &remaining[offset..]) {
+            offset += pos;
+            if TagDelimiter::from_input(&self.remaining_source()[offset..]).is_some() {
+                return offset;
+            }
+            offset += 1;
+        }
+
+        remaining.len()
     }
 
     fn consume_until_stop_char(&self) -> usize {
@@ -273,6 +213,26 @@ impl<'src> Lexer<'src> {
         }
 
         offset
+    }
+}
+
+impl<'src> Iterator for Lexer<'src> {
+    type Item = Token<&'src str>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.is_at_end() {
+            if self.emitted_eof {
+                return None;
+            }
+            self.emitted_eof = true;
+            return Some(Token::Eof);
+        }
+
+        self.start = self.current;
+        Some(match TagDelimiter::from_input(self.remaining_source()) {
+            Some(delimiter) => self.lex_django_tag(delimiter),
+            None => self.lex_text(),
+        })
     }
 }
 
@@ -307,11 +267,8 @@ mod tests {
             tokens,
             vec![
                 Token::Text {
-                    content: "a".into(),
-                    span: Span::new(0, 1)
-                },
-                Token::Newline {
-                    span: Span::new(1, 1)
+                    content: "a\n".into(),
+                    span: Span::new(0, 2)
                 },
                 Token::Variable {
                     content: "v".into(),
@@ -346,7 +303,8 @@ mod tests {
                     span: Span::new(2, 2),
                     delimiter: TagDelimiter::Variable,
                 },
-                Token::Newline {
+                Token::Text {
+                    content: "\r\n",
                     span: Span::new(4, 2)
                 },
                 Token::Block {
@@ -421,7 +379,7 @@ mod tests {
                 )
             })
             .map(|token| {
-                let span = token.full_span_or_fallback();
+                let span = token.spans().1;
                 (span.start() as usize, span.end() as usize)
             })
             .collect()
@@ -472,7 +430,8 @@ mod tests {
                     span: Span::new(2, 2),
                     delimiter: TagDelimiter::Block,
                 },
-                Token::Newline {
+                Token::Text {
+                    content: "\n",
                     span: Span::new(4, 1)
                 },
                 Token::Block {
@@ -599,11 +558,6 @@ mod tests {
         full_span: (u32, u32),
     }
 
-    #[derive(serde::Serialize)]
-    struct SpanToken {
-        span: (u32, u32),
-    }
-
     impl<T: AsRef<str>> serde::Serialize for Token<T> {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where
@@ -617,7 +571,7 @@ mod tests {
                     &ContentToken {
                         content: content.as_ref(),
                         span: span.into(),
-                        full_span: self.full_span_or_fallback().into(),
+                        full_span: self.spans().1.into(),
                     },
                 ),
                 Token::Comment { content, span } => serializer.serialize_newtype_variant(
@@ -627,7 +581,7 @@ mod tests {
                     &ContentToken {
                         content: content.as_ref(),
                         span: span.into(),
-                        full_span: self.full_span_or_fallback().into(),
+                        full_span: self.spans().1.into(),
                     },
                 ),
                 Token::Eof => serializer.serialize_unit_variant("Token", 2, "Eof"),
@@ -638,14 +592,8 @@ mod tests {
                     &ContentToken {
                         content: content.as_ref(),
                         span: span.into(),
-                        full_span: self.full_span_or_fallback().into(),
+                        full_span: self.spans().1.into(),
                     },
-                ),
-                Token::Newline { span } => serializer.serialize_newtype_variant(
-                    "Token",
-                    4,
-                    "Newline",
-                    &SpanToken { span: span.into() },
                 ),
                 Token::Text { content, span } => serializer.serialize_newtype_variant(
                     "Token",
@@ -664,14 +612,8 @@ mod tests {
                     &ContentToken {
                         content: content.as_ref(),
                         span: span.into(),
-                        full_span: self.full_span_or_fallback().into(),
+                        full_span: self.spans().1.into(),
                     },
-                ),
-                Token::Whitespace { span } => serializer.serialize_newtype_variant(
-                    "Token",
-                    7,
-                    "Whitespace",
-                    &SpanToken { span: span.into() },
                 ),
             }
         }

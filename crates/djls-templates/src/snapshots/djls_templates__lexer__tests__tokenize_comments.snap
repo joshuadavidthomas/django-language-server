@@ -3,17 +3,13 @@ source: crates/djls-templates/src/lexer.rs
 expression: snapshot
 ---
 - Text:
-    content: "<!-- HTML comment -->"
+    content: "<!-- HTML comment -->\n"
     span:
       - 0
-      - 21
+      - 22
     full_span:
       - 0
-      - 21
-- Newline:
-    span:
-      - 21
-      - 1
+      - 22
 - Comment:
     content: " Django comment "
     span:
@@ -22,116 +18,12 @@ expression: snapshot
     full_span:
       - 22
       - 20
-- Newline:
+- Text:
+    content: "\n<script>\n    // JS single line comment\n    /* JS multi-line\n       comment */\n</script>\n<style>\n    /* CSS comment */\n</style>"
     span:
       - 42
-      - 1
-- Text:
-    content: "<script>"
-    span:
-      - 43
-      - 8
+      - 127
     full_span:
-      - 43
-      - 8
-- Newline:
-    span:
-      - 51
-      - 1
-- Whitespace:
-    span:
-      - 52
-      - 4
-- Text:
-    content: // JS single line comment
-    span:
-      - 56
-      - 25
-    full_span:
-      - 56
-      - 25
-- Newline:
-    span:
-      - 81
-      - 1
-- Whitespace:
-    span:
-      - 82
-      - 4
-- Text:
-    content: /* JS multi-line
-    span:
-      - 86
-      - 16
-    full_span:
-      - 86
-      - 16
-- Newline:
-    span:
-      - 102
-      - 1
-- Whitespace:
-    span:
-      - 103
-      - 7
-- Text:
-    content: comment */
-    span:
-      - 110
-      - 10
-    full_span:
-      - 110
-      - 10
-- Newline:
-    span:
-      - 120
-      - 1
-- Text:
-    content: "</script>"
-    span:
-      - 121
-      - 9
-    full_span:
-      - 121
-      - 9
-- Newline:
-    span:
-      - 130
-      - 1
-- Text:
-    content: "<style>"
-    span:
-      - 131
-      - 7
-    full_span:
-      - 131
-      - 7
-- Newline:
-    span:
-      - 138
-      - 1
-- Whitespace:
-    span:
-      - 139
-      - 4
-- Text:
-    content: /* CSS comment */
-    span:
-      - 143
-      - 17
-    full_span:
-      - 143
-      - 17
-- Newline:
-    span:
-      - 160
-      - 1
-- Text:
-    content: "</style>"
-    span:
-      - 161
-      - 8
-    full_span:
-      - 161
-      - 8
+      - 42
+      - 127
 - Eof
