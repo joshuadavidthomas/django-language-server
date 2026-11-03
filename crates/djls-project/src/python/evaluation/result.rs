@@ -625,11 +625,51 @@ impl ImportGraph {
         Self { outcomes }
     }
 
+    /// One reachability walk from the root over an adjacency list built once,
+    /// instead of one full edge scan per visited module per root edge.
     fn root_participates_in_cycle(&self, root: &PythonSourceModule) -> bool {
-        self.outcomes
+        fn index_of<'a>(
+            module: &'a PythonSourceModule,
+            modules: &mut Vec<&'a PythonSourceModule>,
+        ) -> usize {
+            modules
+                .iter()
+                .position(|existing| *existing == module)
+                .unwrap_or_else(|| {
+                    modules.push(module);
+                    modules.len() - 1
+                })
+        }
+        let mut modules: Vec<&PythonSourceModule> = Vec::new();
+        let edges = self
+            .outcomes
             .iter()
             .filter_map(PythonImportOutcome::edge)
-            .any(|edge| edge.importer == *root && self.path_exists(&edge.imported, root))
+            .map(|edge| {
+                (
+                    index_of(&edge.importer, &mut modules),
+                    index_of(&edge.imported, &mut modules),
+                )
+            })
+            .collect::<Vec<_>>();
+        let Some(root) = modules.iter().position(|module| *module == root) else {
+            return false;
+        };
+        let mut adjacency = vec![Vec::new(); modules.len()];
+        for (importer, imported) in edges {
+            adjacency[importer].push(imported);
+        }
+        let mut visited = vec![false; modules.len()];
+        let mut pending = adjacency[root].clone();
+        while let Some(module) = pending.pop() {
+            if module == root {
+                return true;
+            }
+            if !mem::replace(&mut visited[module], true) {
+                pending.extend(&adjacency[module]);
+            }
+        }
+        false
     }
 
     fn path_exists(&self, start: &PythonSourceModule, destination: &PythonSourceModule) -> bool {
@@ -750,7 +790,8 @@ impl ImportGraph {
         if has_cycle {
             normalized.sort_by(PythonImportOutcome::structural_cmp);
         }
-        normalized.into()
+        // Evaluated outcomes merged by edge and the rest were deduplicated.
+        UniqueVec::from_unique(normalized)
     }
 }
 
