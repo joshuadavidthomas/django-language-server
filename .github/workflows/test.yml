@@ -137,6 +137,14 @@ jobs:
           add_shims_to_path: false
           install_args: uv rust
 
+      # The legs differ only in Python and Django, so they share one Rust cache per OS.
+      # target/ holds the dev and test builds and the release build that maturin runs
+      # when `uv sync` installs the project. Only the first leg on main saves it.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: test
+          save-if: ${{ github.ref == 'refs/heads/main' && strategy.job-index == 0 }}
+
       - name: Cache uv dependencies
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -256,6 +264,12 @@ jobs:
         with:
           add_shims_to_path: false
           install_args: uv rust
+
+      # Builds the same dependencies as the test legs, so it restores their cache.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: test
+          save-if: false
 
       - name: Cache uv dependencies
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
