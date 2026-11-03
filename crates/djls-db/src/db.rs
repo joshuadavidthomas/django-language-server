@@ -248,6 +248,7 @@ mod invalidation_tests {
     use djls_source::path_to_file;
     use djls_templates::parse_template;
     use djls_testing::will_execute_count;
+    use salsa::Database as _;
     use salsa::Event;
     use salsa::Setter;
     use salsa::Storage;
@@ -880,6 +881,20 @@ mod invalidation_tests {
         ] {
             assert_eq!(will_execute_count(&db, &events, intrinsic), 0);
         }
+        // Python parses are reached only when a project-wide query is
+        // deep-verified; a template edit must leave them at higher durability.
+        let python_parse_validations = events
+            .iter()
+            .filter(|event| {
+                matches!(
+                    &event.kind,
+                    salsa::EventKind::DidValidateMemoizedValue { database_key }
+                        if db.ingredient_debug_name(database_key.ingredient_index())
+                            == "parse_python_file"
+                )
+            })
+            .count();
+        assert_eq!(python_parse_validations, 0);
     }
 
     #[test]
