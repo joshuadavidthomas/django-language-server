@@ -34,6 +34,15 @@ jobs:
     permissions:
       contents: read
     steps:
+      # The corpus, the real-project Python environments, the test build, and the
+      # benchmark build together overflow the runner's disk, so free it before any
+      # cache restore.
+      - name: Free disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -73,6 +82,7 @@ jobs:
           # netbox builds psycopg-c from source when the uv cache has no wheel for it.
           command -v pg_config >/dev/null || { sudo apt-get update && sudo apt-get install -y libpq-dev; }
           cargo run -q -p djls-testing --bin corpus -- environment sync djangoproject.com netbox
+          df -h /
 
       - name: Verify benchmark workload snapshots
         if: matrix.mode == 'simulation'
@@ -81,7 +91,9 @@ jobs:
       - run: cargo install cargo-codspeed --locked
 
       - name: Build the benchmark target(s)
-        run: cargo codspeed build -m ${{ matrix.mode }} -p djls-bench
+        run: |
+          cargo codspeed build -m ${{ matrix.mode }} -p djls-bench
+          df -h /
 
       - name: Run the benchmarks
         uses: CodSpeedHQ/action@78102a468f96d8e0ccb92d0ec49425753fc42062
@@ -91,5 +103,6 @@ jobs:
           GLIBC_TUNABLES: glibc.cpu.hwcaps=-AVX2
         with:
           mode: ${{ matrix.mode }}
-          # check.rs::corpus_all skips itself in memory mode; see codspeed_memory_mode.
+          # check.rs::corpus_all and real_project cold_start_check_templates[netbox] skip
+          # themselves in memory mode; see codspeed_memory_mode.
           run: cargo codspeed run -m ${{ matrix.mode }} -p djls-bench
