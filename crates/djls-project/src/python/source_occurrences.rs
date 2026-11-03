@@ -165,11 +165,57 @@ enum PythonOccurrenceValue {
     Function(PythonFunctionDefinition),
 }
 
+/// Whether every source read parsed without syntax errors.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum SourceParse {
+    #[default]
+    Exact,
+    Recovered,
+}
+
+impl SourceParse {
+    fn of(db: &dyn ProjectDb, module: RecoveredPythonModule) -> Self {
+        if module.has_ordinary_syntax_errors(db) {
+            Self::Recovered
+        } else {
+            Self::Exact
+        }
+    }
+
+    /// Recovery is sticky: one recovered read makes the whole result recovered.
+    fn join(self, other: Self) -> Self {
+        if self == Self::Recovered || other == Self::Recovered {
+            Self::Recovered
+        } else {
+            Self::Exact
+        }
+    }
+}
+
+/// What a lookup read, and whether it can be trusted as exact.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct SourceEvidence {
+    consulted_files: Vec<File>,
+    parse: SourceParse,
+}
+
+impl SourceEvidence {
+    fn mark(&mut self, parse: SourceParse) {
+        self.parse = self.parse.join(parse);
+    }
+}
+
+/// Bindings and evidence after running statements.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct AnalysisState {
+    bindings: BTreeMap<String, Binding>,
+    evidence: SourceEvidence,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct PythonSourceOccurrence {
     value: Option<PythonOccurrenceValue>,
-    consulted_files: Vec<File>,
-    recovered_source: bool,
+    evidence: SourceEvidence,
 }
 
 /// On-demand access to exact Python facts at selected source occurrences.
@@ -315,10 +361,7 @@ impl<'db> PythonSourceLookup<'db> {
         let value = analysis
             .resolve_import_from(&importer, 0, Some(module_name))
             .and_then(|module| analysis.resolve_module_path(&module, &[member.to_string()], 0));
-        self.absorb_evidence(
-            &analysis.consulted_files,
-            usize::from(analysis.recovered_source),
-        );
+        self.absorb_evidence(&analysis.state.evidence);
         if self.recovered_source_lookups != before {
             return None;
         }
@@ -349,13 +392,28 @@ impl<'db> PythonSourceLookup<'db> {
         self.recovered_source_lookups
     }
 
-    pub(crate) fn absorb_evidence(&mut self, consulted_files: &[File], recovered_lookups: usize) {
-        for file in consulted_files {
+    /// Evidence of everything this lookup has read so far.
+    #[must_use]
+    pub(crate) fn evidence(&self) -> SourceEvidence {
+        SourceEvidence {
+            consulted_files: self.consulted_files.clone(),
+            parse: if self.has_recovered_source() {
+                SourceParse::Recovered
+            } else {
+                SourceParse::Exact
+            },
+        }
+    }
+
+    pub(crate) fn absorb_evidence(&mut self, evidence: &SourceEvidence) {
+        for file in &evidence.consulted_files {
             if !self.consulted_files.contains(file) {
                 self.consulted_files.push(*file);
             }
         }
-        self.recovered_source_lookups += recovered_lookups;
+        if evidence.parse == SourceParse::Recovered {
+            self.recovered_source_lookups += 1;
+        }
     }
 
     fn definition_for_module(
@@ -423,7 +481,10 @@ impl<'db> PythonSourceLookup<'db> {
                 self.module.clone(),
                 self.file,
             );
-            analysis.recovered_source = parsed.has_ordinary_syntax_errors(self.db);
+            analysis
+                .state
+                .evidence
+                .mark(SourceParse::of(self.db, parsed));
             for statement in parsed.body(self.db) {
                 analysis.apply_statement_effects(statement);
             }
@@ -435,16 +496,15 @@ impl<'db> PythonSourceLookup<'db> {
         // an unknown module-final name into an exact function.
         if let Expr::Name(name) = expression
             && matches!(
-                module_scope.bindings.get(name.id.as_str()),
+                module_scope.state.bindings.get(name.id.as_str()),
                 Some(Binding::Unknown)
             )
             && !scope.writes.contains_key(name.id.as_str())
             && !scope.nonlocals.contains(name.id.as_str())
             && !parameters.contains(name.id.as_str())
         {
-            let consulted_files = module_scope.consulted_files.clone();
-            let recovered = usize::from(module_scope.recovered_source);
-            self.absorb_evidence(&consulted_files, recovered);
+            let evidence = module_scope.state.evidence.clone();
+            self.absorb_evidence(&evidence);
             return None;
         }
         let mut analysis = module_scope.clone();
@@ -455,17 +515,23 @@ impl<'db> PythonSourceLookup<'db> {
             .chain(parameters.iter())
             .chain(scope.nonlocals.iter())
         {
-            analysis.bindings.insert(name.clone(), Binding::Unknown);
+            analysis
+                .state
+                .bindings
+                .insert(name.clone(), Binding::Unknown);
         }
         for name in &scope.globals {
             if scope.writes.contains_key(name) {
-                analysis.bindings.insert(name.clone(), Binding::Unknown);
+                analysis
+                    .state
+                    .bindings
+                    .insert(name.clone(), Binding::Unknown);
             }
         }
 
         for statement in &function.body[..call_index] {
             if statement_contains_named_binding(statement) {
-                analysis.bindings.clear();
+                analysis.state.bindings.clear();
             } else {
                 analysis.apply_statement_effects(statement);
             }
@@ -480,10 +546,7 @@ impl<'db> PythonSourceLookup<'db> {
             )
             | None => None,
         };
-        self.absorb_evidence(
-            &analysis.consulted_files,
-            usize::from(analysis.recovered_source),
-        );
+        self.absorb_evidence(&analysis.state.evidence);
         (self.recovered_source_lookups == before)
             .then_some(resolved)
             .flatten()
@@ -520,7 +583,10 @@ impl<'db> PythonSourceLookup<'db> {
                 self.module.clone(),
                 self.file,
             );
-            analysis.recovered_source = parsed.has_ordinary_syntax_errors(self.db);
+            analysis
+                .state
+                .evidence
+                .mark(SourceParse::of(self.db, parsed));
             for statement in parsed.body(self.db) {
                 analysis.apply_statement_effects(statement);
             }
@@ -537,10 +603,7 @@ impl<'db> PythonSourceLookup<'db> {
             )
             | None => None,
         };
-        self.absorb_evidence(
-            &analysis.consulted_files,
-            usize::from(analysis.recovered_source),
-        );
+        self.absorb_evidence(&analysis.state.evidence);
         (self.recovered_source_lookups == before)
             .then_some(resolved)
             .flatten()
@@ -554,12 +617,7 @@ impl<'db> PythonSourceLookup<'db> {
             self.file,
             expression.span(),
         );
-        self.recovered_source_lookups += usize::from(occurrence.recovered_source);
-        for file in &occurrence.consulted_files {
-            if !self.consulted_files.contains(file) {
-                self.consulted_files.push(*file);
-            }
-        }
+        self.absorb_evidence(&occurrence.evidence);
         occurrence.value.clone()
     }
 }
@@ -576,7 +634,7 @@ fn python_source_occurrence(
         return PythonSourceOccurrence::default();
     };
     let mut analysis = SourceOccurrenceAnalysis::new(db, project, module, file);
-    analysis.recovered_source = parsed.has_ordinary_syntax_errors(db);
+    analysis.state.evidence.mark(SourceParse::of(db, parsed));
     for statement in parsed.body(db) {
         if span_contains(statement.span(), target) {
             if statement_contains_named_binding(statement) {
@@ -589,7 +647,7 @@ fn python_source_occurrence(
             return analysis.finish(value);
         }
         if statement_contains_named_binding(statement) {
-            analysis.bindings.clear();
+            analysis.state.bindings.clear();
         } else {
             analysis.apply_statement_effects(statement);
         }
@@ -603,9 +661,7 @@ struct SourceOccurrenceAnalysis<'db> {
     project: Option<Project>,
     importer: Option<PythonSourceModule>,
     file: File,
-    bindings: BTreeMap<String, Binding>,
-    consulted_files: Vec<File>,
-    recovered_source: bool,
+    state: AnalysisState,
 }
 
 impl<'db> SourceOccurrenceAnalysis<'db> {
@@ -620,21 +676,17 @@ impl<'db> SourceOccurrenceAnalysis<'db> {
             project,
             importer,
             file,
-            bindings: BTreeMap::new(),
-            consulted_files: Vec::new(),
-            recovered_source: false,
+            state: AnalysisState::default(),
         }
     }
 
-    fn finish(mut self, value: Option<PythonOccurrenceValue>) -> PythonSourceOccurrence {
-        self.consulted_files
+    fn finish(self, value: Option<PythonOccurrenceValue>) -> PythonSourceOccurrence {
+        let mut evidence = self.state.evidence;
+        evidence
+            .consulted_files
             .sort_by(|left, right| left.path(self.db).cmp(right.path(self.db)));
-        self.consulted_files.dedup();
-        PythonSourceOccurrence {
-            value,
-            consulted_files: self.consulted_files,
-            recovered_source: self.recovered_source,
-        }
+        evidence.consulted_files.dedup();
+        PythonSourceOccurrence { value, evidence }
     }
 
     fn apply_statement_effects(&mut self, statement: &Stmt) {
@@ -647,13 +699,15 @@ impl<'db> SourceOccurrenceAnalysis<'db> {
                         self.resolve_import(0, Some(clause.target()))
                             .map_or(Binding::Unknown, Binding::Module)
                     };
-                    self.bindings.insert(clause.bound().to_string(), binding);
+                    self.state
+                        .bindings
+                        .insert(clause.bound().to_string(), binding);
                 }
             }
             Stmt::ImportFrom(import) => {
                 let syntax = FromImportSyntax::lower(import);
                 if syntax.has_star() {
-                    self.bindings.clear();
+                    self.state.bindings.clear();
                 }
                 for member in syntax.named_members() {
                     let binding = if self.project.is_some() && self.importer.is_some() {
@@ -665,7 +719,9 @@ impl<'db> SourceOccurrenceAnalysis<'db> {
                     } else {
                         Binding::Unknown
                     };
-                    self.bindings.insert(member.bound().to_string(), binding);
+                    self.state
+                        .bindings
+                        .insert(member.bound().to_string(), binding);
                 }
             }
             Stmt::Assign(assign) => {
@@ -697,10 +753,13 @@ impl<'db> SourceOccurrenceAnalysis<'db> {
                 } else {
                     Binding::Unknown
                 };
-                self.bindings.insert(function.name.to_string(), binding);
+                self.state
+                    .bindings
+                    .insert(function.name.to_string(), binding);
             }
             Stmt::ClassDef(class) => {
-                self.bindings
+                self.state
+                    .bindings
                     .insert(class.name.to_string(), Binding::Unknown);
             }
             Stmt::AugAssign(assign) => self.bind_target(&assign.target, None),
@@ -715,7 +774,7 @@ impl<'db> SourceOccurrenceAnalysis<'db> {
             | Stmt::With(_)
             | Stmt::Match(_)
             | Stmt::Try(_)
-            | Stmt::TypeAlias(_) => self.bindings.clear(),
+            | Stmt::TypeAlias(_) => self.state.bindings.clear(),
             Stmt::Expr(expression) => self.invalidate_escaped_modules(&expression.value),
             Stmt::Return(_)
             | Stmt::Raise(_)
@@ -731,14 +790,15 @@ impl<'db> SourceOccurrenceAnalysis<'db> {
 
     fn bind_target(&mut self, target: &Expr, value: Option<Binding>) {
         if let Some(name) = target.name_target() {
-            self.bindings
+            self.state
+                .bindings
                 .insert(name.to_string(), value.unwrap_or(Binding::Unknown));
         } else if let Some(root) = mutation_root(target) {
-            if let Some(binding) = self.bindings.get(root).cloned() {
+            if let Some(binding) = self.state.bindings.get(root).cloned() {
                 self.invalidate_binding(binding);
             }
         } else {
-            self.bindings.clear();
+            self.state.bindings.clear();
         }
     }
 
@@ -747,6 +807,7 @@ impl<'db> SourceOccurrenceAnalysis<'db> {
             return;
         }
         let escaped = self
+            .state
             .bindings
             .iter()
             .filter(|(_, binding)| match binding {
@@ -778,7 +839,7 @@ impl<'db> SourceOccurrenceAnalysis<'db> {
                 {
                     self.invalidate_binding(materialized);
                 } else {
-                    for binding in self.bindings.values_mut() {
+                    for binding in self.state.bindings.values_mut() {
                         if matches!(binding, Binding::LazyFromImport(bound) if bound == &lazy) {
                             *binding = Binding::Unknown;
                         }
@@ -794,7 +855,7 @@ impl<'db> SourceOccurrenceAnalysis<'db> {
     }
 
     fn invalidate_module(&mut self, module: &PythonModule) {
-        for binding in self.bindings.values_mut() {
+        for binding in self.state.bindings.values_mut() {
             if matches!(binding, Binding::Module(bound) | Binding::ModuleMember(bound, _) if bound == module)
             {
                 *binding = Binding::Unknown;
@@ -810,11 +871,11 @@ impl<'db> SourceOccurrenceAnalysis<'db> {
             return Some(Binding::Boolean(value));
         }
         if let Some(name) = expression.name_target() {
-            return self.bindings.get(name).cloned();
+            return self.state.bindings.get(name).cloned();
         }
         let path = expression.path_segments()?;
         let (root, tail) = path.split_first()?;
-        let binding = self.bindings.get(root).cloned()?;
+        let binding = self.state.bindings.get(root).cloned()?;
         let module = match self.materialize_binding(binding, 0)? {
             Binding::Module(module) => module,
             Binding::ModuleMember(_, _)
@@ -844,7 +905,7 @@ impl<'db> SourceOccurrenceAnalysis<'db> {
         }
         let path = expression.path_segments()?;
         let (root, tail) = path.split_first()?;
-        let binding = self.bindings.get(root).cloned()?;
+        let binding = self.state.bindings.get(root).cloned()?;
         self.resolve_binding(binding, tail, depth + 1)
     }
 
@@ -885,7 +946,7 @@ impl<'db> SourceOccurrenceAnalysis<'db> {
             return Some(binding);
         };
         let materialized = self.materialize_lazy_import(&lazy, depth)?;
-        for binding in self.bindings.values_mut() {
+        for binding in self.state.bindings.values_mut() {
             if matches!(binding, Binding::LazyFromImport(bound) if bound == &lazy) {
                 *binding = materialized.clone();
             }
@@ -919,7 +980,7 @@ impl<'db> SourceOccurrenceAnalysis<'db> {
             return MemberLookup::Uncertain;
         };
         if parsed.has_ordinary_syntax_errors(self.db) {
-            self.recovered_source = true;
+            self.state.evidence.mark(SourceParse::Recovered);
             return MemberLookup::Uncertain;
         }
         if member_absence_is_proven(parsed.body(self.db), member) {
@@ -949,8 +1010,7 @@ impl<'db> SourceOccurrenceAnalysis<'db> {
         };
         self.follow(source.file());
         let parsed = RecoveredPythonModule::from_file(self.db, source.file()).ok()??;
-        let parse_is_exact = !parsed.has_ordinary_syntax_errors(self.db);
-        self.recovered_source |= !parse_is_exact;
+        self.state.evidence.mark(SourceParse::of(self.db, parsed));
         let root = &path[0];
         let mut value = None;
         let mut enum_bindings = BTreeMap::new();
@@ -1263,8 +1323,9 @@ impl<'db> SourceOccurrenceAnalysis<'db> {
     }
 
     fn follow(&mut self, file: File) {
-        if file != self.file && !self.consulted_files.contains(&file) {
-            self.consulted_files.push(file);
+        let consulted_files = &mut self.state.evidence.consulted_files;
+        if file != self.file && !consulted_files.contains(&file) {
+            consulted_files.push(file);
         }
     }
 }
