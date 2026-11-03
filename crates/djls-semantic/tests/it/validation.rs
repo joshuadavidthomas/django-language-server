@@ -1101,7 +1101,7 @@ def selected(value, argument): pass
     let names = events
         .take_will_execute_names(&db)
         .expect("first Filter validation events should be readable");
-    assert_eq!(execution_count(&names, "scoped_filter_facts"), 1);
+    assert_eq!(execution_count(&names, "validate_template_file"), 1);
     assert_eq!(execution_count(&names, "template_library_filter_facts"), 1);
 
     db.add_file(
@@ -1123,7 +1123,7 @@ def selected(value, argument=None): pass
     let names = events
         .take_will_execute_names(&db)
         .expect("updated Filter validation events should be readable");
-    assert_eq!(execution_count(&names, "scoped_filter_facts"), 1);
+    assert_eq!(execution_count(&names, "validate_template_file"), 1);
     assert_eq!(execution_count(&names, "template_library_filter_facts"), 1);
 }
 
