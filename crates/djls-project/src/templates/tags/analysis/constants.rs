@@ -50,6 +50,7 @@ impl StaticBindings {
                 values.insert(name.clone(), value);
             }
         }
+        let mut mutated_class_roots = None;
         for (class_name, class) in &resolver.classes {
             if !resolver
                 .bindings
@@ -58,7 +59,15 @@ impl StaticBindings {
             {
                 continue;
             }
-            for (attribute, value) in resolve_class_dict_keys(module, class_name, class) {
+            let candidates = resolve_class_dict_keys(class);
+            if candidates.is_empty()
+                || mutated_class_roots
+                    .get_or_insert_with(|| static_path_roots_mutated_in(module))
+                    .contains(class_name.as_str())
+            {
+                continue;
+            }
+            for (attribute, value) in candidates {
                 values.insert(format!("{class_name}.{attribute}"), value);
             }
         }
@@ -275,11 +284,7 @@ fn collect_nested_global_mutations(body: &[Stmt], mutated: &mut HashSet<String>)
     });
 }
 
-fn resolve_class_dict_keys(
-    module: &[Stmt],
-    class_name: &str,
-    class: &ruff_python_ast::StmtClassDef,
-) -> Vec<(String, AbstractValue)> {
+fn resolve_class_dict_keys(class: &ruff_python_ast::StmtClassDef) -> Vec<(String, AbstractValue)> {
     let bindings = ScopeBindings::collect(&class.body);
     let mut direct = HashMap::<String, &Expr>::new();
     for stmt in &class.body {
@@ -291,7 +296,7 @@ fn resolve_class_dict_keys(
         }
     }
 
-    let candidates: Vec<_> = direct
+    direct
         .into_iter()
         .filter_map(|(attribute, expression)| {
             let Expr::Dict(dict) = expression else {
@@ -318,11 +323,7 @@ fn resolve_class_dict_keys(
             }
             Some((attribute, AbstractValue::Tuple(values)))
         })
-        .collect();
-    if !candidates.is_empty() && body_static_path_is_mutated(module, class_name) {
-        return Vec::new();
-    }
-    candidates
+        .collect()
 }
 
 fn class_local_mapping_is_mutated_or_escaped(body: &[Stmt], name: &str) -> bool {
@@ -418,19 +419,27 @@ fn class_mapping_value_is_static(value: &Expr) -> bool {
     )
 }
 
-fn expression_contains_static_root(expression: &Expr, root: &str) -> bool {
-    struct RootObserver<'a> {
-        root: &'a str,
-        found: bool,
+/// The root name and segment count of a dotted name path such as `A.b.c`.
+fn path_root(expression: &Expr) -> Option<(&str, usize)> {
+    if let Expr::Name(name) = expression {
+        return Some((name.id.as_str(), 1));
+    }
+    let Expr::Attribute(attribute) = expression else {
+        return None;
+    };
+    path_root(&attribute.value).map(|(root, length)| (root, length + 1))
+}
+
+/// Record every path root that `expression` exposes as an object.
+fn collect_escaped_roots<'a>(expression: &'a Expr, roots: &mut HashSet<&'a str>) {
+    struct RootObserver<'a, 'r> {
+        roots: &'r mut HashSet<&'a str>,
     }
 
-    impl<'ast> Visitor<'ast> for RootObserver<'_> {
-        fn visit_expr(&mut self, expr: &'ast Expr) {
-            if expr
-                .path_segments()
-                .is_some_and(|path| path.first().is_some_and(|name| name == self.root))
-            {
-                self.found = true;
+    impl<'a> Visitor<'a> for RootObserver<'a, '_> {
+        fn visit_expr(&mut self, expr: &'a Expr) {
+            if let Some((root, _)) = path_root(expr) {
+                self.roots.insert(root);
                 return;
             }
             if let Expr::Call(call) = expr {
@@ -448,39 +457,72 @@ fn expression_contains_static_root(expression: &Expr, root: &str) -> bool {
         }
     }
 
-    let mut observer = RootObserver { root, found: false };
-    observer.visit_expr(expression);
-    observer.found
+    RootObserver { roots }.visit_expr(expression);
 }
 
-fn body_static_path_is_mutated(body: &[Stmt], class_name: &str) -> bool {
-    let mut mutated = false;
+/// Roots whose static attribute paths `body`, including nested scopes,
+/// mutates or lets escape. One walk serves every class in the module.
+fn static_path_roots_mutated_in(body: &[Stmt]) -> HashSet<&str> {
+    let mut roots = HashSet::new();
+    collect_static_path_mutations(body, &mut roots);
+    roots
+}
+
+fn collect_static_path_mutations<'a>(body: &'a [Stmt], roots: &mut HashSet<&'a str>) {
     walk_stmts(body, Recurse::WithinScope, |stmt| {
-        let target_mutates = |target: &Expr| {
-            target.path_segments().is_some_and(|path| {
-                path.first().is_some_and(|root| root == class_name) && path.len() > 1
-            }) || matches!(target, Expr::Subscript(subscript) if subscript.value.path_segments().is_some_and(|path| path.first().is_some_and(|root| root == class_name) && path.len() > 1))
+        let mut record_target = |target: &'a Expr| {
+            let path = if let Expr::Subscript(subscript) = target {
+                path_root(&subscript.value)
+            } else {
+                path_root(target)
+            };
+            if let Some((root, length)) = path
+                && length > 1
+            {
+                roots.insert(root);
+            }
         };
-        let path_escapes =
-            |expression: &Expr| expression_contains_static_root(expression, class_name);
-        mutated |= match stmt {
+        match stmt {
             Stmt::Assign(assign) => {
-                assign.targets.iter().any(target_mutates) || path_escapes(&assign.value)
+                for target in &assign.targets {
+                    record_target(target);
+                }
+                collect_escaped_roots(&assign.value, roots);
             }
             Stmt::AnnAssign(assign) => {
-                target_mutates(&assign.target) || assign.value.as_deref().is_some_and(path_escapes)
+                record_target(&assign.target);
+                if let Some(value) = assign.value.as_deref() {
+                    collect_escaped_roots(value, roots);
+                }
             }
-            Stmt::AugAssign(assign) => target_mutates(&assign.target),
-            Stmt::Delete(delete) => delete.targets.iter().any(target_mutates),
+            Stmt::AugAssign(assign) => record_target(&assign.target),
+            Stmt::Delete(delete) => {
+                for target in &delete.targets {
+                    record_target(target);
+                }
+            }
             Stmt::Expr(expression) => {
-                matches!(expression.value.as_ref(), Expr::Call(call) if
-                    call.func.path_segments().is_some_and(|path| path.first().is_some_and(|root| root == class_name) && path.len() > 2)
-                    || call.arguments.args.iter().any(path_escapes)
-                    || call.arguments.keywords.iter().any(|keyword| path_escapes(&keyword.value)))
+                if let Expr::Call(call) = expression.value.as_ref() {
+                    if let Some((root, length)) = path_root(&call.func)
+                        && length > 2
+                    {
+                        roots.insert(root);
+                    }
+                    for argument in &call.arguments.args {
+                        collect_escaped_roots(argument, roots);
+                    }
+                    for keyword in &call.arguments.keywords {
+                        collect_escaped_roots(&keyword.value, roots);
+                    }
+                }
             }
-            Stmt::Return(statement) => statement.value.as_deref().is_some_and(path_escapes),
-            Stmt::FunctionDef(function) => body_static_path_is_mutated(&function.body, class_name),
-            Stmt::ClassDef(class) => body_static_path_is_mutated(&class.body, class_name),
+            Stmt::Return(statement) => {
+                if let Some(value) = statement.value.as_deref() {
+                    collect_escaped_roots(value, roots);
+                }
+            }
+            Stmt::FunctionDef(function) => collect_static_path_mutations(&function.body, roots),
+            Stmt::ClassDef(class) => collect_static_path_mutations(&class.body, roots),
             Stmt::TypeAlias(_)
             | Stmt::For(_)
             | Stmt::While(_)
@@ -497,15 +539,10 @@ fn body_static_path_is_mutated(body: &[Stmt], class_name: &str) -> bool {
             | Stmt::Pass(_)
             | Stmt::Break(_)
             | Stmt::Continue(_)
-            | Stmt::IpyEscapeCommand(_) => false,
-        };
-        if mutated {
-            ControlFlow::Break(())
-        } else {
-            ControlFlow::Continue(())
+            | Stmt::IpyEscapeCommand(_) => {}
         }
+        ControlFlow::Continue(())
     });
-    mutated
 }
 
 fn collect_mutated_roots(body: &[Stmt], mutated: &mut HashSet<String>) {
@@ -546,8 +583,8 @@ fn collect_mutated_roots(body: &[Stmt], mutated: &mut HashSet<String>) {
                 | Expr::Slice(_)
                 | Expr::IpyEscapeCommand(_) => return,
             };
-            if let Some(root) = base.path_segments().and_then(|path| path.first().cloned()) {
-                mutated.insert(root);
+            if let Some((root, _)) = path_root(base) {
+                mutated.insert(root.to_string());
             }
         };
         match stmt {
@@ -566,12 +603,9 @@ fn collect_mutated_roots(body: &[Stmt], mutated: &mut HashSet<String>) {
             Stmt::Expr(expression) => {
                 if let Expr::Call(call) = expression.value.as_ref()
                     && let Expr::Attribute(method) = call.func.as_ref()
-                    && let Some(root) = method
-                        .value
-                        .path_segments()
-                        .and_then(|path| path.first().cloned())
+                    && let Some((root, _)) = path_root(&method.value)
                 {
-                    mutated.insert(root);
+                    mutated.insert(root.to_string());
                 }
             }
             Stmt::FunctionDef(_)
