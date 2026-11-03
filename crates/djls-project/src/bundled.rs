@@ -2,7 +2,8 @@
 
 mod facts;
 
-use std::collections::BTreeMap;
+use std::borrow::Cow;
+use std::cmp::Ordering;
 use std::fmt::Write as _;
 use std::io;
 use std::io::Cursor;
@@ -23,6 +24,7 @@ use djls_source::WalkEntry;
 use djls_source::WalkEntryKind;
 use djls_source::WalkOptions;
 use ignore::overrides::OverrideBuilder;
+use rustc_hash::FxHashSet;
 use sha2::Digest;
 use sha2::Sha256;
 use zip::ZipArchive;
@@ -34,8 +36,9 @@ pub use self::facts::prime_bundled_django_libraries;
 struct Bundle {
     root: Utf8PathBuf,
     archive: ZipArchive<Cursor<&'static [u8]>>,
-    // Only names are indexed. File bodies stay compressed until read.
-    index: BTreeMap<Utf8PathBuf, WalkEntryKind>,
+    // Only names are indexed, relative to `root` and sorted by
+    // `cmp_entry_names`. File bodies stay compressed until read.
+    index: Vec<(Box<str>, WalkEntryKind)>,
 }
 
 const VERSIONS: [DjangoVersion; 3] = [
@@ -48,18 +51,30 @@ const VERSIONS: [DjangoVersion; 3] = [
 static BUNDLES: [OnceLock<Bundle>; 3] = [const { OnceLock::new() }; 3];
 
 // Size-sensitive builds (wasm) leave releases out and register them at runtime instead.
+// The build script hashes embedded archives; the digest names the cache directory.
+type Embedded = (&'static [u8], &'static str);
+
 #[cfg(feature = "django-5-2")]
-const DJANGO_5_2: Option<&[u8]> = Some(include_bytes!("../vendor/django-5.2.zip"));
+const DJANGO_5_2: Option<Embedded> = Some((
+    include_bytes!("../vendor/django-5.2.zip"),
+    env!("DJANGO_5_2_ZIP_SHA256"),
+));
 #[cfg(not(feature = "django-5-2"))]
-const DJANGO_5_2: Option<&[u8]> = None;
+const DJANGO_5_2: Option<Embedded> = None;
 #[cfg(feature = "django-6-0")]
-const DJANGO_6_0: Option<&[u8]> = Some(include_bytes!("../vendor/django-6.0.zip"));
+const DJANGO_6_0: Option<Embedded> = Some((
+    include_bytes!("../vendor/django-6.0.zip"),
+    env!("DJANGO_6_0_ZIP_SHA256"),
+));
 #[cfg(not(feature = "django-6-0"))]
-const DJANGO_6_0: Option<&[u8]> = None;
+const DJANGO_6_0: Option<Embedded> = None;
 #[cfg(feature = "django-6-1")]
-const DJANGO_6_1: Option<&[u8]> = Some(include_bytes!("../vendor/django-6.1.zip"));
+const DJANGO_6_1: Option<Embedded> = Some((
+    include_bytes!("../vendor/django-6.1.zip"),
+    env!("DJANGO_6_1_ZIP_SHA256"),
+));
 #[cfg(not(feature = "django-6-1"))]
-const DJANGO_6_1: Option<&[u8]> = None;
+const DJANGO_6_1: Option<Embedded> = None;
 
 static CACHE: LazyLock<io::Result<Utf8PathBuf>> = LazyLock::new(|| {
     let cache = ProjectDirs::from("", "", "djls")
@@ -93,16 +108,31 @@ fn bundle(version: DjangoVersion) -> Option<io::Result<&'static Bundle>> {
     if let Some(bundle) = slot.get() {
         return Some(Ok(bundle));
     }
-    let bytes = match version {
+    let (bytes, digest) = embedded(version)?;
+    Some(
+        cache_root()
+            .and_then(|cache| Bundle::new(&cache.join(digest), bytes))
+            .map(|bundle| slot.get_or_init(|| bundle)),
+    )
+}
+
+fn embedded(version: DjangoVersion) -> Option<Embedded> {
+    match version {
         DjangoVersion::Django52 => DJANGO_5_2,
         DjangoVersion::Django60 => DJANGO_6_0,
         DjangoVersion::Django61 => DJANGO_6_1,
-    }?;
-    Some(
-        cache_root()
-            .and_then(|cache| Bundle::new(cache, bytes))
-            .map(|bundle| slot.get_or_init(|| bundle)),
-    )
+    }
+}
+
+/// Index every embedded release from scratch, as its first lookup in a
+/// process does, and count the indexed entries.
+pub(crate) fn index_embedded_bundles() -> io::Result<usize> {
+    let cache = cache_root()?;
+    let mut entries = 0;
+    for (bytes, digest) in VERSIONS.into_iter().filter_map(embedded) {
+        entries += Bundle::new(&cache.join(digest), bytes)?.index.len();
+    }
+    Ok(entries)
 }
 
 /// Supply a Django release at runtime to a build that does not embed it.
@@ -130,13 +160,23 @@ pub fn register_django_bundle(bytes: Vec<u8>) -> io::Result<DjangoVersion> {
     if slot.get().is_some() {
         return Err(already_loaded());
     }
-    let bundle = Bundle::new(cache_root()?, Box::leak(bytes.into_boxed_slice()))?;
+    let bytes: &'static [u8] = Box::leak(bytes.into_boxed_slice());
+    let bundle = Bundle::new(&cache_root()?.join(sha256_hex(bytes)?), bytes)?;
     slot.set(bundle).map_err(|_rejected| already_loaded())?;
     // Registration happens before any database exists, the only safe place to extract without
     // a second thread.
     #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
     prime_bundled_django_libraries();
     Ok(version)
+}
+
+/// Registered archives are only known at runtime, so they are hashed here.
+fn sha256_hex(bytes: &[u8]) -> io::Result<String> {
+    let mut digest = String::with_capacity(64);
+    for byte in Sha256::digest(bytes) {
+        write!(&mut digest, "{byte:02x}").map_err(io::Error::other)?;
+    }
+    Ok(digest)
 }
 
 /// The supported release named by a `django-<version>.dist-info/` archive entry.
@@ -161,50 +201,92 @@ fn fallback_cache_dir() -> std::path::PathBuf {
     std::path::PathBuf::from("/djls-cache")
 }
 
+/// Order `/`-separated entry names like the paths they name: `/` sorts
+/// before every other byte, so each directory's descendants follow it
+/// contiguously, as they would in a `BTreeMap<Utf8PathBuf>`.
+fn cmp_entry_names(left: &str, right: &str) -> Ordering {
+    let (left, right) = (left.as_bytes(), right.as_bytes());
+    let common = left
+        .iter()
+        .zip(right)
+        .take_while(|(left, right)| left == right)
+        .count();
+    let key = |name: &[u8]| {
+        name.get(common)
+            .map(|&byte| if byte == b'/' { 0 } else { byte })
+    };
+    key(left).cmp(&key(right))
+}
+
 impl Bundle {
-    fn new(cache: &Utf8Path, bytes: &'static [u8]) -> io::Result<Self> {
-        let mut digest = String::with_capacity(64);
-        for byte in Sha256::digest(bytes) {
-            write!(&mut digest, "{byte:02x}").map_err(io::Error::other)?;
-        }
-        let root = cache.join(digest);
+    fn new(root: &Utf8Path, bytes: &'static [u8]) -> io::Result<Self> {
         let archive = ZipArchive::new(Cursor::new(bytes))?;
-        let mut index = BTreeMap::new();
+        let mut index = Vec::with_capacity(archive.len());
+        let mut directories = FxHashSet::<Box<str>>::default();
+        directories.insert(Box::from(""));
         for name in archive.file_names() {
             let name = name?;
-            let path = root.join(&*name);
-            index.insert(
-                path.clone(),
-                if name.ends_with('/') {
-                    WalkEntryKind::Directory
-                } else {
-                    WalkEntryKind::File
-                },
-            );
-            for parent in path
-                .ancestors()
-                .skip(1)
-                .take_while(|parent| parent.starts_with(&root))
-            {
-                index
-                    .entry(parent.to_path_buf())
-                    .or_insert(WalkEntryKind::Directory);
+            let (mut name, kind) = match name.strip_suffix('/') {
+                Some(directory) => (directory, WalkEntryKind::Directory),
+                None => (&*name, WalkEntryKind::File),
+            };
+            index.push((name.into(), kind));
+            // Once one ancestor is known, all of its ancestors are too.
+            while let Some((parent, _)) = name.rsplit_once('/') {
+                if !directories.insert(parent.into()) {
+                    break;
+                }
+                name = parent;
             }
         }
+        index.extend(
+            directories
+                .into_iter()
+                .map(|directory| (directory, WalkEntryKind::Directory)),
+        );
+        index.sort_by(|(left, _), (right, _)| cmp_entry_names(left, right));
+        index.dedup_by(|(name, _), (kept, _)| name == kept);
         Ok(Self {
-            root,
+            root: root.to_path_buf(),
             archive,
             index,
         })
     }
 
+    /// The archive entry name for `path`, if it lies inside this bundle.
+    fn entry_name<'a>(&self, path: &'a Utf8Path) -> Option<Cow<'a, str>> {
+        let relative = path.strip_prefix(&self.root).ok()?;
+        let name = relative.as_str();
+        if name
+            .split('/')
+            .all(|part| !part.is_empty() && part != "." && !part.contains('\\'))
+        {
+            return Some(Cow::Borrowed(name));
+        }
+        Some(Cow::Owned(
+            relative
+                .components()
+                .map(|part| part.as_str())
+                .collect::<Vec<_>>()
+                .join("/"),
+        ))
+    }
+
+    fn position(&self, name: &str) -> Result<usize, usize> {
+        self.index
+            .binary_search_by(|(entry, _)| cmp_entry_names(entry, name))
+    }
+
+    fn kind(&self, path: &Utf8Path) -> Option<WalkEntryKind> {
+        let name = self.entry_name(path)?;
+        let position = self.position(&name).ok()?;
+        Some(self.index[position].1)
+    }
+
     fn read(&self, path: &Utf8Path) -> io::Result<String> {
-        let relative = path.strip_prefix(&self.root).map_err(io::Error::other)?;
-        let name = relative
-            .components()
-            .map(|part| part.as_str())
-            .collect::<Vec<_>>()
-            .join("/");
+        let name = self
+            .entry_name(path)
+            .ok_or_else(|| io::Error::other("path is outside the bundle"))?;
         let mut archive = self.archive.clone();
         let mut text = String::new();
         archive.by_name(&name)?.read_to_string(&mut text)?;
@@ -227,10 +309,14 @@ impl Bundle {
     }
 
     fn walk(&self, root: &Utf8Path, options: &WalkOptions) -> RootWalk {
-        match self.index.get(root) {
-            Some(WalkEntryKind::File) => return RootWalk::File(WalkEntry::file_root(root)),
-            Some(WalkEntryKind::Directory) => {}
-            _ => return RootWalk::Missing,
+        let Some(root_name) = self.entry_name(root) else {
+            return RootWalk::Missing;
+        };
+        let Ok(position) = self.position(&root_name) else {
+            return RootWalk::Missing;
+        };
+        if self.index[position].1 == WalkEntryKind::File {
+            return RootWalk::File(WalkEntry::file_root(root));
         }
         let mut builder = OverrideBuilder::new(root);
         for glob in &options.globs {
@@ -239,13 +325,17 @@ impl Bundle {
         let overrides = builder.build().ok();
         let mut entries = Vec::new();
         let mut excluded = Vec::<Utf8PathBuf>::new();
-        for (path, kind) in self.index.range(root.to_path_buf()..) {
-            if path == root {
-                continue;
-            }
-            let Ok(relative) = path.strip_prefix(root) else {
+        for (name, kind) in &self.index[position + 1..] {
+            let relative = if root_name.is_empty() {
+                Some(&**name)
+            } else {
+                name.strip_prefix(&*root_name)
+                    .and_then(|rest| rest.strip_prefix('/'))
+            };
+            let Some(relative) = relative.map(Utf8Path::new) else {
                 break;
             };
+            let path = self.root.join(&**name);
             let directory = *kind == WalkEntryKind::Directory;
             if excluded.iter().any(|prefix| path.starts_with(prefix)) {
                 continue;
@@ -259,16 +349,16 @@ impl Bundle {
                     .is_some_and(|depth| relative.components().count() > depth)
                 || overrides
                     .as_ref()
-                    .is_some_and(|overrides| overrides.matched(path, directory).is_ignore())
+                    .is_some_and(|overrides| overrides.matched(&path, directory).is_ignore())
             {
                 if directory {
-                    excluded.push(path.clone());
+                    excluded.push(path);
                 }
                 continue;
             }
             entries.push(WalkEntry {
                 root: root.to_path_buf(),
-                path: path.clone(),
+                path,
                 relative: relative.to_path_buf(),
                 kind: *kind,
             });
@@ -363,9 +453,8 @@ impl FileSystem for BundledFileSystem {
     fn canonicalize(&self, path: &Utf8Path) -> io::Result<Utf8PathBuf> {
         match bundle_for(path) {
             Some(bundle) => bundle
-                .index
-                .contains_key(path)
-                .then(|| path.to_path_buf())
+                .kind(path)
+                .map(|_| path.to_path_buf())
                 .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "bundle entry not found")),
             None => self.inner.canonicalize(path),
         }
@@ -374,21 +463,21 @@ impl FileSystem for BundledFileSystem {
     fn exists(&self, path: &Utf8Path) -> bool {
         bundle_for(path).map_or_else(
             || self.inner.exists(path),
-            |bundle| bundle.index.contains_key(path),
+            |bundle| bundle.kind(path).is_some(),
         )
     }
 
     fn is_file(&self, path: &Utf8Path) -> bool {
         bundle_for(path).map_or_else(
             || self.inner.is_file(path),
-            |bundle| bundle.index.get(path) == Some(&WalkEntryKind::File),
+            |bundle| bundle.kind(path) == Some(WalkEntryKind::File),
         )
     }
 
     fn is_dir(&self, path: &Utf8Path) -> bool {
         bundle_for(path).map_or_else(
             || self.inner.is_dir(path),
-            |bundle| bundle.index.get(path) == Some(&WalkEntryKind::Directory),
+            |bundle| bundle.kind(path) == Some(WalkEntryKind::Directory),
         )
     }
 
@@ -403,7 +492,7 @@ impl FileSystem for BundledFileSystem {
     fn path_exists_case_sensitive(&self, path: &Utf8Path, prefix: &Utf8Path) -> bool {
         bundle_for(path).map_or_else(
             || self.inner.path_exists_case_sensitive(path, prefix),
-            |bundle| bundle.index.contains_key(path),
+            |bundle| bundle.kind(path).is_some(),
         )
     }
 
@@ -544,8 +633,11 @@ mod tests {
         let cache = Utf8Path::from_path(temp.path())
             .expect("UTF-8 cache")
             .join("uncreated");
-        let bundle =
-            Bundle::new(&cache, include_bytes!("../vendor/django-5.2.zip")).expect("bundle");
+        let bundle = Bundle::new(
+            &cache.join(env!("DJANGO_5_2_ZIP_SHA256")),
+            include_bytes!("../vendor/django-5.2.zip"),
+        )
+        .expect("bundle");
         let path = bundle.root.join("django/template/defaulttags.py");
         assert!(
             bundle
@@ -554,15 +646,34 @@ mod tests {
                 .contains("def do_if(")
         );
         assert_eq!(
-            bundle
-                .index
-                .get(&bundle.root.join("django/contrib/admin/templates")),
-            Some(&WalkEntryKind::Directory)
+            bundle.kind(&bundle.root.join("django/contrib/admin/templates")),
+            Some(WalkEntryKind::Directory)
         );
-        assert!(matches!(
-            bundle.walk(&bundle.root, &WalkOptions::shallow()),
-            RootWalk::Directory { .. }
-        ));
+        // `django-<version>.dist-info` sorts between `django` and `django/...`
+        // as a string, but walks must still find everything under `django`.
+        let RootWalk::Directory { entries, .. } =
+            bundle.walk(&bundle.root.join("django"), &WalkOptions::unrestricted())
+        else {
+            panic!("directory");
+        };
+        assert!(
+            entries
+                .iter()
+                .any(|entry| entry.relative == "template/defaulttags.py")
+        );
+        let RootWalk::Directory { entries, .. } =
+            bundle.walk(&bundle.root, &WalkOptions::shallow())
+        else {
+            panic!("directory");
+        };
+        let names: Vec<_> = entries
+            .iter()
+            .map(|entry| entry.relative.as_str())
+            .collect();
+        assert!(
+            matches!(names.as_slice(), ["django", info] if info.ends_with(".dist-info")),
+            "{names:?}"
+        );
         assert!(!cache.exists());
         // A cache path that cannot be a directory still permits source reads.
         std::fs::write(&cache, "not a directory").expect("block cache writes");
@@ -579,8 +690,11 @@ mod tests {
     fn concurrent_navigation_materializes_only_target_and_repairs_modified_copy() {
         let temp = tempfile::tempdir().expect("temporary cache");
         let cache = Utf8Path::from_path(temp.path()).expect("UTF-8 cache");
-        let bundle =
-            Bundle::new(cache, include_bytes!("../vendor/django-5.2.zip")).expect("bundle");
+        let bundle = Bundle::new(
+            &cache.join(env!("DJANGO_5_2_ZIP_SHA256")),
+            include_bytes!("../vendor/django-5.2.zip"),
+        )
+        .expect("bundle");
         let path = bundle.root.join("django/template/defaulttags.py");
         std::thread::scope(|scope| {
             for _ in 0..4 {

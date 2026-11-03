@@ -82,6 +82,15 @@ fn extraction_input(fixtures: &[Fixture]) -> Result<ExtractionInput, ExtractionS
     Ok(ExtractionInput { db, files })
 }
 
+// Startup: the first bundled-Django lookup in a process indexes every archive.
+#[divan::bench]
+fn bundled_django_index() {
+    divan::black_box(require(
+        "index bundled Django archives",
+        djls_project::testing::index_bundled_django(),
+    ));
+}
+
 #[divan::bench]
 fn tags(bencher: Bencher) {
     let fixtures = require("load Python extraction fixtures", python_fixtures());
