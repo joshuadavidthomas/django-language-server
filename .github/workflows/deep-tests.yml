@@ -31,11 +31,12 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+      # Builds the test profile like the test matrix, so it restores that cache.
+      - uses: $/.github/actions/setup
         with:
-          install_args: rust
-
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+          tools: rust
+          save: false
+          rust-cache: test
 
       - name: Static Python evaluator against CPython
         if: ${{ !cancelled() }}
@@ -67,26 +68,19 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+      - uses: $/.github/actions/setup
         with:
-          install_args: just rust
-
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          workspaces: |
+          tools: just rust
+          rust-cache: fuzz
+          rust-cache-workspaces: |
             .
             fuzz
+          corpus: true
 
       - name: Install cargo-fuzz and the nightly toolchain
         run: |
           cargo install cargo-fuzz --locked
           rustup toolchain install "$(sed -n 's/^channel = "\([^"]*\)"/\1/p' tools/rustfmt/rust-toolchain.toml)" --profile minimal
-
-      - name: Cache corpus source
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: crates/djls-testing/.corpus/repos
-          key: ${{ runner.os }}-corpus-source-${{ hashFiles('crates/djls-testing/manifest.lock') }}
 
       - name: Sync corpus source
         run: just corpus sync --source-only

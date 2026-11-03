@@ -5,6 +5,7 @@ on:
     # `labeled` lets adding the `bench 🏋️` label start a run with the real-project shard.
     types: [opened, synchronize, reopened, labeled]
     paths:
+      - ".github/actions/setup/action.yml"
       - ".github/workflows/bench.yml"
       - "crates/**"
       - "Cargo.lock"
@@ -14,6 +15,7 @@ on:
   push:
     branches: [main]
     paths:
+      - ".github/actions/setup/action.yml"
       - ".github/workflows/bench.yml"
       - "crates/**"
       - "Cargo.lock"
@@ -70,24 +72,14 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+      # Every shard of one mode builds the same dependencies. The corpus shard also builds
+      # the corpus binary, so it saves the mode's cache.
+      - uses: $/.github/actions/setup
         with:
-          add_shims_to_path: false
-          install_args: rust
-
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          key: ${{ matrix.shard }}-${{ matrix.mode }}
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-
-      - name: Cache corpus
-        if: matrix.shard == 'corpus'
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: crates/djls-testing/.corpus/repos
-          key: ${{ runner.os }}-corpus-source-${{ hashFiles('crates/djls-testing/manifest.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-corpus-source-
+          tools: rust
+          save: ${{ matrix.shard == 'corpus' }}
+          rust-cache: bench-${{ matrix.mode }}
+          corpus: ${{ matrix.shard == 'corpus' }}
 
       - run: df -h /
 
@@ -133,23 +125,12 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+      - uses: $/.github/actions/setup
         with:
-          add_shims_to_path: false
-          install_args: rust uv
-
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          key: real-project-simulation
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-
-      - name: Cache corpus
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: crates/djls-testing/.corpus/repos
-          key: ${{ runner.os }}-corpus-source-${{ hashFiles('crates/djls-testing/manifest.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-corpus-source-
+          tools: rust uv
+          save: false
+          rust-cache: bench-simulation
+          corpus: true
 
       # Restore, but never save, the Project-backed corpus job's uv cache so this job
       # cannot replace it with a subset.

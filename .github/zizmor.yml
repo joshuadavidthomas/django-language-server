@@ -4,12 +4,8 @@ rules:
       # test workflow does not produce artifacts to poison
       - test.yml
       # all caching is disabled for tag and manually dispatched release builds
-      - build.yml:99:9
-      - build.yml:109:9
-      - build.yml:115:9
-      - build.yml:230:9
-      - build.yml:264:9
-      - build.yml:297:9
-      - build.yml:330:9
-      - build.yml:391:9
-      - build.yml:400:9
+      - build.yml:114:9
+      - build.yml:229:9
+      - build.yml:263:9
+      - build.yml:296:9
+      - build.yml:329:9
