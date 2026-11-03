@@ -26,7 +26,7 @@ impl StructuralOrd for SearchPath {
     fn structural_cmp(&self, other: &Self) -> Ordering {
         self.structural_rank()
             .cmp(&other.structural_rank())
-            .then_with(|| self.path().cmp(other.path()))
+            .then_with(|| self.path().as_std_path().cmp(other.path().as_std_path()))
     }
 }
 
