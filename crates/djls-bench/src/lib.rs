@@ -63,6 +63,14 @@ pub fn require_some<T>(context: impl fmt::Display, value: Option<T>) -> T {
     }
 }
 
+/// Whether the `CodSpeed` runner is measuring with its memory instrument.
+/// `cargo codspeed build` produces the same binary for memory and simulation, so the
+/// runner's `CODSPEED_RUNNER_MODE` is the only way to tell the modes apart.
+#[must_use]
+pub fn codspeed_memory_mode() -> bool {
+    env::var("CODSPEED_RUNNER_MODE").as_deref() == Ok("memory")
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum CorpusRequirement {
     Optional,
