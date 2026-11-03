@@ -1,0 +1,640 @@
+---
+source: crates/djls-project/tests/corpus_settings.rs
+expression: settings
+---
+installed_apps:
+  cases:
+    - known:
+        apps:
+          - spans:
+              - length: 10
+                start: 1660
+            value: accounts
+          - spans:
+              - length: 12
+                start: 1676
+            value: aggregator
+          - spans:
+              - length: 6
+                start: 1694
+            value: blog
+          - spans:
+              - length: 12
+                start: 1706
+            value: checklists
+          - spans:
+              - length: 9
+                start: 1724
+            value: contact
+          - spans:
+              - length: 11
+                start: 1739
+            value: dashboard
+          - spans:
+              - length: 6
+                start: 1756
+            value: docs
+          - spans:
+              - length: 12
+                start: 1768
+            value: foundation
+          - spans:
+              - length: 8
+                start: 1786
+            value: legacy
+          - spans:
+              - length: 9
+                start: 1800
+            value: members
+          - spans:
+              - length: 10
+                start: 1815
+            value: releases
+          - spans:
+              - length: 10
+                start: 1831
+            value: svntogit
+          - spans:
+              - length: 8
+                start: 1847
+            value: tracdb
+          - spans:
+              - length: 13
+                start: 1861
+            value: fundraising
+          - spans:
+              - length: 18
+                start: 1880
+            value: django_recaptcha
+          - spans:
+              - length: 14
+                start: 1904
+            value: registration
+          - spans:
+              - length: 14
+                start: 1924
+            value: django_hosts
+          - spans:
+              - length: 16
+                start: 1944
+            value: sorl.thumbnail
+          - spans:
+              - length: 9
+                start: 1966
+            value: djmoney
+          - spans:
+              - length: 22
+                start: 1981
+            value: django.contrib.sites
+          - spans:
+              - length: 21
+                start: 2009
+            value: django.contrib.auth
+          - spans:
+              - length: 22
+                start: 2036
+            value: django.contrib.admin
+          - spans:
+              - length: 29
+                start: 2064
+            value: django.contrib.contenttypes
+          - spans:
+              - length: 26
+                start: 2099
+            value: django.contrib.flatpages
+          - spans:
+              - length: 25
+                start: 2131
+            value: django.contrib.humanize
+          - spans:
+              - length: 25
+                start: 2162
+            value: django.contrib.messages
+          - spans:
+              - length: 25
+                start: 2193
+            value: django.contrib.postgres
+          - spans:
+              - length: 26
+                start: 2224
+            value: django.contrib.redirects
+          - spans:
+              - length: 25
+                start: 2256
+            value: django.contrib.sessions
+          - spans:
+              - length: 28
+                start: 2287
+            value: django.contrib.staticfiles
+          - spans:
+              - length: 25
+                start: 2321
+            value: django.contrib.sitemaps
+          - spans:
+              - length: 24
+                start: 2352
+            value: django_push.subscriber
+          - spans:
+              - length: 18
+                start: 2382
+            value: django_read_only
+          - spans:
+              - length: 26
+                start: 2543
+            value: _sphinx_13448_workaround
+          - spans:
+              - length: 15
+                start: 1125
+            value: debug_toolbar
+    - known:
+        apps:
+          - spans:
+              - length: 10
+                start: 1660
+            value: accounts
+          - spans:
+              - length: 12
+                start: 1676
+            value: aggregator
+          - spans:
+              - length: 6
+                start: 1694
+            value: blog
+          - spans:
+              - length: 12
+                start: 1706
+            value: checklists
+          - spans:
+              - length: 9
+                start: 1724
+            value: contact
+          - spans:
+              - length: 11
+                start: 1739
+            value: dashboard
+          - spans:
+              - length: 6
+                start: 1756
+            value: docs
+          - spans:
+              - length: 12
+                start: 1768
+            value: foundation
+          - spans:
+              - length: 8
+                start: 1786
+            value: legacy
+          - spans:
+              - length: 9
+                start: 1800
+            value: members
+          - spans:
+              - length: 10
+                start: 1815
+            value: releases
+          - spans:
+              - length: 10
+                start: 1831
+            value: svntogit
+          - spans:
+              - length: 8
+                start: 1847
+            value: tracdb
+          - spans:
+              - length: 13
+                start: 1861
+            value: fundraising
+          - spans:
+              - length: 18
+                start: 1880
+            value: django_recaptcha
+          - spans:
+              - length: 14
+                start: 1904
+            value: registration
+          - spans:
+              - length: 14
+                start: 1924
+            value: django_hosts
+          - spans:
+              - length: 16
+                start: 1944
+            value: sorl.thumbnail
+          - spans:
+              - length: 9
+                start: 1966
+            value: djmoney
+          - spans:
+              - length: 22
+                start: 1981
+            value: django.contrib.sites
+          - spans:
+              - length: 21
+                start: 2009
+            value: django.contrib.auth
+          - spans:
+              - length: 22
+                start: 2036
+            value: django.contrib.admin
+          - spans:
+              - length: 29
+                start: 2064
+            value: django.contrib.contenttypes
+          - spans:
+              - length: 26
+                start: 2099
+            value: django.contrib.flatpages
+          - spans:
+              - length: 25
+                start: 2131
+            value: django.contrib.humanize
+          - spans:
+              - length: 25
+                start: 2162
+            value: django.contrib.messages
+          - spans:
+              - length: 25
+                start: 2193
+            value: django.contrib.postgres
+          - spans:
+              - length: 26
+                start: 2224
+            value: django.contrib.redirects
+          - spans:
+              - length: 25
+                start: 2256
+            value: django.contrib.sessions
+          - spans:
+              - length: 28
+                start: 2287
+            value: django.contrib.staticfiles
+          - spans:
+              - length: 25
+                start: 2321
+            value: django.contrib.sitemaps
+          - spans:
+              - length: 24
+                start: 2352
+            value: django_push.subscriber
+          - spans:
+              - length: 18
+                start: 2382
+            value: django_read_only
+          - spans:
+              - length: 26
+                start: 2543
+            value: _sphinx_13448_workaround
+    - known:
+        apps:
+          - spans:
+              - length: 22
+                start: 2639
+            value: django_admin_dracula
+          - spans:
+              - length: 10
+                start: 1660
+            value: accounts
+          - spans:
+              - length: 12
+                start: 1676
+            value: aggregator
+          - spans:
+              - length: 6
+                start: 1694
+            value: blog
+          - spans:
+              - length: 12
+                start: 1706
+            value: checklists
+          - spans:
+              - length: 9
+                start: 1724
+            value: contact
+          - spans:
+              - length: 11
+                start: 1739
+            value: dashboard
+          - spans:
+              - length: 6
+                start: 1756
+            value: docs
+          - spans:
+              - length: 12
+                start: 1768
+            value: foundation
+          - spans:
+              - length: 8
+                start: 1786
+            value: legacy
+          - spans:
+              - length: 9
+                start: 1800
+            value: members
+          - spans:
+              - length: 10
+                start: 1815
+            value: releases
+          - spans:
+              - length: 10
+                start: 1831
+            value: svntogit
+          - spans:
+              - length: 8
+                start: 1847
+            value: tracdb
+          - spans:
+              - length: 13
+                start: 1861
+            value: fundraising
+          - spans:
+              - length: 18
+                start: 1880
+            value: django_recaptcha
+          - spans:
+              - length: 14
+                start: 1904
+            value: registration
+          - spans:
+              - length: 14
+                start: 1924
+            value: django_hosts
+          - spans:
+              - length: 16
+                start: 1944
+            value: sorl.thumbnail
+          - spans:
+              - length: 9
+                start: 1966
+            value: djmoney
+          - spans:
+              - length: 22
+                start: 1981
+            value: django.contrib.sites
+          - spans:
+              - length: 21
+                start: 2009
+            value: django.contrib.auth
+          - spans:
+              - length: 22
+                start: 2036
+            value: django.contrib.admin
+          - spans:
+              - length: 29
+                start: 2064
+            value: django.contrib.contenttypes
+          - spans:
+              - length: 26
+                start: 2099
+            value: django.contrib.flatpages
+          - spans:
+              - length: 25
+                start: 2131
+            value: django.contrib.humanize
+          - spans:
+              - length: 25
+                start: 2162
+            value: django.contrib.messages
+          - spans:
+              - length: 25
+                start: 2193
+            value: django.contrib.postgres
+          - spans:
+              - length: 26
+                start: 2224
+            value: django.contrib.redirects
+          - spans:
+              - length: 25
+                start: 2256
+            value: django.contrib.sessions
+          - spans:
+              - length: 28
+                start: 2287
+            value: django.contrib.staticfiles
+          - spans:
+              - length: 25
+                start: 2321
+            value: django.contrib.sitemaps
+          - spans:
+              - length: 24
+                start: 2352
+            value: django_push.subscriber
+          - spans:
+              - length: 18
+                start: 2382
+            value: django_read_only
+          - spans:
+              - length: 26
+                start: 2543
+            value: _sphinx_13448_workaround
+          - spans:
+              - length: 15
+                start: 1125
+            value: debug_toolbar
+    - known:
+        apps:
+          - spans:
+              - length: 22
+                start: 2639
+            value: django_admin_dracula
+          - spans:
+              - length: 10
+                start: 1660
+            value: accounts
+          - spans:
+              - length: 12
+                start: 1676
+            value: aggregator
+          - spans:
+              - length: 6
+                start: 1694
+            value: blog
+          - spans:
+              - length: 12
+                start: 1706
+            value: checklists
+          - spans:
+              - length: 9
+                start: 1724
+            value: contact
+          - spans:
+              - length: 11
+                start: 1739
+            value: dashboard
+          - spans:
+              - length: 6
+                start: 1756
+            value: docs
+          - spans:
+              - length: 12
+                start: 1768
+            value: foundation
+          - spans:
+              - length: 8
+                start: 1786
+            value: legacy
+          - spans:
+              - length: 9
+                start: 1800
+            value: members
+          - spans:
+              - length: 10
+                start: 1815
+            value: releases
+          - spans:
+              - length: 10
+                start: 1831
+            value: svntogit
+          - spans:
+              - length: 8
+                start: 1847
+            value: tracdb
+          - spans:
+              - length: 13
+                start: 1861
+            value: fundraising
+          - spans:
+              - length: 18
+                start: 1880
+            value: django_recaptcha
+          - spans:
+              - length: 14
+                start: 1904
+            value: registration
+          - spans:
+              - length: 14
+                start: 1924
+            value: django_hosts
+          - spans:
+              - length: 16
+                start: 1944
+            value: sorl.thumbnail
+          - spans:
+              - length: 9
+                start: 1966
+            value: djmoney
+          - spans:
+              - length: 22
+                start: 1981
+            value: django.contrib.sites
+          - spans:
+              - length: 21
+                start: 2009
+            value: django.contrib.auth
+          - spans:
+              - length: 22
+                start: 2036
+            value: django.contrib.admin
+          - spans:
+              - length: 29
+                start: 2064
+            value: django.contrib.contenttypes
+          - spans:
+              - length: 26
+                start: 2099
+            value: django.contrib.flatpages
+          - spans:
+              - length: 25
+                start: 2131
+            value: django.contrib.humanize
+          - spans:
+              - length: 25
+                start: 2162
+            value: django.contrib.messages
+          - spans:
+              - length: 25
+                start: 2193
+            value: django.contrib.postgres
+          - spans:
+              - length: 26
+                start: 2224
+            value: django.contrib.redirects
+          - spans:
+              - length: 25
+                start: 2256
+            value: django.contrib.sessions
+          - spans:
+              - length: 28
+                start: 2287
+            value: django.contrib.staticfiles
+          - spans:
+              - length: 25
+                start: 2321
+            value: django.contrib.sitemaps
+          - spans:
+              - length: 24
+                start: 2352
+            value: django_push.subscriber
+          - spans:
+              - length: 18
+                start: 2382
+            value: django_read_only
+          - spans:
+              - length: 26
+                start: 2543
+            value: _sphinx_13448_workaround
+templates:
+  cases:
+    - known:
+        backends:
+          - app_dirs:
+              spans:
+                - length: 4
+                  start: 5616
+              value: true
+            backend:
+              spans:
+                - length: 49
+                  start: 5496
+              value: django.template.backends.django.DjangoTemplates
+            builtins:
+              - spans:
+                  - length: 42
+                    start: 5685
+                value: django_hosts.templatetags.hosts_override
+            context_processors:
+              - spans:
+                  - length: 45
+                    start: 5796
+                value: django.contrib.auth.context_processors.auth
+              - spans:
+                  - length: 42
+                    start: 5859
+                value: django.template.context_processors.debug
+              - spans:
+                  - length: 41
+                    start: 5919
+                value: django.template.context_processors.i18n
+              - spans:
+                  - length: 43
+                    start: 5978
+                value: django.template.context_processors.static
+              - spans:
+                  - length: 42
+                    start: 6039
+                value: django.template.context_processors.media
+              - spans:
+                  - length: 53
+                    start: 6099
+                value: django.contrib.messages.context_processors.messages
+              - spans:
+                  - length: 38
+                    start: 6170
+                value: docs.context_processors.docs_version
+              - spans:
+                  - length: 44
+                    start: 6226
+                value: releases.context_processors.django_version
+              - spans:
+                  - length: 47
+                    start: 6288
+                value: aggregator.context_processors.community_stats
+              - spans:
+                  - length: 44
+                    start: 6353
+                value: django.template.context_processors.request
+            dirs:
+              - spans:
+                  - length: 29
+                    start: 5564
+                value: "${REPO}/djangoproject/templates"
+            libraries: []

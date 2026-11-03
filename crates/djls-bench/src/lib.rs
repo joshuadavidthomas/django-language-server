@@ -1,6 +1,7 @@
 mod check;
 mod db;
 mod fixtures;
+mod project;
 mod specs;
 
 use std::env;
@@ -23,6 +24,10 @@ pub use fixtures::model_fixtures;
 pub use fixtures::python_fixtures;
 pub use fixtures::template_fixtures;
 pub use fixtures::validation_error_fixtures;
+pub use project::Keystroke;
+pub use project::REAL_PROJECTS;
+pub use project::RealProject;
+pub use project::RealProjectError;
 pub use specs::BenchmarkSetupError;
 pub use specs::primed_realistic_db;
 pub use specs::realistic_db;

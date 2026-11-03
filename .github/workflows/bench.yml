@@ -20,6 +20,9 @@ on:
       - "rust-toolchain.toml"
   workflow_dispatch:
 
+env:
+  UV_CACHE_DIR: ${{ github.workspace }}/.cache/uv
+
 jobs:
   benchmarks:
     runs-on: ubuntu-latest
@@ -33,7 +36,7 @@ jobs:
       - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
         with:
           add_shims_to_path: false
-          install_args: rust
+          install_args: rust uv
 
       - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
 
@@ -47,6 +50,22 @@ jobs:
 
       - name: Sync corpus
         run: cargo run -q -p djls-testing --bin corpus -- sync --source-only
+
+      # Real-project benchmarks need these two environments. Restore, but never save, the
+      # Project-backed corpus job's uv cache so this job cannot replace it with a subset.
+      - name: Restore corpus Python downloads
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.UV_CACHE_DIR }}
+          key: ${{ runner.os }}-${{ runner.arch }}-uv-corpus-${{ hashFiles('crates/djls-testing/manifest.lock', 'crates/djls-testing/manifest.toml', 'mise.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-uv-corpus-
+
+      - name: Build real-project environments
+        run: |
+          # netbox builds psycopg-c from source when the uv cache has no wheel for it.
+          command -v pg_config >/dev/null || { sudo apt-get update && sudo apt-get install -y libpq-dev; }
+          cargo run -q -p djls-testing --bin corpus -- environment sync djangoproject.com netbox
 
       - name: Verify benchmark workload snapshots
         run: DJLS_REQUIRE_BENCH_CORPUS=1 cargo test -p djls-bench -- --include-ignored

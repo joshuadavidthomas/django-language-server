@@ -9,6 +9,7 @@ mod settings;
 mod vendor;
 
 pub use corpus::Corpus;
+pub use corpus::CorpusEnvironmentProject;
 pub use corpus::CorpusExtractionTarget;
 pub use corpus::CorpusSettingsProject;
 pub use corpus::LockFilter;

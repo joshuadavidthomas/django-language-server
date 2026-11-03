@@ -8,6 +8,7 @@ djls = { workspace = true }
 djls-conf = { workspace = true }
 djls-db = { workspace = true }
 djls-ide = { workspace = true }
+djls-lsp = { workspace = true }
 djls-project = { workspace = true, features = ["bundled-django"] }
 djls-semantic = { workspace = true }
 djls-source = { workspace = true }
@@ -17,13 +18,14 @@ djls-testing = { workspace = true }
 camino = { workspace = true }
 divan = { workspace = true }
 salsa = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
+tower-lsp-server = { workspace = true }
 
 [dev-dependencies]
 insta = { workspace = true }
 serde = { workspace = true }
 sha2 = { workspace = true }
-tower-lsp-server = { workspace = true }
 
 [[bench]]
 name = "parser"
@@ -47,6 +49,10 @@ harness = false
 
 [[bench]]
 name = "check"
+harness = false
+
+[[bench]]
+name = "real_project"
 harness = false
 
 [lints]
