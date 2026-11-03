@@ -4,6 +4,7 @@ mod statement;
 
 #[cfg(test)]
 use std::cell::Cell;
+use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::mem;
@@ -393,7 +394,7 @@ impl<'db> PythonModuleEvaluator<'db> {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(super) struct PythonEvaluationState {
     /// Shared so forks copy pointers; a write clones only the binding it changes.
-    pub(super) bindings: BTreeMap<String, Rc<PythonBinding>>,
+    pub(super) bindings: BTreeMap<Rc<str>, Rc<PythonBinding>>,
     namespace_causes: Vec<PythonNamespaceCause>,
     pub(super) mutations: UniqueVec<PythonMutation>,
     import_trace: PythonImportTrace,
@@ -437,7 +438,7 @@ impl PythonEvaluationState {
                 bindings: self
                     .bindings
                     .into_iter()
-                    .map(|(name, binding)| (name, Rc::unwrap_or_clone(binding)))
+                    .map(|(name, binding)| (name.to_string(), Rc::unwrap_or_clone(binding)))
                     .collect(),
                 namespace_remainder: (!self.namespace_causes.is_empty())
                     .then(|| PythonNamespaceRemainder::new(self.namespace_causes)),
@@ -533,7 +534,7 @@ impl PythonEvaluationState {
             Some(binding)
         });
         if let Some(binding) = updated {
-            self.bindings.insert(name.to_string(), Rc::new(binding));
+            self.bindings.insert(Rc::from(name), Rc::new(binding));
         } else {
             self.assign_value(
                 name,
@@ -547,7 +548,7 @@ impl PythonEvaluationState {
         self.mutations.retain(|mutation| mutation.binding != name);
         binding.discriminate_predicates(name, origin, self.predicate_module.as_ref());
         self.bindings.insert(
-            name.to_string(),
+            Rc::from(name),
             Rc::new(binding.rebase_binding_origin(origin)),
         );
     }
@@ -561,7 +562,7 @@ impl PythonEvaluationState {
     ) {
         binding.discriminate_predicates(name, origin, self.predicate_module.as_ref());
         self.bindings.insert(
-            name.to_string(),
+            Rc::from(name),
             Rc::new(binding.rebase_binding_origin(origin)),
         );
         let copied = self
@@ -622,7 +623,7 @@ impl PythonEvaluationState {
                         .is_some_and(|candidate| namespaces.contains(&candidate))
                 })
             })
-            .map(|(candidate, _binding)| candidate.clone())
+            .map(|(candidate, _binding)| candidate.to_string())
             .collect()
     }
 
@@ -638,7 +639,7 @@ impl PythonEvaluationState {
                     bound.value.mutable_namespace().is_some()
                 })
             })
-            .map(|(name, _binding)| name.clone())
+            .map(|(name, _binding)| name.to_string())
             .collect::<Vec<_>>();
         for namespace in [
             PythonIntrinsicNamespace::Builtins,
@@ -658,7 +659,7 @@ impl PythonEvaluationState {
         self.bindings
             .iter()
             .filter(|(_name, candidate)| candidate.reachable_allocation_sites().intersects(&wanted))
-            .map(|(name, _binding)| name.clone())
+            .map(|(name, _binding)| name.to_string())
             .collect()
     }
 
@@ -698,9 +699,9 @@ impl PythonEvaluationState {
                     .map_or(0, |candidate| {
                         candidate.allocation_site_occurrences(&wanted)
                     });
-                occurrences > usize::from(candidate_name.as_str() == name)
+                occurrences > usize::from(candidate_name.as_ref() == name)
             })
-            .map(|(name, _binding)| name.clone())
+            .map(|(name, _binding)| name.to_string())
             .collect()
     }
 
@@ -826,7 +827,7 @@ impl PythonEvaluationState {
                         .is_some_and(|candidate| namespaces.contains(&candidate))
                 })
             })
-            .map(|(candidate, _binding)| candidate.clone())
+            .map(|(candidate, _binding)| candidate.to_string())
             .collect::<BTreeSet<_>>();
         if !aliases.is_empty() {
             self.degrade_names(aliases, &PythonUnknownCause::UnsupportedMutation, origin);
@@ -873,11 +874,11 @@ impl PythonEvaluationState {
             let sites = reaching.remove(&name).unwrap_or_default();
             let mut unknown = PythonBinding::unknown_reaching(cause, origin, sites);
             unknown.discriminate_predicates(&name, origin, self.predicate_module.as_ref());
-            let binding = match self.bindings.remove(&name) {
+            let binding = match self.bindings.remove(name.as_str()) {
                 Some(binding) => Rc::unwrap_or_clone(binding).join(unknown, origin),
                 None => unknown,
             };
-            self.bindings.insert(name, Rc::new(binding));
+            self.bindings.insert(Rc::from(name), Rc::new(binding));
         }
     }
 
@@ -885,6 +886,7 @@ impl PythonEvaluationState {
         let changed_names = evaluated_bodies
             .iter()
             .flat_map(|body| body.changed_names_from(&self))
+            .map(|name| name.to_string())
             .collect::<BTreeSet<_>>();
         // A loop body may leave a name aliasing another object, as in
         // `for ...: L0 = L1`; the widened unknown must still reach it.
@@ -937,19 +939,20 @@ impl PythonEvaluationState {
         join: &BranchJoin,
     ) -> Self {
         let origin = join.origin();
-        let names = branches
-            .iter()
-            .flat_map(|(_, branch)| branch.changed_names_from(&base))
-            .collect::<BTreeSet<_>>();
+        let mut names = BTreeSet::new();
+        for (_, branch) in branches {
+            names.append(&mut branch.changed_names_from(&base));
+        }
+        let unbound = PythonBinding::unbound();
         for name in names {
-            let mut groups: Vec<(PythonBinding, Vec<usize>)> = Vec::new();
+            // Arms that never rewrote the name share one binding, so pointer
+            // identity groups them before any deep comparison or clone.
+            let mut groups: Vec<(&PythonBinding, Vec<usize>)> = Vec::new();
             for (arm, branch) in branches {
-                let candidate = branch
-                    .binding(&name)
-                    .cloned()
-                    .unwrap_or_else(PythonBinding::unbound);
-                if let Some((_, arms)) =
-                    groups.iter_mut().find(|(grouped, _)| *grouped == candidate)
+                let candidate = branch.binding(&name).unwrap_or(&unbound);
+                if let Some((_, arms)) = groups
+                    .iter_mut()
+                    .find(|(grouped, _)| std::ptr::eq(*grouped, candidate) || *grouped == candidate)
                 {
                     arms.push(*arm);
                 } else {
@@ -958,7 +961,7 @@ impl PythonEvaluationState {
             }
             let mut grouped = groups
                 .iter()
-                .map(|(candidate, _)| candidate.clone())
+                .map(|(candidate, _)| (*candidate).clone())
                 .collect::<Vec<_>>();
             let joined = if PythonBinding::supports_grouped_branch_join(&grouped) {
                 for (candidate, (_, arms)) in grouped.iter_mut().zip(&groups) {
@@ -1008,10 +1011,10 @@ impl PythonEvaluationState {
         join: &BranchJoin,
     ) -> Self {
         let origin = join.origin();
-        let names = branches
-            .iter()
-            .flat_map(|(_, _, branch)| branch.changed_names_from(&base))
-            .collect::<BTreeSet<_>>();
+        let mut names = BTreeSet::new();
+        for (_, _, branch) in branches {
+            names.append(&mut branch.changed_names_from(&base));
+        }
         for name in names {
             let mut joined: Option<PythonBinding> = None;
             for (arm, constraints, branch) in branches {
@@ -1064,21 +1067,47 @@ impl PythonEvaluationState {
         Self::join_indexed_branches(base, &indexed, &join)
     }
 
-    fn changed_names_from(&self, base: &Self) -> BTreeSet<String> {
-        // `Rc` equality checks pointers first, so bindings a fork never
-        // rewrote compare in constant time.
-        let mut changed = self
-            .bindings
-            .iter()
-            .filter(|(name, binding)| base.bindings.get(*name) != Some(binding))
-            .map(|(name, _)| name)
-            .chain(
-                base.bindings
-                    .keys()
-                    .filter(|name| !self.bindings.contains_key(*name)),
-            )
-            .cloned()
-            .collect::<BTreeSet<_>>();
+    fn changed_names_from(&self, base: &Self) -> BTreeSet<Rc<str>> {
+        // Both maps are sorted by name, so one merged walk replaces a lookup
+        // per name. `Rc` equality checks pointers first, so bindings a fork
+        // never rewrote compare in constant time.
+        let mut changed = BTreeSet::new();
+        let mut ours = self.bindings.iter().peekable();
+        let mut theirs = base.bindings.iter().peekable();
+        loop {
+            let name = match (ours.peek().copied(), theirs.peek().copied()) {
+                (None, None) => break,
+                (Some((name, _)), None) => {
+                    ours.next();
+                    name
+                }
+                (None, Some((name, _))) => {
+                    theirs.next();
+                    name
+                }
+                (Some((our_name, our_binding)), Some((their_name, their_binding))) => {
+                    match our_name.cmp(their_name) {
+                        Ordering::Less => {
+                            ours.next();
+                            our_name
+                        }
+                        Ordering::Greater => {
+                            theirs.next();
+                            their_name
+                        }
+                        Ordering::Equal => {
+                            ours.next();
+                            theirs.next();
+                            if our_binding == their_binding {
+                                continue;
+                            }
+                            our_name
+                        }
+                    }
+                }
+            };
+            changed.insert(Rc::clone(name));
+        }
         let mutation_roots = base
             .mutations
             .iter()
@@ -1090,7 +1119,7 @@ impl PythonEvaluationState {
                 .rooted_mutation_evidence(name)
                 .eq(self.rooted_mutation_evidence(name))
             {
-                changed.insert(name.to_string());
+                changed.insert(Rc::from(name));
             }
         }
         changed
@@ -6029,7 +6058,7 @@ else:
         let mut state = PythonEvaluationState::new(test_file(0));
         let binding_origin = origin(1);
         state.bindings.insert(
-            "VALUE".to_string(),
+            Rc::from("VALUE"),
             PythonBinding::bound(
                 PythonValue::string("value".to_string(), binding_origin),
                 binding_origin,
@@ -6059,7 +6088,7 @@ else:
     fn module_valued_bindings_are_uniformly_truthy() {
         let mut state = PythonEvaluationState::new(test_file(0));
         state.bindings.insert(
-            "MOD".to_string(),
+            Rc::from("MOD"),
             PythonBinding::bound(
                 PythonValue::module(namespace_module("pkg"), origin(1)),
                 origin(1),
@@ -6080,7 +6109,7 @@ else:
             PythonBinding::unknown(&PythonUnknownCause::Cycle, origin(2)),
             origin(3),
         );
-        state.bindings.insert("MIXED".to_string(), mixed.into());
+        state.bindings.insert(Rc::from("MIXED"), mixed.into());
         assert_eq!(
             state.known_truthiness("MIXED"),
             None,
@@ -6088,7 +6117,7 @@ else:
         );
 
         state.bindings.insert(
-            "FLAG".to_string(),
+            Rc::from("FLAG"),
             PythonBinding::bound(PythonValue::bool(true, origin(1)), origin(1)).into(),
         );
         assert_eq!(state.known_truthiness("FLAG"), Some(Truthiness::Truthy));
@@ -6104,7 +6133,7 @@ else:
 
         assert_eq!(
             changed.changed_names_from(&base),
-            ["VALUE".to_string()].into_iter().collect()
+            [Rc::from("VALUE")].into_iter().collect()
         );
     }
 
@@ -6123,7 +6152,7 @@ else:
 
         assert_eq!(
             changed.changed_names_from(&base),
-            ["VALUE".to_string()].into_iter().collect()
+            [Rc::from("VALUE")].into_iter().collect()
         );
     }
 
@@ -6150,7 +6179,7 @@ else:
 
         assert_eq!(
             changed.changed_names_from(&base),
-            ["VALUE".to_string()].into_iter().collect()
+            [Rc::from("VALUE")].into_iter().collect()
         );
     }
 

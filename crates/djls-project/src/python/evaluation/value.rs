@@ -164,15 +164,14 @@ impl ValueEvidenceSet {
 
     fn normalize(&mut self) {
         self.0.sort_by(ValueEvidence::structural_cmp);
+        // Sorting orders by origin first, so equal origins are adjacent.
         let mut normalized: Vec<ValueEvidence> = Vec::with_capacity(self.0.len());
         for evidence in mem::take(&mut self.0) {
-            if let Some(existing) = normalized
-                .iter_mut()
-                .find(|existing| existing.origin == evidence.origin)
-            {
-                existing.constraints.merge(evidence.constraints);
-            } else {
-                normalized.push(evidence);
+            match normalized.last_mut() {
+                Some(existing) if existing.origin == evidence.origin => {
+                    existing.constraints.merge(evidence.constraints);
+                }
+                _ => normalized.push(evidence),
             }
         }
         self.0 = normalized;
@@ -777,7 +776,15 @@ impl PythonValue {
         let merged = self
             .kind
             .merge_semantically_equal(incoming.kind, operation_origin);
-        self.normalize();
+        // The evidence merge and each kind's merge already normalize.
+        debug_assert!(
+            {
+                let mut normalized = self.clone();
+                normalized.normalize();
+                normalized == *self
+            },
+            "a semantic merge must leave the value normalized"
+        );
         merged
     }
 }

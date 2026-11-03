@@ -33,6 +33,18 @@ impl<T> UniqueVec<T> {
 }
 
 impl<T: Eq> UniqueVec<T> {
+    /// Wraps elements the caller already deduplicated.
+    pub(crate) fn from_unique(values: Vec<T>) -> Self {
+        debug_assert!(
+            values
+                .iter()
+                .enumerate()
+                .all(|(index, value)| !values[..index].contains(value)),
+            "UniqueVec::from_unique requires distinct elements"
+        );
+        Self(values)
+    }
+
     pub(crate) fn insert(&mut self, element: T) -> bool {
         if self.0.contains(&element) {
             false
