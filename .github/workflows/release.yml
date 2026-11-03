@@ -103,7 +103,7 @@ jobs:
         run: uv run tools/release.py github-assets "$RELEASE_TAG"
 
       - name: Publish to PyPI
-        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           command: upload
           args: --non-interactive --skip-existing wheels-*/*

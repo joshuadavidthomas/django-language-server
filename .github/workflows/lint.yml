@@ -13,7 +13,8 @@ on:
 
 concurrency:
   group: lint-${{ inputs.ref || github.head_ref || github.ref }}
-  cancel-in-progress: true
+  # Runs on main finish so they can save the caches pull requests restore.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -54,8 +55,8 @@ jobs:
 
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ~/.cache/pre-commit/
-          key: pre-commit-1|${{ hashFiles('.pre-commit-config.yaml') }}
+          path: ~/.cache/prek/
+          key: prek-1|${{ hashFiles('.pre-commit-config.yaml') }}
 
       - name: Run pre-commit
         run: |
@@ -185,7 +186,7 @@ jobs:
           add_shims_to_path: false
           install_args: rust
 
-      - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
@@ -228,7 +229,7 @@ jobs:
           working_directory: tools/hawk
           install_args: rust github:astral-sh/hawk
 
-      - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
@@ -271,7 +272,7 @@ jobs:
           add_shims_to_path: false
           install_args: rust
 
-      - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
