@@ -335,7 +335,7 @@ fn class_occurrence_has_positive_model_evidence(
             let ExtractedBaseRef::SameModule(name) = base.value() else {
                 return false;
             };
-            let base_class = ClassId::new(class.module_name.clone(), name.as_str());
+            let base_class = ClassId::new(class.module_name.clone(), name.clone());
             nearest_preceding_occurrence(occurrences, &base_class, base.span(), None)
                 .is_some_and(|occurrence| occurrence.has_positive_model_evidence)
         })
@@ -350,7 +350,7 @@ fn has_direct_model_evidence(class: &ExtractedClass) -> bool {
 }
 
 fn class_id(class: &ExtractedClass) -> ClassId {
-    ClassId::new(class.module_name.clone(), class.name.value().as_str())
+    ClassId::new(class.module_name.clone(), class.name.value().clone())
 }
 
 fn nearest_preceding_occurrence<'a>(
@@ -378,7 +378,7 @@ fn resolve_class_base_rebinding(
     let ExtractedBaseRef::SameModule(name) = base else {
         return None;
     };
-    let class = ClassId::new(extracted.module_name.clone(), name.as_str());
+    let class = ClassId::new(extracted.module_name.clone(), name.clone());
     let nearest =
         nearest_preceding_occurrence(occurrences, &class, span, Some(extracted.name.span()))?;
     if selected_spans.get(&class) == Some(&nearest.span) {
@@ -399,7 +399,7 @@ fn resolve_class_base(
     match base {
         ExtractedBaseRef::DjangoModelRoot => ResolvedClassBase::DjangoModelRoot,
         ExtractedBaseRef::SameModule(name) => {
-            ResolvedClassBase::Class(ClassId::new(extracted.module_name.clone(), name.as_str()))
+            ResolvedClassBase::Class(ClassId::new(extracted.module_name.clone(), name.clone()))
         }
         ExtractedBaseRef::UnsupportedExpression => {
             ResolvedClassBase::Unresolved(ClassBaseUnresolvedReason::UnsupportedExpression)

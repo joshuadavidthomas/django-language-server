@@ -30,8 +30,8 @@ macro_rules! string_newtype {
 
         impl $Name {
             #[must_use]
-            $vis fn new(value: impl Into<String>) -> Self {
-                Self(Arc::from(value.into()))
+            $vis fn new(value: impl Into<Arc<str>>) -> Self {
+                Self(value.into())
             }
 
             #[must_use]
@@ -56,6 +56,12 @@ macro_rules! string_newtype {
         impl From<String> for $Name {
             fn from(s: String) -> Self {
                 Self(Arc::from(s))
+            }
+        }
+
+        impl From<$Name> for Arc<str> {
+            fn from(name: $Name) -> Self {
+                name.0
             }
         }
 
@@ -171,7 +177,7 @@ pub(crate) struct ClassId {
 
 impl ClassId {
     #[must_use]
-    pub(super) fn new(module_name: PythonModuleName, name: impl Into<String>) -> Self {
+    pub(super) fn new(module_name: PythonModuleName, name: impl Into<Arc<str>>) -> Self {
         Self {
             name: ClassName::new(name),
             module_name,
@@ -192,13 +198,13 @@ impl ClassId {
     /// Django model.
     #[must_use]
     pub(super) fn into_admitted_model_id(self) -> ModelId {
-        ModelId::new(self.module_name, ModelName::new(self.name.as_str()))
+        ModelId::new(self.module_name, ModelName::new(self.name))
     }
 
     /// Build the class identity used to look up a model in a mixed-class MRO.
     #[must_use]
     pub(crate) fn from_model_id(model: &ModelId) -> Self {
-        Self::new(model.module_name.clone(), model.name.as_str())
+        Self::new(model.module_name.clone(), model.name.clone())
     }
 }
 
@@ -553,7 +559,7 @@ impl ModelDef {
     ) -> Self {
         Self {
             file,
-            name: Spanned::new(ModelName::new(name), name_span),
+            name: Spanned::new(ModelName::new(name.into()), name_span),
             module_name,
             relations: Vec::new(),
             kind: ModelKind::Concrete,

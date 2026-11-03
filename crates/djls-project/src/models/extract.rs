@@ -85,7 +85,7 @@ impl ExtractedClass {
     pub(super) fn into_admitted_model(self) -> (ModelDef, BTreeMap<FieldName, LocalBinding>) {
         let definition = ModelDef {
             file: self.file,
-            name: Spanned::new(ModelName::new(self.name.value().as_str()), self.name.span()),
+            name: Spanned::new(ModelName::new(self.name.value().clone()), self.name.span()),
             module_name: self.module_name,
             relations: self.relations,
             kind: self.declared_model_kind,
