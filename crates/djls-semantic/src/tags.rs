@@ -357,6 +357,38 @@ pub(crate) fn effective_tag_spec_in_scope<'db>(
         .cloned()
 }
 
+/// Tag specs effective before any file-local load in one scope, resolved once per name.
+///
+/// Load discovery's first guess and every grammar pass need the same no-load lookups: for
+/// every tag before the first load, and for any tag whose name no visible load can supply.
+pub(crate) struct UnloadedTagSpecs<'db> {
+    scoped_libraries: ScopedTemplateLibraries<'db, 'db>,
+    specs: FxHashMap<String, Option<Arc<TagSpec>>>,
+}
+
+impl<'db> UnloadedTagSpecs<'db> {
+    pub(crate) fn new(scoped_libraries: ScopedTemplateLibraries<'db, 'db>) -> Self {
+        Self {
+            scoped_libraries,
+            specs: FxHashMap::default(),
+        }
+    }
+
+    pub(crate) fn get(
+        &mut self,
+        products: &mut LibraryTagProducts<'db>,
+        name: &str,
+    ) -> Option<Arc<TagSpec>> {
+        if let Some(spec) = self.specs.get(name) {
+            return spec.clone();
+        }
+        let spec =
+            effective_tag_spec_in_scope(products, self.scoped_libraries, name, &[]).map(Arc::new);
+        self.specs.insert(name.to_string(), spec.clone());
+        spec
+    }
+}
+
 /// Specs effective before any file-local `{% load %}` statement.
 #[salsa::tracked(returns(ref))]
 pub fn tag_specs_for_file(db: &dyn Db, file: File) -> TagSpecs {

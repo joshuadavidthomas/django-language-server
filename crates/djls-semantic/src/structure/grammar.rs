@@ -20,6 +20,7 @@ use crate::scoping::UnknownLoadShadow;
 use crate::tags::BodyAnalysis;
 use crate::tags::LibraryTagProducts;
 use crate::tags::TagSpec;
+use crate::tags::UnloadedTagSpecs;
 use crate::tags::effective_tag_spec_in_scope;
 use crate::tags::library_tag_specs;
 use crate::tags::library_tag_structure_specs;
@@ -277,7 +278,7 @@ impl SparseTagGrammar {
             nodelist,
             |name, _span| (name.to_string(), ()),
             |name, ()| {
-                let spec = db.projectless_tag_specs().get(name).cloned();
+                let spec = db.projectless_tag_specs().get(name).cloned().map(Arc::new);
                 fact_from_spec(spec, || classify_projectless_orphan(db, name))
             },
         )
@@ -289,6 +290,7 @@ impl SparseTagGrammar {
         loaded: &LoadedLibraries,
         scoped_libraries: ScopedTemplateLibraries<'_, 'db>,
         tag_products: &mut LibraryTagProducts<'db>,
+        unloaded_specs: &mut UnloadedTagSpecs<'db>,
     ) -> Self {
         let project = tag_products.project();
         let mut loaded_names = Vec::new();
@@ -318,15 +320,11 @@ impl SparseTagGrammar {
                     // through a full load is rare enough that losing block structure
                     // in every Template with an unresolved load costs more.
                     Some(UnknownLoadShadow::FullLoad)
-                        if let Some(spec) = effective_tag_spec_in_scope(
-                            tag_products,
-                            scoped_libraries,
-                            name,
-                            &[],
-                        ) && let Some(contract) = OpeningContract::from_spec(&spec) =>
+                        if let Some(spec) = unloaded_specs.get(tag_products, name)
+                            && let Some(contract) = OpeningContract::from_spec(&spec) =>
                     {
                         return TagGrammarFact {
-                            spec: Some(Arc::new(spec)),
+                            spec: Some(spec),
                             classification: TagClassification::Opener(contract),
                         };
                     }
@@ -339,12 +337,12 @@ impl SparseTagGrammar {
                 }
 
                 load_state.write_libraries_loading_symbol(name, &mut loaded_names);
-                let spec = effective_tag_spec_in_scope(
-                    tag_products,
-                    scoped_libraries,
-                    name,
-                    &loaded_names,
-                );
+                let spec = if loaded_names.is_empty() {
+                    unloaded_specs.get(tag_products, name)
+                } else {
+                    effective_tag_spec_in_scope(tag_products, scoped_libraries, name, &loaded_names)
+                        .map(Arc::new)
+                };
                 fact_from_spec(spec, || {
                     classify_project_orphan(db, project, name, &load_state, scoped_libraries)
                 })
@@ -398,7 +396,7 @@ impl SparseTagGrammar {
 }
 
 fn fact_from_spec(
-    spec: Option<TagSpec>,
+    spec: Option<Arc<TagSpec>>,
     classify_orphan: impl FnOnce() -> TagClassification,
 ) -> TagGrammarFact {
     let classification = spec.as_ref().map_or_else(classify_orphan, |spec| {
@@ -406,7 +404,7 @@ fn fact_from_spec(
             .map_or(TagClassification::Standalone, TagClassification::Opener)
     });
     TagGrammarFact {
-        spec: spec.map(Arc::new),
+        spec,
         classification,
     }
 }
