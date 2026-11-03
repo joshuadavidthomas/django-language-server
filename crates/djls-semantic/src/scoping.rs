@@ -23,6 +23,7 @@ use djls_source::Span;
 use djls_templates::Filter;
 use djls_templates::Node;
 use djls_templates::NodeList;
+use rustc_hash::FxHashMap;
 use salsa::Accumulator;
 
 use crate::ValidationErrorAccumulator;
@@ -50,6 +51,7 @@ use crate::structure::active_template_nodes;
 use crate::structure::grammar::SparseTagGrammar;
 use crate::tags::LibraryTagProducts;
 use crate::tags::TagSpec;
+use crate::tags::UnloadedTagSpecs;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct TagOccurrenceKey(u32);
@@ -185,7 +187,16 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
     let project = db.project();
     let scoped_libraries = scoped_template_libraries_for_file(db, scope_file);
     let mut tag_products = project.map(|project| LibraryTagProducts::new(db, project));
-    let mut loaded = LoadedLibraries::default();
+    let mut unloaded_specs = UnloadedTagSpecs::new(scoped_libraries);
+    let mut loaded = load_discovery_seed(db, nodelist, |name| {
+        let role = match &mut tag_products {
+            Some(tag_products) => unloaded_specs
+                .get(tag_products, name)
+                .and_then(|spec| spec.role()),
+            None => db.projectless_tag_specs().get(name).and_then(TagSpec::role),
+        };
+        role == Some(TagRole::TemplateLibraryLoader)
+    });
     for _ in 0..fixed_point_limit {
         let grammar = match &mut tag_products {
             Some(tag_products) => SparseTagGrammar::project_pass(
@@ -194,6 +205,7 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
                 &loaded,
                 scoped_libraries,
                 tag_products,
+                &mut unloaded_specs,
             ),
             None => SparseTagGrammar::projectless(db, nodelist),
         };
@@ -337,6 +349,41 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
         );
     }
     panic!("template load discovery did not converge within the number of template tags")
+}
+
+/// The loads of every tag that is a Template Library loader before any file-local load.
+///
+/// Load discovery converges to the same loads from any start, so a close first guess only
+/// saves passes. A tag's meaning depends only on loads that end before it, and whether a tag
+/// is active depends only on the tags before it, so each pass fixes the converged loads up to
+/// one more tag in source order regardless of the start. This guess is already converged
+/// unless a loader is opaque content, exists only through a file-local load, or follows a
+/// load that may redefine it.
+fn load_discovery_seed(
+    db: &dyn Db,
+    nodelist: NodeList<'_>,
+    mut is_loader_before_file_loads: impl FnMut(&str) -> bool,
+) -> LoadedLibraries {
+    let mut loader_names = FxHashMap::default();
+    let statements = nodelist
+        .nodelist(db)
+        .iter()
+        .filter_map(|node| {
+            let Node::Tag {
+                name, bits, span, ..
+            } = node
+            else {
+                return None;
+            };
+            let is_loader = *loader_names
+                .entry(name.as_str())
+                .or_insert_with(|| is_loader_before_file_loads(name));
+            is_loader
+                .then(|| LoadStatement::from_loader_bits(bits, *span))
+                .flatten()
+        })
+        .collect();
+    LoadedLibraries::new(statements)
 }
 
 /// Resolves Filter occurrence facts while a consumer visits occurrences in source order.
