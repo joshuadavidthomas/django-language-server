@@ -114,6 +114,14 @@ impl PythonBinding {
             .map(|case| (&case.state, &case.constraints))
     }
 
+    pub(super) fn into_alternatives_with_constraints(
+        self,
+    ) -> impl Iterator<Item = (PythonBindingState, BranchConstraints)> {
+        self.cases
+            .into_iter()
+            .map(|case| (case.state, case.constraints))
+    }
+
     pub(super) fn alternatives_with_predicates(
         &self,
     ) -> impl Iterator<

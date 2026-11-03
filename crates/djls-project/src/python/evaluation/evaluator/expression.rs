@@ -54,13 +54,13 @@ impl PythonModuleEvaluator<'_> {
                 origin,
             ),
             ast::Expr::BinOp(binary) if binary.op == ast::Operator::Add => combine_bindings(
-                &self.evaluate_binding(&binary.left),
+                self.evaluate_binding(&binary.left),
                 &self.evaluate_binding(&binary.right),
                 origin,
                 |left, right| left.add(&right, origin),
             ),
             ast::Expr::BinOp(binary) if binary.op == ast::Operator::Div => combine_bindings(
-                &self.evaluate_binding(&binary.left),
+                self.evaluate_binding(&binary.left),
                 &self.evaluate_binding(&binary.right),
                 origin,
                 |left, right| join_path_value(left, right, origin),
@@ -474,7 +474,7 @@ impl PythonModuleEvaluator<'_> {
     ) -> PythonBinding {
         for argument in arguments {
             let segment = self.evaluate_binding(argument);
-            paths = combine_bindings(&paths, &segment, origin, |path, segment| {
+            paths = combine_bindings(paths, &segment, origin, |path, segment| {
                 join_path_value(path, segment, origin)
             });
         }
@@ -489,7 +489,7 @@ impl PythonModuleEvaluator<'_> {
     ) -> PythonBinding {
         for argument in arguments {
             let segment = self.evaluate_binding(argument);
-            paths = combine_bindings(&paths, &segment, origin, |path, segment| {
+            paths = combine_bindings(paths, &segment, origin, |path, segment| {
                 join_string_path_value(path, segment, origin)
             });
         }
@@ -554,7 +554,7 @@ impl PythonModuleEvaluator<'_> {
                 | ast::Expr::IpyEscapeCommand(_) => (element, false),
             };
             let values = self.evaluate_binding(expression);
-            lists = combine_bindings(&lists, &values, element_origin, |mut result, value| {
+            lists = combine_bindings(lists, &values, element_origin, |mut result, value| {
                 // A prior starred element may have collapsed this alternative to
                 // an unsupported-expression unknown; do not resurrect it.
                 if matches!(result.kind, PythonValueKind::Unknown(_)) {
@@ -596,7 +596,7 @@ impl PythonModuleEvaluator<'_> {
             let Some(key) = &item.key else {
                 let unpacked = self.evaluate_binding(&item.value);
                 dictionaries = combine_bindings(
-                    &dictionaries,
+                    dictionaries,
                     &unpacked,
                     item_origin,
                     |mut result, unpacked| {
@@ -619,11 +619,11 @@ impl PythonModuleEvaluator<'_> {
             // is ever stored in the log.
             let keys = self.evaluate_binding(key);
             let values = self.evaluate_binding(&item.value);
-            let entries = combine_bindings(&keys, &values, item_origin, |key, value| {
+            let entries = combine_bindings(keys, &values, item_origin, |key, value| {
                 PythonValue::dict_entry(key, value, item_origin)
             });
             dictionaries =
-                combine_bindings(&dictionaries, &entries, item_origin, |mut result, entry| {
+                combine_bindings(dictionaries, &entries, item_origin, |mut result, entry| {
                     if let (PythonValueKind::Dict(dictionary), PythonValueKind::Dict(entry)) =
                         (&mut result.kind, entry.kind)
                     {
@@ -883,20 +883,22 @@ fn join_string_path_value(left: PythonValue, right: PythonValue, origin: Origin)
 }
 
 fn combine_bindings(
-    left: &PythonBinding,
+    left: PythonBinding,
     right: &PythonBinding,
     origin: Origin,
     combine: impl Fn(PythonValue, PythonValue) -> PythonValue,
 ) -> PythonBinding {
     let mut result: Option<PythonBinding> = None;
-    for (left, left_constraints) in left.alternatives_with_constraints() {
-        let left = match left {
-            PythonBindingState::Bound(left) => left.value.clone(),
+    let right_count = right.alternatives().len();
+    for (left, left_constraints) in left.into_alternatives_with_constraints() {
+        let mut left = Some(match left {
+            PythonBindingState::Bound(left) => left.value,
             PythonBindingState::Unbound => {
                 PythonValue::unknown(PythonUnknownCause::UnsupportedExpression, Some(origin))
             }
-        };
-        for (right, right_constraints) in right.alternatives_with_constraints() {
+        });
+        for (index, (right, right_constraints)) in right.alternatives_with_constraints().enumerate()
+        {
             let right = match right {
                 PythonBindingState::Bound(right) => right.value.clone(),
                 PythonBindingState::Unbound => {
@@ -907,8 +909,16 @@ fn combine_bindings(
             if constraints.is_impossible() {
                 continue;
             }
+            // The last right alternative takes the left value instead of a copy.
+            let Some(left) = (if index + 1 == right_count {
+                left.take()
+            } else {
+                left.clone()
+            }) else {
+                break;
+            };
             if let Some(alternative) =
-                PythonBinding::constrained_bound(combine(left.clone(), right), origin, &constraints)
+                PythonBinding::constrained_bound(combine(left, right), origin, &constraints)
             {
                 result = Some(match result {
                     Some(current) => current.join(alternative, origin),
