@@ -229,6 +229,44 @@ pub(crate) struct PythonSourceLookup<'db> {
     file: File,
     consulted_files: Vec<File>,
     recovered_source_lookups: usize,
+    function_entry: Option<FunctionEntry<'db>>,
+}
+
+/// Function-wide scope facts shared by every call site in one function.
+struct FunctionEntry<'db> {
+    function: Span,
+    scope: FunctionEntryScope<'db>,
+}
+
+enum FunctionEntryScope<'db> {
+    /// An unresolved star import may bind any name, so no call is exact.
+    NamesOpen,
+    Closed {
+        /// Parameters, local writes, and nonlocals: unknown at every call.
+        local_names: std::collections::HashSet<String>,
+        module_scope: Option<&'db AnalysisState>,
+    },
+}
+
+impl<'db> FunctionEntry<'db> {
+    fn new(lookup: &PythonSourceLookup<'db>, function: &StmtFunctionDef) -> Self {
+        let scope = ScopeBindings::collect(&function.body);
+        let scope = if scope.has_unknown_star_import() {
+            FunctionEntryScope::NamesOpen
+        } else {
+            let mut local_names = function_parameter_names(function);
+            local_names.extend(scope.writes.into_keys());
+            local_names.extend(scope.nonlocals);
+            FunctionEntryScope::Closed {
+                local_names,
+                module_scope: lookup.module_final_scope(),
+            }
+        };
+        Self {
+            function: function.span(),
+            scope,
+        }
+    }
 }
 
 impl<'db> PythonSourceLookup<'db> {
@@ -245,6 +283,7 @@ impl<'db> PythonSourceLookup<'db> {
             file,
             consulted_files: Vec::new(),
             recovered_source_lookups: 0,
+            function_entry: None,
         }
     }
 
@@ -260,6 +299,7 @@ impl<'db> PythonSourceLookup<'db> {
             module: Some(module),
             consulted_files: Vec::new(),
             recovered_source_lookups: 0,
+            function_entry: None,
         }
     }
 
@@ -462,16 +502,25 @@ impl<'db> PythonSourceLookup<'db> {
         ) {
             return None;
         }
-        let scope = ScopeBindings::collect(&function.body);
-        if scope.has_unknown_star_import() {
-            return None;
+        if self
+            .function_entry
+            .as_ref()
+            .is_none_or(|entry| entry.function != function.span())
+        {
+            self.function_entry = Some(FunctionEntry::new(self, function));
         }
+        let FunctionEntryScope::Closed {
+            local_names,
+            module_scope,
+        } = &self.function_entry.as_ref()?.scope
+        else {
+            return None;
+        };
         let before = self.recovered_source_lookups;
 
         // Module-final bindings stay fixed; only the function-local prefix
         // differs between call sites.
-        let module_scope = self.module_final_scope()?;
-        let parameters = function_parameter_names(function);
+        let module_scope = (*module_scope)?;
         // Without a lexical binding or nonlocal write, the prefix cannot turn
         // an unknown module-final name into an exact function.
         if let Expr::Name(name) = expression
@@ -479,33 +528,17 @@ impl<'db> PythonSourceLookup<'db> {
                 module_scope.bindings.get(name.id.as_str()),
                 Some(Binding::Unknown)
             )
-            && !scope.writes.contains_key(name.id.as_str())
-            && !scope.nonlocals.contains(name.id.as_str())
-            && !parameters.contains(name.id.as_str())
+            && !local_names.contains(name.id.as_str())
         {
             self.absorb_evidence(&module_scope.evidence);
             return None;
         }
         let mut analysis = self.analysis_from(module_scope);
-        for name in scope
-            .writes
-            .keys()
-            .filter(|name| !scope.globals.contains(*name))
-            .chain(parameters.iter())
-            .chain(scope.nonlocals.iter())
-        {
+        for name in local_names {
             analysis
                 .state
                 .bindings
                 .insert(name.clone(), Binding::Unknown);
-        }
-        for name in &scope.globals {
-            if scope.writes.contains_key(name) {
-                analysis
-                    .state
-                    .bindings
-                    .insert(name.clone(), Binding::Unknown);
-            }
         }
 
         for statement in &function.body[..call_index] {
