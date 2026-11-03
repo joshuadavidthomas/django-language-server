@@ -30,6 +30,7 @@ use crate::db::Db;
 use crate::db::scoped_template_libraries_for_file;
 use crate::filters::effective_filter_arity_in_scope;
 use crate::scoping::loads::LoadArgument;
+use crate::scoping::loads::LoadArgumentLibraries;
 use crate::scoping::loads::LoadCursor;
 pub(crate) use crate::scoping::loads::LoadKind;
 pub(crate) use crate::scoping::loads::LoadState;
@@ -231,6 +232,7 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
 
         let mut tag_facts = BTreeMap::new();
         let mut tag_context_cache = ContextualFactCache::default();
+        let argument_libraries = loaded.argument_libraries(scoped_libraries);
         let mut load_cursor = loaded.cursor();
         for node in &active_nodes {
             let ActiveTemplateNode::Tag(tag) = node else {
@@ -261,7 +263,7 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
                         .unknown_load_can_shadow_symbol(
                             tag.tag,
                             TemplateSymbolKind::Tag,
-                            scoped_libraries,
+                            &argument_libraries,
                         )
                         .is_some(),
                 });
@@ -346,16 +348,20 @@ pub(crate) struct ScopedFilterFactResolver<'db> {
     project: Option<Project>,
     scoped_libraries: ScopedTemplateLibraries<'db, 'db>,
     load_cursor: LoadCursor<'db>,
+    argument_libraries: LoadArgumentLibraries<'db, 'db>,
     cache: ContextualFactCache<ScopedFilterFact>,
 }
 
 impl<'db> ScopedFilterFactResolver<'db> {
     pub(crate) fn new(db: &'db dyn Db, projection: TemplateAnalysisProjection<'db>) -> Self {
+        let scoped_libraries = scoped_template_libraries_for_file(db, projection.scope_file(db));
+        let loaded = projection.loaded_libraries(db);
         Self {
             db,
             project: db.project(),
-            scoped_libraries: scoped_template_libraries_for_file(db, projection.scope_file(db)),
-            load_cursor: projection.loaded_libraries(db).cursor(),
+            scoped_libraries,
+            load_cursor: loaded.cursor(),
+            argument_libraries: loaded.argument_libraries(scoped_libraries),
             cache: ContextualFactCache::default(),
         }
     }
@@ -366,6 +372,7 @@ impl<'db> ScopedFilterFactResolver<'db> {
     pub(crate) fn resolve(&mut self, occurrence_start: u32, filter: &Filter) -> ScopedFilterFact {
         let load_state = self.load_cursor.advance_to(occurrence_start);
         let (db, project, scoped_libraries) = (self.db, self.project, self.scoped_libraries);
+        let argument_libraries = &self.argument_libraries;
         self.cache.resolve(load_state, &filter.name, || {
             let (availability, arity) = if project.is_none() {
                 let arity = db
@@ -401,7 +408,7 @@ impl<'db> ScopedFilterFactResolver<'db> {
                     .unknown_load_can_shadow_symbol(
                         &filter.name,
                         TemplateSymbolKind::Filter,
-                        scoped_libraries,
+                        argument_libraries,
                     )
                     .is_some(),
             }

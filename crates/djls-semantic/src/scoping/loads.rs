@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use djls_project::LoadableLibraryLookup;
 use djls_project::ScopedTemplateLibraries;
+use djls_project::TemplateLibrary;
 use djls_project::TemplateSymbolKind;
 use djls_source::Span;
 use djls_templates::TagBit;
@@ -221,33 +222,31 @@ impl<'a> LoadState<'a> {
         self,
         symbol: &str,
         kind: TemplateSymbolKind,
-        scoped_libraries: ScopedTemplateLibraries<'_, '_>,
+        libraries: &LoadArgumentLibraries<'_, '_>,
     ) -> Option<UnknownLoadShadow> {
         let mut shadow = None;
         let mut fold_library =
-            |library: &LoadArgument, via: UnknownLoadShadow| match scoped_libraries
-                .loadable_library_str(library.as_str())
-            {
-                LoadableLibraryLookup::Inconclusive(_) => shadow = shadow.max(Some(via)),
-                LoadableLibraryLookup::Found(library) if library.symbol(kind, symbol).is_some() => {
+            |library: LoadArgumentLibrary<'_, '_>, via: UnknownLoadShadow| match library {
+                LoadArgumentLibrary::Inconclusive => shadow = shadow.max(Some(via)),
+                LoadArgumentLibrary::Found(library) if library.symbol(kind, symbol).is_some() => {
                     shadow = None;
                 }
-                LoadableLibraryLookup::Found(_)
-                | LoadableLibraryLookup::Ambiguous(_)
-                | LoadableLibraryLookup::Absent => {}
+                LoadArgumentLibrary::Found(_) | LoadArgumentLibrary::Other => {}
             };
 
-        for statement in self.statements() {
+        for (statement, libraries) in self.statements().iter().zip(&libraries.by_statement) {
             match &statement.kind {
-                LoadKind::FullLoad { libraries } => {
+                LoadKind::FullLoad { .. } => {
                     for library in libraries {
-                        fold_library(library, UnknownLoadShadow::FullLoad);
+                        fold_library(*library, UnknownLoadShadow::FullLoad);
                     }
                 }
-                LoadKind::SelectiveImport { symbols, library }
+                LoadKind::SelectiveImport { symbols, .. }
                     if symbols.iter().any(|loaded| loaded.as_str() == symbol) =>
                 {
-                    fold_library(library, UnknownLoadShadow::SelectiveImport);
+                    for library in libraries {
+                        fold_library(*library, UnknownLoadShadow::SelectiveImport);
+                    }
                 }
                 LoadKind::SelectiveImport { .. } => {}
             }
@@ -293,6 +292,35 @@ impl<'a> LoadState<'a> {
 
 fn has_statement_before(statements: Option<&Vec<usize>>, end: usize) -> bool {
     statements.is_some_and(|statements| statements.partition_point(|index| *index < end) > 0)
+}
+
+/// The library each load argument names, resolved once per scope.
+///
+/// Entries align with [`LoadedLibraries`] statements and their library arguments.
+pub(crate) struct LoadArgumentLibraries<'a, 'db> {
+    by_statement: Vec<Vec<LoadArgumentLibrary<'a, 'db>>>,
+}
+
+#[derive(Clone, Copy)]
+enum LoadArgumentLibrary<'a, 'db> {
+    Found(&'a TemplateLibrary<'db>),
+    /// Feasible settings disagree about which library the argument names.
+    Inconclusive,
+    /// Absent, or ambiguous among libraries that are all known.
+    Other,
+}
+
+impl<'a, 'db> LoadArgumentLibrary<'a, 'db> {
+    fn resolve(
+        scoped_libraries: ScopedTemplateLibraries<'a, 'db>,
+        argument: &LoadArgument,
+    ) -> Self {
+        match scoped_libraries.loadable_library_str(argument.as_str()) {
+            LoadableLibraryLookup::Found(library) => Self::Found(library),
+            LoadableLibraryLookup::Inconclusive(_) => Self::Inconclusive,
+            LoadableLibraryLookup::Ambiguous(_) | LoadableLibraryLookup::Absent => Self::Other,
+        }
+    }
 }
 
 /// Advances through ordered load statements for source-ordered occurrence walks.
@@ -355,6 +383,28 @@ impl LoadedLibraries {
         LoadState {
             loaded: self,
             statement_end: self.statement_end_before(position),
+        }
+    }
+
+    #[must_use]
+    pub(crate) fn argument_libraries<'a, 'db>(
+        &self,
+        scoped_libraries: ScopedTemplateLibraries<'a, 'db>,
+    ) -> LoadArgumentLibraries<'a, 'db> {
+        LoadArgumentLibraries {
+            by_statement: self
+                .statements
+                .iter()
+                .map(|statement| match &statement.kind {
+                    LoadKind::FullLoad { libraries } => libraries
+                        .iter()
+                        .map(|library| LoadArgumentLibrary::resolve(scoped_libraries, library))
+                        .collect(),
+                    LoadKind::SelectiveImport { library, .. } => {
+                        vec![LoadArgumentLibrary::resolve(scoped_libraries, library)]
+                    }
+                })
+                .collect(),
         }
     }
 

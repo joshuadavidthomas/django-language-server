@@ -293,6 +293,7 @@ impl SparseTagGrammar {
         let project = tag_products.project();
         let mut loaded_names = Vec::new();
         let mut load_cursor = loaded.cursor();
+        let argument_libraries = loaded.argument_libraries(scoped_libraries);
         Self::build_occurrences(
             db,
             nodelist,
@@ -310,7 +311,7 @@ impl SparseTagGrammar {
                 match load_state.unknown_load_can_shadow_symbol(
                     name,
                     TemplateSymbolKind::Tag,
-                    scoped_libraries,
+                    &argument_libraries,
                 ) {
                     None => {}
                     // Libraries can override built-in block tags, but one that does so
