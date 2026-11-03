@@ -8,15 +8,16 @@ use crate::ValidationError;
 use crate::ValidationErrorAccumulator;
 use crate::validate_template_file;
 
-/// Syntax and semantic diagnostics collected for one Template.
-pub struct TemplateDiagnostics {
+/// Syntax and semantic diagnostics collected for one Template, borrowed from the
+/// database's accumulators.
+pub struct TemplateDiagnostics<'db> {
     /// Syntax errors in parser accumulator order.
-    pub template_errors: Vec<ParseError>,
+    pub template_errors: Vec<&'db ParseError>,
     /// Semantic errors in validation accumulator order.
-    pub validation_errors: Vec<ValidationError>,
+    pub validation_errors: Vec<&'db ValidationError>,
 }
 
-impl TemplateDiagnostics {
+impl TemplateDiagnostics<'_> {
     /// Return whether syntax or validation produced any diagnostics.
     #[must_use]
     pub fn has_diagnostics(&self) -> bool {
@@ -26,17 +27,17 @@ impl TemplateDiagnostics {
 
 /// Run Template validation and collect its syntax and semantic diagnostics.
 #[must_use]
-pub fn collect_template_diagnostics(db: &dyn Db, file: File) -> TemplateDiagnostics {
+pub fn collect_template_diagnostics(db: &dyn Db, file: File) -> TemplateDiagnostics<'_> {
     validate_template_file(db, file);
 
     let template_errors = parse_template::accumulated::<TemplateErrorAccumulator>(db, file)
-        .iter()
-        .map(|accumulator| accumulator.0.clone())
+        .into_iter()
+        .map(|accumulator| &accumulator.0)
         .collect();
     let validation_errors =
         validate_template_file::accumulated::<ValidationErrorAccumulator>(db, file)
-            .iter()
-            .map(|accumulator| accumulator.0.clone())
+            .into_iter()
+            .map(|accumulator| &accumulator.0)
             .collect();
 
     TemplateDiagnostics {
