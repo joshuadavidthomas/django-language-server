@@ -19,7 +19,7 @@ use crate::models::graph::ModelGraph;
 use crate::models::graph::ModelKind;
 use crate::project::Project;
 use crate::python::PythonModuleName;
-use crate::python::resolve_prefix;
+use crate::python::resolve_module_prefix;
 
 /// An extracted base after project and occurrence resolution, before admission.
 #[derive(Clone)]
@@ -431,7 +431,7 @@ fn resolve_project_qualified_base(
 ) -> ResolvedClassBase {
     let resolved = prefix_cache
         .entry(path.clone())
-        .or_insert_with(|| resolve_prefix(db, project, path.as_str()));
+        .or_insert_with(|| resolve_module_prefix(db, project, path));
     let Some(module) = &resolved.module else {
         return ResolvedClassBase::Unresolved(ClassBaseUnresolvedReason::ImportNotFound {
             requested: path.clone(),

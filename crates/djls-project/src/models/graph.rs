@@ -19,7 +19,7 @@ use crate::models::imports::ModelImportReference;
 use crate::project::Project;
 use crate::python::InvalidModuleName;
 use crate::python::PythonModuleName;
-use crate::python::resolve_prefix;
+use crate::python::resolve_module_prefix;
 
 macro_rules! string_newtype {
     ($(#[doc = $doc:literal])* $vis:vis struct $Name:ident) => {
@@ -1523,7 +1523,7 @@ impl ModelGraph {
     ) -> RelationTargetResolution {
         let resolved = prefix_cache
             .entry(target.clone())
-            .or_insert_with(|| resolve_prefix(db, project, target.as_str()));
+            .or_insert_with(|| resolve_module_prefix(db, project, target));
         let Some(module) = &resolved.module else {
             return RelationTargetResolution::Unresolved {
                 reason: RelationTargetUnresolvedReason::ImportNotFound {
