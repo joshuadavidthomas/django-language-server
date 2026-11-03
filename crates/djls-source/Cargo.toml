@@ -8,6 +8,7 @@ annotate-snippets = { workspace = true }
 camino = { workspace = true }
 dashmap = { workspace = true }
 ignore = { workspace = true }
+memchr = { workspace = true }
 rustc-hash = { workspace = true }
 salsa = { workspace = true }
 serde = { workspace = true }

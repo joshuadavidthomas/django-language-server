@@ -271,15 +271,12 @@ impl From<&[u8]> for LineIndex {
         let mut starts = Vec::with_capacity(256);
         starts.push(0);
 
-        let mut i = 0;
-        while i < bytes.len() {
-            if let Some(ending) = LineEnding::match_at(bytes, i) {
-                let len = ending.byte_len();
-                starts.push(u32::try_from(i + len).unwrap_or(u32::MAX));
-                i += len;
-            } else {
-                i += 1;
+        for i in memchr::memchr2_iter(b'\n', b'\r', bytes) {
+            // The `\n` of a CRLF pair ends that line.
+            if bytes[i] == b'\r' && bytes.get(i + 1) == Some(&b'\n') {
+                continue;
             }
+            starts.push(u32::try_from(i + 1).unwrap_or(u32::MAX));
         }
 
         Self(starts)
@@ -321,6 +318,11 @@ mod tests {
         // "line2\r\n" -> next at 13
         // "line3\r" -> next at 19
         assert_eq!(index.lines(), &[0, 6, 13, 19]);
+
+        let text = "a\r\r\nb\r";
+        let index = LineIndex::from(text);
+        // "a\r" -> next at 2, "\r\n" -> next at 4, "b\r" -> next at 6
+        assert_eq!(index.lines(), &[0, 2, 4, 6]);
     }
 
     #[test]
