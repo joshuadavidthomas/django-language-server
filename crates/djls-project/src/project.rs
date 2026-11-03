@@ -25,7 +25,9 @@ use crate::python::SearchPaths;
 ///
 /// Tracked queries in `djls-server` convert extraction results into semantic
 /// types (`TagSpecs`).
-#[salsa::input]
+// The generated constructor would give every field `LOW` durability; `new`
+// below is the one that callers use.
+#[salsa::input(constructor = new_with_default_durability)]
 #[derive(Debug)]
 pub struct Project {
     /// The project root path
@@ -56,6 +58,42 @@ pub struct Project {
 }
 
 impl Project {
+    /// Create a Project input.
+    ///
+    /// Project configuration changes only when settings or the environment
+    /// reload, so its fields get `MEDIUM` durability and the root `HIGH`.
+    /// Queries that read only the Project and other `MEDIUM` inputs then skip
+    /// re-verification after an edit to a `LOW` input such as a template.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new<SalsaDb>(
+        db: &SalsaDb,
+        root: Utf8PathBuf,
+        search_paths: SearchPaths,
+        python_environment: PythonEnvironment,
+        django_settings_module: Option<PythonModuleName>,
+        django_version: Option<DjangoVersion>,
+        pythonpath: Vec<Utf8PathBuf>,
+        env_vars: Vec<(String, String)>,
+        tagspecs: TagSpecDef,
+    ) -> Project
+    where
+        SalsaDb: salsa::Database + ?Sized,
+    {
+        Project::builder(
+            root,
+            search_paths,
+            python_environment,
+            django_settings_module,
+            django_version,
+            pythonpath,
+            env_vars,
+            tagspecs,
+        )
+        .durability(Durability::MEDIUM)
+        .root_durability(Durability::HIGH)
+        .new(db)
+    }
+
     /// Returns the last value for `key` from the project's env file.
     ///
     /// `load_env_file` preserves duplicate entries in source order, while
@@ -102,7 +140,8 @@ impl Project {
         let tagspecs = settings.tagspecs().clone();
 
         search_paths.register_roots(db);
-        Project::builder(
+        Project::new(
+            db,
             root.to_path_buf(),
             search_paths,
             python_environment,
@@ -112,9 +151,6 @@ impl Project {
             env_vars,
             tagspecs,
         )
-        .durability(Durability::MEDIUM)
-        .root_durability(Durability::HIGH)
-        .new(db)
     }
 
     pub fn bootstrap(db: &dyn ProjectDb, root: &Utf8Path, settings: &Settings) -> Project {
@@ -137,7 +173,8 @@ impl Project {
         let tagspecs = settings.tagspecs().clone();
 
         search_paths.register_roots(db);
-        Project::builder(
+        Project::new(
+            db,
             root.to_path_buf(),
             search_paths,
             python_environment,
@@ -147,9 +184,6 @@ impl Project {
             env_vars,
             tagspecs,
         )
-        .durability(Durability::MEDIUM)
-        .root_durability(Durability::HIGH)
-        .new(db)
     }
 
     /// Reload settings-derived project fields on this stable Salsa input.

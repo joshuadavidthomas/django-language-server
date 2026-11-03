@@ -47,6 +47,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - **Internal**: Read inherited relation data in place when building model relation bindings.
 - **Internal**: Checked whether settings cases can merge before merging their evidence in place.
 - **Internal**: Compared Python source modules by file and name before comparing their paths.
+- **Internal**: Made `Project::new` assign the Salsa durabilities that `Project::bootstrap` and `Project::initial` used, so test fixtures and benchmarks build Projects that revalidate after an edit the way the server does.
 - **Internal**: Removed hand-written end tags and intermediates for Django's builtin tags; test fixtures now mount the bundled Django by default.
 - **Internal**: Moved the remaining hand-written Django tag facts into Fallback Rules in `djls-project`, keyed by compile function and citing bundled Django source; `djls-semantic` no longer defines Django tag knowledge.
 - **Internal**: Renamed outline kind `ControlTag` to `BlockTag`.
