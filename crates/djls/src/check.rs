@@ -3,7 +3,6 @@ use camino::Utf8PathBuf;
 use djls_conf::DiagnosticSeverity;
 use djls_conf::DiagnosticsConfig;
 use djls_semantic::Db as SemanticDb;
-use djls_semantic::TemplateDiagnostics;
 use djls_semantic::ValidationError;
 use djls_semantic::collect_template_diagnostics;
 use djls_source::Diagnostic;
@@ -19,7 +18,8 @@ use djls_templates::ParseError;
 pub struct CheckedTemplate {
     path: Utf8PathBuf,
     source: SourceText,
-    diagnostics: TemplateDiagnostics,
+    template_errors: Vec<ParseError>,
+    validation_errors: Vec<ValidationError>,
 }
 
 impl CheckedTemplate {
@@ -32,19 +32,17 @@ impl CheckedTemplate {
     /// Return whether syntax or validation produced any diagnostics.
     #[must_use]
     pub fn has_diagnostics(&self) -> bool {
-        self.diagnostics.has_diagnostics()
+        !self.template_errors.is_empty() || !self.validation_errors.is_empty()
     }
 
     /// Count diagnostics enabled by `config` that can be rendered.
     #[must_use]
     pub fn renderable_diagnostic_count(&self, config: &DiagnosticsConfig) -> usize {
-        self.diagnostics
-            .template_errors
+        self.template_errors
             .iter()
             .filter(|error| diagnostic_is_enabled(config, error.diagnostic_code()))
             .count()
             + self
-                .diagnostics
                 .validation_errors
                 .iter()
                 .filter(|error| {
@@ -60,13 +58,13 @@ impl CheckedTemplate {
         let path = self.path.as_str();
         let source = self.source.as_str();
 
-        for error in &self.diagnostics.template_errors {
+        for error in &self.template_errors {
             if let Some(output) = render_template_error(source, path, error, config, fmt) {
                 results.push(output);
             }
         }
 
-        for error in &self.diagnostics.validation_errors {
+        for error in &self.validation_errors {
             if let Some(output) = render_validation_error(source, path, error, config, fmt) {
                 results.push(output);
             }
@@ -79,15 +77,16 @@ impl CheckedTemplate {
 /// Read, validate, and collect one Template for terminal reporting.
 pub fn check_template(db: &dyn SemanticDb, file: File) -> Result<CheckedTemplate, FileReadError> {
     let source = file.try_source(db)?;
-    let mut diagnostics = collect_template_diagnostics(db, file);
-    diagnostics
-        .validation_errors
-        .sort_by_cached_key(|error| error.primary_span().map_or(0, Span::start));
+    let diagnostics = collect_template_diagnostics(db, file);
+    let mut validation_errors: Vec<ValidationError> =
+        diagnostics.validation_errors.into_iter().cloned().collect();
+    validation_errors.sort_by_cached_key(|error| error.primary_span().map_or(0, Span::start));
 
     Ok(CheckedTemplate {
         path: file.path(db).to_owned(),
         source,
-        diagnostics,
+        template_errors: diagnostics.template_errors.into_iter().cloned().collect(),
+        validation_errors,
     })
 }
 
