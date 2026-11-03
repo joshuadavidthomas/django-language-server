@@ -18,6 +18,7 @@ use camino::Utf8PathBuf;
 use ignore::WalkBuilder;
 use ignore::overrides::OverrideBuilder;
 use rustc_hash::FxHashMap;
+use rustc_hash::FxHashSet;
 
 /// Options controlling filesystem traversal.
 ///
@@ -409,6 +410,7 @@ impl FileSystem for InMemoryFileSystem {
         }
 
         let mut entries = Vec::new();
+        let mut seen = FxHashSet::default();
         for path in self.files.keys() {
             let file_relative_components: Vec<_> = if self.case_sensitivity.is_case_sensitive() {
                 if !path.starts_with(root) {
@@ -463,12 +465,10 @@ impl FileSystem for InMemoryFileSystem {
                 {
                     continue;
                 }
-                if entries
-                    .iter()
-                    .any(|entry: &WalkEntry| entry.path == entry_path)
-                {
+                if seen.contains(&entry_path) {
                     continue;
                 }
+                seen.insert(entry_path.clone());
 
                 let kind = if self.is_file(&entry_path) {
                     WalkEntryKind::File
