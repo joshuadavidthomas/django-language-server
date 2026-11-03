@@ -347,7 +347,7 @@ pub fn tag_spec_at(
         return projection
             .scoped_tag_facts(db)
             .for_tag(closer)
-            .and_then(|facts| facts.spec.clone());
+            .and_then(|facts| facts.spec.as_deref().cloned());
     }
 
     let tree = projection.tree(db);
@@ -358,7 +358,7 @@ pub fn tag_spec_at(
         return projection
             .scoped_tag_facts(db)
             .for_tag(tag)
-            .and_then(|facts| facts.spec.clone());
+            .and_then(|facts| facts.spec.as_deref().cloned());
     }
 
     // Error recovery can leave a syntactically recognizable completion context

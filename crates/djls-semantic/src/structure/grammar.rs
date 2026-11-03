@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use djls_project::ClosingTagArguments;
 use djls_project::EffectiveDefinitionLibrary;
@@ -238,7 +239,8 @@ pub(crate) enum TagClassification {
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct TagGrammarFact {
-    pub(crate) spec: Option<TagSpec>,
+    /// Shared with every occurrence's [`crate::scoping::ScopedTagFact`].
+    pub(crate) spec: Option<Arc<TagSpec>>,
     pub(crate) classification: TagClassification,
 }
 
@@ -322,7 +324,7 @@ impl SparseTagGrammar {
                         ) && let Some(contract) = OpeningContract::from_spec(&spec) =>
                     {
                         return TagGrammarFact {
-                            spec: Some(spec),
+                            spec: Some(Arc::new(spec)),
                             classification: TagClassification::Opener(contract),
                         };
                     }
@@ -398,7 +400,7 @@ fn fact_from_spec(
             .map_or(TagClassification::Standalone, TagClassification::Opener)
     });
     TagGrammarFact {
-        spec,
+        spec: spec.map(Arc::new),
         classification,
     }
 }

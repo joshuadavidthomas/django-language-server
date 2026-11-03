@@ -146,7 +146,9 @@ impl<'db> SemanticOffsetContext<'db> {
             };
         }
 
-        let spec = tag_facts.for_tag(tag).and_then(|facts| facts.spec.as_ref());
+        let spec = tag_facts
+            .for_tag(tag)
+            .and_then(|facts| facts.spec.as_deref());
 
         if spec.and_then(TagSpec::role) == Some(TagRole::TemplateLibraryLoader) {
             let Some(load_kind) = LoadKind::from_loader_bits(tag.bits) else {

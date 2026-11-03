@@ -3,6 +3,7 @@ pub(crate) mod symbols;
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use djls_project::EffectiveDefinitionLibrary;
 use djls_project::FilterArity;
@@ -122,7 +123,7 @@ pub(crate) struct LoaderArgumentFact {
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ScopedTagFact {
-    pub(crate) spec: Option<TagSpec>,
+    pub(crate) spec: Option<Arc<TagSpec>>,
     pub(crate) availability: SymbolAvailability,
     pub(crate) structure_accepts_spelling: bool,
     pub(crate) unknown_load_can_shadow: bool,
@@ -226,7 +227,7 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
             let ActiveTemplateNode::Tag(tag) = node else {
                 continue;
             };
-            let role = occurrence_spec(&grammar, *tag).and_then(TagSpec::role);
+            let role = occurrence_spec(&grammar, *tag).and_then(|spec| spec.role());
             if role == Some(TagRole::TemplateLibraryLoader)
                 && let Some(statement) = LoadStatement::from_loader_bits(tag.bits, tag.span)
             {
@@ -276,7 +277,7 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
                         .is_some(),
                 });
             let loader_arguments =
-                if spec.and_then(TagSpec::role) == Some(TagRole::TemplateLibraryLoader) {
+                if spec.and_then(|spec| spec.role()) == Some(TagRole::TemplateLibraryLoader) {
                     LoadKind::from_loader_bits(tag.bits).map_or_else(Vec::new, |kind| {
                         kind.into_library_arguments()
                             .into_iter()
@@ -429,7 +430,7 @@ pub(crate) fn scoped_filter_facts<'db>(
 fn occurrence_spec<'a>(
     grammar: &'a SparseTagGrammar,
     tag: ActiveTemplateTag<'_>,
-) -> Option<&'a TagSpec> {
+) -> Option<&'a Arc<TagSpec>> {
     match tag.structural_meaning {
         StructuralOccurrenceMeaning::Definition => grammar
             .for_name_span(tag.name_span)

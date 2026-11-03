@@ -607,7 +607,7 @@ impl SymbolBuilder<'_> {
     fn tag_role(&self, _tag: &str, name_span: Span) -> Option<TagRole> {
         self.tag_facts
             .for_name_span(name_span)
-            .and_then(|facts| facts.spec.as_ref())
+            .and_then(|facts| facts.spec.as_deref())
             .and_then(TagSpec::role)
     }
 }
