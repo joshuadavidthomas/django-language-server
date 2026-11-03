@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::fmt;
 
@@ -2057,7 +2058,7 @@ fn function_docstring(function: &StmtFunctionDef) -> Option<String> {
 
 /// Port of Python's `inspect.cleandoc`.
 fn clean_docstring(doc: &str) -> String {
-    let lines: Vec<String> = doc.split('\n').map(expand_tabs).collect();
+    let lines: Vec<Cow<'_, str>> = doc.split('\n').map(expand_tabs).collect();
     let indent = |line: &str| line.chars().take_while(|c| c.is_whitespace()).count();
     let margin = lines
         .iter()
@@ -2083,7 +2084,10 @@ fn clean_docstring(doc: &str) -> String {
 }
 
 /// Python's `str.expandtabs()` with its default tab size of 8.
-fn expand_tabs(line: &str) -> String {
+fn expand_tabs(line: &str) -> Cow<'_, str> {
+    if !line.contains('\t') {
+        return Cow::Borrowed(line);
+    }
     let mut expanded = String::with_capacity(line.len());
     let mut column = 0;
     for c in line.chars() {
@@ -2096,7 +2100,7 @@ fn expand_tabs(line: &str) -> String {
             column += 1;
         }
     }
-    expanded
+    Cow::Owned(expanded)
 }
 
 #[salsa::tracked(returns(ref))]
