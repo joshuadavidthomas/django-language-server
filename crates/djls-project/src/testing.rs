@@ -53,6 +53,12 @@ use crate::templates::TemplateSymbol;
 use crate::templates::TemplateSymbolKind;
 use crate::templates::template_library_definition_facts;
 
+/// Index the embedded Django archives from scratch, as the first lookup of
+/// each release does.
+pub fn index_bundled_django() -> std::io::Result<usize> {
+    crate::bundled::index_embedded_bundles()
+}
+
 pub fn python_syntax_errors(db: &dyn SourceDb, file: File) -> Option<Vec<PythonSyntaxError>> {
     project_python_syntax_errors(db, file).map(<[PythonSyntaxError]>::to_vec)
 }

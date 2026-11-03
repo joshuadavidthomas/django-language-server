@@ -40,6 +40,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Changed `{% if %}` and `{% elif %}` condition checks (S114) to skip a tag that an unresolved `{% load %}` could shadow, like other compiled-argument checks.
 - Changed settings evaluation to check only names that can still reach a mutated list or dict when looking for stale aliases, which makes `.append()` and similar calls cheaper in large settings modules.
 - Changed settings evaluation to share unchanged names between `if` branches and loop passes instead of copying them, which roughly halves cold settings analysis for large settings modules such as NetBox's and pretix's.
+- Changed language server startup to skip hashing the bundled Django archives and to index their entries by name.
 - **Internal**: Resolved model import prefixes by walking parent module names instead of re-parsing each prefix.
 - **Internal**: Shared name strings between model, class, and field identities instead of copying them.
 - **Internal**: Stored each model's app label in the model graph's name index for exact lookups.
