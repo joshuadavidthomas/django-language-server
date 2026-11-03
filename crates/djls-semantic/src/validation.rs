@@ -11,8 +11,8 @@ use djls_templates::Filter;
 use crate::TagSpec;
 use crate::db::Db;
 use crate::expressions::consumed_arguments;
+use crate::scoping::ScopedFilterFactResolver;
 use crate::scoping::TemplateAnalysisProjection;
-use crate::scoping::scoped_filter_facts;
 use crate::structure::ActiveTemplateNode;
 use crate::structure::ActiveTemplateTag;
 use crate::structure::ActiveTemplateVariable;
@@ -43,6 +43,7 @@ impl ExtendsPosition {
 pub(crate) struct TemplateValidator<'db> {
     db: &'db dyn Db,
     projection: TemplateAnalysisProjection<'db>,
+    filter_facts: ScopedFilterFactResolver<'db>,
     extends_position: ExtendsPosition,
 }
 
@@ -52,6 +53,7 @@ impl<'db> TemplateValidator<'db> {
         Self {
             db,
             projection,
+            filter_facts: ScopedFilterFactResolver::new(db, projection),
             extends_position: ExtendsPosition::default(),
         }
     }
@@ -138,29 +140,27 @@ impl<'db> TemplateValidator<'db> {
         self.extends_position = self.extends_position.record_non_text();
     }
 
-    fn validate_consumed_arguments(&self, tag: ActiveTemplateTag<'_>) {
+    fn validate_consumed_arguments(&mut self, tag: ActiveTemplateTag<'_>) {
         let consumed = consumed_arguments(self.projection.scoped_tag_facts(self.db), tag);
         expressions::check_consumed_expressions_rule(self.db, tag.tag, &consumed);
         for condition in &consumed.conditions {
             if_expressions::check_if_expression_rule(self.db, tag.tag, condition, tag.span);
         }
         for filter in consumed.filters() {
-            self.validate_filter(&filter);
+            self.validate_filter(tag.span.start(), &filter);
         }
     }
 
     fn validate_variable(&mut self, variable: ActiveTemplateVariable<'_>) {
         for filter in variable.filters {
-            self.validate_filter(filter);
+            self.validate_filter(variable.span.start(), filter);
         }
 
         self.extends_position = self.extends_position.record_non_text();
     }
 
-    fn validate_filter(&self, filter: &Filter) {
-        let Some(facts) = scoped_filter_facts(self.db, self.projection).for_filter(filter) else {
-            return;
-        };
+    fn validate_filter(&mut self, occurrence_start: u32, filter: &Filter) {
+        let facts = self.filter_facts.resolve(occurrence_start, filter);
         scoping::check_filter_scoping_rule(
             self.db,
             filter,

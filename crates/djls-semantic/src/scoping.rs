@@ -1,7 +1,6 @@
 pub(crate) mod loads;
 pub(crate) mod symbols;
 
-use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -9,6 +8,8 @@ use djls_project::EffectiveDefinitionLibrary;
 use djls_project::FilterArity;
 use djls_project::LibraryName;
 use djls_project::MissingTemplateLibraryLookup;
+use djls_project::Project;
+use djls_project::ScopedTemplateLibraries;
 use djls_project::SymbolDefinition;
 use djls_project::TagRole;
 use djls_project::TemplateLibraryId;
@@ -27,9 +28,9 @@ use salsa::Accumulator;
 use crate::ValidationErrorAccumulator;
 use crate::db::Db;
 use crate::db::scoped_template_libraries_for_file;
-use crate::expressions::consumed_arguments;
 use crate::filters::effective_filter_arity_in_scope;
 use crate::scoping::loads::LoadArgument;
+use crate::scoping::loads::LoadCursor;
 pub(crate) use crate::scoping::loads::LoadKind;
 pub(crate) use crate::scoping::loads::LoadState;
 pub(crate) use crate::scoping::loads::LoadStatement;
@@ -54,15 +55,6 @@ struct TagOccurrenceKey(u32);
 impl TagOccurrenceKey {
     fn from_name_span(span: Span) -> Self {
         Self(span.start())
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-struct FilterOccurrenceKey(u32);
-
-impl FilterOccurrenceKey {
-    fn from_filter(filter: &Filter) -> Self {
-        Self(filter.span.start())
     }
 }
 
@@ -150,16 +142,6 @@ pub(crate) struct ScopedFilterFact {
     pub(crate) availability: SymbolAvailability,
     pub(crate) arity: Option<FilterArity>,
     pub(crate) unknown_load_can_shadow: bool,
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub(crate) struct ScopedFilterFacts(BTreeMap<FilterOccurrenceKey, ScopedFilterFact>);
-
-impl ScopedFilterFacts {
-    #[must_use]
-    pub(crate) fn for_filter(&self, filter: &Filter) -> Option<&ScopedFilterFact> {
-        self.0.get(&FilterOccurrenceKey::from_filter(filter))
-    }
 }
 
 /// Correlated, converged structure and Tag meaning for a source under an effective scope.
@@ -349,82 +331,76 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
     panic!("template load discovery did not converge within the number of template tags")
 }
 
-/// Occurrence-specific Filter facts are independent of structural/load convergence and are
-/// evaluated only by consumers that need Filter diagnostics or arity.
-#[salsa::tracked(returns(ref))]
-pub(crate) fn scoped_filter_facts<'db>(
+/// Resolves Filter occurrence facts while a consumer visits occurrences in source order.
+///
+/// Filter facts are independent of structural/load convergence, so they stay out of the
+/// projection and are resolved only by consumers that need Filter diagnostics or arity.
+pub(crate) struct ScopedFilterFactResolver<'db> {
     db: &'db dyn Db,
-    projection: TemplateAnalysisProjection<'db>,
-) -> ScopedFilterFacts {
-    let project = db.project();
-    let scoped_libraries = scoped_template_libraries_for_file(db, projection.scope_file(db));
-    let tree = projection.tree(db);
-    let tag_facts = projection.scoped_tag_facts(db);
-    // Filters in tag arguments that Django compiles resolve like filters in variables.
-    let mut occurrences = active_template_nodes(tree.regions(db), tree.root(db))
-        .map(|node| match node {
-            ActiveTemplateNode::Variable(variable) => {
-                (variable.span.start(), Cow::Borrowed(variable.filters))
-            }
-            ActiveTemplateNode::Tag(tag) => (
-                tag.span.start(),
-                Cow::Owned(consumed_arguments(tag_facts, tag).filters()),
-            ),
-        })
-        .collect::<Vec<_>>();
-    occurrences.sort_by_key(|(start, _)| *start);
+    project: Option<Project>,
+    scoped_libraries: ScopedTemplateLibraries<'db, 'db>,
+    load_cursor: LoadCursor<'db>,
+    cache: ContextualFactCache<ScopedFilterFact>,
+}
 
-    let mut facts = BTreeMap::new();
-    let mut context_cache = ContextualFactCache::default();
-    let loaded = projection.loaded_libraries(db);
-    let mut load_cursor = loaded.cursor();
-    for (start, filters) in &occurrences {
-        let load_state = load_cursor.advance_to(*start);
-        for filter in filters.iter() {
-            let fact = context_cache.resolve(load_state, &filter.name, || {
-                let (availability, arity) = if project.is_none() {
-                    let arity = db
-                        .projectless_filter_arity_specs()
-                        .get(&filter.name)
-                        .copied();
-                    let availability = if arity.is_some() {
-                        SymbolAvailability::Available
-                    } else {
-                        SymbolAvailability::Unknown
-                    };
-                    (availability, arity)
-                } else {
-                    (
-                        resolve_occurrence_availability(
-                            scoped_libraries,
-                            &load_state,
-                            &filter.name,
-                            TemplateSymbolKind::Filter,
-                        ),
-                        effective_filter_arity_in_scope(
-                            db,
-                            scoped_libraries,
-                            &filter.name,
-                            &load_state,
-                        ),
-                    )
-                };
-                ScopedFilterFact {
-                    availability,
-                    arity,
-                    unknown_load_can_shadow: load_state
-                        .unknown_load_can_shadow_symbol(
-                            &filter.name,
-                            TemplateSymbolKind::Filter,
-                            scoped_libraries,
-                        )
-                        .is_some(),
-                }
-            });
-            facts.insert(FilterOccurrenceKey::from_filter(filter), fact);
+impl<'db> ScopedFilterFactResolver<'db> {
+    pub(crate) fn new(db: &'db dyn Db, projection: TemplateAnalysisProjection<'db>) -> Self {
+        Self {
+            db,
+            project: db.project(),
+            scoped_libraries: scoped_template_libraries_for_file(db, projection.scope_file(db)),
+            load_cursor: projection.loaded_libraries(db).cursor(),
+            cache: ContextualFactCache::default(),
         }
     }
-    ScopedFilterFacts(facts)
+
+    /// Resolve a Filter in the variable or tag occurrence that starts at `occurrence_start`.
+    ///
+    /// Filters in tag arguments that Django compiles resolve like filters in variables.
+    pub(crate) fn resolve(&mut self, occurrence_start: u32, filter: &Filter) -> ScopedFilterFact {
+        let load_state = self.load_cursor.advance_to(occurrence_start);
+        let (db, project, scoped_libraries) = (self.db, self.project, self.scoped_libraries);
+        self.cache.resolve(load_state, &filter.name, || {
+            let (availability, arity) = if project.is_none() {
+                let arity = db
+                    .projectless_filter_arity_specs()
+                    .get(&filter.name)
+                    .copied();
+                let availability = if arity.is_some() {
+                    SymbolAvailability::Available
+                } else {
+                    SymbolAvailability::Unknown
+                };
+                (availability, arity)
+            } else {
+                (
+                    resolve_occurrence_availability(
+                        scoped_libraries,
+                        &load_state,
+                        &filter.name,
+                        TemplateSymbolKind::Filter,
+                    ),
+                    effective_filter_arity_in_scope(
+                        db,
+                        scoped_libraries,
+                        &filter.name,
+                        &load_state,
+                    ),
+                )
+            };
+            ScopedFilterFact {
+                availability,
+                arity,
+                unknown_load_can_shadow: load_state
+                    .unknown_load_can_shadow_symbol(
+                        &filter.name,
+                        TemplateSymbolKind::Filter,
+                        scoped_libraries,
+                    )
+                    .is_some(),
+            }
+        })
+    }
 }
 
 fn occurrence_spec<'a>(
