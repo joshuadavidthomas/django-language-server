@@ -97,9 +97,7 @@ pub(crate) fn evaluate_source_call(
                 let arg_keys = bound.iter().map(AbstractValueKey::from).collect::<Vec<_>>();
                 let call = HelperCall::new(db, definition, arg_keys);
                 let outcome = analyze_helper(db, call);
-                source
-                    .lookup
-                    .absorb_evidence(&outcome.consulted_files, outcome.recovered_lookups);
+                source.lookup.absorb_evidence(&outcome.evidence);
                 for consumed in &outcome.consumption {
                     env.consume(consumed.bits, consumed.consumption);
                 }

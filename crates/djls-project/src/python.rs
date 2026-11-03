@@ -40,3 +40,4 @@ pub use search_paths::SearchPath;
 pub use search_paths::SearchPaths;
 pub(crate) use source_occurrences::PythonFunctionDefinition;
 pub(crate) use source_occurrences::PythonSourceLookup;
+pub(crate) use source_occurrences::SourceEvidence;

@@ -10,9 +10,8 @@ mod types;
 #[cfg(test)]
 pub(crate) mod testing;
 
-use djls_source::File;
-
 use crate::python::PythonFunctionDefinition;
+use crate::python::SourceEvidence;
 use crate::templates::tags::analysis::AbstractValue;
 use crate::templates::tags::analysis::AbstractValueKey;
 use crate::templates::tags::analysis::CallContext;
@@ -82,8 +81,7 @@ pub(crate) struct HelperOutcome {
     pub value: AbstractValue,
     /// Tag Bits every completing path of the helper consumed.
     pub consumption: Vec<ConsumedTagBits>,
-    pub consulted_files: Vec<File>,
-    pub recovered_lookups: usize,
+    pub evidence: SourceEvidence,
 }
 
 impl HelperOutcome {
@@ -91,8 +89,7 @@ impl HelperOutcome {
         Self {
             value: AbstractValue::Unknown,
             consumption: Vec::new(),
-            consulted_files: Vec::new(),
-            recovered_lookups: 0,
+            evidence: SourceEvidence::default(),
         }
     }
 }
@@ -141,8 +138,7 @@ pub(crate) fn analyze_helper(db: &dyn crate::db::Db, call: HelperCall<'_>) -> He
     HelperOutcome {
         value,
         consumption: callee_env.consumed().collect(),
-        consulted_files: source.lookup.consulted_files().to_vec(),
-        recovered_lookups: source.lookup.recovered_source_lookups(),
+        evidence: source.lookup.evidence(),
     }
 }
 
