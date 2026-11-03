@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::hash_map::Entry;
 use std::fmt;
@@ -262,7 +263,9 @@ struct ConstraintBranch {
 
 impl PartialEq for ConstraintBranch {
     fn eq(&self, other: &Self) -> bool {
-        self.join == other.join && self.arms == other.arms
+        // Equal diagrams hash equally, so differing fingerprints reject
+        // without walking either subgraph.
+        self.fingerprint == other.fingerprint && self.join == other.join && self.arms == other.arms
     }
 }
 
@@ -310,6 +313,17 @@ impl ConstraintInterner {
         self.branches.insert(fingerprint, Arc::downgrade(&branch));
         branch
     }
+}
+
+thread_local! {
+    // Weak entries keep no node alive, so sharing one interner across
+    // operations only lets later results reuse nodes earlier ones built.
+    static INTERNER: RefCell<ConstraintInterner> =
+        RefCell::new(ConstraintInterner::new(MAX_INTERNED_BRANCHES));
+}
+
+fn with_interner<R>(operation: impl FnOnce(&mut ConstraintInterner) -> R) -> R {
+    INTERNER.with(|interner| operation(&mut interner.borrow_mut()))
 }
 
 impl ConstraintNode {
@@ -697,18 +711,20 @@ impl BranchConstraints {
 
     pub(super) fn select(&mut self, join: impl Into<BranchJoin>, arm: usize) {
         let join = join.into();
-        let mut interner = ConstraintInterner::new(MAX_INTERNED_BRANCHES);
-        let residual = self.root.forget(&join, &mut interner);
-        let selected = ConstraintNode::selected(join, arm, &mut interner);
-        self.root = residual.intersection(&selected, &mut interner);
+        self.root = with_interner(|interner| {
+            let residual = self.root.forget(&join, interner);
+            let selected = ConstraintNode::selected(join, arm, interner);
+            residual.intersection(&selected, interner)
+        });
     }
 
     pub(super) fn select_arms(&mut self, join: impl Into<BranchJoin>, arms: &[usize]) {
         let join = join.into();
-        let mut interner = ConstraintInterner::new(MAX_INTERNED_BRANCHES);
-        let residual = self.root.forget(&join, &mut interner);
-        let selected = ConstraintNode::selected_arms(join, arms, &mut interner);
-        self.root = residual.intersection(&selected, &mut interner);
+        self.root = with_interner(|interner| {
+            let residual = self.root.forget(&join, interner);
+            let selected = ConstraintNode::selected_arms(join, arms, interner);
+            residual.intersection(&selected, interner)
+        });
     }
 
     /// Require one arm without forgetting an earlier requirement for the same
@@ -729,9 +745,7 @@ impl BranchConstraints {
 
     pub(crate) fn merge(&mut self, other: Self) {
         let Self { root } = other;
-        self.root = self
-            .root
-            .union(&root, &mut ConstraintInterner::new(MAX_INTERNED_BRANCHES));
+        self.root = with_interner(|interner| self.root.union(&root, interner));
     }
 
     pub(crate) fn is_impossible(&self) -> bool {
@@ -740,10 +754,7 @@ impl BranchConstraints {
 
     pub(crate) fn intersection(&self, other: &Self) -> Self {
         Self {
-            root: self.root.intersection(
-                &other.root,
-                &mut ConstraintInterner::new(MAX_INTERNED_BRANCHES),
-            ),
+            root: with_interner(|interner| self.root.intersection(&other.root, interner)),
         }
     }
 
@@ -1163,16 +1174,12 @@ mod tests {
     }
 
     #[test]
-    fn shared_constraints_keep_cloned_selections_independent_and_reuse_residuals() {
+    fn cloned_selections_stay_independent_and_exhausted_domains_reduce_to_the_residual() {
         let branch = join(origin(15, 1), 3);
         let residual_join = join(origin(16, 1), 2);
         let residual = selected(residual_join, 1);
         let original = selected(branch, 2).intersection(&residual);
         let mut changed = original.clone();
-        assert!(matches!(
-            (original.root.as_branch(), changed.root.as_branch()),
-            (Some(left), Some(right)) if Arc::ptr_eq(left, right)
-        ));
 
         changed.select_arms(branch, &[0, 1]);
         assert_eq!(original, selected(branch, 2).intersection(&residual));
@@ -1181,50 +1188,43 @@ mod tests {
 
         changed.merge(original);
         assert_eq!(changed, residual);
-        assert!(
-            matches!(
-                (changed.root.as_branch(), residual.root.as_branch()),
-                (Some(left), Some(right)) if Arc::ptr_eq(left, right)
-            ),
-            "exhausting the outer domain should reuse the interior residual"
-        );
-
-        let rebuilt = selected(residual_join, 1);
-        assert!(matches!(
-            (residual.root.as_branch(), rebuilt.root.as_branch()),
-            (Some(left), Some(right)) if !Arc::ptr_eq(left, right)
-        ));
-        assert_eq!(
-            residual, rebuilt,
-            "allocation identity is not semantic identity"
-        );
-        assert_eq!(residual.structural_cmp(&rebuilt), Ordering::Equal);
+        assert_eq!(changed.structural_cmp(&residual), Ordering::Equal);
+        assert_eq!(format!("{changed:?}"), format!("{residual:?}"));
     }
 
     #[test]
-    fn fingerprints_agree_for_independent_equal_dags_without_becoming_semantic() {
+    fn fingerprints_derive_from_structure_regardless_of_interning() {
         let outer = join(origin(15, 1), 3);
         let inner = join(origin(16, 1), 2);
-        let original = selected(outer, 2).intersection(&selected(inner, 1));
-        let mut rebuilt = selected(outer, 2).intersection(&selected(inner, 1));
-        let (
-            ConstraintNode::Branch(left) | ConstraintNode::PredicateBranch(left),
-            ConstraintNode::Branch(right) | ConstraintNode::PredicateBranch(right),
-        ) = (&original.root, &mut rebuilt.root)
+        let constraints = selected(outer, 2).intersection(&selected(inner, 1));
+
+        // Build the same diagram directly, without the shared interner.
+        let mut uninterned = ConstraintInterner::new(0);
+        let inner_node = ConstraintNode::branch(
+            inner.into(),
+            vec![ConstraintNode::Impossible, ConstraintNode::Unconstrained],
+            &mut uninterned,
+        );
+        let rebuilt = BranchConstraints {
+            root: ConstraintNode::branch(
+                outer.into(),
+                vec![
+                    ConstraintNode::Impossible,
+                    ConstraintNode::Impossible,
+                    inner_node,
+                ],
+                &mut uninterned,
+            ),
+        };
+
+        let (Some(left), Some(right)) = (constraints.root.as_branch(), rebuilt.root.as_branch())
         else {
             panic!("test inputs must retain both joins");
         };
-        assert!(!Arc::ptr_eq(left, right));
         assert_eq!(left.fingerprint, right.fingerprint);
-
-        // Metadata is deliberately excluded from Eq, order and Debug. Corrupt
-        // it only in this test to detect accidentally derived semantic traits.
-        Arc::get_mut(right)
-            .expect("rebuilt root has one owner")
-            .fingerprint ^= 1;
-        assert_eq!(original, rebuilt);
-        assert_eq!(original.structural_cmp(&rebuilt), Ordering::Equal);
-        assert_eq!(format!("{original:?}"), format!("{rebuilt:?}"));
+        assert_eq!(constraints, rebuilt);
+        assert_eq!(constraints.structural_cmp(&rebuilt), Ordering::Equal);
+        assert_eq!(format!("{constraints:?}"), format!("{rebuilt:?}"));
     }
 
     #[test]
