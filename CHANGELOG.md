@@ -44,6 +44,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - **Internal**: Shared name strings between model, class, and field identities instead of copying them.
 - **Internal**: Stored each model's app label in the model graph's name index for exact lookups.
 - **Internal**: Read inherited relation data in place when building model relation bindings.
+- **Internal**: Checked whether settings cases can merge before merging their evidence in place.
 - **Internal**: Removed hand-written end tags and intermediates for Django's builtin tags; test fixtures now mount the bundled Django by default.
 - **Internal**: Moved the remaining hand-written Django tag facts into Fallback Rules in `djls-project`, keyed by compile function and citing bundled Django source; `djls-semantic` no longer defines Django tag knowledge.
 - **Internal**: Renamed outline kind `ControlTag` to `BlockTag`.

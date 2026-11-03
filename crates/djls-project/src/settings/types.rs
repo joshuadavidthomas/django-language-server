@@ -133,25 +133,42 @@ where
     T: MergeEvidence,
     P: MergeEvidence + MergeDynamicEvidence,
 {
-    fn merge_evidence(&mut self, other: &Self) -> bool {
-        if self.cases.len() != other.cases.len() {
-            return false;
-        }
-        let mut merged = self.clone();
-        for (case, other_case) in merged.cases.iter_mut().zip(&other.cases) {
-            if !case.case.merge_evidence(&other_case.case) {
-                return false;
-            }
+    fn can_merge_evidence(&self, other: &Self) -> bool {
+        self.cases.len() == other.cases.len()
+            && self
+                .cases
+                .iter()
+                .zip(&other.cases)
+                .all(|(case, other_case)| case.case.can_merge_evidence(&other_case.case))
+    }
+
+    fn absorb_evidence(&mut self, other: &Self) {
+        for (case, other_case) in self.cases.iter_mut().zip(&other.cases) {
+            case.case.absorb_evidence(&other_case.case);
             case.constraints.merge(other_case.constraints.clone());
         }
-        *self = merged;
-        true
     }
 }
 
-pub(crate) trait MergeEvidence: Clone {
+/// Evidence for one semantic case that can absorb evidence for the same case.
+///
+/// Checking before merging lets a failed merge leave `self` untouched without
+/// cloning it first.
+pub(crate) trait MergeEvidence {
+    /// Whether `other` describes the same semantic case as `self`.
+    fn can_merge_evidence(&self, other: &Self) -> bool;
+
+    /// Merge evidence from `other`, which must pass [`Self::can_merge_evidence`].
+    fn absorb_evidence(&mut self, other: &Self);
+
     /// Merge evidence from `other` when both values describe the same semantic case.
-    fn merge_evidence(&mut self, other: &Self) -> bool;
+    fn merge_evidence(&mut self, other: &Self) -> bool {
+        let mergeable = self.can_merge_evidence(other);
+        if mergeable {
+            self.absorb_evidence(other);
+        }
+        mergeable
+    }
 }
 
 pub(crate) trait MergeDynamicEvidence {
@@ -162,62 +179,76 @@ pub(crate) trait MergeDynamicEvidence {
 macro_rules! equality_is_semantic {
     ($($ty:ty),+ $(,)?) => {$(
         impl MergeEvidence for $ty {
-            fn merge_evidence(&mut self, other: &Self) -> bool {
+            fn can_merge_evidence(&self, other: &Self) -> bool {
                 self == other
             }
+
+            fn absorb_evidence(&mut self, _other: &Self) {}
         }
     )+};
 }
 
 impl<T: MergeEvidence> MergeEvidence for Option<T> {
-    fn merge_evidence(&mut self, other: &Self) -> bool {
+    fn can_merge_evidence(&self, other: &Self) -> bool {
         match (self, other) {
-            (Some(left), Some(right)) => left.merge_evidence(right),
+            (Some(left), Some(right)) => left.can_merge_evidence(right),
             (None, None) => true,
             (Some(_), None) | (None, Some(_)) => false,
+        }
+    }
+
+    fn absorb_evidence(&mut self, other: &Self) {
+        if let (Some(left), Some(right)) = (self, other) {
+            left.absorb_evidence(right);
         }
     }
 }
 
 impl<T: MergeEvidence> MergeEvidence for Vec<T> {
-    fn merge_evidence(&mut self, other: &Self) -> bool {
-        if self.len() != other.len() {
-            return false;
-        }
-        let mut merged = self.clone();
-        if merged
-            .iter_mut()
-            .zip(other)
-            .all(|(left, right)| left.merge_evidence(right))
-        {
-            *self = merged;
-            true
-        } else {
-            false
+    fn can_merge_evidence(&self, other: &Self) -> bool {
+        self.len() == other.len()
+            && self
+                .iter()
+                .zip(other)
+                .all(|(left, right)| left.can_merge_evidence(right))
+    }
+
+    fn absorb_evidence(&mut self, other: &Self) {
+        for (left, right) in self.iter_mut().zip(other) {
+            left.absorb_evidence(right);
         }
     }
 }
 
 impl<A: MergeEvidence, B: MergeEvidence> MergeEvidence for (A, B) {
-    fn merge_evidence(&mut self, other: &Self) -> bool {
-        let mut merged = self.clone();
-        if merged.0.merge_evidence(&other.0) && merged.1.merge_evidence(&other.1) {
-            *self = merged;
-            true
-        } else {
-            false
-        }
+    fn can_merge_evidence(&self, other: &Self) -> bool {
+        self.0.can_merge_evidence(&other.0) && self.1.can_merge_evidence(&other.1)
+    }
+
+    fn absorb_evidence(&mut self, other: &Self) {
+        self.0.absorb_evidence(&other.0);
+        self.1.absorb_evidence(&other.1);
     }
 }
 
 impl<T: MergeEvidence, P: MergeEvidence> MergeEvidence for SettingCase<T, P> {
-    fn merge_evidence(&mut self, other: &Self) -> bool {
+    fn can_merge_evidence(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::Known(left), Self::Known(right)) => left.merge_evidence(right),
+            (Self::Known(left), Self::Known(right)) => left.can_merge_evidence(right),
             (Self::Unset, Self::Unset) => true,
             (Self::Dynamic(left), Self::Dynamic(right))
-            | (Self::Malformed(left), Self::Malformed(right)) => left.merge_evidence(right),
+            | (Self::Malformed(left), Self::Malformed(right)) => left.can_merge_evidence(right),
             _ => false,
+        }
+    }
+
+    fn absorb_evidence(&mut self, other: &Self) {
+        match (self, other) {
+            (Self::Known(left), Self::Known(right)) => left.absorb_evidence(right),
+            (Self::Dynamic(left), Self::Dynamic(right))
+            | (Self::Malformed(left), Self::Malformed(right)) => left.absorb_evidence(right),
+            // `can_merge_evidence` rejects every other pairing.
+            _ => {}
         }
     }
 }
@@ -242,14 +273,14 @@ impl Serialize for SettingIssue {
 }
 
 impl MergeEvidence for SettingIssue {
-    fn merge_evidence(&mut self, other: &Self) -> bool {
-        if self.kind != other.kind {
-            return false;
-        }
+    fn can_merge_evidence(&self, other: &Self) -> bool {
+        self.kind == other.kind
+    }
+
+    fn absorb_evidence(&mut self, other: &Self) {
         self.origins.extend(other.origins.iter().copied());
         self.origins.sort_by(StructuralOrd::structural_cmp);
         self.origins.dedup();
-        true
     }
 }
 
@@ -313,11 +344,12 @@ fn normalize_origins(
 }
 
 impl<T: MergeEvidence + PartialEq> MergeEvidence for WithOrigins<T> {
-    fn merge_evidence(&mut self, other: &Self) -> bool {
-        if self.value != other.value {
-            return false;
-        }
-        let _ = self.value.merge_evidence(&other.value);
+    fn can_merge_evidence(&self, other: &Self) -> bool {
+        self.value == other.value
+    }
+
+    fn absorb_evidence(&mut self, other: &Self) {
+        self.value.absorb_evidence(&other.value);
         (self.origin, self.additional_origins) = normalize_origins(
             self.origin,
             self.additional_origins
@@ -325,7 +357,6 @@ impl<T: MergeEvidence + PartialEq> MergeEvidence for WithOrigins<T> {
                 .copied()
                 .chain(other.origins()),
         );
-        true
     }
 }
 
@@ -596,14 +627,12 @@ impl TemplateContextProcessorPath {
 macro_rules! merge_struct_fields {
     ($ty:ty { $($field:ident),+ $(,)? }) => {
         impl MergeEvidence for $ty {
-            fn merge_evidence(&mut self, other: &Self) -> bool {
-                let mut merged = self.clone();
-                if true $(&& merged.$field.merge_evidence(&other.$field))+ {
-                    *self = merged;
-                    true
-                } else {
-                    false
-                }
+            fn can_merge_evidence(&self, other: &Self) -> bool {
+                true $(&& self.$field.can_merge_evidence(&other.$field))+
+            }
+
+            fn absorb_evidence(&mut self, other: &Self) {
+                $(self.$field.absorb_evidence(&other.$field);)+
             }
         }
     };
@@ -621,11 +650,20 @@ equality_is_semantic!(
 
 merge_struct_fields!(InstalledApps { apps });
 impl MergeEvidence for InstalledAppEvidence {
-    fn merge_evidence(&mut self, other: &Self) -> bool {
+    fn can_merge_evidence(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::Known(left), Self::Known(right)) => left.merge_evidence(right),
-            (Self::Issue(left), Self::Issue(right)) => left.merge_evidence(right),
+            (Self::Known(left), Self::Known(right)) => left.can_merge_evidence(right),
+            (Self::Issue(left), Self::Issue(right)) => left.can_merge_evidence(right),
             (Self::Known(_), Self::Issue(_)) | (Self::Issue(_), Self::Known(_)) => false,
+        }
+    }
+
+    fn absorb_evidence(&mut self, other: &Self) {
+        match (self, other) {
+            (Self::Known(left), Self::Known(right)) => left.absorb_evidence(right),
+            (Self::Issue(left), Self::Issue(right)) => left.absorb_evidence(right),
+            // `can_merge_evidence` rejects mixed variants.
+            (Self::Known(_), Self::Issue(_)) | (Self::Issue(_), Self::Known(_)) => {}
         }
     }
 }
@@ -651,25 +689,35 @@ impl MergeDynamicEvidence for PartialInstalledApps {
     }
 }
 impl MergeEvidence for TemplateBackends {
-    fn merge_evidence(&mut self, other: &Self) -> bool {
-        if self.backends.len() != other.backends.len()
-            || self
+    fn can_merge_evidence(&self, other: &Self) -> bool {
+        self.backends.len() == other.backends.len()
+            && self
                 .backends
                 .iter()
                 .zip(&other.backends)
-                .any(|(left, right)| !same_path_origin_files(&left.dirs, &right.dirs))
-        {
-            return false;
-        }
-        self.backends.merge_evidence(&other.backends)
+                .all(|(left, right)| same_path_origin_files(&left.dirs, &right.dirs))
+            && self.backends.can_merge_evidence(&other.backends)
+    }
+
+    fn absorb_evidence(&mut self, other: &Self) {
+        self.backends.absorb_evidence(&other.backends);
     }
 }
 impl MergeEvidence for TemplateBackendEvidence {
-    fn merge_evidence(&mut self, other: &Self) -> bool {
+    fn can_merge_evidence(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::Backend(left), Self::Backend(right)) => left.merge_evidence(right),
-            (Self::Issue(left), Self::Issue(right)) => left.merge_evidence(right),
+            (Self::Backend(left), Self::Backend(right)) => left.can_merge_evidence(right),
+            (Self::Issue(left), Self::Issue(right)) => left.can_merge_evidence(right),
             (Self::Backend(_), Self::Issue(_)) | (Self::Issue(_), Self::Backend(_)) => false,
+        }
+    }
+
+    fn absorb_evidence(&mut self, other: &Self) {
+        match (self, other) {
+            (Self::Backend(left), Self::Backend(right)) => left.absorb_evidence(right),
+            (Self::Issue(left), Self::Issue(right)) => left.absorb_evidence(right),
+            // `can_merge_evidence` rejects mixed variants.
+            (Self::Backend(_), Self::Issue(_)) | (Self::Issue(_), Self::Backend(_)) => {}
         }
     }
 }
@@ -698,38 +746,48 @@ impl MergeDynamicEvidence for PartialTemplateBackends {
     }
 }
 impl MergeEvidence for TemplateBackend {
-    fn merge_evidence(&mut self, other: &Self) -> bool {
-        if !same_path_origin_files(&self.dirs, &other.dirs) {
-            return false;
-        }
-        let mut merged = self.clone();
-        if merged.backend.merge_evidence(&other.backend)
-            && merged.dirs.merge_evidence(&other.dirs)
-            && merged.app_dirs.merge_evidence(&other.app_dirs)
-            && merged.libraries.merge_evidence(&other.libraries)
-            && merged.builtins.merge_evidence(&other.builtins)
-            && merged
+    fn can_merge_evidence(&self, other: &Self) -> bool {
+        same_path_origin_files(&self.dirs, &other.dirs)
+            && self.backend.can_merge_evidence(&other.backend)
+            && self.dirs.can_merge_evidence(&other.dirs)
+            && self.app_dirs.can_merge_evidence(&other.app_dirs)
+            && self.libraries.can_merge_evidence(&other.libraries)
+            && self.builtins.can_merge_evidence(&other.builtins)
+            && self
                 .context_processors
-                .merge_evidence(&other.context_processors)
-        {
-            *self = merged;
-            true
-        } else {
-            false
-        }
+                .can_merge_evidence(&other.context_processors)
+    }
+
+    fn absorb_evidence(&mut self, other: &Self) {
+        self.backend.absorb_evidence(&other.backend);
+        self.dirs.absorb_evidence(&other.dirs);
+        self.app_dirs.absorb_evidence(&other.app_dirs);
+        self.libraries.absorb_evidence(&other.libraries);
+        self.builtins.absorb_evidence(&other.builtins);
+        self.context_processors
+            .absorb_evidence(&other.context_processors);
     }
 }
 impl MergeEvidence for TemplateDirectoryEvidence {
-    fn merge_evidence(&mut self, other: &Self) -> bool {
+    fn can_merge_evidence(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::Known(left), Self::Known(right)) => left.merge_evidence(right),
-            (Self::Issue(left), Self::Issue(right)) => left.merge_evidence(right),
+            (Self::Known(left), Self::Known(right)) => left.can_merge_evidence(right),
+            (Self::Issue(left), Self::Issue(right)) => left.can_merge_evidence(right),
             (Self::Known(_), Self::Issue(_)) | (Self::Issue(_), Self::Known(_)) => false,
+        }
+    }
+
+    fn absorb_evidence(&mut self, other: &Self) {
+        match (self, other) {
+            (Self::Known(left), Self::Known(right)) => left.absorb_evidence(right),
+            (Self::Issue(left), Self::Issue(right)) => left.absorb_evidence(right),
+            // `can_merge_evidence` rejects mixed variants.
+            (Self::Known(_), Self::Issue(_)) | (Self::Issue(_), Self::Known(_)) => {}
         }
     }
 }
 impl MergeEvidence for PartialTemplateDirectories {
-    fn merge_evidence(&mut self, other: &Self) -> bool {
+    fn can_merge_evidence(&self, other: &Self) -> bool {
         if self.evidence.len() != other.evidence.len()
             || self
                 .evidence
@@ -752,25 +810,30 @@ impl MergeEvidence for PartialTemplateDirectories {
         {
             return false;
         }
-        self.evidence.merge_evidence(&other.evidence)
+        self.evidence.can_merge_evidence(&other.evidence)
+    }
+
+    fn absorb_evidence(&mut self, other: &Self) {
+        self.evidence.absorb_evidence(&other.evidence);
     }
 }
 impl<T: MergeEvidence> MergeEvidence for SettingFieldEvidence<T> {
-    fn merge_evidence(&mut self, other: &Self) -> bool {
-        let mut merged = self.clone();
-        if merged.known.merge_evidence(&other.known) && merged.issues.merge_evidence(&other.issues)
-        {
-            *self = merged;
-            true
-        } else {
-            false
-        }
+    fn can_merge_evidence(&self, other: &Self) -> bool {
+        self.known.can_merge_evidence(&other.known) && self.issues.can_merge_evidence(&other.issues)
+    }
+
+    fn absorb_evidence(&mut self, other: &Self) {
+        self.known.absorb_evidence(&other.known);
+        self.issues.absorb_evidence(&other.issues);
     }
 }
 impl MergeEvidence for BranchConstraints {
-    fn merge_evidence(&mut self, other: &Self) -> bool {
-        self.merge(other.clone());
+    fn can_merge_evidence(&self, _other: &Self) -> bool {
         true
+    }
+
+    fn absorb_evidence(&mut self, other: &Self) {
+        self.merge(other.clone());
     }
 }
 merge_struct_fields!(PartialTemplateBackend {
