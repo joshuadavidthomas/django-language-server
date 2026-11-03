@@ -17,6 +17,7 @@ use divan::counter::ItemsCount;
 use djls_bench::Keystroke;
 use djls_bench::REAL_PROJECTS;
 use djls_bench::RealProject;
+use djls_bench::codspeed_memory_mode;
 use djls_bench::corpus_or_skip;
 
 fn main() {
@@ -34,6 +35,12 @@ fn load(name: &str) -> Option<RealProject> {
 /// Building the empty host is setup; every stage after it is timed.
 #[divan::bench(args = REAL_PROJECTS, sample_count = 3, sample_size = 1)]
 fn cold_start_check_templates(bencher: Bencher, name: &str) {
+    // netbox makes about 4.1M allocations, past the ~2M that CodSpeed's memory instrument
+    // handles well.
+    if name == "netbox" && codspeed_memory_mode() {
+        eprintln!("netbox cold start is too allocation-heavy for memory mode; skipping");
+        return;
+    }
     let Some(project) = load(name) else {
         return;
     };

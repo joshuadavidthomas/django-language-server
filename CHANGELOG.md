@@ -69,6 +69,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - **Internal**: The nightly `deep-tests` workflow now runs the template parser fuzzer for 10 minutes, seeded from corpus templates, and uploads any crashing input.
 - **Internal**: Changed the `default_tag_products[warm_detail]` benchmark to repeat its warm hit 10,000 times per sample and to drop the primed database outside the measurement.
 - **Internal**: Added `real_project` benchmarks that open `djangoproject.com` and `netbox` with their own Python environments through the server's `AnalysisHost`. `cold_start_check_templates` runs the server's reload sequence from a fresh database and computes diagnostics for every project template; `keystroke_diagnostics` types one character into an open template and recomputes its diagnostics. The bench workflow builds the two environments, and the corpus manifest now selects `djangoproject.settings.dev` for `djangoproject.com`.
+- **Internal**: Added a CodSpeed memory-mode benchmark job alongside the simulation job. `check.rs::corpus_all` (about 5.6M allocations) and `real_project.rs::cold_start_check_templates[netbox]` (about 4.1M) skip themselves in memory mode.
 
 ### Fixed
 

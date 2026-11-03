@@ -25,6 +25,7 @@ use djls_bench::BenchmarkSetupError;
 use djls_bench::CorpusLoadError;
 use djls_bench::CorpusTemplates;
 use djls_bench::Db;
+use djls_bench::codspeed_memory_mode;
 use djls_bench::corpus_or_skip;
 use djls_bench::django_corpus_templates;
 use djls_bench::full_corpus_templates;
@@ -176,5 +177,10 @@ fn corpus_django(bencher: Bencher) {
 
 #[divan::bench]
 fn corpus_all(bencher: Bencher) {
+    // About 5.6M allocations, past the ~2M that CodSpeed's memory instrument handles well.
+    if codspeed_memory_mode() {
+        eprintln!("full check benchmark is too allocation-heavy for memory mode; skipping");
+        return;
+    }
     bench_corpus_check(bencher, full_corpus_templates(), "full");
 }

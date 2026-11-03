@@ -25,7 +25,12 @@ env:
 
 jobs:
   benchmarks:
+    name: benchmarks (${{ matrix.mode }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [simulation, memory]
     permissions:
       contents: read
     steps:
@@ -39,6 +44,8 @@ jobs:
           install_args: rust uv
 
       - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+        with:
+          key: ${{ matrix.mode }}
 
       - name: Cache corpus
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -68,12 +75,13 @@ jobs:
           cargo run -q -p djls-testing --bin corpus -- environment sync djangoproject.com netbox
 
       - name: Verify benchmark workload snapshots
+        if: matrix.mode == 'simulation'
         run: DJLS_REQUIRE_BENCH_CORPUS=1 cargo test -p djls-bench -- --include-ignored
 
       - run: cargo install cargo-codspeed --locked
 
       - name: Build the benchmark target(s)
-        run: cargo codspeed build -p djls-bench
+        run: cargo codspeed build -m ${{ matrix.mode }} -p djls-bench
 
       - name: Run the benchmarks
         uses: CodSpeedHQ/action@78102a468f96d8e0ccb92d0ec49425753fc42062
@@ -82,5 +90,6 @@ jobs:
           # https://codspeed.io/blog/why-glibc-faster-github-actions
           GLIBC_TUNABLES: glibc.cpu.hwcaps=-AVX2
         with:
-          mode: simulation
-          run: cargo codspeed run -p djls-bench
+          mode: ${{ matrix.mode }}
+          # check.rs::corpus_all skips itself in memory mode; see codspeed_memory_mode.
+          run: cargo codspeed run -m ${{ matrix.mode }} -p djls-bench
