@@ -47,6 +47,7 @@ use crate::structure::TemplateTree;
 use crate::structure::TemplateTreeBuilder;
 use crate::structure::active_template_nodes;
 use crate::structure::grammar::SparseTagGrammar;
+use crate::tags::LibraryTagProducts;
 use crate::tags::TagSpec;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -182,14 +183,19 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
 
     let project = db.project();
     let scoped_libraries = scoped_template_libraries_for_file(db, scope_file);
+    let mut tag_products = project.map(|project| LibraryTagProducts::new(db, project));
     let mut loaded = LoadedLibraries::default();
     for _ in 0..fixed_point_limit {
-        let grammar = project.map_or_else(
-            || SparseTagGrammar::projectless(db, nodelist),
-            |project| {
-                SparseTagGrammar::project_pass(db, project, nodelist, &loaded, scoped_libraries)
-            },
-        );
+        let grammar = match &mut tag_products {
+            Some(tag_products) => SparseTagGrammar::project_pass(
+                db,
+                nodelist,
+                &loaded,
+                scoped_libraries,
+                tag_products,
+            ),
+            None => SparseTagGrammar::projectless(db, nodelist),
+        };
         // Fixed-point passes are plain temporary values. No tracked Tree identity
         // or structural diagnostic is produced until this pass converges.
         let tree_data = TemplateTreeBuilder::new(&grammar).model_data(db, nodelist);

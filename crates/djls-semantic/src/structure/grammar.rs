@@ -18,6 +18,7 @@ use crate::scoping::LoadState;
 use crate::scoping::LoadedLibraries;
 use crate::scoping::UnknownLoadShadow;
 use crate::tags::BodyAnalysis;
+use crate::tags::LibraryTagProducts;
 use crate::tags::TagSpec;
 use crate::tags::effective_tag_spec_in_scope;
 use crate::tags::library_tag_specs;
@@ -282,13 +283,14 @@ impl SparseTagGrammar {
         )
     }
 
-    pub(crate) fn project_pass(
-        db: &dyn Db,
-        project: Project,
+    pub(crate) fn project_pass<'db>(
+        db: &'db dyn Db,
         nodelist: NodeList<'_>,
         loaded: &LoadedLibraries,
-        scoped_libraries: ScopedTemplateLibraries<'_, '_>,
+        scoped_libraries: ScopedTemplateLibraries<'_, 'db>,
+        tag_products: &mut LibraryTagProducts<'db>,
     ) -> Self {
+        let project = tag_products.project();
         let mut loaded_names = Vec::new();
         let mut load_cursor = loaded.cursor();
         Self::build_occurrences(
@@ -316,8 +318,7 @@ impl SparseTagGrammar {
                     // in every Template with an unresolved load costs more.
                     Some(UnknownLoadShadow::FullLoad)
                         if let Some(spec) = effective_tag_spec_in_scope(
-                            db,
-                            project,
+                            tag_products,
                             scoped_libraries,
                             name,
                             &[],
@@ -337,8 +338,12 @@ impl SparseTagGrammar {
                 }
 
                 load_state.write_libraries_loading_symbol(name, &mut loaded_names);
-                let spec =
-                    effective_tag_spec_in_scope(db, project, scoped_libraries, name, &loaded_names);
+                let spec = effective_tag_spec_in_scope(
+                    tag_products,
+                    scoped_libraries,
+                    name,
+                    &loaded_names,
+                );
                 fact_from_spec(spec, || {
                     classify_project_orphan(db, project, name, &load_state, scoped_libraries)
                 })

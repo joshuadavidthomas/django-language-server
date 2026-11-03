@@ -23,6 +23,7 @@ use djls_templates::NodeList;
 pub(crate) use rules::effective_tag_bits;
 pub(crate) use rules::evaluate_tag_rules;
 pub(crate) use rules::is_python_word_key;
+use rustc_hash::FxHashMap;
 pub use specs::BodyAnalysis;
 pub use specs::EndTag;
 pub use specs::IntermediateTag;
@@ -253,18 +254,59 @@ fn effective_tag_spec_in_project(
 ) -> Option<TagSpec> {
     let loaded = load_state.libraries_loading_symbol(name);
     effective_tag_spec_in_scope(
-        db,
-        project,
+        &mut LibraryTagProducts::new(db, project),
         scoped_template_libraries(db, project, file),
         name,
         &loaded,
     )
 }
 
-pub(crate) fn effective_tag_spec_in_scope(
-    db: &dyn Db,
+/// Per-library Tag products, each fetched from Salsa at most once per analysis.
+///
+/// Resolving a name visits every library in its chains, so an analysis that resolves many
+/// names would otherwise fetch the same few products once per name. Products are fetched on
+/// first use, so the caller's dependencies are the same as fetching them directly.
+pub(crate) struct LibraryTagProducts<'db> {
+    db: &'db dyn Db,
     project: Project,
-    scoped_libraries: ScopedTemplateLibraries<'_, '_>,
+    fallback_names: FxHashMap<TemplateLibraryId<'db>, &'db [String]>,
+    specs: FxHashMap<TemplateLibraryId<'db>, &'db LibraryTagSpecs>,
+}
+
+impl<'db> LibraryTagProducts<'db> {
+    pub(crate) fn new(db: &'db dyn Db, project: Project) -> Self {
+        Self {
+            db,
+            project,
+            fallback_names: FxHashMap::default(),
+            specs: FxHashMap::default(),
+        }
+    }
+
+    pub(crate) fn project(&self) -> Project {
+        self.project
+    }
+
+    fn has_fallback(&mut self, library: TemplateLibraryId<'db>, name: &str) -> bool {
+        let (db, project) = (self.db, self.project);
+        self.fallback_names
+            .entry(library)
+            .or_insert_with(|| library_fallback_tag_names(db, project, library))
+            .binary_search_by(|candidate| candidate.as_str().cmp(name))
+            .is_ok()
+    }
+
+    fn specs(&mut self, library: TemplateLibraryId<'db>) -> &'db LibraryTagSpecs {
+        let (db, project) = (self.db, self.project);
+        self.specs
+            .entry(library)
+            .or_insert_with(|| library_tag_specs(db, project, library))
+    }
+}
+
+pub(crate) fn effective_tag_spec_in_scope<'db>(
+    products: &mut LibraryTagProducts<'db>,
+    scoped_libraries: ScopedTemplateLibraries<'_, 'db>,
     name: &str,
     loaded: &[&str],
 ) -> Option<TagSpec> {
@@ -284,12 +326,10 @@ pub(crate) fn effective_tag_spec_in_scope(
                 alternative.unknown = true;
                 return;
             };
-            let has_definition = library.symbol(TemplateSymbolKind::Tag, name).is_some();
-            let has_fallback = library_fallback_tag_names(db, project, library.id())
-                .binary_search_by(|candidate| candidate.as_str().cmp(name))
-                .is_ok();
-            if has_definition || has_fallback {
-                alternative.effective = library_tag_specs(db, project, library.id()).get(name);
+            if library.symbol(TemplateSymbolKind::Tag, name).is_some()
+                || products.has_fallback(library.id(), name)
+            {
+                alternative.effective = products.specs(library.id()).get(name);
                 alternative.unknown = false;
             } else if library.symbols_are_unobserved()
                 && !(library.source_file().is_none()
