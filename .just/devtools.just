@@ -20,11 +20,6 @@ devtools *ARGS:
 fmt:
     @just --fmt --justfile {{ justfile }}
 
-# TODO: djls-tmux binary was removed in #214, this recipe needs updating
-[no-cd]
-debug:
-    @echo "Error: djls-tmux was removed in PR #214. This recipe needs updating." >&2 && exit 1
-
 [no-cd]
 explore FILENAME="djls.db":
     @just dev datasette -o {{ FILENAME }}

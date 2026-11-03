@@ -549,23 +549,26 @@ Available recipes:
     check *ARGS
     clean
     clippy *ARGS
-    corpus *ARGS
+    corpus *ARGS                 # Run corpus setup and tests, or forward subcommands to the management CLI
     e2e *ARGS
+    ecosystem BASE="origin/main" # Run `djls check` from the base and current builds across the corpus and diff the diagnostics
     fixtures *ARGS
     fmt *ARGS
+    fuzz *ARGS                   # Fuzz the template parser, seeded from corpus templates
     hawk *ARGS
-    lint *ARGS     # run pre-commit on all files
+    lint *ARGS                   # run pre-commit on all files
+    mutants *ARGS                # Mutation-test a crate or file, e.g. `just mutants -p djls-semantic -f crates/djls-semantic/src/scoping/loads.rs`
     run *ARGS
     test *ARGS
     testall *ARGS
+    wasm OUT="target/wasm/pkg"   # release re-zipped uncompressed, which compresses better over HTTP and loads without inflating
     dev:
-        debug                      # TODO: djls-tmux binary was removed in #214, this recipe needs updating
         explore FILENAME="djls.db"
         inspect
         profile bench filter=""    # Profile a bench with callgrind
         record FILENAME="djls.db"
     docs:
-        build LOCATION="site" # Build documentation
-        serve PORT="8000"     # Serve documentation locally
+        build             # Build documentation
+        serve PORT="8000" # Serve documentation locally
 ```
 <!-- [[[end]]] -->

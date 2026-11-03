@@ -96,26 +96,6 @@ jobs:
           echo "OS=${os:-'unknown'}" >> $GITHUB_ENV
           echo "ARCH=${arch:-'unknown'}" >> $GITHUB_ENV
 
-      - name: Cache rustup toolchain
-        if: ${{ inputs.version == '' && !startsWith(github.ref, 'refs/tags/') }}
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.rustup
-          key: ${{ runner.os }}-${{ runner.arch }}-rustup-pinned-${{ hashFiles('rust-toolchain.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-rustup-pinned-
-
-      - name: Cache Homebrew packages (macOS)
-        if: ${{ inputs.version == '' && !startsWith(github.ref, 'refs/tags/') && runner.os == 'macOS' }}
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/Library/Caches/Homebrew
-          key: ${{ runner.os }}-${{ matrix.platform.target }}-homebrew-${{ hashFiles('.github/workflows/build.yml') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ matrix.platform.target }}-homebrew-
-
       - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
         with:
           add_shims_to_path: false
@@ -313,28 +293,6 @@ jobs:
           architecture: ${{ matrix.platform.target }}
           python-version: 3.x
 
-      - name: Cache rustup toolchain
-        if: ${{ inputs.version == '' && !startsWith(github.ref, 'refs/tags/') }}
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.rustup
-          key: ${{ runner.os }}-${{ runner.arch }}-rustup-pinned-${{ hashFiles('rust-toolchain.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-rustup-pinned-
-
-      - name: Cache Cargo registry
-        if: ${{ inputs.version == '' && !startsWith(github.ref, 'refs/tags/') }}
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/git
-            ~/.cargo/registry
-          key: ${{ runner.os }}-${{ runner.arch }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-cargo-registry-
-            ${{ runner.os }}-cargo-registry-
-
       - name: Build wheels
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
@@ -367,28 +325,6 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: 3.x
-
-      - name: Cache rustup toolchain
-        if: ${{ inputs.version == '' && !startsWith(github.ref, 'refs/tags/') }}
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.rustup
-          key: ${{ runner.os }}-${{ runner.arch }}-rustup-pinned-${{ hashFiles('rust-toolchain.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-rustup-pinned-
-
-      - name: Cache Cargo registry
-        if: ${{ inputs.version == '' && !startsWith(github.ref, 'refs/tags/') }}
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/git
-            ~/.cargo/registry
-          key: ${{ runner.os }}-${{ runner.arch }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-cargo-registry-
-            ${{ runner.os }}-cargo-registry-
 
       - name: Build wheels
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
