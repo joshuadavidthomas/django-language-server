@@ -351,7 +351,11 @@ fn load_django_models() -> Result<Option<&'static CorpusModels>, &'static ModelS
 fn load_all_corpus_models() -> Result<Option<&'static CorpusModels>, &'static ModelSetupError> {
     static CORPUS: OnceLock<Result<Option<CorpusModels>, ModelSetupError>> = OnceLock::new();
     match CORPUS.get_or_init(|| {
-        load_corpus_models_inner("full", |corpus| Ok(corpus.model_files_in(corpus.root())))
+        // Only repository sources: synced environments under the corpus root would otherwise
+        // add installed packages locally that CI's source-only corpus does not have.
+        load_corpus_models_inner("full", |corpus| {
+            Ok(corpus.model_files_in(&corpus.root().join("repos")))
+        })
     }) {
         Ok(corpus) => Ok(corpus.as_ref()),
         Err(error) => Err(error),
