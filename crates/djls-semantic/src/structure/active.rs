@@ -119,165 +119,146 @@ impl<'a> ActiveTemplateNode<'a> {
 }
 
 #[must_use]
-pub(crate) fn active_template_nodes(
-    regions: &Regions,
-    root: RegionId,
-) -> Vec<ActiveTemplateNode<'_>> {
-    let mut nodes = Vec::new();
-    collect_active_nodes_for_region(regions, root, &mut nodes);
+pub(crate) fn active_template_nodes(regions: &Regions, root: RegionId) -> ActiveTemplateNodes<'_> {
+    let mut nodes = ActiveTemplateNodes {
+        regions,
+        stack: Vec::new(),
+    };
+    nodes.descend(root, None);
     nodes
 }
 
-#[must_use]
 pub(crate) fn active_template_tags(
     regions: &Regions,
     root: RegionId,
-) -> Vec<ActiveTemplateTag<'_>> {
-    active_template_nodes(regions, root)
-        .into_iter()
-        .filter_map(|node| match node {
-            ActiveTemplateNode::Tag(tag) => Some(tag),
-            ActiveTemplateNode::Variable(_) => None,
-        })
-        .collect()
+) -> impl Iterator<Item = ActiveTemplateTag<'_>> {
+    active_template_nodes(regions, root).filter_map(|node| match node {
+        ActiveTemplateNode::Tag(tag) => Some(tag),
+        ActiveTemplateNode::Variable(_) => None,
+    })
 }
 
-fn collect_active_nodes_for_region<'a>(
+/// Template nodes whose meaning is active, in source order.
+///
+/// Walks the region tree with an explicit stack, so deeply nested blocks cannot overflow the
+/// thread's call stack.
+pub(crate) struct ActiveTemplateNodes<'a> {
     regions: &'a Regions,
-    region: RegionId,
-    nodes: &mut Vec<ActiveTemplateNode<'a>>,
-) {
-    for node in regions.get(region).nodes() {
-        collect_active_nodes_for_node(regions, node, nodes);
+    stack: Vec<ActiveWalkFrame<'a>>,
+}
+
+struct ActiveWalkFrame<'a> {
+    nodes: std::slice::Iter<'a, TemplateNode>,
+    /// The opener's full and name spans when these nodes are a block's segments.
+    opener: Option<(Span, Span)>,
+}
+
+impl ActiveTemplateNodes<'_> {
+    fn descend(&mut self, region: RegionId, opener: Option<(Span, Span)>) {
+        self.stack.push(ActiveWalkFrame {
+            nodes: self.regions.get(region).nodes().iter(),
+            opener,
+        });
     }
 }
 
-fn collect_active_nodes_for_node<'a>(
-    regions: &'a Regions,
-    node: &'a TemplateNode,
-    nodes: &mut Vec<ActiveTemplateNode<'a>>,
-) {
-    match node {
-        TemplateNode::Block {
-            tag,
-            name_span,
-            bits,
-            full_span,
-            body,
-            role: BlockRole::Opener,
-        } => {
-            nodes.push(ActiveTemplateNode::tag(
-                tag,
-                *name_span,
-                bits,
-                *full_span,
-                StructuralOccurrenceMeaning::Definition,
-            ));
-            collect_active_nodes_for_block_body(regions, *body, *full_span, *name_span, nodes);
-        }
-        TemplateNode::Block {
-            tag,
-            name_span,
-            bits,
-            full_span,
-            body,
-            role: BlockRole::Segment,
-        } => {
-            nodes.push(ActiveTemplateNode::tag(
-                tag,
-                *name_span,
-                bits,
-                *full_span,
-                StructuralOccurrenceMeaning::CapturedIntermediate,
-            ));
-            collect_active_nodes_for_region(regions, *body, nodes);
-        }
-        TemplateNode::StandaloneTag {
-            tag,
-            name_span,
-            bits,
-            full_span,
-        } => nodes.push(ActiveTemplateNode::tag(
-            tag,
-            *name_span,
-            bits,
-            *full_span,
-            StructuralOccurrenceMeaning::Definition,
-        )),
-        TemplateNode::Variable {
-            var,
-            var_span,
-            filters,
-            span,
-        } => nodes.push(ActiveTemplateNode::variable(var, *var_span, filters, *span)),
-        TemplateNode::Opaque {
-            tag,
-            name_span,
-            bits,
-            full_span,
-            body_span,
-            ..
-        } => {
-            let opener_full_span = Span::saturating_from_bounds_usize(
-                full_span.start_usize(),
-                body_span.start_usize(),
-            );
-            nodes.push(ActiveTemplateNode::tag(
-                tag,
-                *name_span,
-                bits,
-                opener_full_span,
-                StructuralOccurrenceMeaning::Definition,
-            ));
-        }
-        TemplateNode::Comment { .. } | TemplateNode::Text { .. } | TemplateNode::Error { .. } => {}
-    }
-}
+impl<'a> Iterator for ActiveTemplateNodes<'a> {
+    type Item = ActiveTemplateNode<'a>;
 
-fn collect_active_nodes_for_block_body<'a>(
-    regions: &'a Regions,
-    body: RegionId,
-    opener_span: Span,
-    opener_name_span: Span,
-    nodes: &mut Vec<ActiveTemplateNode<'a>>,
-) {
-    for node in regions.get(body).nodes() {
-        match node {
-            TemplateNode::Block {
-                body: segment_body,
-                full_span,
-                role: BlockRole::Segment,
-                ..
-            } if *full_span == opener_span => {
-                collect_active_nodes_for_region(regions, *segment_body, nodes);
-            }
-            TemplateNode::Block {
-                tag,
-                name_span,
-                bits,
-                full_span,
-                body: segment_body,
-                role: BlockRole::Segment,
-            } => {
-                let mut intermediate = ActiveTemplateTag::new(
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let frame = self.stack.last_mut()?;
+            let opener = frame.opener;
+            let Some(node) = frame.nodes.next() else {
+                self.stack.pop();
+                continue;
+            };
+            match node {
+                TemplateNode::Block {
                     tag,
-                    *name_span,
+                    name_span,
                     bits,
-                    *full_span,
-                    StructuralOccurrenceMeaning::CapturedIntermediate,
-                );
-                intermediate.opener_name_span = Some(opener_name_span);
-                nodes.push(ActiveTemplateNode::Tag(intermediate));
-                collect_active_nodes_for_region(regions, *segment_body, nodes);
-            }
-            TemplateNode::Block { .. }
-            | TemplateNode::Opaque { .. }
-            | TemplateNode::StandaloneTag { .. }
-            | TemplateNode::Variable { .. }
-            | TemplateNode::Comment { .. }
-            | TemplateNode::Text { .. }
-            | TemplateNode::Error { .. } => {
-                collect_active_nodes_for_node(regions, node, nodes);
+                    full_span,
+                    body,
+                    role: BlockRole::Opener,
+                } => {
+                    self.descend(*body, Some((*full_span, *name_span)));
+                    return Some(ActiveTemplateNode::tag(
+                        tag,
+                        *name_span,
+                        bits,
+                        *full_span,
+                        StructuralOccurrenceMeaning::Definition,
+                    ));
+                }
+                TemplateNode::Block {
+                    tag,
+                    name_span,
+                    bits,
+                    full_span,
+                    body,
+                    role: BlockRole::Segment,
+                } => {
+                    self.descend(*body, None);
+                    // A block's first segment is the opener itself.
+                    if opener.is_some_and(|(opener_span, _)| opener_span == *full_span) {
+                        continue;
+                    }
+                    let mut intermediate = ActiveTemplateTag::new(
+                        tag,
+                        *name_span,
+                        bits,
+                        *full_span,
+                        StructuralOccurrenceMeaning::CapturedIntermediate,
+                    );
+                    intermediate.opener_name_span = opener.map(|(_, name_span)| name_span);
+                    return Some(ActiveTemplateNode::Tag(intermediate));
+                }
+                TemplateNode::StandaloneTag {
+                    tag,
+                    name_span,
+                    bits,
+                    full_span,
+                } => {
+                    return Some(ActiveTemplateNode::tag(
+                        tag,
+                        *name_span,
+                        bits,
+                        *full_span,
+                        StructuralOccurrenceMeaning::Definition,
+                    ));
+                }
+                TemplateNode::Variable {
+                    var,
+                    var_span,
+                    filters,
+                    span,
+                } => {
+                    return Some(ActiveTemplateNode::variable(var, *var_span, filters, *span));
+                }
+                TemplateNode::Opaque {
+                    tag,
+                    name_span,
+                    bits,
+                    full_span,
+                    body_span,
+                    ..
+                } => {
+                    let opener_full_span = Span::saturating_from_bounds_usize(
+                        full_span.start_usize(),
+                        body_span.start_usize(),
+                    );
+                    return Some(ActiveTemplateNode::tag(
+                        tag,
+                        *name_span,
+                        bits,
+                        opener_full_span,
+                        StructuralOccurrenceMeaning::Definition,
+                    ));
+                }
+                TemplateNode::Comment { .. }
+                | TemplateNode::Text { .. }
+                | TemplateNode::Error { .. } => {}
             }
         }
     }
@@ -350,7 +331,6 @@ mod tests {
         );
 
         let labels = active_template_nodes(&regions, root)
-            .into_iter()
             .map(|node| match node {
                 ActiveTemplateNode::Tag(tag) => format!("tag:{}", tag.tag),
                 ActiveTemplateNode::Variable(variable) => format!("var:{}", variable.var),
@@ -391,11 +371,9 @@ mod tests {
         );
 
         let tags = active_template_tags(&regions, root)
-            .into_iter()
             .map(|tag| tag.tag.to_string())
             .collect::<Vec<_>>();
         let variables = active_template_nodes(&regions, root)
-            .into_iter()
             .filter_map(|node| match node {
                 ActiveTemplateNode::Tag(_) => None,
                 ActiveTemplateNode::Variable(variable) => Some(variable.var.to_string()),
