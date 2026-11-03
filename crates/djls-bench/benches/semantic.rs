@@ -135,6 +135,29 @@ fn template_tree_cold(bencher: Bencher) {
         });
 }
 
+/// Every unclosed block stays open to the end of the Template, so the tree builder holds
+/// one frame per tag. Guards against per-tag work that grows with nesting depth.
+#[divan::bench]
+fn template_tree_deeply_nested(bencher: Bencher) {
+    const DEPTH: usize = 10_000;
+    bencher
+        .with_inputs(|| {
+            let mut db = require("prepare deeply nested template input", structure_db());
+            let file = require(
+                "register deeply nested template",
+                db.file_with_contents("/templates/nested.html", &"{% if x %}\n".repeat(DEPTH)),
+            );
+            (db, file)
+        })
+        .bench_local_values(|(db, file)| {
+            let TemplateParseResult::Parsed(nodelist) = parse_template(&db, file) else {
+                fail("deeply nested benchmark input should parse as a template");
+            };
+            let tree = build_template_tree_for_file(&db, file, nodelist);
+            black_box(tree.regions(&db).iter().count());
+        });
+}
+
 #[divan::bench]
 fn validate_cold_project(bencher: Bencher) {
     bencher

@@ -83,6 +83,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Fixed a `{% load %}` of an unresolved library suppressing block structure diagnostics (S100–S103) for built-in tags such as `{% block %}` and `{% if %}`. Only a selective load that names the tag, such as `{% load block from unknown %}`, still suppresses them.
 - Fixed settings analysis never finishing for settings modules with an unresolved star import followed by many `if` statements, such as OpenStack Horizon's, which kept `djls check` and the language server from finishing.
 - Fixed `djls check` and the language server crashing with a stack overflow on templates with thousands of nested unclosed block tags, such as 12,000 `{% if %}` tags.
+- Fixed `djls check` and the language server slowing quadratically with nesting depth on templates with many nested unclosed block tags. Checking 200,000 nested `{% if %}` tags took about a minute and now takes under a second.
 - Fixed settings evaluation treating a value as certain when a `for` or `while` loop body changes it only on a later iteration, such as a list appended to in an `if` arm that an earlier iteration enables.
 - Fixed `{{% block a %}` and `{{#x#}` with no later `}}` being reported as an unclosed `{{` (T100) and hiding the tag or comment. Like Django, the first `{` is now text and the tag after it is parsed, so an unclosed `{{% block a %}` reports S100.
 - Fixed editing a virtual environment's `pyvenv.cfg` or a `.pth` file in the editor not reloading the project.

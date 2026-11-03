@@ -36,7 +36,7 @@ impl TemplateTreeData {
 pub(crate) struct TemplateTreeBuilder<'grammar, 'n> {
     grammar: &'grammar SparseTagGrammar,
     root: RegionId,
-    stack: Vec<TreeFrame<'grammar, 'n>>,
+    stack: OpenFrames<'grammar, 'n>,
     regions: Regions,
     captured_closers: Vec<CapturedClosingTag>,
     diagnostics: Vec<ValidationError>,
@@ -49,7 +49,7 @@ impl<'grammar, 'n> TemplateTreeBuilder<'grammar, 'n> {
         Self {
             grammar,
             root,
-            stack: Vec::new(),
+            stack: OpenFrames::default(),
             regions,
             captured_closers: Vec::new(),
             diagnostics: Vec::new(),
@@ -143,11 +143,7 @@ impl<'grammar, 'n> TemplateTreeBuilder<'grammar, 'n> {
         }
 
         let grammar = self.grammar.for_name_span(name_span);
-        if let Some(frame_idx) = self
-            .stack
-            .iter()
-            .rposition(|frame| frame.closer_name() == name)
-        {
+        if let Some(frame_idx) = self.stack.innermost_closed_by(name) {
             self.close_block_at(name, name_span, frame_idx, bits, span);
             return;
         }
@@ -236,31 +232,25 @@ impl<'grammar, 'n> TemplateTreeBuilder<'grammar, 'n> {
         span: Span,
         full_span: Span,
     ) -> bool {
-        let frame = match self.stack.pop() {
-            Some(TreeFrame::Opaque(frame))
-                if frame.contract.body_analysis == BodyAnalysis::Verbatim
-                    && frame.contract.closer == closer_name
-                    && !OpeningContract::verbatim_closes(
-                        frame.opener_name,
-                        frame.name_span,
-                        frame.bits,
-                        closer_name,
-                        name_span,
-                        closer_bits,
-                    ) =>
-            {
-                // Django's Lexer keeps any other spelling of the closer as body text.
-                self.stack.push(TreeFrame::Opaque(frame));
-                return true;
-            }
-            Some(TreeFrame::Opaque(frame)) if frame.contract.closer == closer_name => frame,
-            Some(frame) => {
-                // Returning false promises the caller that this tag did not change frame state.
-                self.stack.push(frame);
-                return false;
-            }
-            None => return false,
+        let frame = match self.stack.last() {
+            Some(TreeFrame::Opaque(frame)) if frame.contract.closer == closer_name => *frame,
+            // Returning false promises the caller that this tag did not change frame state.
+            _ => return false,
         };
+        if frame.contract.body_analysis == BodyAnalysis::Verbatim
+            && !OpeningContract::verbatim_closes(
+                frame.opener_name,
+                frame.name_span,
+                frame.bits,
+                closer_name,
+                name_span,
+                closer_bits,
+            )
+        {
+            // Django's Lexer keeps any other spelling of the closer as body text.
+            return true;
+        }
+        self.stack.pop();
         self.capture_closer(closer_name, name_span, closer_bits, full_span);
         match frame.contract.validate_close(frame.bits, closer_bits) {
             CloseValidation::Valid => {
@@ -522,7 +512,7 @@ enum TreeFrame<'grammar, 'n> {
 }
 
 impl<'grammar, 'n> TreeFrame<'grammar, 'n> {
-    fn closer_name(&self) -> &str {
+    fn closer_name(&self) -> &'grammar str {
         &self.contract().closer
     }
 
@@ -559,6 +549,83 @@ impl<'grammar, 'n> TreeFrame<'grammar, 'n> {
     }
 }
 
+/// Open frames, innermost last, indexed by the closer that ends each one.
+///
+/// Scanning every open frame for each tag's closer made deeply nested unclosed blocks
+/// quadratic. A Template opens few distinct closers however deep it nests, so the index is a
+/// short list rather than a hash map.
+#[derive(Default)]
+struct OpenFrames<'grammar, 'n> {
+    frames: Vec<OpenFrame<'grammar, 'n>>,
+    innermost_by_closer: Vec<(&'grammar str, usize)>,
+}
+
+struct OpenFrame<'grammar, 'n> {
+    frame: TreeFrame<'grammar, 'n>,
+    /// The next frame outward that the same closer ends.
+    outer_with_same_closer: Option<usize>,
+}
+
+impl<'grammar, 'n> OpenFrames<'grammar, 'n> {
+    fn push(&mut self, frame: TreeFrame<'grammar, 'n>) {
+        let closer = frame.closer_name();
+        let index = self.frames.len();
+        let outer_with_same_closer = if let Some(entry) = self.innermost_entry(closer) {
+            Some(std::mem::replace(
+                &mut self.innermost_by_closer[entry].1,
+                index,
+            ))
+        } else {
+            self.innermost_by_closer.push((closer, index));
+            None
+        };
+        self.frames.push(OpenFrame {
+            frame,
+            outer_with_same_closer,
+        });
+    }
+
+    fn pop(&mut self) -> Option<TreeFrame<'grammar, 'n>> {
+        let OpenFrame {
+            frame,
+            outer_with_same_closer,
+        } = self.frames.pop()?;
+        if let Some(entry) = self.innermost_entry(frame.closer_name()) {
+            match outer_with_same_closer {
+                Some(outer) => self.innermost_by_closer[entry].1 = outer,
+                None => {
+                    self.innermost_by_closer.swap_remove(entry);
+                }
+            }
+        }
+        Some(frame)
+    }
+
+    fn last(&self) -> Option<&TreeFrame<'grammar, 'n>> {
+        self.frames.last().map(|open| &open.frame)
+    }
+
+    fn last_mut(&mut self) -> Option<&mut TreeFrame<'grammar, 'n>> {
+        self.frames.last_mut().map(|open| &mut open.frame)
+    }
+
+    fn len(&self) -> usize {
+        self.frames.len()
+    }
+
+    /// The index of the innermost open frame that `closer` ends.
+    fn innermost_closed_by(&self, closer: &str) -> Option<usize> {
+        self.innermost_entry(closer)
+            .map(|entry| self.innermost_by_closer[entry].1)
+    }
+
+    fn innermost_entry(&self, closer: &str) -> Option<usize> {
+        self.innermost_by_closer
+            .iter()
+            .position(|(open_closer, _)| *open_closer == closer)
+    }
+}
+
 struct BlockFrame<'grammar, 'n> {
     opener_name: &'n str,
     contract: &'grammar OpeningContract,
@@ -569,6 +636,7 @@ struct BlockFrame<'grammar, 'n> {
     segment_body: RegionId,
 }
 
+#[derive(Clone, Copy)]
 struct OpaqueFrame<'grammar, 'n> {
     opener_name: &'n str,
     contract: &'grammar OpeningContract,
