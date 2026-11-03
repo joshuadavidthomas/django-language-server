@@ -1,5 +1,7 @@
 use std::cmp::Ordering;
 use std::fmt;
+use std::hash::Hash;
+use std::hash::Hasher;
 use std::sync::Arc;
 
 use camino::Utf8Path;
@@ -16,16 +18,36 @@ use crate::python::PythonModuleName;
 use crate::python::evaluation::StructuralOrd;
 use crate::python::search_paths::SearchPath;
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone)]
 pub struct PythonSourceModule(Arc<PythonSourceModuleData>);
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq)]
 struct PythonSourceModuleData {
     name: PythonModuleName,
     package: Option<PythonModuleName>,
     path: Utf8PathBuf,
     file: File,
     search_path: SearchPath,
+}
+
+impl PartialEq for PythonSourceModule {
+    fn eq(&self, other: &Self) -> bool {
+        // Most comparisons are against the same Arc or a module with another
+        // file or name, which settles before comparing paths component-wise.
+        Arc::ptr_eq(&self.0, &other.0)
+            || (self.0.file == other.0.file && self.0.name == other.0.name && self.0 == other.0)
+    }
+}
+
+impl Eq for PythonSourceModule {}
+
+impl Hash for PythonSourceModule {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // Equal modules share a name and file, so hashing the rest adds only
+        // component-wise path hashing.
+        self.0.name.hash(state);
+        self.0.file.hash(state);
+    }
 }
 
 impl StructuralOrd for PythonSourceModule {
@@ -38,7 +60,8 @@ impl StructuralOrd for PythonSourceModule {
         self.name()
             .cmp(other.name())
             .then_with(|| self.package().cmp(&other.package()))
-            .then_with(|| self.path().cmp(other.path()))
+            // std's `Path` ordering compares bytes before parsing components.
+            .then_with(|| self.path().as_std_path().cmp(other.path().as_std_path()))
             .then_with(|| self.file().structural_cmp(&other.file()))
             .then_with(|| self.search_path().structural_cmp(other.search_path()))
     }
