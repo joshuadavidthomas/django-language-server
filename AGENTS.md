@@ -10,8 +10,9 @@ cargo test test_name             # Run one test by name
 cargo test -p crate_name         # Test one crate
 just test                        # Test with default Python and Django versions
 just testall                     # Test all supported Python/Django combinations
+just test-cell 3.12 6.0          # Test one Python/Django combination, as one CI matrix job does
 just e2e                         # Run Python LSP end-to-end tests
-just clippy                      # Lint with clippy
+just clippy                      # Lint with clippy (pass --fix --allow-dirty to apply fixes)
 just fmt                         # Format code with nightly rustfmt features
 just lint                        # Run pre-commit hooks
 just hawk                        # Check crate-boundary visibility

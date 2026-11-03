@@ -63,9 +63,19 @@ def should_skip(python: str, django: str) -> bool:
     return False
 
 
+# Corpus-wide sweeps run once in the corpus session, not in every matrix entry.
+CORPUS_SWEEP_FILTERS = [
+    line
+    for line in Path("tools/corpus-sweep-filters.txt").read_text().splitlines()
+    if line and not line.startswith("#")
+]
+
+
 @nox.session
 def test(session):
-    session.notify(f"tests(python='{PY_DEFAULT}', django='{DJ_DEFAULT}')")
+    session.notify(
+        f"tests(python='{PY_DEFAULT}', django='{DJ_DEFAULT}')", session.posargs
+    )
 
 
 @nox.session
@@ -99,25 +109,10 @@ def tests(session, django):
     else:
         session.install(f"django=={django}")
 
-    command = ["cargo", "test"]
-
-    if session.posargs:
-        args = []
-        for arg in session.posargs:
-            if arg:
-                args.extend(arg.split(" "))
-        command.extend(args)
-    # Corpus-wide sweeps run once in the corpus job, not in every matrix entry.
+    command = ["cargo", "test", *session.posargs]
     if "--" not in command:
         command.append("--")
-    for test_filter in (
-        "corpus_environment::",
-        "corpus_validation::",
-        "corpus_inheritance::",
-        "validation::corpus_",
-        "model_extraction_snapshots",
-        "corpus_registration_census",
-    ):
+    for test_filter in CORPUS_SWEEP_FILTERS:
         command.extend(["--skip", test_filter])
     session.run(
         "cargo",
@@ -136,7 +131,8 @@ def tests(session, django):
 
 @nox.session(python=False)
 def corpus(session):
-    """Prepare real project environments and run all corpus-wide suites."""
+    """Prepare real project environments, run all corpus-wide suites, and check
+    the benchmark workloads."""
     session.run(
         "cargo", "run", "-q", "-p", "djls-testing", "--bin", "corpus", "--", "sync"
     )
@@ -173,6 +169,17 @@ def corpus(session):
         "validation::corpus_",
         *session.posargs,
     )
+    # Checks the benchmark workloads against their snapshots. The bench workflow
+    # does not build the test profile, and this session already has the corpus.
+    session.run(
+        "cargo",
+        "test",
+        "-p",
+        "djls-bench",
+        "--",
+        "--include-ignored",
+        env={"DJLS_REQUIRE_BENCH_CORPUS": "1"},
+    )
 
 
 @nox.session(python=PY_DEFAULT)
@@ -188,12 +195,7 @@ def e2e(session):
         env={"UV_PROJECT_ENVIRONMENT": session.virtualenv.location},
     )
     session.install(f"django=={DJ_DEFAULT}")
-
-    args = []
-    for arg in session.posargs:
-        if arg:
-            args.extend(arg.split(" "))
-    session.run("pytest", *args)
+    session.run("pytest", *session.posargs)
 
 
 @nox.session(python=PY_DEFAULT)

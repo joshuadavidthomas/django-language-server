@@ -138,7 +138,7 @@ The routine checks are:
 |---|---|
 | `just test` | During development and before opening a PR; run the full Rust suite after focused tests pass |
 | `just fmt` | After editing Rust; applies formatting using the pinned formatter |
-| `just lint` | Before committing; runs the all-files lint hooks, including Rust formatting checks and Clippy. It does not fix Rust formatting |
+| `just lint` | Before committing; checks Justfile formatting and runs the all-files lint hooks, including Rust formatting checks and Clippy. It does not fix Rust formatting |
 
 When a change touches snapshots, review them with `cargo insta review` before committing; see [Snapshots](#snapshots).
 
@@ -205,7 +205,8 @@ Use `just test` by default, including for focused runs. It forwards crate and te
 |---|---|---|
 | `just test` | The Rust suite excluding corpus-wide sweeps, in a Nox-managed Python 3.10/Django 5.2 environment, after synchronizing corpus source | Everyday development and the pre-PR check |
 | `just testall` | The Rust suite in each configured compatible Python/Django combination, including Django `main` | Changing version support or investigating a matrix-specific failure; this does not include LSP end-to-end tests |
-| `just corpus` | Prepare source and dependencies, then run all six corpus-wide suites | Checking real projects in their own dependency environments, once outside the version matrix |
+| `just test-cell PYTHON DJANGO` | The `just test` suite in one Python/Django combination, such as `just test-cell 3.12 6.0` | Reproducing one CI test-matrix job |
+| `just corpus` | Prepare source and dependencies, run all six corpus-wide suites, then check the benchmark workloads against their snapshots | Checking real projects in their own dependency environments, once outside the version matrix |
 | `just e2e` | Python/pytest LSP end-to-end tests against the checkout, in the default Python/Django environment | Changing editor-visible behavior such as initialization, diagnostics, navigation, or completions |
 
 `just test` and `just testall` create or reuse isolated Nox environments and install the selected Django version before running Cargo. This does not mean every Rust test analyzes that installed Django version: source-backed fixtures use pinned corpus files or explicit test data. The version matrix and incompatible combinations are defined in [`noxfile.py`](noxfile.py).
@@ -236,7 +237,7 @@ Always review snapshot changes before committing them.
 
 ### Linting
 
-Install the commit-time hooks with `prek install`. Run `just lint` for the all-files local gate; it formats the Justfiles and runs every configured hook, including Rustfmt and Clippy. CI runs the portable pre-commit hooks, Rustfmt, Clippy, and Hawk as separate jobs.
+Install the commit-time hooks with `prek install`. Run `just lint` for the all-files local gate; it checks Justfile formatting and runs every configured hook, including Rustfmt and Clippy. `just clippy` reports Clippy findings without changing files; pass `--fix --allow-dirty` to apply its suggestions. CI runs the portable pre-commit hooks, Rustfmt, Clippy, and Hawk as separate jobs.
 
 #### Formatting
 
@@ -548,20 +549,21 @@ Available recipes:
     bumpver *ARGS
     check *ARGS
     clean
-    clippy *ARGS
-    corpus *ARGS                 # Run corpus setup and tests, or forward subcommands to the management CLI
+    clippy *ARGS                  # Pass `--fix --allow-dirty` to apply suggestions
+    corpus *ARGS                  # Run corpus setup and tests, or forward subcommands to the management CLI
     e2e *ARGS
-    ecosystem BASE="origin/main" # Run `djls check` from the base and current builds across the corpus and diff the diagnostics
+    ecosystem BASE="origin/main"  # Run `djls check` from the base and current builds across the corpus and diff the diagnostics
     fixtures *ARGS
     fmt *ARGS
-    fuzz *ARGS                   # Fuzz the template parser, seeded from corpus templates
+    fuzz *ARGS                    # Fuzz the template parser, seeded from corpus templates
     hawk *ARGS
-    lint *ARGS                   # run pre-commit on all files
-    mutants *ARGS                # Mutation-test a crate or file, e.g. `just mutants -p djls-semantic -f crates/djls-semantic/src/scoping/loads.rs`
+    lint *ARGS                    # Check Justfile formatting and run pre-commit on all files
+    mutants *ARGS                 # Mutation-test a crate or file, e.g. `just mutants -p djls-semantic -f crates/djls-semantic/src/scoping/loads.rs`
     run *ARGS
     test *ARGS
+    test-cell PYTHON DJANGO *ARGS # Run one cell of the Python/Django test matrix, e.g. `just test-cell 3.12 6.0`
     testall *ARGS
-    wasm OUT="target/wasm/pkg"   # release re-zipped uncompressed, which compresses better over HTTP and loads without inflating
+    wasm OUT="target/wasm/pkg"    # release re-zipped uncompressed, which compresses better over HTTP and loads without inflating
     dev:
         explore FILENAME="djls.db"
         inspect
