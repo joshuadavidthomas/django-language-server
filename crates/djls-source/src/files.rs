@@ -318,9 +318,25 @@ pub enum FileRootKind {
 }
 
 impl FileRootKind {
-    const fn durability(self) -> Durability {
+    /// Durability of the contents of `path` under a root of this kind.
+    ///
+    /// Editors change project templates on nearly every keystroke, so only they
+    /// get `LOW`. Queries over project Python modules, settings, and file sets
+    /// then stay at `MEDIUM` and skip re-verification after a template edit.
+    fn content_durability(self, path: &Utf8Path) -> Durability {
         match self {
-            Self::Project => Durability::LOW,
+            Self::Project if FileKind::is_template(path) => Durability::LOW,
+            Self::Project => Durability::MEDIUM,
+            Self::SearchPath => Durability::HIGH,
+        }
+    }
+
+    /// Durability of the file set under a root of this kind: the root revision
+    /// and each file's existence. Files are added and removed far less often
+    /// than templates are edited.
+    const fn file_set_durability(self) -> Durability {
+        match self {
+            Self::Project => Durability::MEDIUM,
             Self::SearchPath => Durability::HIGH,
         }
     }
@@ -333,10 +349,7 @@ impl SourceFiles {
             .by_path
             .entry(path.to_owned())
             .or_insert_with(|| SourceFileEntry {
-                file: File::builder(path.to_owned(), 0, file_status(db, path))
-                    .durability(self.durability_for(db, path))
-                    .path_durability(Durability::HIGH)
-                    .new(db),
+                file: self.new_file(db, path),
                 source: read_source(db, path),
             })
             .file
@@ -479,13 +492,17 @@ impl SourceFiles {
     {
         FileRoot::builder(path, kind, 0)
             .durability(Durability::HIGH)
-            .revision_durability(kind.durability())
+            .revision_durability(kind.file_set_durability())
             .new(db)
     }
 
-    fn durability_for(&self, db: &dyn Db, path: &Utf8Path) -> Durability {
-        self.root(db, path)
-            .map_or(Durability::LOW, |root| root.kind(db).durability())
+    fn new_file(&self, db: &dyn Db, path: &Utf8Path) -> File {
+        let root_kind = self.root(db, path).map(|root| root.kind(db));
+        File::builder(path.to_owned(), 0, file_status(db, path))
+            .durability(root_kind.map_or(Durability::LOW, |kind| kind.content_durability(path)))
+            .status_durability(root_kind.map_or(Durability::LOW, FileRootKind::file_set_durability))
+            .path_durability(Durability::HIGH)
+            .new(db)
     }
 }
 
