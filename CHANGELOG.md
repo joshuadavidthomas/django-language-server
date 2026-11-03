@@ -40,6 +40,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Changed `{% if %}` and `{% elif %}` condition checks (S114) to skip a tag that an unresolved `{% load %}` could shadow, like other compiled-argument checks.
 - Changed settings evaluation to check only names that can still reach a mutated list or dict when looking for stale aliases, which makes `.append()` and similar calls cheaper in large settings modules.
 - Changed settings evaluation to share unchanged names between `if` branches and loop passes instead of copying them, which roughly halves cold settings analysis for large settings modules such as NetBox's and pretix's.
+- **Internal**: Resolved model import prefixes by walking parent module names instead of re-parsing each prefix.
 - **Internal**: Removed hand-written end tags and intermediates for Django's builtin tags; test fixtures now mount the bundled Django by default.
 - **Internal**: Moved the remaining hand-written Django tag facts into Fallback Rules in `djls-project`, keyed by compile function and citing bundled Django source; `djls-semantic` no longer defines Django tag knowledge.
 - **Internal**: Renamed outline kind `ControlTag` to `BlockTag`.

@@ -564,6 +564,36 @@ pub fn resolve_prefix(db: &dyn ProjectDb, project: Project, dotted_path: &str) -
     }
 }
 
+/// [`resolve_prefix`] for a name that is already valid, walking its parents
+/// instead of re-joining and re-parsing each prefix.
+pub(crate) fn resolve_module_prefix(
+    db: &dyn ProjectDb,
+    project: Project,
+    name: &PythonModuleName,
+) -> ResolvedPrefix {
+    let mut prefix = Some(name.clone());
+    while let Some(candidate) = prefix {
+        let prefix_len = candidate.as_str().len();
+        let parent = candidate.parent();
+        if let Some(module) = PythonSourceModule::resolve(db, project, candidate) {
+            return ResolvedPrefix {
+                module: Some(module),
+                unresolved_tail: name.as_str()[prefix_len..]
+                    .split('.')
+                    .skip(1)
+                    .map(str::to_string)
+                    .collect(),
+            };
+        }
+        prefix = parent;
+    }
+
+    ResolvedPrefix {
+        module: None,
+        unresolved_tail: name.as_str().split('.').map(str::to_string).collect(),
+    }
+}
+
 // Salsa tracked-query keys are by-value; `name` is a key, not a borrow.
 #[allow(clippy::needless_pass_by_value)]
 #[salsa::tracked(returns(clone))]

@@ -25,6 +25,7 @@ pub use module::PythonSourceModule;
 pub use module::ResolvedPrefix;
 pub use module::file_to_module;
 pub use module::file_to_module_resolution;
+pub(crate) use module::resolve_module_prefix;
 pub use module::resolve_package_dirs;
 pub use module::resolve_prefix;
 pub use name::InvalidModuleName;
