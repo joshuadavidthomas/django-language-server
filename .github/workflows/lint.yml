@@ -186,6 +186,8 @@ jobs:
           install_args: rust
 
       - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Run clippy
         run: cargo clippy --all-targets --all-features --benches -- -D warnings
@@ -227,6 +229,8 @@ jobs:
           install_args: rust github:astral-sh/hawk
 
       - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Run hawk
         working-directory: tools/hawk
@@ -268,6 +272,8 @@ jobs:
           install_args: rust
 
       - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Run cargo check
         run: cargo check --all-targets --all-features
