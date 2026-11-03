@@ -229,7 +229,6 @@ pub(crate) struct PythonSourceLookup<'db> {
     file: File,
     consulted_files: Vec<File>,
     recovered_source_lookups: usize,
-    module_scope: Option<SourceOccurrenceAnalysis<'db>>,
 }
 
 impl<'db> PythonSourceLookup<'db> {
@@ -246,7 +245,6 @@ impl<'db> PythonSourceLookup<'db> {
             file,
             consulted_files: Vec::new(),
             recovered_source_lookups: 0,
-            module_scope: None,
         }
     }
 
@@ -262,7 +260,6 @@ impl<'db> PythonSourceLookup<'db> {
             module: Some(module),
             consulted_files: Vec::new(),
             recovered_source_lookups: 0,
-            module_scope: None,
         }
     }
 
@@ -471,43 +468,25 @@ impl<'db> PythonSourceLookup<'db> {
         }
         let before = self.recovered_source_lookups;
 
-        // This lookup borrows one database snapshot. Module-final bindings stay
-        // fixed; only the function-local prefix differs between call sites.
-        if self.module_scope.is_none() {
-            let parsed = RecoveredPythonModule::from_file(self.db, self.file).ok()??;
-            let mut analysis = SourceOccurrenceAnalysis::new(
-                self.db,
-                self.project,
-                self.module.clone(),
-                self.file,
-            );
-            analysis
-                .state
-                .evidence
-                .mark(SourceParse::of(self.db, parsed));
-            for statement in parsed.body(self.db) {
-                analysis.apply_statement_effects(statement);
-            }
-            self.module_scope = Some(analysis);
-        }
-        let module_scope = self.module_scope.as_ref()?;
+        // Module-final bindings stay fixed; only the function-local prefix
+        // differs between call sites.
+        let module_scope = self.module_final_scope()?;
         let parameters = function_parameter_names(function);
         // Without a lexical binding or nonlocal write, the prefix cannot turn
         // an unknown module-final name into an exact function.
         if let Expr::Name(name) = expression
             && matches!(
-                module_scope.state.bindings.get(name.id.as_str()),
+                module_scope.bindings.get(name.id.as_str()),
                 Some(Binding::Unknown)
             )
             && !scope.writes.contains_key(name.id.as_str())
             && !scope.nonlocals.contains(name.id.as_str())
             && !parameters.contains(name.id.as_str())
         {
-            let evidence = module_scope.state.evidence.clone();
-            self.absorb_evidence(&evidence);
+            self.absorb_evidence(&module_scope.evidence);
             return None;
         }
-        let mut analysis = module_scope.clone();
+        let mut analysis = self.analysis_from(module_scope);
         for name in scope
             .writes
             .keys()
@@ -575,24 +554,7 @@ impl<'db> PythonSourceLookup<'db> {
             return None;
         }
         let before = self.recovered_source_lookups;
-        if self.module_scope.is_none() {
-            let parsed = RecoveredPythonModule::from_file(self.db, self.file).ok()??;
-            let mut analysis = SourceOccurrenceAnalysis::new(
-                self.db,
-                self.project,
-                self.module.clone(),
-                self.file,
-            );
-            analysis
-                .state
-                .evidence
-                .mark(SourceParse::of(self.db, parsed));
-            for statement in parsed.body(self.db) {
-                analysis.apply_statement_effects(statement);
-            }
-            self.module_scope = Some(analysis);
-        }
-        let mut analysis = self.module_scope.clone()?;
+        let mut analysis = self.analysis_from(self.module_final_scope()?);
         let resolved = match analysis.resolve_expression(expression, 0) {
             Some(ResolvedValue::ModuleBinding(binding)) => Some(binding),
             Some(
@@ -609,6 +571,20 @@ impl<'db> PythonSourceLookup<'db> {
             .flatten()
     }
 
+    fn module_final_scope(&self) -> Option<&'db AnalysisState> {
+        module_final_scope(self.db, self.project, self.module.clone(), self.file).as_ref()
+    }
+
+    fn analysis_from(&self, scope: &AnalysisState) -> SourceOccurrenceAnalysis<'db> {
+        SourceOccurrenceAnalysis {
+            db: self.db,
+            project: self.project,
+            importer: self.module.clone(),
+            file: self.file,
+            state: scope.clone(),
+        }
+    }
+
     fn lookup(&mut self, expression: &Expr) -> Option<PythonOccurrenceValue> {
         let occurrence = python_source_occurrence(
             self.db,
@@ -620,6 +596,24 @@ impl<'db> PythonSourceLookup<'db> {
         self.absorb_evidence(&occurrence.evidence);
         occurrence.value.clone()
     }
+}
+
+/// Bindings after every top-level statement of a module, before any function
+/// body runs. Every function lookup in the module starts from these.
+#[salsa::tracked(returns(ref))]
+fn module_final_scope(
+    db: &dyn ProjectDb,
+    project: Option<Project>,
+    module: Option<PythonSourceModule>,
+    file: File,
+) -> Option<AnalysisState> {
+    let parsed = RecoveredPythonModule::from_file(db, file).ok()??;
+    let mut analysis = SourceOccurrenceAnalysis::new(db, project, module, file);
+    analysis.state.evidence.mark(SourceParse::of(db, parsed));
+    for statement in parsed.body(db) {
+        analysis.apply_statement_effects(statement);
+    }
+    Some(analysis.state)
 }
 
 #[salsa::tracked(returns(ref))]
