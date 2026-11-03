@@ -693,6 +693,142 @@ struct RelationLookupIndex {
     reverse: FxHashMap<ModelId, FxHashMap<FieldName, ModelId>>,
 }
 
+fn install_local_relation_bindings(
+    relation_bindings: &mut BTreeMap<RelationBindingId, RelationBinding>,
+    id: &ModelId,
+    local_bindings: &BTreeMap<FieldName, crate::models::extract::LocalBinding>,
+) -> ModelRelationBindings {
+    let mut local_relation_bindings = BTreeMap::new();
+    for (field_name, binding) in local_bindings {
+        let crate::models::extract::LocalBinding::Relation(index) = *binding else {
+            continue;
+        };
+        let declaration = RelationDeclarationId {
+            model: id.clone(),
+            index,
+        };
+        let binding_id = RelationBindingId {
+            owner: id.clone(),
+            declaration: declaration.clone(),
+        };
+        relation_bindings.insert(
+            binding_id.clone(),
+            RelationBinding {
+                owner: id.clone(),
+                declaration,
+                resolution: RelationTargetResolution::file_local(),
+            },
+        );
+        local_relation_bindings.insert(field_name.clone(), binding_id);
+    }
+    ModelRelationBindings {
+        effective_forward_bindings: local_relation_bindings.clone(),
+        local_relation_bindings,
+        local_bound_names: local_bindings.keys().cloned().collect(),
+    }
+}
+
+/// The parts of a [`ModelGraph`] that inheritance reads while relation
+/// bindings are installed, borrowed apart from the maps being written.
+struct ClassBindingSources<'a> {
+    records: &'a BTreeMap<ModelId, ModelRecord>,
+    model_ids_by_class: &'a BTreeMap<ClassId, ModelId>,
+    model_relation_bindings: &'a BTreeMap<ModelId, ModelRelationBindings>,
+    non_model_class_bindings: &'a BTreeMap<ClassId, BTreeSet<FieldName>>,
+}
+
+impl<'a> ClassBindingSources<'a> {
+    fn model_bindings(&self, class: &ClassId) -> Option<&'a ModelRelationBindings> {
+        self.model_relation_bindings
+            .get(self.model_ids_by_class.get(class)?)
+    }
+
+    fn local_bound_names(&self, class: &ClassId) -> Option<&'a BTreeSet<FieldName>> {
+        self.model_bindings(class).map_or_else(
+            || self.non_model_class_bindings.get(class),
+            |bindings| Some(&bindings.local_bound_names),
+        )
+    }
+
+    fn local_relation_bindings(
+        &self,
+        class: &ClassId,
+    ) -> Option<&'a BTreeMap<FieldName, RelationBindingId>> {
+        self.model_bindings(class)
+            .map(|bindings| &bindings.local_relation_bindings)
+    }
+
+    fn is_abstract(&self, class: &ClassId) -> bool {
+        self.model_ids_by_class
+            .get(class)
+            .and_then(|model| self.records.get(model))
+            .is_some_and(|record| record.definition.kind == ModelKind::Abstract)
+    }
+
+    /// Relations `id` inherits from abstract ancestors, which Django copies
+    /// onto each concrete subclass.
+    fn inherited_abstract_relations(
+        &self,
+        relation_bindings: &BTreeMap<RelationBindingId, RelationBinding>,
+        id: &ModelId,
+        mro: &[ClassId],
+    ) -> Vec<(FieldName, RelationDeclarationId)> {
+        let own = self.model_relation_bindings.get(id);
+        let mut occupied = BTreeSet::new();
+        let mut inherited = Vec::new();
+        for ancestor in mro.iter().skip(1) {
+            let Some(names) = self.local_bound_names(ancestor) else {
+                continue;
+            };
+            let relations = self.local_relation_bindings(ancestor);
+            let is_abstract = self.is_abstract(ancestor);
+            for name in names {
+                if own.is_some_and(|own| own.local_bound_names.contains(name))
+                    || !occupied.insert(name)
+                    || !is_abstract
+                {
+                    continue;
+                }
+                let Some(binding) = relations
+                    .and_then(|relations| relations.get(name))
+                    .and_then(|binding_id| relation_bindings.get(binding_id))
+                else {
+                    continue;
+                };
+                inherited.push((name.clone(), binding.declaration.clone()));
+            }
+        }
+        inherited
+    }
+
+    fn effective_forward_bindings(
+        &self,
+        id: &ModelId,
+        mro: &[ClassId],
+    ) -> BTreeMap<FieldName, RelationBindingId> {
+        let own = self.model_relation_bindings.get(id);
+        let mut forward = own
+            .map(|own| own.local_relation_bindings.clone())
+            .unwrap_or_default();
+        let mut occupied = BTreeSet::new();
+        for ancestor in mro.iter().skip(1) {
+            let Some(names) = self.local_bound_names(ancestor) else {
+                continue;
+            };
+            let relations = self.local_relation_bindings(ancestor);
+            for name in names {
+                if !own.is_some_and(|own| own.local_bound_names.contains(name))
+                    && occupied.insert(name)
+                    && let Some(binding_id) = relations.and_then(|relations| relations.get(name))
+                {
+                    forward.insert(name.clone(), binding_id.clone());
+                }
+            }
+        }
+        forward
+    }
+}
+
 /// Dependency graph of Django models and their relations.
 ///
 /// Models are keyed by deterministic import identity (`ModelId`) so
@@ -890,51 +1026,6 @@ impl ModelGraph {
         self.build_effective_relation_bindings();
     }
 
-    fn install_local_relation_bindings(
-        &mut self,
-        id: &ModelId,
-        local_bindings: BTreeMap<FieldName, crate::models::extract::LocalBinding>,
-    ) {
-        let local_bound_names = local_bindings.keys().cloned().collect();
-        let mut local_relation_bindings = BTreeMap::new();
-        for (field_name, binding) in local_bindings {
-            let crate::models::extract::LocalBinding::Relation(index) = binding else {
-                continue;
-            };
-            let declaration = RelationDeclarationId {
-                model: id.clone(),
-                index,
-            };
-            let binding_id = RelationBindingId {
-                owner: id.clone(),
-                declaration: declaration.clone(),
-            };
-            self.relation_bindings.insert(
-                binding_id.clone(),
-                RelationBinding {
-                    owner: id.clone(),
-                    declaration,
-                    resolution: RelationTargetResolution::file_local(),
-                },
-            );
-            local_relation_bindings.insert(field_name, binding_id);
-        }
-        let effective_forward_bindings = local_relation_bindings.clone();
-        assert!(
-            self.model_relation_bindings
-                .insert(
-                    id.clone(),
-                    ModelRelationBindings {
-                        local_relation_bindings,
-                        local_bound_names,
-                        effective_forward_bindings,
-                    },
-                )
-                .is_none(),
-            "relation bindings installed more than once: {id:?}",
-        );
-    }
-
     pub(super) fn add_non_model_class(
         &mut self,
         id: &ClassId,
@@ -958,144 +1049,80 @@ impl ModelGraph {
     }
 
     pub(super) fn build_effective_relation_bindings(&mut self) {
-        self.relation_bindings.clear();
-        let records = &self.records;
-        self.model_relation_bindings
-            .retain(|id, _bindings| !records.contains_key(id));
+        let Self {
+            records,
+            model_ids_by_class,
+            relation_bindings,
+            model_relation_bindings,
+            relation_lookup_index,
+            non_model_class_bindings,
+            ..
+        } = self;
+        let (records, model_ids_by_class, non_model_class_bindings) =
+            (&*records, &*model_ids_by_class, &*non_model_class_bindings);
+        relation_bindings.clear();
+        model_relation_bindings.retain(|id, _bindings| !records.contains_key(id));
 
-        let local_bindings: Vec<_> = self
-            .records
-            .iter()
-            .map(|(id, record)| (id.clone(), record.local_bindings.clone()))
-            .collect();
-        for (id, bindings) in local_bindings {
-            self.install_local_relation_bindings(&id, bindings);
+        for (id, record) in records {
+            let bindings =
+                install_local_relation_bindings(relation_bindings, id, &record.local_bindings);
+            assert!(
+                model_relation_bindings
+                    .insert(id.clone(), bindings)
+                    .is_none(),
+                "relation bindings installed more than once: {id:?}",
+            );
         }
 
-        let mut complete: Vec<(ModelId, Vec<ClassId>)> = self
-            .records
+        let mut complete: Vec<(&ModelId, &[ClassId])> = records
             .iter()
             .filter_map(|(id, record)| match &record.inheritance.ancestry {
-                AncestryOutcome::Complete { mro } => Some((id.clone(), mro.clone())),
+                AncestryOutcome::Complete { mro } => Some((id, mro.as_slice())),
                 AncestryOutcome::Partial | AncestryOutcome::Invalid { .. } => None,
             })
             .collect();
         complete.sort_by_key(|(_id, mro)| mro.len());
 
-        for (id, mro) in &complete {
-            self.clone_abstract_relation_bindings(id, mro);
-        }
-        for (id, mro) in complete {
-            self.install_effective_relation_bindings(id, &mro);
-        }
-        self.relation_lookup_index = OnceLock::new();
-    }
-
-    fn model_id_for_class(&self, class: &ClassId) -> Option<&ModelId> {
-        self.model_ids_by_class.get(class)
-    }
-
-    fn class_local_bound_names(&self, class: &ClassId) -> BTreeSet<FieldName> {
-        self.model_id_for_class(class)
-            .and_then(|model| self.model_relation_bindings.get(model))
-            .map(|bindings| bindings.local_bound_names.clone())
-            .or_else(|| self.non_model_class_bindings.get(class).cloned())
-            .unwrap_or_default()
-    }
-
-    fn class_local_relation_bindings(
-        &self,
-        class: &ClassId,
-    ) -> BTreeMap<FieldName, RelationBindingId> {
-        self.model_id_for_class(class)
-            .and_then(|model| self.model_relation_bindings.get(model))
-            .map(|bindings| bindings.local_relation_bindings.clone())
-            .unwrap_or_default()
-    }
-
-    fn clone_abstract_relation_bindings(&mut self, id: &ModelId, mro: &[ClassId]) {
-        let mut occupied = self
-            .model_relation_bindings
-            .get(id)
-            .map(|bindings| bindings.local_bound_names.clone())
-            .unwrap_or_default();
-        let mut local_relations = self
-            .model_relation_bindings
-            .get(id)
-            .map(|bindings| bindings.local_relation_bindings.clone())
-            .unwrap_or_default();
-        let mut cloned_names = BTreeSet::new();
-
-        for ancestor_id in mro.iter().skip(1) {
-            let ancestor_names = self.class_local_bound_names(ancestor_id);
-            let ancestor_relations = self.class_local_relation_bindings(ancestor_id);
-            let ancestor_is_abstract = self
-                .model_id_for_class(ancestor_id)
-                .and_then(|model| self.records.get(model))
-                .is_some_and(|record| record.definition.kind == ModelKind::Abstract);
-
-            for name in ancestor_names {
-                if !occupied.insert(name.clone()) || !ancestor_is_abstract {
-                    continue;
-                }
-                let Some(ancestor_binding_id) = ancestor_relations.get(&name) else {
-                    continue;
-                };
-                let Some(ancestor_binding) =
-                    self.relation_bindings.get(ancestor_binding_id).cloned()
-                else {
-                    continue;
-                };
+        for &(id, mro) in &complete {
+            let inherited = ClassBindingSources {
+                records,
+                model_ids_by_class,
+                model_relation_bindings,
+                non_model_class_bindings,
+            }
+            .inherited_abstract_relations(relation_bindings, id, mro);
+            let bindings = model_relation_bindings.entry(id.clone()).or_default();
+            for (name, declaration) in inherited {
                 let binding_id = RelationBindingId {
                     owner: id.clone(),
-                    declaration: ancestor_binding.declaration.clone(),
+                    declaration: declaration.clone(),
                 };
-                self.relation_bindings.insert(
+                relation_bindings.insert(
                     binding_id.clone(),
                     RelationBinding {
                         owner: id.clone(),
-                        declaration: ancestor_binding.declaration,
+                        declaration,
                         resolution: RelationTargetResolution::file_local(),
                     },
                 );
-                local_relations.insert(name.clone(), binding_id);
-                cloned_names.insert(name);
+                bindings.local_bound_names.insert(name.clone());
+                bindings.local_relation_bindings.insert(name, binding_id);
             }
         }
-
-        let bindings = self.model_relation_bindings.entry(id.clone()).or_default();
-        bindings.local_bound_names.extend(cloned_names);
-        bindings.local_relation_bindings = local_relations;
-    }
-
-    fn install_effective_relation_bindings(&mut self, id: ModelId, mro: &[ClassId]) {
-        let mut occupied = self
-            .model_relation_bindings
-            .get(&id)
-            .map(|bindings| bindings.local_bound_names.clone())
-            .unwrap_or_default();
-        let mut forward = self
-            .model_relation_bindings
-            .get(&id)
-            .map(|bindings| bindings.local_relation_bindings.clone())
-            .unwrap_or_default();
-
-        for ancestor_id in mro.iter().skip(1) {
-            let ancestor_names = self.class_local_bound_names(ancestor_id);
-            let ancestor_relations = self.class_local_relation_bindings(ancestor_id);
-            for name in ancestor_names {
-                if occupied.insert(name.clone())
-                    && let Some(binding_id) = ancestor_relations.get(&name)
-                {
-                    forward.insert(name, binding_id.clone());
-                }
+        for (id, mro) in complete {
+            let forward = ClassBindingSources {
+                records,
+                model_ids_by_class,
+                model_relation_bindings,
+                non_model_class_bindings,
             }
+            .effective_forward_bindings(id, mro);
+            model_relation_bindings
+                .entry(id.clone())
+                .or_default()
+                .effective_forward_bindings = forward;
         }
-
-        self.model_relation_bindings
-            .entry(id)
-            .or_default()
-            .effective_forward_bindings = forward;
+        *relation_lookup_index = OnceLock::new();
     }
 
     fn relation_declaration(&self, id: &RelationDeclarationId) -> Option<&Relation> {
