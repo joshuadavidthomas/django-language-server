@@ -80,7 +80,7 @@ impl<'db> TemplateValidator<'db> {
         let Some(facts) = self.projection.scoped_tag_facts(self.db).for_tag(tag) else {
             return;
         };
-        let effective_spec = facts.spec.as_ref();
+        let effective_spec = facts.spec.as_deref();
         let effective_role = effective_spec.and_then(TagSpec::role);
 
         if matches!(

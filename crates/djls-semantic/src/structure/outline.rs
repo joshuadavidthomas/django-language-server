@@ -81,7 +81,7 @@ impl OutlineTagRoles<'_> {
     fn role(&self, name_span: Span) -> Option<TagRole> {
         self.facts
             .for_name_span(name_span)
-            .and_then(|fact| fact.spec.as_ref())
+            .and_then(|fact| fact.spec.as_deref())
             .and_then(TagSpec::role)
     }
 }

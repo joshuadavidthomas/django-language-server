@@ -73,7 +73,7 @@ pub(crate) fn consumed_arguments<'a>(
         let condition = facts
             .for_name_span(opener_name_span)
             .filter(|fact| !fact.unknown_load_can_shadow)
-            .and_then(|fact| fact.spec.as_ref())
+            .and_then(|fact| fact.spec.as_deref())
             .and_then(TagSpec::condition);
         let mut consumed = ConsumedArguments::default();
         if condition.is_some_and(|condition| {
@@ -93,7 +93,7 @@ pub(crate) fn consumed_arguments<'a>(
     if fact.unknown_load_can_shadow {
         return ConsumedArguments::default();
     }
-    let Some(spec) = fact.spec.as_ref() else {
+    let Some(spec) = fact.spec.as_deref() else {
         return ConsumedArguments::default();
     };
     let consumed = spec

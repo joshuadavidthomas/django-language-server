@@ -288,7 +288,7 @@ pub fn template_references_in_file(
     let references = active_template_tags(tree.regions(db), tree.root(db))
         .into_iter()
         .filter_map(|tag| {
-            let spec = tag_facts.for_tag(tag)?.spec.as_ref()?;
+            let spec = tag_facts.for_tag(tag)?.spec.as_deref()?;
             let reference = LiteralTemplateReference::from_spec(spec, tag.bits)?;
             Some(TemplateReferenceInFile {
                 target_template_name: TemplateName::new(db, reference.template_name.to_string()),
@@ -318,7 +318,7 @@ pub fn template_library_references_in_file(
         .filter(|tag| {
             tag_facts
                 .for_tag(*tag)
-                .and_then(|facts| facts.spec.as_ref())
+                .and_then(|facts| facts.spec.as_deref())
                 .and_then(TagSpec::role)
                 == Some(TagRole::TemplateLibraryLoader)
         })
