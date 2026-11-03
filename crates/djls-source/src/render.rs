@@ -125,12 +125,16 @@ impl DiagnosticRenderer {
             Severity::Hint => Level::HELP.with_name("hint"),
         };
 
-        let mut snippet = Snippet::source(diagnostic.source)
+        let source = diagnostic.source;
+        let window =
+            LineWindow::covering(source, diagnostic.annotations.iter().map(|ann| ann.span));
+
+        let mut snippet = Snippet::source(window.text(source))
             .path(diagnostic.path)
-            .line_start(1);
+            .line_start(window.first_line);
 
         for ann in &diagnostic.annotations {
-            let start = ann.span.start_usize();
+            let start = window.offset(ann.span.start_usize());
             let end = start + ann.span.length_usize();
             let kind = if ann.primary {
                 AnnotationKind::Primary
@@ -147,6 +151,66 @@ impl DiagnosticRenderer {
 
         let report = &[title];
         self.renderer.render(report)
+    }
+}
+
+/// The whole lines of a source that cover a set of spans, plus one line before
+/// them.
+///
+/// annotate-snippets scans every line of the source it is given, so rendering
+/// only these lines keeps each render proportional to the diagnostic rather
+/// than the file. The extra line before keeps the line-number gutter as wide as
+/// it would be for the whole source: annotate-snippets sizes the gutter from
+/// the lines before the last annotation's end, and an annotation ending at the
+/// window start would otherwise count one line fewer.
+///
+/// `first_line` counts `\n` before the window rather than coming from
+/// [`LineIndex`](crate::LineIndex), because annotate-snippets numbers lines by
+/// `\n` only while `LineIndex` also breaks lines at a lone `\r`.
+struct LineWindow {
+    start: usize,
+    end: usize,
+    first_line: usize,
+}
+
+impl LineWindow {
+    fn covering(source: &str, spans: impl Iterator<Item = Span>) -> Self {
+        let (first, last) = spans
+            .fold(None, |bounds, span| {
+                let (start, end) = (span.start_usize(), span.end_usize());
+                Some(
+                    bounds.map_or((start, end), |(first, last): (usize, usize)| {
+                        (first.min(start), last.max(end))
+                    }),
+                )
+            })
+            .unwrap_or((0, 0));
+        let first = first.min(source.len());
+        let last = last.min(source.len());
+
+        let bytes = source.as_bytes();
+        let line_start_before =
+            |offset: usize| memchr::memrchr(b'\n', &bytes[..offset]).map_or(0, |index| index + 1);
+        let mut start = line_start_before(first);
+        if start > 0 {
+            start = line_start_before(start - 1);
+        }
+        let end =
+            memchr::memchr(b'\n', &bytes[last..]).map_or(source.len(), |index| last + index + 1);
+
+        Self {
+            start,
+            end,
+            first_line: 1 + memchr::memchr_iter(b'\n', &bytes[..start]).count(),
+        }
+    }
+
+    fn text<'a>(&self, source: &'a str) -> &'a str {
+        &source[self.start..self.end]
+    }
+
+    fn offset(&self, absolute: usize) -> usize {
+        absolute - self.start
     }
 }
 
@@ -305,5 +369,39 @@ mod tests {
             !output.contains("\x1b["),
             "plain output should not contain ANSI escape codes"
         );
+    }
+
+    #[test]
+    fn rendering_only_annotated_lines_matches_whole_source() {
+        let source = "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11 é\r\n12\n";
+        let line_10 = source
+            .find("10")
+            .expect("test source should contain line 10");
+        let line_12 = source
+            .find("12")
+            .expect("test source should contain line 12");
+        for (start, end) in [
+            (0, 1),
+            (line_10, line_10),
+            (line_10, line_12 + 2),
+            (source.len(), source.len()),
+        ] {
+            let diag = Diagnostic::new(
+                source,
+                "t.html",
+                "S100",
+                "msg",
+                Severity::Error,
+                Span::saturating_from_bounds_usize(start, end),
+                "label",
+            );
+            let whole = Snippet::source(source)
+                .path("t.html")
+                .line_start(1)
+                .annotation(AnnotationKind::Primary.span(start..end).label("label"));
+            let expected = Renderer::plain()
+                .render(&[Level::ERROR.primary_title("msg").id("S100").element(whole)]);
+            assert_eq!(plain().render(&diag), expected, "span {start}..{end}");
+        }
     }
 }

@@ -39,6 +39,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Changed library loading to recognize any tag whose compile function calls `parser.add_library`, rather than only a tag named `load`.
 - Changed `{% if %}` and `{% elif %}` condition checks (S114) to skip a tag that an unresolved `{% load %}` could shadow, like other compiled-argument checks.
 - Changed settings evaluation to check only names that can still reach a mutated list or dict when looking for stale aliases, which makes `.append()` and similar calls cheaper in large settings modules.
+- Changed `djls check` to render each diagnostic from only the source lines it points at, instead of the whole template, which makes checking projects with many diagnostics about 10% faster.
 - Changed settings evaluation to share unchanged names between `if` branches and loop passes instead of copying them, which roughly halves cold settings analysis for large settings modules such as NetBox's and pretix's.
 - Changed language server startup to skip hashing the bundled Django archives and to index their entries by name.
 - Changed template edits to skip re-checking cached facts about project Python modules, settings, and file sets. Project templates now get their own Salsa durability, which cuts the instructions per template edit by about 15%.
