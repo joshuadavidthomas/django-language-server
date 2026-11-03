@@ -3773,6 +3773,24 @@ def do_tag(parser, token):
     }
 
     #[test]
+    fn shadowed_module_constant_stays_hidden_after_branch_join() {
+        let env = eval_body(
+            r#"
+VALUES = ("old", "other")
+LABEL = "kept"
+def do_tag(parser, token):
+    bits = token.split_contents()
+    if len(bits) > 2:
+        VALUES = ("left",)
+    else:
+        VALUES = ("right",)
+"#,
+        );
+        assert_eq!(env.get("VALUES"), &AbstractValue::Unknown);
+        assert_eq!(env.get("LABEL"), &AbstractValue::Str("kept".to_string()));
+    }
+
+    #[test]
     fn string_join_does_not_preserve_split_list_shape() {
         let env = eval_body(
             r#"
