@@ -3,6 +3,10 @@ name: deep-tests
 # Property tests run with a fixed seed on every PR. This runs them with a fresh seed and many
 # more cases to find new failures. Reproduce one locally with the logged PROPTEST_RNG_SEED and
 # PROPTEST_CASES, then turn the shrunk input into a fixed regression test.
+#
+# The fuzz job runs the template parser fuzzer for 10 minutes, seeded from corpus templates.
+# A crash uploads its input as the fuzz-crashes artifact; reproduce it with
+# `cargo +<nightly> fuzz run --fuzz-dir fuzz parse_template <input>`.
 
 on:
   schedule:
@@ -50,4 +54,49 @@ jobs:
         with:
           name: proptest-regressions
           path: crates/*/proptest-regressions/
+          if-no-files-found: ignore
+
+  fuzz:
+    name: Template parser fuzzer
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+        with:
+          install_args: just rust
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: |
+            .
+            fuzz
+
+      - name: Install cargo-fuzz and the nightly toolchain
+        run: |
+          cargo install cargo-fuzz --locked
+          rustup toolchain install "$(sed -n 's/^channel = "\([^"]*\)"/\1/p' tools/rustfmt/rust-toolchain.toml)" --profile minimal
+
+      - name: Cache corpus source
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: crates/djls-testing/.corpus/repos
+          key: ${{ runner.os }}-corpus-source-${{ hashFiles('crates/djls-testing/manifest.lock') }}
+
+      - name: Sync corpus source
+        run: just corpus sync --source-only
+
+      - name: Fuzz the template parser
+        run: just fuzz -max_total_time=600
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
+        with:
+          name: fuzz-crashes
+          path: fuzz/artifacts/
           if-no-files-found: ignore

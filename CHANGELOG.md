@@ -55,6 +55,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - **Internal**: Moved corpus-backed `djls-semantic` validation tests into the `corpus` nox session and tightened `djls-semantic` tests and mdtest harness checks.
 - **Internal**: Added `djls-semantic` mdtest cases covering unloaded-symbol diagnostics (S109, S110) after a selective import from an unresolved library, and after a resolved load that does not define the symbol.
 - **Internal**: Added `just fuzz`, a cargo-fuzz target for the template parser seeded from corpus templates, which checks that node spans stay on char boundaries and cover the source exactly, with both single-line and multi-line tags.
+- **Internal**: The nightly `deep-tests` workflow now runs the template parser fuzzer for 10 minutes, seeded from corpus templates, and uploads any crashing input.
 
 ### Fixed
 

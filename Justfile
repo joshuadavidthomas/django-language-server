@@ -41,7 +41,7 @@ clippy *ARGS:
     cargo clippy --all-targets --all-features --benches --fix --allow-dirty {{ ARGS }} -- -D warnings
 
 # Needs `just corpus sync --source-only`. ARGS go to libFuzzer, such as `-max_total_time=600`.
-# Fuzz the template parser against Django's lexer, seeded from corpus templates
+# Fuzz the template parser, seeded from corpus templates
 [positional-arguments]
 fuzz *ARGS:
     #!/usr/bin/env bash
