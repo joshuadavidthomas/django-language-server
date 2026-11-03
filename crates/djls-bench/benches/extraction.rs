@@ -6,6 +6,7 @@ use divan::Bencher;
 use djls_bench::Db;
 use djls_bench::Fixture;
 use djls_bench::REPEATED_INNER_ITERS;
+use djls_bench::corpus_or_skip;
 use djls_bench::fail;
 use djls_bench::python_fixtures;
 use djls_bench::require;
@@ -268,7 +269,14 @@ fn settings_cold_external_constants(bencher: Bencher) {
 /// source reads, parsing, evaluation, and settings projection are timed.
 #[divan::bench(args = ["healthchecks", "netbox", "pretix"], sample_count = 10)]
 fn settings_cold_corpus(bencher: Bencher, name: &str) {
-    let corpus = require("load settings corpus", Corpus::require());
+    let corpus = if Corpus::is_available() {
+        Corpus::require().map(Some)
+    } else {
+        Ok(None)
+    };
+    let Some(corpus) = corpus_or_skip(format_args!("{name} settings benchmark"), corpus) else {
+        return;
+    };
     let declaration = require(
         "find settings corpus project",
         require(

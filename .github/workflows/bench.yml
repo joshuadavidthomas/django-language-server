@@ -2,6 +2,8 @@ name: bench
 
 on:
   pull_request:
+    # `labeled` lets adding the `bench 🏋️` label start a run with the real-project shard.
+    types: [opened, synchronize, reopened, labeled]
     paths:
       - ".github/workflows/bench.yml"
       - "crates/**"
@@ -23,20 +25,103 @@ on:
 env:
   UV_CACHE_DIR: ${{ github.workspace }}/.cache/uv
 
+# The benchmarks run in shards split by setup cost. CodSpeed merges the shards' results
+# because they run in this one workflow; keep them here.
+# https://codspeed.io/docs/features/sharded-benchmarks
+#
+# - core: benchmarks on in-repo fixtures. The corpus is absent, so the corpus-backed
+#   benchmarks in the same files skip themselves.
+# - corpus: corpus-backed benchmarks, selected by the `corpus` name filter. A new
+#   corpus-backed benchmark needs `corpus` in its name to run here.
+# - real-project: the `real_project` bench target on two corpus Python environments. It runs on
+#   main, on manual runs, and on PRs labeled `bench 🏋️`.
+#
+# A PR labeled with anything else does not rerun the benchmarks.
 jobs:
   benchmarks:
-    name: benchmarks (${{ matrix.mode }})
+    name: benchmarks (${{ matrix.shard }}, ${{ matrix.mode }})
+    if: github.event.action != 'labeled' || github.event.label.name == 'bench 🏋️'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
+        shard: [core, corpus]
         mode: [simulation, memory]
+        include:
+          - shard: core
+            benches: --bench parser --bench semantic --bench diagnostics --bench extraction --bench check --bench models
+            filter: ""
+            run_env: ""
+          - shard: corpus
+            benches: --bench extraction --bench check --bench models
+            filter: corpus
+            # Fail rather than skip when the corpus is missing.
+            run_env: DJLS_REQUIRE_BENCH_CORPUS=1
     permissions:
       contents: read
     steps:
-      # The corpus, the real-project Python environments, the test build, and the
-      # benchmark build together overflow the runner's disk, so free it before any
-      # cache restore.
+      - name: Free disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+        with:
+          add_shims_to_path: false
+          install_args: rust
+
+      - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+        with:
+          key: ${{ matrix.shard }}-${{ matrix.mode }}
+
+      - name: Cache corpus
+        if: matrix.shard == 'corpus'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: crates/djls-testing/.corpus/repos
+          key: ${{ runner.os }}-corpus-source-${{ hashFiles('crates/djls-testing/manifest.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-corpus-source-
+
+      - run: df -h /
+
+      - name: Sync corpus
+        if: matrix.shard == 'corpus'
+        run: cargo run -q -p djls-testing --bin corpus -- sync --source-only
+
+      - run: cargo install cargo-codspeed --locked
+
+      - name: Build the benchmark target(s)
+        run: |
+          cargo codspeed build -m ${{ matrix.mode }} -p djls-bench ${{ matrix.benches }}
+          df -h /
+
+      - name: Run the benchmarks
+        uses: CodSpeedHQ/action@78102a468f96d8e0ccb92d0ec49425753fc42062
+        env:
+          # Use the same glibc memcmp path on Intel and AMD simulation runners.
+          # https://codspeed.io/blog/why-glibc-faster-github-actions
+          GLIBC_TUNABLES: glibc.cpu.hwcaps=-AVX2
+        with:
+          mode: ${{ matrix.mode }}
+          # check.rs::corpus_all skips itself in memory mode; see codspeed_memory_mode.
+          run: ${{ matrix.run_env }} cargo codspeed run -m ${{ matrix.mode }} -p djls-bench ${{ matrix.benches }} ${{ matrix.filter }}
+
+  real-project:
+    name: benchmarks (real-project, simulation)
+    if: >-
+      github.event_name != 'pull_request'
+      || (contains(github.event.pull_request.labels.*.name, 'bench 🏋️')
+      && (github.event.action != 'labeled' || github.event.label.name == 'bench 🏋️'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
       - name: Free disk space
         run: |
           df -h /
@@ -54,7 +139,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
         with:
-          key: ${{ matrix.mode }}
+          key: real-project-simulation
 
       - name: Cache corpus
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -64,11 +149,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-corpus-source-
 
-      - name: Sync corpus
-        run: cargo run -q -p djls-testing --bin corpus -- sync --source-only
-
-      # Real-project benchmarks need these two environments. Restore, but never save, the
-      # Project-backed corpus job's uv cache so this job cannot replace it with a subset.
+      # Restore, but never save, the Project-backed corpus job's uv cache so this job
+      # cannot replace it with a subset.
       - name: Restore corpus Python downloads
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -77,22 +159,24 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-uv-corpus-
 
+      - run: df -h /
+
+      - name: Sync corpus
+        run: cargo run -q -p djls-testing --bin corpus -- sync --source-only
+
       - name: Build real-project environments
         run: |
           # netbox builds psycopg-c from source when the uv cache has no wheel for it.
           command -v pg_config >/dev/null || { sudo apt-get update && sudo apt-get install -y libpq-dev; }
           cargo run -q -p djls-testing --bin corpus -- environment sync djangoproject.com netbox
+          uv cache prune --ci
           df -h /
-
-      - name: Verify benchmark workload snapshots
-        if: matrix.mode == 'simulation'
-        run: DJLS_REQUIRE_BENCH_CORPUS=1 cargo test -p djls-bench -- --include-ignored
 
       - run: cargo install cargo-codspeed --locked
 
-      - name: Build the benchmark target(s)
+      - name: Build the benchmark target
         run: |
-          cargo codspeed build -m ${{ matrix.mode }} -p djls-bench
+          cargo codspeed build -m simulation -p djls-bench --bench real_project
           df -h /
 
       - name: Run the benchmarks
@@ -101,8 +185,7 @@ jobs:
           # Use the same glibc memcmp path on Intel and AMD simulation runners.
           # https://codspeed.io/blog/why-glibc-faster-github-actions
           GLIBC_TUNABLES: glibc.cpu.hwcaps=-AVX2
+          DJLS_REQUIRE_BENCH_CORPUS: "1"
         with:
-          mode: ${{ matrix.mode }}
-          # check.rs::corpus_all and real_project cold_start_check_templates[netbox] skip
-          # themselves in memory mode; see codspeed_memory_mode.
-          run: cargo codspeed run -m ${{ matrix.mode }} -p djls-bench
+          mode: simulation
+          run: cargo codspeed run -m simulation -p djls-bench --bench real_project
