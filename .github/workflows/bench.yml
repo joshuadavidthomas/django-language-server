@@ -78,6 +78,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: ${{ matrix.shard }}-${{ matrix.mode }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Cache corpus
         if: matrix.shard == 'corpus'
@@ -140,6 +141,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: real-project-simulation
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Cache corpus
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

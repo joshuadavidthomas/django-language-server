@@ -137,8 +137,9 @@ jobs:
           add_shims_to_path: false
           install_args: uv rust
 
-      - name: Cache uv dependencies
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Restore uv dependencies
+        id: uv-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ env.UV_CACHE_DIR }}
           key: ${{ runner.os }}-${{ runner.arch }}-uv-test-${{ matrix.python-version }}-${{ matrix.django-version }}-${{ hashFiles('uv.lock', 'mise.toml', 'noxfile.py') }}
@@ -150,6 +151,13 @@ jobs:
           PYTHON_VERSION: ${{ matrix.python-version }}
         run: |
           uv run --no-project --with "nox[uv]" nox --session "tests(python='${PYTHON_VERSION}', django='${DJANGO_VERSION}')"
+
+      - name: Save uv dependencies
+        if: github.ref == 'refs/heads/main' && steps.uv-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.UV_CACHE_DIR }}
+          key: ${{ steps.uv-cache.outputs.cache-primary-key }}
 
   corpus:
     name: Project-backed corpus
@@ -168,6 +176,8 @@ jobs:
           install_args: uv rust
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install native build prerequisites
         run: |
@@ -181,20 +191,38 @@ jobs:
           path: crates/djls-testing/.corpus/repos
           key: ${{ runner.os }}-corpus-source-${{ hashFiles('crates/djls-testing/manifest.lock') }}
 
-      - name: Cache historical interpreters
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # These caches are saved only from main, so pull requests reuse main's copies
+      # instead of each storing their own and pushing main's out of the cache budget.
+      - name: Restore historical interpreters
+        id: interpreters-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: crates/djls-testing/.corpus/interpreters
           key: ${{ runner.os }}-${{ runner.arch }}-ubuntu22-corpus-python-${{ hashFiles('tools/corpus-python.sh') }}
 
-      - name: Cache Python downloads
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Restore Python downloads
+        id: uv-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ env.UV_CACHE_DIR }}
           key: ${{ runner.os }}-${{ runner.arch }}-uv-corpus-${{ hashFiles('crates/djls-testing/manifest.lock', 'crates/djls-testing/manifest.toml', 'mise.toml') }}
 
       - name: Rebuild environments and test snapshots
         run: uv run --no-project --with "nox[uv]" nox --session corpus
+
+      - name: Save historical interpreters
+        if: github.ref == 'refs/heads/main' && steps.interpreters-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: crates/djls-testing/.corpus/interpreters
+          key: ${{ steps.interpreters-cache.outputs.cache-primary-key }}
+
+      - name: Save Python downloads
+        if: github.ref == 'refs/heads/main' && steps.uv-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.UV_CACHE_DIR }}
+          key: ${{ steps.uv-cache.outputs.cache-primary-key }}
 
       # Checks the benchmark workloads against their snapshots. The bench workflow's shards
       # do not build the test profile, and this job already has the synced corpus.
@@ -226,6 +254,8 @@ jobs:
           install_args: rust
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Cache corpus
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -257,8 +287,9 @@ jobs:
           add_shims_to_path: false
           install_args: uv rust
 
-      - name: Cache uv dependencies
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Restore uv dependencies
+        id: uv-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ env.UV_CACHE_DIR }}
           key: ${{ runner.os }}-${{ runner.arch }}-uv-e2e-${{ hashFiles('uv.lock', 'mise.toml', 'noxfile.py') }}
@@ -267,6 +298,13 @@ jobs:
         shell: bash
         run: |
           uv run --no-project --with "nox[uv]" nox --session e2e
+
+      - name: Save uv dependencies
+        if: github.ref == 'refs/heads/main' && steps.uv-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.UV_CACHE_DIR }}
+          key: ${{ steps.uv-cache.outputs.cache-primary-key }}
 
   tests:
     runs-on: ubuntu-latest
