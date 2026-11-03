@@ -7,6 +7,7 @@ use djls_source::FileReadError;
 use djls_source::Origin;
 
 use super::BranchConstraints;
+use super::ConstraintRestriction;
 use super::MappingLogItem;
 use super::OriginSet;
 use super::PythonDict;
@@ -155,9 +156,9 @@ impl ValueEvidenceSet {
         });
     }
 
-    fn constrain(&mut self, constraints: &BranchConstraints) {
+    fn restrict(&mut self, restriction: &mut ConstraintRestriction<'_>) {
         for evidence in &mut self.0 {
-            evidence.constraints = evidence.constraints.intersection(constraints);
+            evidence.constraints = restriction.restrict(&evidence.constraints);
         }
     }
 
@@ -741,11 +742,15 @@ impl PythonValue {
     }
 
     pub(super) fn constrain_value_evidence(&mut self, constraints: &BranchConstraints) {
-        self.evidence.constrain(constraints);
+        self.restrict_value_evidence(&mut ConstraintRestriction::new(constraints));
+    }
+
+    pub(super) fn restrict_value_evidence(&mut self, restriction: &mut ConstraintRestriction<'_>) {
+        self.evidence.restrict(restriction);
         match &mut self.kind {
-            PythonValueKind::List(list) => list.constrain_value_evidence(constraints),
-            PythonValueKind::Tuple(tuple) => tuple.constrain_value_evidence(constraints),
-            PythonValueKind::Dict(dict) => dict.constrain_value_evidence(constraints),
+            PythonValueKind::List(list) => list.restrict_value_evidence(restriction),
+            PythonValueKind::Tuple(tuple) => tuple.restrict_value_evidence(restriction),
+            PythonValueKind::Dict(dict) => dict.restrict_value_evidence(restriction),
             PythonValueKind::Str(_)
             | PythonValueKind::Bool(_)
             | PythonValueKind::Path(_)

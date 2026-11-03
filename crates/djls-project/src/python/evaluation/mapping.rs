@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 
 use djls_source::Origin;
 
-use super::BranchConstraints;
+use super::ConstraintRestriction;
 use super::PythonUnknown;
 use super::PythonUnknownCause;
 use super::PythonValue;
@@ -135,14 +135,14 @@ impl PythonDict {
         }
     }
 
-    pub(super) fn constrain_value_evidence(&mut self, constraints: &BranchConstraints) {
+    pub(super) fn restrict_value_evidence(&mut self, restriction: &mut ConstraintRestriction<'_>) {
         for item in &mut self.items {
             if let DictItem::Entry(entry) = item {
-                entry.key.constrain_value_evidence(constraints);
-                entry.value.constrain_value_evidence(constraints);
+                entry.key.restrict_value_evidence(restriction);
+                entry.value.restrict_value_evidence(restriction);
             }
         }
-        self.allocation_sites.constrain(constraints);
+        self.allocation_sites.restrict(restriction);
     }
 
     pub(super) fn normalize(&mut self) {
