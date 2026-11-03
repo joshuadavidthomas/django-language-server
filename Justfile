@@ -18,6 +18,19 @@ cog:
 nox SESSION *ARGS:
     uv run --no-project --with "nox[uv]" nox --session "$@"
 
+# Build benchmark targets for CodSpeed, e.g. `just bench-build simulation --bench parser`
+[positional-arguments]
+bench-build MODE *BENCHES:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mode="$1"
+    shift
+    cargo codspeed build -m "$mode" -p djls-bench "$@"
+
+# Build the standalone release binary for a target triple, as the build workflow does
+build-release TARGET:
+    cargo {{ if os() == "linux" { if TARGET =~ "^aarch64" { "zigbuild" } else { "build" } } else { "build" } }} --verbose --release --target {{ TARGET }}
+
 bumpver *ARGS:
     uv run --with bumpver bumpver {{ ARGS }}
 
@@ -74,14 +87,26 @@ ecosystem BASE="origin/main":
     #!/usr/bin/env bash
     set -euo pipefail
     out="target/ecosystem"
-    rm -rf "$out/base-src" && mkdir -p "$out"
+    rm -rf "$out" && mkdir -p "$out"
+    git worktree prune
     git worktree add --detach "$out/base-src" "{{ BASE }}" >/dev/null
     trap 'git worktree remove --force "$out/base-src"' EXIT
-    cargo build --release -q -p djls --manifest-path "$out/base-src/Cargo.toml" --target-dir "$out/base-target"
+    # Both builds share target/ so the second reuses the first's dependencies.
+    cargo build --release -q -p djls --manifest-path "$out/base-src/Cargo.toml" --target-dir target
+    cp target/release/djls "$out/djls-base"
     cargo build --release -q -p djls
-    uv run tools/ecosystem.py run --djls "$out/base-target/release/djls" --output "$out/base.json"
-    uv run tools/ecosystem.py run --djls target/release/djls --output "$out/head.json"
+    cp target/release/djls "$out/djls-head"
+    uv run tools/ecosystem.py run --djls "$out/djls-base" --output "$out/base.json"
+    uv run tools/ecosystem.py run --djls "$out/djls-head" --output "$out/head.json"
     uv run tools/ecosystem.py diff "$out/base.json" "$out/head.json"
+
+# Run the property tests with many cases, as the nightly deep-tests workflow does
+deep-properties:
+    #!/usr/bin/env bash
+    status=0
+    PROPTEST_CASES=5000 cargo test -p djls-project --lib cpython_differential || status=1
+    PROPTEST_CASES=500 cargo test -p djls-ide --test it incremental || status=1
+    exit "$status"
 
 # Mutation-test a crate or file, e.g. `just mutants -p djls-semantic -f crates/djls-semantic/src/scoping/loads.rs`
 [positional-arguments]
@@ -113,6 +138,10 @@ lint *ARGS:
 
 run *ARGS:
     cargo run -p djls -- {{ ARGS }}
+
+# Print the CI test matrix as JSON for a comma-separated list of runner OSes
+gha-matrix OS="":
+    @just nox gha_matrix -- "{{ OS }}"
 
 [positional-arguments]
 test *ARGS:

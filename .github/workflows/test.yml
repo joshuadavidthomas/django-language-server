@@ -7,6 +7,7 @@ on:
     paths:
       - .github/actions/setup/action.yml
       - .github/workflows/test.yml
+      - Justfile
       - crates/**
       - tests/**
       - tools/corpus-python.sh
@@ -24,6 +25,7 @@ on:
     paths:
       - .github/actions/setup/action.yml
       - .github/workflows/test.yml
+      - Justfile
       - crates/**
       - tests/**
       - tools/corpus-python.sh
@@ -87,7 +89,7 @@ jobs:
 
       - uses: $/.github/actions/setup
         with:
-          tools: uv
+          tools: uv just
           uv-cache-key: ${{ runner.os }}-${{ runner.arch }}-uv-matrix-${{ hashFiles('uv.lock', 'mise.toml', 'noxfile.py') }}
 
       - id: set-matrix
@@ -99,7 +101,7 @@ jobs:
           if [[ -z "$os" && "$BRANCH" == release/* ]]; then
             os="macos-latest,ubuntu-latest,windows-latest"
           fi
-          uv run --no-project --with "nox[uv]" nox --session gha_matrix -- "$os"
+          just gha-matrix "$os"
 
   test:
     name: Python ${{ matrix.python-version }}, Django ${{ matrix.django-version }} (${{ matrix.os }})
@@ -120,7 +122,7 @@ jobs:
       # cache per OS. The first leg saves them.
       - uses: $/.github/actions/setup
         with:
-          tools: uv rust
+          tools: uv rust just
           save: ${{ strategy.job-index == 0 }}
           rust-cache: test
           uv-cache-key: ${{ runner.os }}-${{ runner.arch }}-uv-test-${{ hashFiles('uv.lock', 'mise.toml', 'noxfile.py') }}
@@ -131,8 +133,7 @@ jobs:
         env:
           DJANGO_VERSION: ${{ matrix.django-version }}
           PYTHON_VERSION: ${{ matrix.python-version }}
-        run: |
-          uv run --no-project --with "nox[uv]" nox --session "tests(python='${PYTHON_VERSION}', django='${DJANGO_VERSION}')"
+        run: just test-cell "$PYTHON_VERSION" "$DJANGO_VERSION"
 
   corpus:
     name: Project-backed corpus
@@ -149,7 +150,7 @@ jobs:
       # Rebuild environments in CI to exercise dependency resolution on each run.
       - uses: $/.github/actions/setup
         with:
-          tools: uv rust
+          tools: uv rust just
           rust-cache: corpus
           uv-cache-key: ${{ runner.os }}-${{ runner.arch }}-uv-corpus-${{ hashFiles('crates/djls-testing/manifest.lock', 'crates/djls-testing/manifest.toml', 'mise.toml') }}
           corpus: true
@@ -168,7 +169,7 @@ jobs:
           key: ${{ runner.os }}-${{ runner.arch }}-ubuntu22-corpus-python-${{ hashFiles('tools/corpus-python.sh') }}
 
       - name: Rebuild environments and test snapshots
-        run: uv run --no-project --with "nox[uv]" nox --session corpus
+        run: just corpus
 
       - name: Save historical interpreters
         if: github.ref == 'refs/heads/main' && steps.interpreters-cache.outputs.cache-hit != 'true'
@@ -200,16 +201,16 @@ jobs:
       # Builds the corpus binary, which the test legs also build.
       - uses: $/.github/actions/setup
         with:
-          tools: rust
+          tools: rust just
           save: false
           rust-cache: test
           corpus: true
 
       - name: Sync corpus
-        run: cargo run -q -p djls-testing --bin corpus -- sync --source-only
+        run: just corpus sync --source-only
 
       - name: Check vendored spec fixtures
-        run: cargo run -q -p djls-testing --bin corpus -- vendor-spec-fixtures --check
+        run: just corpus vendor-spec-fixtures --check
 
   e2e:
     runs-on: ubuntu-latest
@@ -226,15 +227,14 @@ jobs:
       # that leg's caches.
       - uses: $/.github/actions/setup
         with:
-          tools: uv rust
+          tools: uv rust just
           save: false
           rust-cache: test
           uv-cache-key: ${{ runner.os }}-${{ runner.arch }}-uv-test-${{ hashFiles('uv.lock', 'mise.toml', 'noxfile.py') }}
 
       - name: Run e2e tests
         shell: bash
-        run: |
-          uv run --no-project --with "nox[uv]" nox --session e2e
+        run: just e2e
 
   tests:
     runs-on: ubuntu-latest

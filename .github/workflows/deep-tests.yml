@@ -34,21 +34,12 @@ jobs:
       # Builds the test profile like the test matrix, so it restores that cache.
       - uses: $/.github/actions/setup
         with:
-          tools: rust
+          tools: rust just
           save: false
           rust-cache: test
 
-      - name: Static Python evaluator against CPython
-        if: ${{ !cancelled() }}
-        env:
-          PROPTEST_CASES: "5000"
-        run: cargo test -p djls-project --lib cpython_differential
-
-      - name: Incremental diagnostics against a fresh database
-        if: ${{ !cancelled() }}
-        env:
-          PROPTEST_CASES: "500"
-        run: cargo test -p djls-ide --test it incremental
+      - name: Property tests with many cases
+        run: just deep-properties
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()

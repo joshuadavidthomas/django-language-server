@@ -546,16 +546,20 @@ $ just
 $ # just --list --list-submodules
 
 Available recipes:
+    bench-build MODE *BENCHES     # Build benchmark targets for CodSpeed, e.g. `just bench-build simulation --bench parser`
+    build-release TARGET          # Build the standalone release binary for a target triple, as the build workflow does
     bumpver *ARGS
     check *ARGS
     clean
     clippy *ARGS                  # Pass `--fix --allow-dirty` to apply suggestions
     corpus *ARGS                  # Run corpus setup and tests, or forward subcommands to the management CLI
+    deep-properties               # Run the property tests with many cases, as the nightly deep-tests workflow does
     e2e *ARGS
     ecosystem BASE="origin/main"  # Run `djls check` from the base and current builds across the corpus and diff the diagnostics
     fixtures *ARGS
     fmt *ARGS
     fuzz *ARGS                    # Fuzz the template parser, seeded from corpus templates
+    gha-matrix OS=""              # Print the CI test matrix as JSON for a comma-separated list of runner OSes
     hawk *ARGS
     lint *ARGS                    # Check Justfile formatting and run pre-commit on all files
     mutants *ARGS                 # Mutation-test a crate or file, e.g. `just mutants -p djls-semantic -f crates/djls-semantic/src/scoping/loads.rs`

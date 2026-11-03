@@ -43,7 +43,7 @@ jobs:
 
       - uses: $/.github/actions/setup
         with:
-          tools: uv prek
+          tools: uv prek just
           uv-cache-key: ${{ runner.os }}-${{ runner.arch }}-uv-lint-${{ hashFiles('uv.lock', 'mise.toml', 'noxfile.py') }}
 
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -52,9 +52,9 @@ jobs:
           key: prek-1|${{ hashFiles('.pre-commit-config.yaml') }}
 
       - name: Run pre-commit
-        run: |
-          SKIP=no-commit-to-branch,cargo-fmt,cargo-clippy \
-          uv run --no-project --with "nox[uv]" nox --session lint
+        env:
+          SKIP: no-commit-to-branch,cargo-fmt,cargo-clippy
+        run: just lint
 
   release-metadata:
     needs: should-run
@@ -115,12 +115,11 @@ jobs:
 
       - uses: $/.github/actions/setup
         with:
-          tools: rust
+          tools: rust just
           working-directory: tools/rustfmt
 
       - name: Run rustfmt
-        working-directory: tools/rustfmt
-        run: cargo fmt --manifest-path "${{ github.workspace }}/Cargo.toml" --all -- --check
+        run: just fmt --check
 
   clippy:
     runs-on: ubuntu-24.04
@@ -134,11 +133,11 @@ jobs:
 
       - uses: $/.github/actions/setup
         with:
-          tools: rust
+          tools: rust just
           rust-cache: clippy
 
       - name: Run clippy
-        run: cargo clippy --all-targets --all-features --benches -- -D warnings
+        run: just clippy
 
   hawk:
     runs-on: ubuntu-24.04
@@ -152,10 +151,9 @@ jobs:
 
       - uses: $/.github/actions/setup
         with:
-          tools: rust github:astral-sh/hawk
+          tools: rust just github:astral-sh/hawk
           working-directory: tools/hawk
           rust-cache: hawk
 
       - name: Run hawk
-        working-directory: tools/hawk
-        run: cargo hawk check --manifest-path "${{ github.workspace }}/Cargo.toml" --target-dir "${{ github.workspace }}/target/hawk" --exclude-crate djls_wasm -D warnings
+        run: just hawk

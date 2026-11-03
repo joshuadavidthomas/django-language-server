@@ -9,6 +9,7 @@ on:
       - .github/workflows/ecosystem.yml
       - crates/**
       - tools/ecosystem.py
+      - Justfile
       - Cargo.lock
       - Cargo.toml
       - rust-toolchain.toml
@@ -40,37 +41,21 @@ jobs:
       # no job on main builds the release profile it needs.
       - uses: $/.github/actions/setup
         with:
-          tools: rust uv
+          tools: rust uv just
           corpus: true
 
       - name: Sync corpus
-        run: cargo run -q -p djls-testing --bin corpus -- sync --source-only
+        run: just corpus sync --source-only
 
-      - name: Build head
-        run: |
-          cargo build --release -q -p djls
-          mkdir -p "$RUNNER_TEMP/ecosystem"
-          cp target/release/djls "$RUNNER_TEMP/ecosystem/djls-head"
-
-      - name: Build base
+      - name: Diff diagnostics between base and head
+        shell: bash
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || 'origin/main' }}
-        run: |
-          git worktree add "$RUNNER_TEMP/base" "$BASE_SHA"
-          cargo build --release -q -p djls --manifest-path "$RUNNER_TEMP/base/Cargo.toml" --target-dir target
-          cp target/release/djls "$RUNNER_TEMP/ecosystem/djls-base"
-
-      - name: Run base and head
-        run: |
-          uv run tools/ecosystem.py run --djls "$RUNNER_TEMP/ecosystem/djls-base" --output "$RUNNER_TEMP/ecosystem/base.json"
-          uv run tools/ecosystem.py run --djls "$RUNNER_TEMP/ecosystem/djls-head" --output "$RUNNER_TEMP/ecosystem/head.json"
-
-      - name: Diff
-        run: uv run tools/ecosystem.py diff "$RUNNER_TEMP/ecosystem/base.json" "$RUNNER_TEMP/ecosystem/head.json" | tee -a "$GITHUB_STEP_SUMMARY"
+        run: just ecosystem "$BASE_SHA" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: ecosystem
-          path: ${{ runner.temp }}/ecosystem/*.json
+          path: target/ecosystem/*.json
           if-no-files-found: warn

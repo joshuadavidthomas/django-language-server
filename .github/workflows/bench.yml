@@ -9,6 +9,7 @@ on:
       - ".github/workflows/bench.yml"
       - "crates/**"
       - "Cargo.lock"
+      - "Justfile"
       - "Cargo.toml"
       - "mise.toml"
       - "rust-toolchain.toml"
@@ -19,6 +20,7 @@ on:
       - ".github/workflows/bench.yml"
       - "crates/**"
       - "Cargo.lock"
+      - "Justfile"
       - "Cargo.toml"
       - "mise.toml"
       - "rust-toolchain.toml"
@@ -76,7 +78,7 @@ jobs:
       # the corpus binary, so it saves the mode's cache.
       - uses: $/.github/actions/setup
         with:
-          tools: rust
+          tools: rust just
           save: ${{ matrix.shard == 'corpus' }}
           rust-cache: bench-${{ matrix.mode }}
           corpus: ${{ matrix.shard == 'corpus' }}
@@ -85,13 +87,13 @@ jobs:
 
       - name: Sync corpus
         if: matrix.shard == 'corpus'
-        run: cargo run -q -p djls-testing --bin corpus -- sync --source-only
+        run: just corpus sync --source-only
 
       - run: cargo install cargo-codspeed --locked
 
       - name: Build the benchmark target(s)
         run: |
-          cargo codspeed build -m ${{ matrix.mode }} -p djls-bench ${{ matrix.benches }}
+          just bench-build ${{ matrix.mode }} ${{ matrix.benches }}
           df -h /
 
       - name: Run the benchmarks
@@ -127,7 +129,7 @@ jobs:
 
       - uses: $/.github/actions/setup
         with:
-          tools: rust uv
+          tools: rust uv just
           save: false
           rust-cache: bench-simulation
           corpus: true
@@ -145,13 +147,13 @@ jobs:
       - run: df -h /
 
       - name: Sync corpus
-        run: cargo run -q -p djls-testing --bin corpus -- sync --source-only
+        run: just corpus sync --source-only
 
       - name: Build real-project environments
         run: |
           # netbox builds psycopg-c from source when the uv cache has no wheel for it.
           command -v pg_config >/dev/null || { sudo apt-get update && sudo apt-get install -y libpq-dev; }
-          cargo run -q -p djls-testing --bin corpus -- environment sync djangoproject.com netbox
+          just corpus environment sync djangoproject.com netbox
           uv cache prune --ci
           df -h /
 
@@ -159,7 +161,7 @@ jobs:
 
       - name: Build the benchmark target
         run: |
-          cargo codspeed build -m simulation -p djls-bench --bench real_project
+          just bench-build simulation --bench real_project
           df -h /
 
       - name: Run the benchmarks

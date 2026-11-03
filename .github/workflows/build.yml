@@ -101,7 +101,7 @@ jobs:
       # and five platform caches would not fit the repository's cache budget.
       - uses: $/.github/actions/setup
         with:
-          tools: rust
+          tools: rust just
           cache: ${{ inputs.version == '' && !startsWith(github.ref, 'refs/tags/') }}
 
       - name: Install Rust target
@@ -136,13 +136,7 @@ jobs:
         env:
           RUNNER_OS: ${{ runner.os }}
         run: |
-          if [[ "$RUNNER_OS" == "Linux" && "$TARGET" == aarch64* ]]; then
-            build_command="zigbuild"
-          else
-            build_command="build"
-          fi
-
-          cargo "$build_command" --verbose --release --target "$TARGET"
+          just build-release "$TARGET"
 
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             bin="./target/${TARGET}/release/djls.exe"
