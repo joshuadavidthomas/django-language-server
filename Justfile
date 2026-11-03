@@ -110,3 +110,18 @@ test *ARGS:
 
 testall *ARGS:
     @just nox tests {{ ARGS }}
+
+# Build the browser package into OUT: wasm-bindgen `--target web` output plus each vendored Django
+# release re-zipped uncompressed, which compresses better over HTTP and loads without inflating
+wasm OUT="target/wasm/pkg":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cargo build -p djls-wasm --target wasm32-unknown-unknown --profile wasm-release
+    rm -rf "{{ OUT }}" && mkdir -p "{{ OUT }}"
+    wasm-bindgen --target web --out-dir "{{ OUT }}" target/wasm32-unknown-unknown/wasm-release/djls_wasm.wasm
+    for archive in crates/djls-project/vendor/django-*.zip; do
+        python3 -I -c 'import sys, zipfile
+    with zipfile.ZipFile(sys.argv[1]) as src, zipfile.ZipFile(sys.argv[2], "w", zipfile.ZIP_STORED) as dst:
+        for info in src.infolist():
+            dst.writestr(info.filename, src.read(info))' "$archive" "{{ OUT }}/$(basename "$archive")"
+    done
