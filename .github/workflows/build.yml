@@ -427,7 +427,7 @@ jobs:
   attest:
     runs-on: ubuntu-latest
     if: ${{ inputs.version != '' }}
-    needs: [binary, linux, musllinux, windows, macos, sdist]
+    needs: [binary, wasm, linux, musllinux, windows, macos, sdist]
     permissions:
       id-token: write
       attestations: write
@@ -440,3 +440,47 @@ jobs:
           subject-path: |
             binary-*/*
             wheels-*/*
+
+  # The browser build for djls-vscode on vscode.dev and github.dev. Released as a `binary-*`
+  # archive so tools/release.py checksums, uploads, and attests it with the native binaries.
+  wasm:
+    needs: [should-run]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+        with:
+          add_shims_to_path: false
+          cache: ${{ inputs.version == '' && !startsWith(github.ref, 'refs/tags/') }}
+          install_args: rust just github:wasm-bindgen/wasm-bindgen
+
+      - name: Install Rust target
+        run: rustup target add wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        if: ${{ inputs.version == '' && !startsWith(github.ref, 'refs/tags/') }}
+
+      - name: Build browser package
+        run: just wasm target/wasm/pkg
+
+      - name: Package for release
+        if: ${{ inputs.version != '' }}
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          archive="django-language-server-${VERSION}-wasm"
+          mv target/wasm/pkg "$archive"
+          cp README.md LICENSE CHANGELOG.md "$archive/"
+          tar czf "${archive}.tar.gz" "$archive"
+          shasum -a 256 "${archive}.tar.gz" > "${archive}.tar.gz.sha256"
+
+      - name: Upload browser package
+        if: ${{ inputs.version != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: binary-wasm
+          path: django-language-server-*-wasm.tar.gz*
