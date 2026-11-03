@@ -48,7 +48,20 @@ impl<'db> GrammarOpeningDefinition<'db> {
 pub struct SemanticGrammarVocabulary<'db> {
     closers: BTreeMap<String, Vec<GrammarOpeningDefinition<'db>>>,
     intermediates: BTreeMap<String, Vec<GrammarOpeningDefinition<'db>>>,
-    open: bool,
+    coverage: VocabularyCoverage,
+}
+
+/// Whether the vocabulary indexes every tag definition the Project can provide.
+///
+/// Missing definitions still leave candidate lookups usable; they only stop a
+/// miss from proving that a spelling is unknown.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum VocabularyCoverage {
+    #[default]
+    AllDefinitions,
+    /// Settings omissions, unknown loadables, open guidance, unobserved library
+    /// symbols, or catalog issues may hide definitions.
+    MissingDefinitions,
 }
 
 impl<'db> SemanticGrammarVocabulary<'db> {
@@ -63,8 +76,8 @@ impl<'db> SemanticGrammarVocabulary<'db> {
     }
 
     #[must_use]
-    pub fn is_open(&self) -> bool {
-        self.open
+    pub fn may_miss_definitions(&self) -> bool {
+        matches!(self.coverage, VocabularyCoverage::MissingDefinitions)
     }
 }
 
@@ -74,7 +87,11 @@ pub fn semantic_grammar_vocabulary(db: &dyn Db, project: Project) -> SemanticGra
     let libraries = template_library_catalog(db, project);
     let scoped_libraries = ScopedTemplateLibraries::from_project_inventory(libraries);
     let mut vocabulary = SemanticGrammarVocabulary {
-        open: scoped_libraries.definition_names_are_open(),
+        coverage: if scoped_libraries.definition_names_are_open() {
+            VocabularyCoverage::MissingDefinitions
+        } else {
+            VocabularyCoverage::AllDefinitions
+        },
         ..SemanticGrammarVocabulary::default()
     };
     for library in scoped_libraries.resolved_libraries() {
@@ -458,7 +475,7 @@ fn classify_project_orphan(
         };
     }
 
-    if vocabulary.is_open() || closer_uncertain || intermediate_uncertain {
+    if vocabulary.may_miss_definitions() || closer_uncertain || intermediate_uncertain {
         TagClassification::Inconclusive
     } else {
         TagClassification::Unknown

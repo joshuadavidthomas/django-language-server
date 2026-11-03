@@ -917,7 +917,7 @@ fn semantic_grammar_vocabulary_indexes_definition_identities_and_openness() {
         .expect("project fixture should install into the test database");
 
     let vocabulary = semantic_grammar_vocabulary(&db, project);
-    assert!(!vocabulary.is_open());
+    assert!(!vocabulary.may_miss_definitions());
     let closer = vocabulary.closer_candidates("endif");
     let if_definition = closer
         .iter()

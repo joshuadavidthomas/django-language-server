@@ -1537,11 +1537,23 @@ fn assume_all(path: ExecutionState, facts: &[(SplitPredicate, bool)]) -> Option<
     })
 }
 
-#[derive(Clone, Default)]
-struct PotentialEnvChanges {
-    assigned_names: BTreeSet<String>,
-    mutates_split_result: bool,
-    forget_all: bool,
+#[derive(Clone)]
+enum PotentialEnvChanges {
+    Tracked {
+        assigned_names: BTreeSet<String>,
+        mutates_split_result: bool,
+    },
+    /// A statement binds names the evaluator cannot list, so every binding is forgotten.
+    UnlistedBinding,
+}
+
+impl Default for PotentialEnvChanges {
+    fn default() -> Self {
+        Self::Tracked {
+            assigned_names: BTreeSet::new(),
+            mutates_split_result: false,
+        }
+    }
 }
 
 impl PotentialEnvChanges {
@@ -1578,7 +1590,7 @@ impl PotentialEnvChanges {
                 | Stmt::FunctionDef(_)
                 | Stmt::ClassDef(_)
                 | Stmt::TypeAlias(_)
-                | Stmt::Match(_) => changes.forget_all = true,
+                | Stmt::Match(_) => changes.record_unlisted_binding(),
                 Stmt::If(_)
                 | Stmt::While(_)
                 | Stmt::Try(_)
@@ -1598,15 +1610,47 @@ impl PotentialEnvChanges {
     }
 
     fn extend(&mut self, stmts: &[Stmt]) {
-        let other = Self::collect(stmts);
-        self.assigned_names.extend(other.assigned_names);
-        self.mutates_split_result |= other.mutates_split_result;
-        self.forget_all |= other.forget_all;
+        match Self::collect(stmts) {
+            Self::UnlistedBinding => self.record_unlisted_binding(),
+            Self::Tracked {
+                assigned_names,
+                mutates_split_result,
+            } => {
+                if let Self::Tracked {
+                    assigned_names: names,
+                    mutates_split_result: mutates,
+                } = self
+                {
+                    names.extend(assigned_names);
+                    *mutates |= mutates_split_result;
+                }
+            }
+        }
+    }
+
+    fn record_unlisted_binding(&mut self) {
+        *self = Self::UnlistedBinding;
+    }
+
+    fn record_name(&mut self, name: &str) {
+        if let Self::Tracked { assigned_names, .. } = self {
+            assigned_names.insert(name.to_string());
+        }
+    }
+
+    fn record_split_mutation(&mut self) {
+        if let Self::Tracked {
+            mutates_split_result,
+            ..
+        } = self
+        {
+            *mutates_split_result = true;
+        }
     }
 
     fn record_target(&mut self, target: &Expr) {
         if let Some(name) = target.name_target() {
-            self.assigned_names.insert(name.to_string());
+            self.record_name(name);
             return;
         }
         match target {
@@ -1648,19 +1692,19 @@ impl PotentialEnvChanges {
             | Expr::EllipsisLiteral(_)
             | Expr::Name(_)
             | Expr::Slice(_)
-            | Expr::IpyEscapeCommand(_) => self.forget_all = true,
+            | Expr::IpyEscapeCommand(_) => self.record_unlisted_binding(),
             Expr::Attribute(attribute) => {
                 if let Some(name) = assignment_base_name(&attribute.value) {
-                    self.assigned_names.insert(name.to_string());
+                    self.record_name(name);
                 } else {
-                    self.forget_all = true;
+                    self.record_unlisted_binding();
                 }
             }
             Expr::Subscript(subscript) => {
                 if let Some(name) = assignment_base_name(&subscript.value) {
-                    self.assigned_names.insert(name.to_string());
+                    self.record_name(name);
                 } else {
-                    self.forget_all = true;
+                    self.record_unlisted_binding();
                 }
             }
         }
@@ -1671,32 +1715,42 @@ impl PotentialEnvChanges {
             // Separate names may refer to the same Python list. The abstract
             // values do not carry allocation identity, so invalidate every
             // token-derived sequence when one of them may be mutated.
-            self.mutates_split_result = true;
+            self.record_split_mutation();
         }
         if let Some(name) = try_extract_token_kwargs_call(expr) {
-            self.assigned_names.insert(name);
-            self.mutates_split_result = true;
+            self.record_name(&name);
+            self.record_split_mutation();
         }
     }
 
     fn affects_split_results(&self, env: &Env) -> bool {
-        self.mutates_split_result
-            || self.forget_all
-            || self
-                .assigned_names
-                .iter()
-                .any(|name| matches!(env.get(name), AbstractValue::SplitResult(_)))
+        match self {
+            Self::Tracked {
+                assigned_names,
+                mutates_split_result,
+            } => {
+                *mutates_split_result
+                    || assigned_names
+                        .iter()
+                        .any(|name| matches!(env.get(name), AbstractValue::SplitResult(_)))
+            }
+            Self::UnlistedBinding => true,
+        }
     }
 
     fn apply(&self, env: &Env) -> Env {
-        if self.forget_all {
+        let Self::Tracked {
+            assigned_names,
+            mutates_split_result,
+        } = self
+        else {
             return env.without_bindings();
-        }
+        };
         let mut widened = env.clone();
-        for name in &self.assigned_names {
+        for name in assigned_names {
             widened.forget(name);
         }
-        if self.mutates_split_result {
+        if *mutates_split_result {
             widened.forget_split_results();
         }
         widened
@@ -1936,7 +1990,7 @@ fn branch_try(
                 let ruff_python_ast::ExceptHandler::ExceptHandler(handler) = handler;
                 finalizer_changes.extend(&handler.body);
                 if let Some(name) = &handler.name {
-                    finalizer_changes.assigned_names.insert(name.to_string());
+                    finalizer_changes.record_name(name);
                 }
             }
             let preceding_suite_may_raise = body_may_raise_implicitly

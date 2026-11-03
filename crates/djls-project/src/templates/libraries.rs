@@ -555,14 +555,12 @@ impl TemplateLibrarySettingsCases {
     fn has_unknown_loadables(&self) -> bool {
         self.standalone().is_some_and(|backend| {
             backend.loadables_completeness.is_open()
-                || backend.apps_completeness.is_open()
-                || backend.discovery_completeness.is_open()
+                || backend.installed_app_coverage.may_hide_libraries()
         }) || self.known().iter().any(|settings_case| {
             settings_case.slots.iter().any(|slot| match slot {
                 TemplateLibrarySlot::Backend(_, backend) => {
                     backend.loadables_completeness.is_open()
-                        || backend.apps_completeness.is_open()
-                        || backend.discovery_completeness.is_open()
+                        || backend.installed_app_coverage.may_hide_libraries()
                 }
                 TemplateLibrarySlot::Remainder => true,
             })
@@ -611,8 +609,7 @@ struct TemplateBackendLibraries {
     /// backend or sibling field from weakening an otherwise exact lookup after file narrowing.
     loadables_completeness: TemplateEvidenceCompleteness,
     builtins_completeness: TemplateEvidenceCompleteness,
-    apps_completeness: TemplateEvidenceCompleteness,
-    discovery_completeness: TemplateEvidenceCompleteness,
+    installed_app_coverage: InstalledAppCoverage,
     app_names_after_remainder: BTreeSet<LibraryName>,
     authoritative_names: BTreeSet<LibraryName>,
 }
@@ -628,7 +625,7 @@ impl TemplateBackendLibraries {
         }
 
         self.loadables_completeness.is_open()
-            || ((self.apps_completeness.is_open() || self.discovery_completeness.is_open())
+            || (self.installed_app_coverage.may_hide_libraries()
                 && !self.app_names_after_remainder.contains(name))
     }
 }
@@ -646,10 +643,56 @@ type DiscoveredLibrary<'db> = (
 struct InstalledAppLibraries {
     evidence: Vec<InstalledAppEvidence>,
     libraries: BTreeMap<LibraryName, usize>,
-    app_remainder: bool,
-    discovery_remainder: bool,
+    listing: InstalledAppsListing,
+    discovery: AppLibraryDiscovery,
     names_after_remainder: BTreeSet<LibraryName>,
     unresolved_names: BTreeMap<LibraryName, Option<usize>>,
+}
+
+/// Whether static extraction knows every `INSTALLED_APPS` entry.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum InstalledAppsListing {
+    AllKnown,
+    /// An entry could not be evaluated, so an unseen app may provide libraries.
+    UnknownEntries,
+}
+
+/// Whether every known installed app had its `templatetags` package discovered.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AppLibraryDiscovery {
+    EveryApp,
+    /// An app's package could not be found or its `templatetags` discovery
+    /// failed, so it may provide libraries the catalog never saw.
+    MissedApps,
+}
+
+/// Whether the catalog saw the libraries of every installed app.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum InstalledAppCoverage {
+    #[default]
+    EveryApp,
+    /// Settings are absent, an `INSTALLED_APPS` entry is unknown, or an app's
+    /// discovery failed, so an unseen app may provide any load name not
+    /// discovered after that point.
+    UnseenApps,
+}
+
+impl InstalledAppCoverage {
+    const fn may_hide_libraries(self) -> bool {
+        matches!(self, Self::UnseenApps)
+    }
+}
+
+impl InstalledAppLibraries {
+    fn coverage(&self) -> InstalledAppCoverage {
+        if self.listing == InstalledAppsListing::UnknownEntries
+            || self.discovery == AppLibraryDiscovery::MissedApps
+        {
+            InstalledAppCoverage::UnseenApps
+        } else {
+            InstalledAppCoverage::EveryApp
+        }
+    }
 }
 
 #[doc(hidden)]
@@ -769,8 +812,7 @@ impl<'a> LibraryBackendAlternative<'a> {
             || self.backend_is_open()
             || self.backend().is_some_and(|backend| {
                 backend.loadables_completeness.is_open()
-                    || backend.apps_completeness.is_open()
-                    || backend.discovery_completeness.is_open()
+                    || backend.installed_app_coverage.may_hide_libraries()
             })
     }
 }
@@ -2061,7 +2103,7 @@ pub fn template_library_catalog(
             .authoritative_names
             .extend(common_libraries.keys().cloned());
         backend.loadables_completeness = TemplateEvidenceCompleteness::Open;
-        backend.apps_completeness = TemplateEvidenceCompleteness::Open;
+        backend.installed_app_coverage = InstalledAppCoverage::UnseenApps;
         libraries.settings_cases = TemplateLibrarySettingsCases::Standalone {
             backend,
             omissions: Vec::new(),
@@ -2115,20 +2157,20 @@ fn discover_installed_app_libraries<'db>(
     loadable_modules: &mut BTreeSet<PythonModuleName>,
 ) -> InstalledAppLibraries {
     let mut app_libraries = common_libraries.clone();
-    let mut app_remainder = false;
-    let mut discovery_remainder = false;
+    let mut listing = InstalledAppsListing::AllKnown;
+    let mut discovery = AppLibraryDiscovery::EveryApp;
     let mut names_after_remainder = BTreeSet::new();
     let mut unresolved_names = BTreeMap::new();
 
     for evidence in installed_apps.iter().cloned() {
         let InstalledAppEvidence::Known(installed_app) = evidence else {
-            app_remainder = true;
+            listing = InstalledAppsListing::UnknownEntries;
             names_after_remainder.clear();
             continue;
         };
         let Some(package_module) = installed_app_package_module(db, project, &installed_app.value)
         else {
-            discovery_remainder = true;
+            discovery = AppLibraryDiscovery::MissedApps;
             names_after_remainder.clear();
             continue;
         };
@@ -2151,9 +2193,11 @@ fn discover_installed_app_libraries<'db>(
             .iter()
             .any(|issue| matches!(issue, TemplateLibraryIssue::Discovery))
         {
-            discovery_remainder = true;
+            discovery = AppLibraryDiscovery::MissedApps;
             names_after_remainder.clear();
-        } else if app_remainder || discovery_remainder {
+        } else if listing == InstalledAppsListing::UnknownEntries
+            || discovery == AppLibraryDiscovery::MissedApps
+        {
             names_after_remainder.extend(discovered.iter().map(|(name, _, _, _, _)| name.clone()));
         }
         libraries.issues.extend(
@@ -2167,8 +2211,8 @@ fn discover_installed_app_libraries<'db>(
     InstalledAppLibraries {
         evidence: installed_apps.to_vec(),
         libraries: app_libraries,
-        app_remainder,
-        discovery_remainder,
+        listing,
+        discovery,
         names_after_remainder,
         unresolved_names,
     }
@@ -2236,10 +2280,7 @@ fn build_library_settings_case<'db>(
                         );
                     }
                 }
-                backend_libraries.apps_completeness =
-                    TemplateEvidenceCompleteness::open_if(app_libraries.app_remainder);
-                backend_libraries.discovery_completeness =
-                    TemplateEvidenceCompleteness::open_if(app_libraries.discovery_remainder);
+                backend_libraries.installed_app_coverage = app_libraries.coverage();
                 backend_libraries
                     .app_names_after_remainder
                     .clone_from(&app_libraries.names_after_remainder);
@@ -2252,7 +2293,7 @@ fn build_library_settings_case<'db>(
         id: settings_case.id(),
         slots,
         guidance: TemplateEvidenceCompleteness::open_if(
-            app_libraries.app_remainder || app_libraries.discovery_remainder,
+            app_libraries.coverage().may_hide_libraries(),
         ),
     }
 }
