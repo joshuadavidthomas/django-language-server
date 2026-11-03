@@ -238,14 +238,16 @@ pub(crate) enum SplitPredicate {
     },
 }
 
+type BoundNames = Arc<std::collections::HashSet<String>>;
+
 /// The abstract environment: maps variable names to their abstract values.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct Env {
     bindings: Arc<HashMap<String, AbstractValue>>,
     static_bindings: Arc<HashMap<String, AbstractValue>>,
-    /// `None` means module name resolution is open. A closed set records names
-    /// that shadow their Python builtins in this function.
-    shadowed_builtin_names: Option<Arc<std::collections::HashSet<String>>>,
+    /// `None` means module name resolution is open. Otherwise the module's
+    /// and this function's bound names, which shadow their Python builtins.
+    shadowed_builtin_names: Option<(BoundNames, BoundNames)>,
     /// Tag Bits this path has consumed. Unlike bindings, these facts outlive
     /// the values that produced them.
     consumption: Arc<BTreeMap<TagBitSpan, ArgumentConsumption>>,
@@ -302,6 +304,20 @@ impl Env {
         Arc::make_mut(&mut self.static_bindings).insert(name, value);
     }
 
+    /// Use a module's constants unchanged, sharing their storage. The function
+    /// must shadow none of them.
+    pub(crate) fn share_static_bindings(&mut self, values: &Arc<HashMap<String, AbstractValue>>) {
+        if self.static_bindings.is_empty() {
+            self.static_bindings = Arc::clone(values);
+        } else {
+            Arc::make_mut(&mut self.static_bindings).extend(
+                values
+                    .iter()
+                    .map(|(name, value)| (name.clone(), value.clone())),
+            );
+        }
+    }
+
     /// Block static fallback for a local name without replacing a value already
     /// known at function entry, such as the parser or token parameter.
     pub(crate) fn shadow_static(&mut self, name: String) {
@@ -312,16 +328,17 @@ impl Env {
 
     pub(crate) fn set_builtin_name_scope(
         &mut self,
-        shadowed_names: std::collections::HashSet<String>,
+        module_names: BoundNames,
+        function_names: std::collections::HashSet<String>,
     ) {
-        self.shadowed_builtin_names = Some(Arc::new(shadowed_names));
+        self.shadowed_builtin_names = Some((module_names, Arc::new(function_names)));
     }
 
     #[must_use]
     pub(crate) fn builtin_name_visible(&self, name: &str) -> bool {
         self.shadowed_builtin_names
             .as_ref()
-            .is_some_and(|shadowed| !shadowed.contains(name))
+            .is_some_and(|(module, function)| !module.contains(name) && !function.contains(name))
     }
 
     /// Mutate a variable's value in place (e.g., for `bits.pop(0)`).

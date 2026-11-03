@@ -991,7 +991,7 @@ mod tests {
     #[test]
     fn condition_facts_keep_conjuncts_when_true_and_disjuncts_when_false() {
         let mut env = Env::default();
-        env.set_builtin_name_scope(std::collections::HashSet::new());
+        env.set_builtin_name_scope(std::sync::Arc::default(), std::collections::HashSet::new());
         env.set(
             "bits".to_string(),
             AbstractValue::SplitResult(

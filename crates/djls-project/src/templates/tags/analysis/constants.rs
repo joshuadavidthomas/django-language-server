@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::ops::ControlFlow;
+use std::sync::Arc;
 
 use ruff_python_ast::Expr;
 use ruff_python_ast::Stmt;
@@ -23,8 +24,8 @@ const MAX_RESOLUTION_DEPTH: usize = 16;
 /// Closed constants shared by every compile function in one source module.
 #[derive(Clone, Debug, Default, PartialEq, Eq, salsa::SalsaValue)]
 pub(crate) struct StaticBindings {
-    values: HashMap<String, AbstractValue>,
-    module_bound_names: HashSet<String>,
+    values: Arc<HashMap<String, AbstractValue>>,
+    module_bound_names: Arc<HashSet<String>>,
     module_names_open: bool,
 }
 
@@ -72,8 +73,8 @@ impl StaticBindings {
             }
         }
         Self {
-            values,
-            module_bound_names: resolver.bindings.writes.keys().cloned().collect(),
+            values: Arc::new(values),
+            module_bound_names: Arc::new(resolver.bindings.writes.keys().cloned().collect()),
             module_names_open: resolver.bindings.has_unknown_star_import(),
         }
     }
@@ -118,23 +119,38 @@ pub(crate) fn seed_static_bindings(
     env: &mut Env,
 ) {
     let function_bindings = FunctionBindings::collect(function);
-    for (path, value) in &bindings.values {
-        let root = path.split('.').next().unwrap_or(path);
-        if function_bindings.blocks_module_fallback(root) {
-            // Python decides local and nonlocal scope for the whole function,
-            // including reads that occur before the assignment. Preserve a
-            // known parameter value while still blocking static fallback.
-            env.shadow_static(root.to_string());
-        } else {
-            env.set_static(path.clone(), value.clone());
+    if bindings
+        .values
+        .keys()
+        .any(|path| function_bindings.blocks_module_fallback(static_root(path)))
+    {
+        // A branch join can drop the local binding that shadows a constant,
+        // so the environment must never hold a constant the function shadows.
+        for (path, value) in bindings.values.iter() {
+            let root = static_root(path);
+            if function_bindings.blocks_module_fallback(root) {
+                // Python decides local and nonlocal scope for the whole function,
+                // including reads that occur before the assignment. Preserve a
+                // known parameter value while still blocking static fallback.
+                env.shadow_static(root.to_string());
+            } else {
+                env.set_static(path.clone(), value.clone());
+            }
         }
+    } else {
+        env.share_static_bindings(&bindings.values);
     }
 
     if !bindings.module_names_open && !function_bindings.names_open {
-        let mut shadowed_names = bindings.module_bound_names.clone();
-        shadowed_names.extend(function_bindings.bound_names);
-        env.set_builtin_name_scope(shadowed_names);
+        env.set_builtin_name_scope(
+            Arc::clone(&bindings.module_bound_names),
+            function_bindings.bound_names,
+        );
     }
+}
+
+fn static_root(path: &str) -> &str {
+    path.split('.').next().unwrap_or(path)
 }
 
 struct StaticResolver<'a> {
