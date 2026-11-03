@@ -196,6 +196,11 @@ jobs:
       - name: Rebuild environments and test snapshots
         run: uv run --no-project --with "nox[uv]" nox --session corpus
 
+      # Checks the benchmark workloads against their snapshots. The bench workflow's shards
+      # do not build the test profile, and this job already has the synced corpus.
+      - name: Verify benchmark workload snapshots
+        run: DJLS_REQUIRE_BENCH_CORPUS=1 cargo test -p djls-bench -- --include-ignored
+
       - name: Record resolved environment provenance
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
