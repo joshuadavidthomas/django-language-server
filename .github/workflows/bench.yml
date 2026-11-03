@@ -75,7 +75,7 @@ jobs:
           add_shims_to_path: false
           install_args: rust
 
-      - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: ${{ matrix.shard }}-${{ matrix.mode }}
 
@@ -137,7 +137,7 @@ jobs:
           add_shims_to_path: false
           install_args: rust uv
 
-      - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: real-project-simulation
 
