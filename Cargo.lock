@@ -1113,6 +1113,7 @@ dependencies = [
  "djls-testing",
  "ignore",
  "insta",
+ "memchr",
  "rustc-hash",
  "salsa",
  "serde",
