@@ -211,13 +211,14 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
         // Fixed-point passes are plain temporary values. No tracked Tree identity
         // or structural diagnostic is produced until this pass converges.
         let tree_data = TemplateTreeBuilder::new(&grammar).model_data(db, nodelist);
-        let mut active_nodes = active_template_nodes(&tree_data.regions, tree_data.root);
-        active_nodes.extend(
-            tree_data
-                .captured_closers
-                .iter()
-                .map(|closer| ActiveTemplateNode::Tag(closer.as_active())),
-        );
+        let mut active_nodes = active_template_nodes(&tree_data.regions, tree_data.root)
+            .chain(
+                tree_data
+                    .captured_closers
+                    .iter()
+                    .map(|closer| ActiveTemplateNode::Tag(closer.as_active())),
+            )
+            .collect::<Vec<_>>();
         active_nodes.sort_by_key(|node| match node {
             ActiveTemplateNode::Tag(tag) => tag.full_span.start(),
             ActiveTemplateNode::Variable(variable) => variable.span.start(),
@@ -361,7 +362,6 @@ pub(crate) fn scoped_filter_facts<'db>(
     let tag_facts = projection.scoped_tag_facts(db);
     // Filters in tag arguments that Django compiles resolve like filters in variables.
     let mut occurrences = active_template_nodes(tree.regions(db), tree.root(db))
-        .into_iter()
         .map(|node| match node {
             ActiveTemplateNode::Variable(variable) => {
                 (variable.span.start(), Cow::Borrowed(variable.filters))

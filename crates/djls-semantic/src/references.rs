@@ -286,7 +286,6 @@ pub fn template_references_in_file(
     let tag_facts = projection.scoped_tag_facts(db);
 
     let references = active_template_tags(tree.regions(db), tree.root(db))
-        .into_iter()
         .filter_map(|tag| {
             let spec = tag_facts.for_tag(tag)?.spec.as_deref()?;
             let reference = LiteralTemplateReference::from_spec(spec, tag.bits)?;
@@ -314,7 +313,6 @@ pub fn template_library_references_in_file(
     let tag_facts = projection.scoped_tag_facts(db);
 
     let references = active_template_tags(tree.regions(db), tree.root(db))
-        .into_iter()
         .filter(|tag| {
             tag_facts
                 .for_tag(*tag)

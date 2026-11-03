@@ -1336,6 +1336,24 @@ fn extracted_self_named_block_requires_concretized_end_tag() {
     );
 }
 
+#[test]
+fn deeply_nested_unclosed_blocks_validate_without_overflowing_the_stack() {
+    let depth = 20_000;
+    let db = TestDatabase::new();
+    let errors =
+        collect_test_errors(&db, &"{% if x %}".repeat(depth)).expect("template should validate");
+
+    assert_eq!(
+        errors
+            .iter()
+            .filter(
+                |error| matches!(error, ValidationError::UnclosedTag { tag, .. } if tag == "if")
+            )
+            .count(),
+        depth
+    );
+}
+
 // Integration: Mixed diagnostics
 
 // Snapshot tests for diagnostic output

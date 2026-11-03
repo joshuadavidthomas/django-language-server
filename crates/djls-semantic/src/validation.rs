@@ -58,11 +58,10 @@ impl<'db> TemplateValidator<'db> {
 
     pub(crate) fn validate(mut self) {
         let tree = self.projection.tree(self.db);
-        let nodes = active_template_nodes(tree.regions(self.db), tree.root(self.db));
-        for node in &nodes {
+        for node in active_template_nodes(tree.regions(self.db), tree.root(self.db)) {
             match node {
-                ActiveTemplateNode::Tag(tag) => self.validate_tag(*tag),
-                ActiveTemplateNode::Variable(variable) => self.validate_variable(*variable),
+                ActiveTemplateNode::Tag(tag) => self.validate_tag(tag),
+                ActiveTemplateNode::Variable(variable) => self.validate_variable(variable),
             }
         }
     }
