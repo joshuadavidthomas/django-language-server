@@ -39,14 +39,24 @@ pub(crate) struct PythonModuleFacts {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PythonSyntaxErrorImpact {
     pub(crate) error: PythonSyntaxError,
-    pub(crate) names: BTreeSet<String>,
-    pub(crate) namespace_open: bool,
-    pub(crate) excluded_names: BTreeSet<String>,
+    pub(crate) names: PythonSyntaxErrorNames,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum PythonSyntaxErrorNames {
+    /// Names the broken statement binds that no later statement definitely reassigns.
+    Bound(BTreeSet<String>),
+    /// The broken statement star-imports, so every name is affected except those
+    /// that a later statement definitely reassigns.
+    StarImport { reassigned: BTreeSet<String> },
 }
 
 impl PythonSyntaxErrorImpact {
     pub(crate) fn affects(&self, name: &str) -> bool {
-        self.names.contains(name) || (self.namespace_open && !self.excluded_names.contains(name))
+        match &self.names {
+            PythonSyntaxErrorNames::Bound(names) => names.contains(name),
+            PythonSyntaxErrorNames::StarImport { reassigned } => !reassigned.contains(name),
+        }
     }
 }
 

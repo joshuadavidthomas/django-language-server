@@ -25,8 +25,21 @@ const MAX_RESOLUTION_DEPTH: usize = 16;
 #[derive(Clone, Debug, Default, PartialEq, Eq, salsa::SalsaValue)]
 pub(crate) struct StaticBindings {
     values: Arc<HashMap<String, AbstractValue>>,
-    module_bound_names: Arc<HashSet<String>>,
-    module_names_open: bool,
+    module_names: ModuleBoundNames,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum ModuleBoundNames {
+    Known(Arc<HashSet<String>>),
+    /// A star import of an unknown module may bind any name, so builtin reads
+    /// cannot be told apart from module globals.
+    UnknownStarImport,
+}
+
+impl Default for ModuleBoundNames {
+    fn default() -> Self {
+        Self::Known(Arc::default())
+    }
 }
 
 /// Resolve module constants once per file revision. Registered tags share this
@@ -74,8 +87,13 @@ impl StaticBindings {
         }
         Self {
             values: Arc::new(values),
-            module_bound_names: Arc::new(resolver.bindings.writes.keys().cloned().collect()),
-            module_names_open: resolver.bindings.has_unknown_star_import(),
+            module_names: if resolver.bindings.has_unknown_star_import() {
+                ModuleBoundNames::UnknownStarImport
+            } else {
+                ModuleBoundNames::Known(Arc::new(
+                    resolver.bindings.writes.keys().cloned().collect(),
+                ))
+            },
         }
     }
 }
@@ -141,11 +159,10 @@ pub(crate) fn seed_static_bindings(
         env.share_static_bindings(&bindings.values);
     }
 
-    if !bindings.module_names_open && !function_bindings.names_open {
-        env.set_builtin_name_scope(
-            Arc::clone(&bindings.module_bound_names),
-            function_bindings.bound_names,
-        );
+    if let ModuleBoundNames::Known(module_names) = &bindings.module_names
+        && let FunctionBindings::Resolved { bound_names, .. } = function_bindings
+    {
+        env.set_builtin_name_scope(Arc::clone(module_names), bound_names);
     }
 }
 
@@ -649,16 +666,23 @@ fn collect_mutated_roots(body: &[Stmt], mutated: &mut HashSet<String>) {
     });
 }
 
-struct FunctionBindings {
-    locals: HashSet<String>,
-    nonlocals: HashSet<String>,
-    bound_names: HashSet<String>,
-    names_open: bool,
+enum FunctionBindings {
+    Resolved {
+        locals: HashSet<String>,
+        nonlocals: HashSet<String>,
+        bound_names: HashSet<String>,
+    },
+    /// A star import of an unknown module may bind any name locally, so every
+    /// module constant is shadowed.
+    StarImportShadowsModule,
 }
 
 impl FunctionBindings {
     fn collect(function: &StmtFunctionDef) -> Self {
         let scope = ScopeBindings::collect(&function.body);
+        if scope.has_unknown_star_import() {
+            return Self::StarImportShadowsModule;
+        }
         let mut locals = scope.writes.keys().cloned().collect::<HashSet<_>>();
         for parameter in function
             .parameters
@@ -676,19 +700,22 @@ impl FunctionBindings {
             locals.insert(parameter.name.to_string());
         }
         locals.retain(|name| !scope.globals.contains(name) && !scope.nonlocals.contains(name));
-        let names_open = scope.has_unknown_star_import();
         let mut bound_names = scope.writes.keys().cloned().collect::<HashSet<_>>();
         bound_names.extend(locals.iter().cloned());
         bound_names.extend(scope.nonlocals.iter().cloned());
-        Self {
+        Self::Resolved {
             locals,
             nonlocals: scope.nonlocals,
             bound_names,
-            names_open,
         }
     }
 
     fn blocks_module_fallback(&self, name: &str) -> bool {
-        self.names_open || self.locals.contains(name) || self.nonlocals.contains(name)
+        match self {
+            Self::Resolved {
+                locals, nonlocals, ..
+            } => locals.contains(name) || nonlocals.contains(name),
+            Self::StarImportShadowsModule => true,
+        }
     }
 }

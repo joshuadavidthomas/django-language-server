@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::mem;
 use std::slice;
 
 use ruff_python_ast as ast;
@@ -11,6 +12,7 @@ use super::name_analysis::expr_read_names;
 use super::name_analysis::pattern_bound_names;
 use super::name_analysis::reachable_expr_read_names;
 use super::name_analysis::target_write_names;
+use super::result::PythonSyntaxErrorNames;
 use super::truthiness::Truthiness;
 use crate::ast::ExprExt;
 use crate::ast::RangedExt;
@@ -18,19 +20,39 @@ use crate::python::PythonSyntaxError;
 use crate::python::import::DirectImportClause;
 use crate::python::import::FromImportSyntax;
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-struct TouchedNames {
-    names: FxHashSet<String>,
-    all: bool,
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum TouchedNames {
+    Exact(FxHashSet<String>),
+    /// The statement star-imports, so it may write any name. `listed` keeps the
+    /// explicitly written names, which an uncertain write still removes from
+    /// definite writes.
+    StarImport {
+        listed: FxHashSet<String>,
+    },
+}
+
+impl Default for TouchedNames {
+    fn default() -> Self {
+        Self::Exact(FxHashSet::default())
+    }
 }
 
 pub(super) fn closed_write_names(statement: &ast::Stmt) -> Option<FxHashSet<String>> {
     let mut touched = TouchedNames::default();
     touched.visit_stmt(statement);
-    (!touched.all).then_some(touched.names)
+    match touched {
+        TouchedNames::Exact(names) => Some(names),
+        TouchedNames::StarImport { .. } => None,
+    }
 }
 
 impl TouchedNames {
+    fn names(&self) -> &FxHashSet<String> {
+        match self {
+            Self::Exact(names) | Self::StarImport { listed: names } => names,
+        }
+    }
+
     fn from_body(body: &[ast::Stmt]) -> Self {
         let mut touched = Self::default();
         touched.visit_body(body);
@@ -139,7 +161,11 @@ impl TouchedNames {
     }
 
     fn record(&mut self, name: &str) {
-        self.names.insert(name.to_string());
+        match self {
+            Self::Exact(names) | Self::StarImport { listed: names } => {
+                names.insert(name.to_string());
+            }
+        }
     }
 
     fn record_targets(&mut self, target: &ast::Expr) {
@@ -149,7 +175,11 @@ impl TouchedNames {
     }
 
     fn record_all(&mut self) {
-        self.all = true;
+        if let Self::Exact(names) = self {
+            *self = Self::StarImport {
+                listed: mem::take(names),
+            };
+        }
     }
 }
 
@@ -189,25 +219,26 @@ pub(super) fn collect_syntax_impacts(
                         .find(|(_, statement)| statement.span().end() == error_start)
                 })?;
             let touched = TouchedNames::from_body(slice::from_ref(statement));
-            let later_assignments = DefiniteWriteCollector::collect(
-                &body[statement_index + 1..],
-                &touched.names,
-                touched.all,
-            );
-            let names = touched
-                .names
-                .into_iter()
-                .filter(|name| !later_assignments.contains(name))
-                .collect::<BTreeSet<_>>();
-            (!names.is_empty() || touched.all).then(|| PythonSyntaxErrorImpact {
+            let later_assignments =
+                DefiniteWriteCollector::collect(&body[statement_index + 1..], &touched);
+            let names = match touched {
+                TouchedNames::StarImport { .. } => PythonSyntaxErrorNames::StarImport {
+                    reassigned: later_assignments.into_iter().collect(),
+                },
+                TouchedNames::Exact(names) => {
+                    let names = names
+                        .into_iter()
+                        .filter(|name| !later_assignments.contains(name))
+                        .collect::<BTreeSet<_>>();
+                    if names.is_empty() {
+                        return None;
+                    }
+                    PythonSyntaxErrorNames::Bound(names)
+                }
+            };
+            Some(PythonSyntaxErrorImpact {
                 error: error.clone(),
                 names,
-                namespace_open: touched.all,
-                excluded_names: if touched.all {
-                    later_assignments.into_iter().collect()
-                } else {
-                    BTreeSet::default()
-                },
             })
         })
         .collect()
@@ -220,13 +251,9 @@ struct DefiniteWriteCollector {
 }
 
 impl DefiniteWriteCollector {
-    fn collect(
-        body: &[ast::Stmt],
-        impacted_names: &FxHashSet<String>,
-        namespace_open: bool,
-    ) -> FxHashSet<String> {
+    fn collect(body: &[ast::Stmt], impacted: &TouchedNames) -> FxHashSet<String> {
         let mut collector = Self {
-            taint: AssignmentTaint::new(impacted_names, namespace_open),
+            taint: AssignmentTaint::new(impacted),
             names: FxHashSet::default(),
             known_name_truthiness: FxHashMap::default(),
         };
@@ -282,7 +309,7 @@ impl DefiniteWriteCollector {
                     for clause in &statement.elif_else_clauses {
                         touched.visit_body(&clause.body);
                     }
-                    self.record_uncertain_writes(touched);
+                    self.record_uncertain_writes(&touched);
                 }
             }
             ast::Stmt::AugAssign(_)
@@ -383,13 +410,13 @@ impl DefiniteWriteCollector {
         }
     }
 
-    fn record_uncertain_writes(&mut self, touched: TouchedNames) {
-        for name in touched.names {
-            self.taint.record_uncertain_write(&name);
-            self.names.remove(&name);
-            self.known_name_truthiness.remove(&name);
+    fn record_uncertain_writes(&mut self, touched: &TouchedNames) {
+        for name in touched.names() {
+            self.taint.record_uncertain_write(name);
+            self.names.remove(name);
+            self.known_name_truthiness.remove(name);
         }
-        if touched.all {
+        if let TouchedNames::StarImport { .. } = touched {
             self.taint.record_uncertain_namespace_write();
         }
     }
@@ -427,50 +454,64 @@ impl DefiniteWriteCollector {
     }
 }
 
-struct AssignmentTaint {
-    names: FxHashSet<String>,
-    namespace_open: bool,
-    clean_names: FxHashSet<String>,
+enum AssignmentTaint {
+    /// Only these names depend on the broken statement.
+    Only { tainted: FxHashSet<String> },
+    /// A star import may have written any name, so every name is tainted until
+    /// an independent write cleans it.
+    AllExcept { clean: FxHashSet<String> },
 }
 
 impl AssignmentTaint {
-    fn new(impacted_names: &FxHashSet<String>, namespace_open: bool) -> Self {
-        Self {
-            names: impacted_names.clone(),
-            namespace_open,
-            clean_names: FxHashSet::default(),
+    fn new(impacted: &TouchedNames) -> Self {
+        match impacted {
+            TouchedNames::Exact(names) => Self::Only {
+                tainted: names.clone(),
+            },
+            TouchedNames::StarImport { .. } => Self::AllExcept {
+                clean: FxHashSet::default(),
+            },
         }
     }
 
     fn name_is_tainted(&self, name: &str) -> bool {
-        self.names.contains(name) || (self.namespace_open && !self.clean_names.contains(name))
+        match self {
+            Self::Only { tainted } => tainted.contains(name),
+            Self::AllExcept { clean } => !clean.contains(name),
+        }
     }
 
     fn record_write(&mut self, name: &str, independent: bool) {
-        if independent {
-            self.names.remove(name);
-            self.clean_names.insert(name.to_string());
-        } else {
-            self.names.insert(name.to_string());
-            self.clean_names.remove(name);
+        match self {
+            Self::Only { tainted } if independent => {
+                tainted.remove(name);
+            }
+            Self::Only { tainted } => {
+                tainted.insert(name.to_string());
+            }
+            Self::AllExcept { clean } if independent => {
+                clean.insert(name.to_string());
+            }
+            Self::AllExcept { clean } => {
+                clean.remove(name);
+            }
         }
     }
 
     fn record_uncertain_write(&mut self, name: &str) {
-        self.names.insert(name.to_string());
-        self.clean_names.remove(name);
+        self.record_write(name, false);
     }
 
     fn record_uncertain_namespace_write(&mut self) {
-        self.namespace_open = true;
-        self.clean_names.clear();
+        *self = Self::AllExcept {
+            clean: FxHashSet::default(),
+        };
     }
 }
 
 #[cfg(test)]
 mod tests {
     use ruff_python_parser::parse_module;
-    use rustc_hash::FxHashSet;
 
     use super::DefiniteWriteCollector;
     use super::TouchedNames;
@@ -483,12 +524,13 @@ mod tests {
         let touched = TouchedNames::from_body(&module.body);
 
         assert_eq!(
-            touched.names,
-            ["alpha".to_string(), "local".to_string()]
-                .into_iter()
-                .collect()
+            touched,
+            TouchedNames::Exact(
+                ["alpha".to_string(), "local".to_string()]
+                    .into_iter()
+                    .collect()
+            )
         );
-        assert!(!touched.all);
     }
 
     #[test]
@@ -498,7 +540,7 @@ mod tests {
             .into_syntax();
 
         assert_eq!(
-            DefiniteWriteCollector::collect(&module.body, &FxHashSet::default(), false),
+            DefiniteWriteCollector::collect(&module.body, &TouchedNames::default()),
             ["name".to_string()].into_iter().collect()
         );
     }
