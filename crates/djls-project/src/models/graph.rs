@@ -700,7 +700,8 @@ struct RelationLookupIndex {
 #[derive(Debug, Clone, Default)]
 pub struct ModelGraph {
     records: BTreeMap<ModelId, ModelRecord>,
-    model_ids_by_name: FxHashMap<ModelName, BTreeSet<ModelId>>,
+    // Each id carries its app label, computed once at insert for exact lookups.
+    model_ids_by_name: FxHashMap<ModelName, BTreeMap<ModelId, Option<Box<str>>>>,
     model_ids_by_django_name: FxHashMap<(String, String), Vec<ModelId>>,
     model_ids_by_class: BTreeMap<ClassId, ModelId>,
     relation_bindings: BTreeMap<RelationBindingId, RelationBinding>,
@@ -843,11 +844,12 @@ impl ModelGraph {
                 .is_none(),
             "resolved model inserted more than once: {id:?}",
         );
+        let app_label = app_label_from_module_name(id.module_name.as_str());
         self.model_ids_by_name
             .entry(id.name.clone())
             .or_default()
-            .insert(id.clone());
-        if let Some(app_label) = app_label_from_module_name(id.module_name.as_str()) {
+            .insert(id.clone(), app_label.map(Box::from));
+        if let Some(app_label) = app_label {
             let ids = self
                 .model_ids_by_django_name
                 .entry((app_label.to_lowercase(), id.name.as_str().to_lowercase()))
@@ -1160,7 +1162,7 @@ impl ModelGraph {
             .get(name)
             .into_iter()
             .flat_map(move |ids| {
-                ids.iter().filter_map(|id| {
+                ids.keys().filter_map(|id| {
                     self.records
                         .get_key_value(id)
                         .map(|(id, record)| (id, &record.definition))
@@ -1205,14 +1207,15 @@ impl ModelGraph {
     }
 
     fn lookup_entry_exact(&self, app_label: &str, name: &str) -> Option<(&ModelId, &ModelDef)> {
-        self.model_ids_by_name.get(name)?.iter().find_map(|id| {
-            let (id, record) = self.records.get_key_value(id)?;
-            if app_label_from_module_name(id.module_name.as_str()) == Some(app_label) {
-                Some((id, &record.definition))
-            } else {
-                None
-            }
-        })
+        self.model_ids_by_name
+            .get(name)?
+            .iter()
+            .filter(|(_id, label)| label.as_deref() == Some(app_label))
+            .find_map(|(id, _label)| {
+                self.records
+                    .get_key_value(id)
+                    .map(|(id, record)| (id, &record.definition))
+            })
     }
 
     /// Look up the target model for a forward relation field on `scope`.
