@@ -939,19 +939,20 @@ impl PythonEvaluationState {
         join: &BranchJoin,
     ) -> Self {
         let origin = join.origin();
-        let names = branches
-            .iter()
-            .flat_map(|(_, branch)| branch.changed_names_from(&base))
-            .collect::<BTreeSet<_>>();
+        let mut names = BTreeSet::new();
+        for (_, branch) in branches {
+            names.append(&mut branch.changed_names_from(&base));
+        }
+        let unbound = PythonBinding::unbound();
         for name in names {
-            let mut groups: Vec<(PythonBinding, Vec<usize>)> = Vec::new();
+            // Arms that never rewrote the name share one binding, so pointer
+            // identity groups them before any deep comparison or clone.
+            let mut groups: Vec<(&PythonBinding, Vec<usize>)> = Vec::new();
             for (arm, branch) in branches {
-                let candidate = branch
-                    .binding(&name)
-                    .cloned()
-                    .unwrap_or_else(PythonBinding::unbound);
-                if let Some((_, arms)) =
-                    groups.iter_mut().find(|(grouped, _)| *grouped == candidate)
+                let candidate = branch.binding(&name).unwrap_or(&unbound);
+                if let Some((_, arms)) = groups
+                    .iter_mut()
+                    .find(|(grouped, _)| std::ptr::eq(*grouped, candidate) || *grouped == candidate)
                 {
                     arms.push(*arm);
                 } else {
@@ -960,7 +961,7 @@ impl PythonEvaluationState {
             }
             let mut grouped = groups
                 .iter()
-                .map(|(candidate, _)| candidate.clone())
+                .map(|(candidate, _)| (*candidate).clone())
                 .collect::<Vec<_>>();
             let joined = if PythonBinding::supports_grouped_branch_join(&grouped) {
                 for (candidate, (_, arms)) in grouped.iter_mut().zip(&groups) {
@@ -1010,10 +1011,10 @@ impl PythonEvaluationState {
         join: &BranchJoin,
     ) -> Self {
         let origin = join.origin();
-        let names = branches
-            .iter()
-            .flat_map(|(_, _, branch)| branch.changed_names_from(&base))
-            .collect::<BTreeSet<_>>();
+        let mut names = BTreeSet::new();
+        for (_, _, branch) in branches {
+            names.append(&mut branch.changed_names_from(&base));
+        }
         for name in names {
             let mut joined: Option<PythonBinding> = None;
             for (arm, constraints, branch) in branches {
