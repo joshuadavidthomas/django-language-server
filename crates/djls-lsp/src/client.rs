@@ -10,7 +10,7 @@ use crate::ext::ClientInfoExt;
 use crate::ext::PositionEncodingKindExt;
 
 #[derive(Debug, Clone)]
-pub(crate) struct ClientInfo {
+pub struct ClientInfo {
     client: Client,
     position_encoding: PositionEncoding,
     capabilities: ClientCapabilities,
@@ -19,7 +19,7 @@ pub(crate) struct ClientInfo {
 
 impl ClientInfo {
     #[must_use]
-    pub(crate) fn new(
+    pub fn new(
         capabilities: &ls_types::ClientCapabilities,
         client_info: Option<&ls_types::ClientInfo>,
         options: ClientOptions,
@@ -61,37 +61,37 @@ impl ClientInfo {
     }
 
     #[must_use]
-    pub(crate) fn config_overrides(&self) -> &Map<String, Value> {
+    pub fn config_overrides(&self) -> &Map<String, Value> {
         &self.overrides
     }
 
     #[must_use]
-    pub(crate) fn position_encoding(&self) -> PositionEncoding {
+    pub fn position_encoding(&self) -> PositionEncoding {
         self.position_encoding
     }
 
     #[must_use]
-    pub(crate) fn supports_pull_diagnostics(&self) -> bool {
+    pub fn supports_pull_diagnostics(&self) -> bool {
         self.capabilities.pull_diagnostics
     }
 
     #[must_use]
-    pub(crate) fn supports_workspace_diagnostic_refresh(&self) -> bool {
+    pub fn supports_workspace_diagnostic_refresh(&self) -> bool {
         self.capabilities.workspace_diagnostic_refresh
     }
 
     #[must_use]
-    pub(crate) fn supports_work_done_progress(&self) -> bool {
+    pub fn supports_work_done_progress(&self) -> bool {
         self.capabilities.work_done_progress
     }
 
     #[must_use]
-    pub(crate) fn supports_snippets(&self) -> bool {
+    pub fn supports_snippets(&self) -> bool {
         self.capabilities.snippets
     }
 
     #[must_use]
-    pub(crate) fn supports_location_links(&self) -> bool {
+    pub fn supports_location_links(&self) -> bool {
         self.capabilities.location_links
     }
 }
@@ -101,7 +101,7 @@ impl ClientInfo {
 /// Most clients work fine with standard LSP behavior, but some require
 /// specific workarounds (e.g., language ID mappings, capability quirks).
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) enum Client {
+pub enum Client {
     /// Standard LSP client behavior (no special overrides needed)
     Default,
     /// Sublime Text LSP - uses "html" language ID for Django templates
@@ -113,7 +113,7 @@ pub(crate) enum Client {
     clippy::struct_excessive_bools,
     reason = "LSP client capabilities are independent protocol feature flags"
 )]
-pub(crate) struct ClientCapabilities {
+pub struct ClientCapabilities {
     pull_diagnostics: bool,
     workspace_diagnostic_refresh: bool,
     snippets: bool,
@@ -169,7 +169,7 @@ impl ClientCapabilities {
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
-pub(crate) struct ClientOptions {
+pub struct ClientOptions {
     #[serde(flatten)]
     pub settings: Settings,
 
@@ -178,7 +178,7 @@ pub(crate) struct ClientOptions {
 
     // Keep supplied keys for reloads; serializing settings would also include defaults.
     #[serde(skip)]
-    pub overrides: Map<String, Value>,
+    pub(crate) overrides: Map<String, Value>,
 }
 
 #[cfg(test)]

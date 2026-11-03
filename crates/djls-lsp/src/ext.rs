@@ -29,7 +29,7 @@ impl PositionExt for ls_types::Position {
     }
 }
 
-pub(crate) trait PositionEncodingExt {
+pub trait PositionEncodingExt {
     fn to_lsp(&self) -> ls_types::PositionEncodingKind;
 }
 
@@ -84,7 +84,7 @@ impl TextDocumentContentChangeEventExt for Vec<ls_types::TextDocumentContentChan
     }
 }
 
-pub(crate) trait InitializeParamsExt {
+pub trait InitializeParamsExt {
     fn client_options(&self) -> ClientOptions;
 }
 
@@ -158,7 +158,7 @@ impl TextDocumentItemExt for ls_types::TextDocumentItem {
     }
 }
 
-pub(crate) trait UriExt {
+pub trait UriExt {
     /// Convert `Utf8Path` to LSP Uri
     fn from_path(path: &Utf8Path) -> Option<Self>
     where
@@ -210,11 +210,11 @@ impl UriExt for ls_types::Uri {
 mod tests {
     use std::str::FromStr;
 
+    use djls_testing::log_capture::Capture;
+    use djls_testing::log_capture::callsite_guard;
     use tracing_subscriber::layer::SubscriberExt;
 
     use super::*;
-    use crate::logging::capture::Capture;
-    use crate::logging::capture::callsite_guard;
 
     #[test]
     fn client_options_keep_supplied_fields_separate_from_startup_defaults() {
