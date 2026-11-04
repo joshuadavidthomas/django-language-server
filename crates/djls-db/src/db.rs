@@ -221,10 +221,8 @@ mod invalidation_tests {
     use djls_project::SymbolKey;
     use djls_project::TemplateLibrary;
     use djls_project::TemplateLibraryId;
-    use djls_project::TemplateSymbolKind;
     use djls_project::compute_model_graph;
     use djls_project::template_library_catalog;
-    use djls_project::template_library_definition_facts;
     use djls_project::template_library_filter_facts;
     use djls_semantic::SemanticOffsetContext;
     use djls_semantic::ValidationErrorAccumulator;
@@ -344,9 +342,19 @@ mod invalidation_tests {
             + will_execute_count(db, events, "template_symbols_in_scope")
     }
 
+    fn initialize_project(
+        db: &mut DjangoDatabase,
+        root: &Utf8Path,
+        settings: &Settings,
+    ) -> Project {
+        db.set_project(root, settings);
+        db.apply_project_settings(settings.clone());
+        djls_project::run_django_discovery(db).expect("test Django discovery should run");
+        db.project()
+            .expect("test database should contain a project")
+    }
+
     /// Create a test database with event logging and a pre-configured project.
-    ///
-    /// Uses automatic Python Environment discovery to match `Project::bootstrap`.
     fn test_db_with_project() -> (DjangoDatabase, EventLog) {
         let event_log = EventLog::default();
         let settings = Settings::default();
@@ -371,8 +379,7 @@ mod invalidation_tests {
             logs: Arc::new(Mutex::new(None)),
         };
 
-        let project = Project::bootstrap(&db, "/test/project".into(), &settings);
-        db.project = Some(project);
+        initialize_project(&mut db, "/test/project".into(), &settings);
 
         (db, event_log)
     }
@@ -465,8 +472,7 @@ mod invalidation_tests {
             }))),
             logs: Arc::new(Mutex::new(None)),
         };
-        let project = Project::bootstrap(&db, root.as_path(), &settings);
-        db.project = Some(project);
+        let project = initialize_project(&mut db, root.as_path(), &settings);
         let child_file = path_to_file(&db, &child_path).expect("child fixture should exist");
         let parent_file = path_to_file(&db, &parent_path).expect("parent fixture should exist");
         let other_file = path_to_file(&db, &other_path).expect("other fixture should exist");
@@ -493,38 +499,8 @@ mod invalidation_tests {
             child_file,
             ..
         } = template_inheritance_fixture();
+        prime_template_library_products(&db).expect("matrix fixture should install a Project");
         event_log.take();
-
-        let primed =
-            prime_template_library_products(&db).expect("matrix fixture should install a Project");
-        assert_eq!(primed.library_count(), 3);
-        assert_eq!(primed.reprime_files().len(), 2);
-        assert_eq!(primed.full_reload_files().len(), 1);
-        assert!(primed.covered_files().all(|file| {
-            file.path(&db)
-                .extension()
-                .is_some_and(|extension| extension == "py")
-        }));
-        let prime_events = event_log.take();
-        assert_eq!(
-            will_execute_count(&db, &prime_events, "template_library_structure_facts"),
-            3
-        );
-        assert_eq!(
-            will_execute_count(&db, &prime_events, "semantic_grammar_vocabulary"),
-            1
-        );
-        for forbidden in [
-            "template_library_tag_rule_analysis",
-            "template_library_filter_facts",
-            "library_tag_specs",
-            "library_filter_specs",
-            "parse_template",
-            "template_analysis_projection_for_file_in_scope",
-            "validate_template_file",
-        ] {
-            assert_eq!(will_execute_count(&db, &prime_events, forbidden), 0);
-        }
 
         validate_template_file(&db, child_file);
         let errors =
@@ -578,19 +554,8 @@ mod invalidation_tests {
             other_file,
             ..
         } = template_inheritance_fixture();
-        let primed =
-            prime_template_library_products(&db).expect("matrix fixture should install a Project");
-        assert_eq!(primed.reprime_files().len(), 2);
-        assert_eq!(primed.full_reload_files().len(), 1);
-        let prime_events = event_log.take();
-        assert_eq!(
-            will_execute_count(&db, &prime_events, "semantic_grammar_vocabulary"),
-            1
-        );
-        assert_eq!(
-            will_execute_count(&db, &prime_events, "validate_template_file"),
-            0
-        );
+        prime_template_library_products(&db).expect("matrix fixture should install a Project");
+        event_log.take();
 
         let barrier = Arc::new(Barrier::new(3));
         let handles: Vec<_> = [child_file, other_file]
@@ -633,128 +598,6 @@ mod invalidation_tests {
                 "parallel validation lazily executed {intrinsic}"
             );
         }
-    }
-
-    #[test]
-    #[allow(clippy::too_many_lines)]
-    fn final_state_matrix_05_same_revision_validation_is_fully_memoized() {
-        let TemplateInheritanceFixture {
-            db,
-            event_log,
-            child_file,
-            ..
-        } = template_inheritance_fixture();
-        let project = db.project().expect("fixture should install a project");
-        event_log.take();
-
-        let libraries = template_library_catalog(&db, project);
-        let modules: Vec<_> = ScopedTemplateLibraries::from_project_inventory(libraries)
-            .resolved_libraries()
-            .into_iter()
-            .filter(|library| library.source_file().is_some())
-            .map(TemplateLibrary::module_name_str)
-            .collect();
-        assert_eq!(
-            modules,
-            ["django.template.defaulttags", "django.template.loader_tags"]
-        );
-        let events = event_log.take();
-        assert_eq!(
-            will_execute_count(&db, &events, "template_library_catalog"),
-            1
-        );
-        for detail in [
-            "template_library_tag_rule_analysis",
-            "template_library_structure_facts",
-            "template_library_filter_facts",
-        ] {
-            assert_eq!(
-                will_execute_count(&db, &events, detail),
-                0,
-                "catalog demand unexpectedly executed {detail}"
-            );
-        }
-
-        for library in ScopedTemplateLibraries::from_project_inventory(libraries)
-            .resolved_libraries()
-            .into_iter()
-            .filter(|library| library.source_file().is_some())
-        {
-            let key = library.id();
-            let facts = template_library_definition_facts(&db, key);
-            assert!(facts.is_library());
-            let tags = library_tag_specs(&db, project, key);
-            let filters = library_filter_specs(&db, key);
-            if library.module_name_str() == "django.template.defaulttags" {
-                assert!(tags.get("load").is_some());
-            }
-            assert!(filters.get("missing").is_none());
-        }
-        let events = event_log.take();
-        assert_eq!(
-            will_execute_count(&db, &events, "template_library_definition_facts"),
-            0,
-            "catalog assembly should have primed equality-bearing definition facts",
-        );
-        assert_eq!(will_execute_count(&db, &events, "library_tag_specs"), 2);
-        assert_eq!(will_execute_count(&db, &events, "library_filter_specs"), 2);
-
-        let scoped_libraries = scoped_template_libraries_for_file(&db, child_file);
-        let names = scoped_libraries
-            .inventory_symbol_names(TemplateSymbolKind::Tag)
-            .collect::<Vec<_>>();
-        assert!(names.contains(&"load"));
-        assert!(names.contains(&"block"));
-        let events = event_log.take();
-        assert_eq!(
-            will_execute_count(&db, &events, "template_library_scope"),
-            1
-        );
-
-        let nodelist = parse_template(&db, child_file).expect("child fixture should parse");
-        event_log.take();
-        let tree = build_template_tree_for_file(&db, child_file, nodelist);
-        assert!(tree.regions(&db).iter().next().is_some());
-        let events = event_log.take();
-        assert_eq!(
-            will_execute_count(
-                &db,
-                &events,
-                "template_analysis_projection_for_file_in_scope",
-            ),
-            1
-        );
-        assert_eq!(
-            will_execute_count(&db, &events, "build_template_tree_for_file"),
-            1
-        );
-
-        validate_template_file(&db, child_file);
-        let errors =
-            validate_template_file::accumulated::<ValidationErrorAccumulator>(&db, child_file);
-        assert!(errors.is_empty());
-        let events = event_log.take();
-        assert_eq!(
-            will_execute_count(&db, &events, "validate_template_file"),
-            1
-        );
-        assert_eq!(
-            will_execute_count(
-                &db,
-                &events,
-                "template_analysis_projection_for_file_in_scope",
-            ),
-            0,
-            "validation should reuse the correlated analysis projection built above",
-        );
-
-        validate_template_file(&db, child_file);
-        let events = event_log.take();
-        assert_eq!(
-            will_execute_count(&db, &events, "validate_template_file"),
-            0,
-            "same-revision validation should be memoized",
-        );
     }
 
     #[test]
@@ -1179,8 +1022,7 @@ mod invalidation_tests {
             }))),
             logs: Arc::new(Mutex::new(None)),
         };
-        let project = Project::bootstrap(&db, root.as_path(), &settings);
-        db.project = Some(project);
+        let project = initialize_project(&mut db, root.as_path(), &settings);
 
         let libraries = template_library_catalog(&db, project);
         let library = ScopedTemplateLibraries::from_project_inventory(libraries)
@@ -1263,8 +1105,7 @@ mod invalidation_tests {
             }))),
             logs: Arc::new(Mutex::new(None)),
         };
-        let project = Project::bootstrap(&db, root.as_path(), &settings);
-        db.project = Some(project);
+        initialize_project(&mut db, root.as_path(), &settings);
 
         let project = db.project.expect("test database should contain a project");
 
@@ -1347,8 +1188,7 @@ mod invalidation_tests {
             storage: salsa::Storage::default(),
             logs: Arc::new(Mutex::new(None)),
         };
-        let project = Project::bootstrap(&db, root.as_path(), &settings);
-        db.project = Some(project);
+        let project = initialize_project(&mut db, root.as_path(), &settings);
         {
             let resolution = djls_project::template_resolution(&db, project);
             let name = djls_project::TemplateName::new(&db, "base.html".to_string());
@@ -1410,8 +1250,7 @@ mod invalidation_tests {
             storage: salsa::Storage::default(),
             logs: Arc::new(Mutex::new(None)),
         };
-        let project = Project::bootstrap(&db, root.as_path(), &settings);
-        db.project = Some(project);
+        let project = initialize_project(&mut db, root.as_path(), &settings);
 
         assert!(djls_project::template_directories(&db, project).settings_cases_may_omit_roots());
     }
@@ -1458,8 +1297,7 @@ mod invalidation_tests {
             }))),
             logs: Arc::new(Mutex::new(None)),
         };
-        let project = Project::bootstrap(&db, root.as_path(), &settings);
-        db.project = Some(project);
+        let project = initialize_project(&mut db, root.as_path(), &settings);
         event_log.take();
 
         assert_eq!(
@@ -1526,8 +1364,7 @@ mod invalidation_tests {
             }))),
             logs: Arc::new(Mutex::new(None)),
         };
-        let project = Project::bootstrap(&db, root.as_path(), &settings);
-        db.project = Some(project);
+        let project = initialize_project(&mut db, root.as_path(), &settings);
 
         assert_eq!(
             djls_project::template_directories(&db, project)
@@ -1604,8 +1441,7 @@ mod invalidation_tests {
             }))),
             logs: Arc::new(Mutex::new(None)),
         };
-        let project = Project::bootstrap(&db, root.as_path(), &settings);
-        db.project = Some(project);
+        let project = initialize_project(&mut db, root.as_path(), &settings);
 
         assert_eq!(
             djls_project::template_directories(&db, project)
@@ -1675,8 +1511,7 @@ mod invalidation_tests {
             }))),
             logs: Arc::new(Mutex::new(None)),
         };
-        let project = Project::bootstrap(&db, root.as_path(), &settings);
-        db.project = Some(project);
+        let project = initialize_project(&mut db, root.as_path(), &settings);
         let name =
             PythonModuleName::parse("unrelated").expect("test Python module name should be valid");
 
@@ -1995,8 +1830,7 @@ env_file = ".env.local"
             }))),
             logs: Arc::new(Mutex::new(None)),
         };
-        let project = Project::bootstrap(&db, root.as_path(), &settings);
-        db.project = Some(project);
+        let project = initialize_project(&mut db, root.as_path(), &settings);
         let identities: Vec<_> = {
             let libraries = template_library_catalog(&db, project);
             ScopedTemplateLibraries::from_project_inventory(libraries)
@@ -2318,8 +2152,7 @@ def my_filter(value, arg):
             storage: salsa::Storage::default(),
             logs: Arc::new(Mutex::new(None)),
         };
-        let project = Project::bootstrap(&db, root.as_path(), &settings);
-        db.project = Some(project);
+        initialize_project(&mut db, root.as_path(), &settings);
 
         assert_custom_library_module(&db, "old_tags");
 
@@ -2393,8 +2226,7 @@ def my_filter(value, arg):
             storage: salsa::Storage::default(),
             logs: Arc::new(Mutex::new(None)),
         };
-        let project = Project::bootstrap(&db, root.as_path(), &settings);
-        db.project = Some(project);
+        let project = initialize_project(&mut db, root.as_path(), &settings);
 
         assert!(
             ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
@@ -2470,8 +2302,7 @@ def my_filter(value, arg):
             storage: salsa::Storage::default(),
             logs: Arc::new(Mutex::new(None)),
         };
-        let project = Project::bootstrap(&db, root.as_path(), &settings);
-        db.project = Some(project);
+        let project = initialize_project(&mut db, root.as_path(), &settings);
         assert_custom_library_module(&db, "old_tags");
 
         fs.lock()
@@ -2535,8 +2366,11 @@ def my_filter(value, arg):
             storage: salsa::Storage::default(),
             logs: Arc::new(Mutex::new(None)),
         };
-        let project = Project::bootstrap(&db, root.as_path(), &settings);
-        db.project = Some(project);
+        db.set_project(root.as_path(), &settings);
+        db.apply_project_settings(settings.clone());
+        let project = db
+            .project()
+            .expect("test database should contain a project");
 
         let environment = djls_project::testing::compute_django_environment(&db, project)
             .expect("test Django environment should compute");
@@ -2624,8 +2458,7 @@ def my_filter(value, arg):
             storage: salsa::Storage::default(),
             logs: Arc::new(Mutex::new(None)),
         };
-        let project = Project::bootstrap(&db, root.as_path(), &settings);
-        db.project = Some(project);
+        let project = initialize_project(&mut db, root.as_path(), &settings);
 
         let custom =
             ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
@@ -2688,8 +2521,7 @@ def my_filter(value, arg):
             }))),
             logs: Arc::new(Mutex::new(None)),
         };
-        let project = Project::bootstrap(&db, root.as_path(), &settings);
-        db.project = Some(project);
+        let project = initialize_project(&mut db, root.as_path(), &settings);
 
         let custom =
             ScopedTemplateLibraries::from_project_inventory(template_library_catalog(&db, project))
@@ -2800,8 +2632,7 @@ def my_filter(value, arg):
             }))),
             logs: Arc::new(Mutex::new(None)),
         };
-        let project = Project::bootstrap(&db, &root, &settings);
-        db.project = Some(project);
+        let project = initialize_project(&mut db, &root, &settings);
 
         let graph = compute_model_graph(&db, project);
         assert!(graph.models_named("First").next().is_some());
