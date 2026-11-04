@@ -906,6 +906,7 @@ dependencies = [
 name = "djls-bench"
 version = "0.0.0"
 dependencies = [
+ "annotate-snippets",
  "camino",
  "codspeed-divan-compat",
  "djls",

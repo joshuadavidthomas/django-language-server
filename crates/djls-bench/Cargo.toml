@@ -23,6 +23,9 @@ thiserror = { workspace = true }
 tower-lsp-server = { workspace = true }
 
 [dev-dependencies]
+# Pin the styled palette: annotate-snippets picks different ANSI colors on Windows, which
+# would change the hashed rendering snapshots.
+annotate-snippets = { workspace = true, features = ["testing-colors"] }
 insta = { workspace = true }
 serde = { workspace = true }
 sha2 = { workspace = true }
