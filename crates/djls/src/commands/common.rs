@@ -269,7 +269,7 @@ mod tests {
         write_settings_project(
             &root,
             &format!(
-                "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['{configured}'], 'APP_DIRS': False}}]\n"
+                "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [{configured:?}], 'APP_DIRS': False}}]\n"
             ),
         )
         .expect("test settings project should be written");
@@ -304,7 +304,7 @@ mod tests {
         write_settings_project(
             &root,
             &format!(
-                "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['{root}', dynamic()], 'APP_DIRS': False}}]\n"
+                "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [{root:?}, dynamic()], 'APP_DIRS': False}}]\n"
             ),
         )
         .expect("test settings project should be written");
