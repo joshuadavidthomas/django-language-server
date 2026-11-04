@@ -364,10 +364,9 @@ mod tests {
         )
         .expect("explicit Template file should be discovered");
 
+        // Discovery reports Windows paths without the `\\?\` verbatim prefix.
         let canonical = Utf8PathBuf::from_path_buf(
-            file_path
-                .as_std_path()
-                .canonicalize()
+            dunce::canonicalize(file_path.as_std_path())
                 .expect("test fixture path should be canonicalized"),
         )
         .expect("canonical test fixture path should be valid UTF-8");
