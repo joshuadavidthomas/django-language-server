@@ -1,0 +1,3 @@
+# Check out text files with LF endings on every OS. Fixtures, snapshots, and benchmark
+# hashes depend on them, and Git for Windows would otherwise convert them to CRLF.
+* text=auto eol=lf

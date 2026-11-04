@@ -13,6 +13,9 @@ use djls_testing::ProjectFixture;
 use djls_testing::ProjectSettings;
 use djls_testing::TestDatabase;
 use djls_testing::corpus_project_database;
+use djls_testing::host_path;
+use djls_testing::host_source;
+use djls_testing::host_uri;
 use tower_lsp_server::ls_types;
 
 fn document_links(db: &dyn djls_semantic::Db, file: File) -> Vec<ls_types::DocumentLink> {
@@ -22,27 +25,29 @@ fn document_links(db: &dyn djls_semantic::Db, file: File) -> Vec<ls_types::Docum
 #[test]
 fn document_links_do_not_leak_templates_from_another_backend() {
     let mut db = TestDatabase::new();
-    let settings = "TEMPLATES = [\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/a'], 'APP_DIRS': False},\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/b'], 'APP_DIRS': False},\n]\n";
-    ProjectFixture::new("/test/project")
+    let settings = host_source(
+        "TEMPLATES = [\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/a'], 'APP_DIRS': False},\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/b'], 'APP_DIRS': False},\n]\n",
+    );
+    ProjectFixture::new(host_path("/test/project"))
         .django_settings_module("testproject.settings")
-        .file("/test/project/testproject/settings.py", settings)
+        .file(host_path("/test/project/testproject/settings.py"), settings)
         .file(
-            "/test/project/a/child.html",
+            host_path("/test/project/a/child.html"),
             "{% include 'only-a.html' %}\n{% include 'only-b.html' %}",
         )
-        .file("/test/project/a/only-a.html", "own backend")
-        .file("/test/project/b/only-b.html", "other backend")
+        .file(host_path("/test/project/a/only-a.html"), "own backend")
+        .file(host_path("/test/project/b/only-b.html"), "other backend")
         .install(&mut db)
         .expect("multi-backend project fixture should install");
     let file = db
-        .file(Utf8Path::new("/test/project/a/child.html"))
+        .file(Utf8Path::new(host_path("/test/project/a/child.html")))
         .expect("child template fixture should exist");
 
     let links = document_links(&db, file);
     assert_eq!(links.len(), 1);
     assert_eq!(
         links[0].target.as_ref().map(|uri| uri.as_str()),
-        Some("file:///test/project/a/only-a.html")
+        Some(host_uri("/test/project/a/only-a.html"))
     );
 }
 
@@ -51,17 +56,17 @@ fn document_links_resolve_absolute_references_from_originless_files() {
     let mut db = TestDatabase::new();
     let source = "{% include 'card.html' %}\n{% include './card.html' %}";
 
-    ProjectFixture::new("/test/project")
+    ProjectFixture::new(host_path("/test/project"))
         .settings(&ProjectSettings {
-            dirs: vec!["/test/project/templates".into()],
+            dirs: vec![host_path("/test/project/templates").into()],
             ..ProjectSettings::default()
         })
-        .file("/test/project/scratch.html", source)
-        .file("/test/project/templates/card.html", "card")
+        .file(host_path("/test/project/scratch.html"), source)
+        .file(host_path("/test/project/templates/card.html"), "card")
         .install(&mut db)
         .expect("originless template project fixture should install");
     let file = db
-        .file(Utf8Path::new("/test/project/scratch.html"))
+        .file(Utf8Path::new(host_path("/test/project/scratch.html")))
         .expect("scratch template fixture should exist");
 
     let links = document_links(&db, file);
@@ -69,22 +74,22 @@ fn document_links_resolve_absolute_references_from_originless_files() {
     assert_eq!(links.len(), 1);
     assert_eq!(
         links[0].target.as_ref().map(|uri| uri.as_str()),
-        Some("file:///test/project/templates/card.html")
+        Some(host_uri("/test/project/templates/card.html"))
     );
 }
 
 #[test]
 fn document_link_ranges_follow_position_encoding() {
     let mut db = TestDatabase::new();
-    let template_path = "/test/project/templates/page.html";
+    let template_path = host_path("/test/project/templates/page.html");
     let source = "é😀 {% include \"card.html\" %}";
-    ProjectFixture::new("/test/project")
+    ProjectFixture::new(host_path("/test/project"))
         .settings(&ProjectSettings {
-            dirs: vec!["/test/project/templates".into()],
+            dirs: vec![host_path("/test/project/templates").into()],
             ..ProjectSettings::default()
         })
         .file(template_path, source)
-        .file("/test/project/templates/card.html", "card")
+        .file(host_path("/test/project/templates/card.html"), "card")
         .install(&mut db)
         .expect("document link range fixture should install");
     let file = db
@@ -115,9 +120,9 @@ fn document_link_ranges_follow_position_encoding() {
 #[test]
 fn document_links_resolve_template_references_with_interior_ranges() {
     let mut db = TestDatabase::new();
-    let child_path = "/test/project/templates/child.html";
-    let base_path = "/test/project/templates/base.html";
-    let partial_path = "/test/project/templates/partials/card.html";
+    let child_path = host_path("/test/project/templates/child.html");
+    let base_path = host_path("/test/project/templates/base.html");
+    let partial_path = host_path("/test/project/templates/partials/card.html");
     let source = concat!(
         "{% extends \"base.html\" %}\n",
         "{% include \"partials/card.html\" %}\n",
@@ -125,9 +130,9 @@ fn document_links_resolve_template_references_with_interior_ranges() {
         "{% include dynamic_template %}\n",
     );
 
-    ProjectFixture::new("/test/project")
+    ProjectFixture::new(host_path("/test/project"))
         .settings(&ProjectSettings {
-            dirs: vec!["/test/project/templates".into()],
+            dirs: vec![host_path("/test/project/templates").into()],
             ..ProjectSettings::default()
         })
         .file(child_path, source)
@@ -150,7 +155,7 @@ fn document_links_resolve_template_references_with_interior_ranges() {
                 ls_types::Position::new(0, 21),
             ),
             target: Some(
-                "file:///test/project/templates/base.html"
+                host_uri("/test/project/templates/base.html")
                     .parse()
                     .expect("test URI should parse"),
             ),
@@ -166,7 +171,7 @@ fn document_links_resolve_template_references_with_interior_ranges() {
                 ls_types::Position::new(1, 30),
             ),
             target: Some(
-                "file:///test/project/templates/partials/card.html"
+                host_uri("/test/project/templates/partials/card.html")
                     .parse()
                     .expect("test URI should parse"),
             ),
@@ -179,17 +184,17 @@ fn document_links_resolve_template_references_with_interior_ranges() {
 #[test]
 fn document_links_skip_inconclusive_template_references() {
     let mut db = TestDatabase::new();
-    let child_path = "/test/project/templates/child.html";
+    let child_path = host_path("/test/project/templates/child.html");
     let source = "{% extends \"base.html\" %}\n";
 
-    ProjectFixture::new("/test/project")
+    ProjectFixture::new(host_path("/test/project"))
         .django_settings_module("testproject.settings")
         .file(
-            "/test/project/testproject/settings.py",
-            "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [UNKNOWN, '/test/project/templates'], 'APP_DIRS': False}]\n",
+            host_path("/test/project/testproject/settings.py"),
+            host_source("TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [UNKNOWN, '/test/project/templates'], 'APP_DIRS': False}]\n"),
         )
         .file(child_path, source)
-        .file("/test/project/templates/base.html", "base")
+        .file(host_path("/test/project/templates/base.html"), "base")
         .install(&mut db)
         .expect("incomplete-search project fixture should install");
 
@@ -203,8 +208,8 @@ fn document_links_skip_inconclusive_template_references() {
 #[test]
 fn document_links_do_not_invent_origin_for_source_less_configured_library() {
     let mut db = TestDatabase::new();
-    let template_path = "/test/project/templates/load.html";
-    ProjectFixture::new("/test/project")
+    let template_path = host_path("/test/project/templates/load.html");
+    ProjectFixture::new(host_path("/test/project"))
         .tag_specs(TagSpecDef {
             libraries: vec![TagLibraryDef {
                 module: "missing.panel_tags".to_string(),
@@ -222,7 +227,7 @@ fn document_links_do_not_invent_origin_for_source_less_configured_library() {
             ..TagSpecDef::default()
         })
         .settings(&ProjectSettings {
-            dirs: vec!["/test/project/templates".into()],
+            dirs: vec![host_path("/test/project/templates").into()],
             libraries: BTreeMap::from([("panels".into(), "missing.panel_tags".into())]),
             ..ProjectSettings::default()
         })
@@ -239,15 +244,15 @@ fn document_links_do_not_invent_origin_for_source_less_configured_library() {
 #[test]
 fn document_links_skip_library_candidate_beside_open_backend_alternative() {
     let mut db = TestDatabase::new();
-    let template_path = "/test/project/templates/load.html";
-    ProjectFixture::new("/test/project")
+    let template_path = host_path("/test/project/templates/load.html");
+    ProjectFixture::new(host_path("/test/project"))
         .django_settings_module("testproject.settings")
         .file(
-            "/test/project/testproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': UNKNOWN}, {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'project_tags'}}}]\n",
+            host_path("/test/project/testproject/settings.py"),
+            host_source("INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': UNKNOWN}, {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'custom': 'project_tags'}}}]\n"),
         )
         .file(
-            "/test/project/project_tags.py",
+            host_path("/test/project/project_tags.py"),
             "from django import template\nregister = template.Library()\n",
         )
         .file(template_path, "{% load custom %}")
@@ -263,13 +268,13 @@ fn document_links_skip_library_candidate_beside_open_backend_alternative() {
 #[test]
 fn document_links_resolve_relative_include_to_sibling_template() {
     let mut db = TestDatabase::new();
-    let child_path = "/test/project/templates/dir/child.html";
-    let target_path = "/test/project/templates/dir/x.html";
+    let child_path = host_path("/test/project/templates/dir/child.html");
+    let target_path = host_path("/test/project/templates/dir/x.html");
     let source = "{% include \"./x.html\" %}\n";
 
-    ProjectFixture::new("/test/project")
+    ProjectFixture::new(host_path("/test/project"))
         .settings(&ProjectSettings {
-            dirs: vec!["/test/project/templates".into()],
+            dirs: vec![host_path("/test/project/templates").into()],
             ..ProjectSettings::default()
         })
         .file(child_path, source)
@@ -290,7 +295,7 @@ fn document_links_resolve_relative_include_to_sibling_template() {
                 ls_types::Position::new(0, 20),
             ),
             target: Some(
-                "file:///test/project/templates/dir/x.html"
+                host_uri("/test/project/templates/dir/x.html")
                     .parse()
                     .expect("test URI should parse"),
             ),

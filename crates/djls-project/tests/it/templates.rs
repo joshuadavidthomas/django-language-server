@@ -10,6 +10,7 @@ use djls_testing::ProjectFixture;
 use djls_testing::ProjectSettings;
 use djls_testing::SalsaEventLog;
 use djls_testing::TestDatabase;
+use djls_testing::slash_path;
 use djls_testing::will_execute_count;
 
 fn project_with_templates(
@@ -457,7 +458,7 @@ fn derived_template_origins_keep_shadowed_names_in_template_dir_order() {
 
     let paths: Vec<_> = template_resolution(&db, project)
         .origins(&db)
-        .map(|origin| origin.file(&db).path(&db).as_str())
+        .map(|origin| slash_path(origin.file(&db).path(&db)))
         .collect();
 
     assert_eq!(
@@ -529,7 +530,7 @@ fn origins_for_name_returns_origins_in_django_search_order() {
     let paths: Vec<_> = template_resolution(&db, project)
         .origins_for_name(&db, name)
         .iter()
-        .map(|origin| origin.file(&db).path(&db).as_str())
+        .map(|origin| slash_path(origin.file(&db).path(&db)))
         .collect();
 
     assert_eq!(
@@ -629,7 +630,7 @@ fn resolve_returns_first_origin_for_duplicate_template_names() {
     .expect("base.html should resolve to an origin");
 
     assert_eq!(
-        origin.file(&db).path(&db).as_str(),
+        slash_path(origin.file(&db).path(&db)),
         "/test/project/templates/base.html"
     );
 }
@@ -715,7 +716,7 @@ fn dynamic_installed_apps_preserve_uncertainty_position() {
         panic!("known app should win before uncertainty");
     };
     assert_eq!(
-        origin.file(&known_first_db).path(&known_first_db).as_str(),
+        slash_path(origin.file(&known_first_db).path(&known_first_db)),
         "/test/project/known/templates/base.html"
     );
 
@@ -827,7 +828,7 @@ fn scalar_path_alternatives_follow_unanimous_and_divergent_resolution_policy() {
     let possible_paths = search
         .possible_origins
         .iter()
-        .map(|origin| origin.path_buf(&db).as_str())
+        .map(|origin| slash_path(origin.path_buf(&db)))
         .collect::<BTreeSet<_>>();
     assert_eq!(
         possible_paths,
@@ -836,6 +837,7 @@ fn scalar_path_alternatives_follow_unanimous_and_divergent_resolution_policy() {
             "/test/project/two/shared/conflict.html",
         ]
         .into_iter()
+        .map(String::from)
         .collect()
     );
 }
@@ -865,7 +867,7 @@ fn divergent_installed_app_alternatives_preserve_all_possible_origins() {
     let possible_paths = search
         .possible_origins
         .iter()
-        .map(|origin| origin.path_buf(&db).as_str())
+        .map(|origin| slash_path(origin.path_buf(&db)))
         .collect::<BTreeSet<_>>();
 
     assert_eq!(
@@ -875,6 +877,7 @@ fn divergent_installed_app_alternatives_preserve_all_possible_origins() {
             "/test/project/second/templates/shared.html",
         ]
         .into_iter()
+        .map(String::from)
         .collect()
     );
 }
@@ -905,7 +908,7 @@ fn same_branch_settings_exclude_impossible_template_roots() {
     let possible_paths = search
         .possible_origins
         .iter()
-        .map(|origin| origin.path_buf(&db).as_str())
+        .map(|origin| slash_path(origin.path_buf(&db)))
         .collect::<BTreeSet<_>>();
 
     assert_eq!(
@@ -915,6 +918,7 @@ fn same_branch_settings_exclude_impossible_template_roots() {
             "/test/project/second/templates/shared.html",
         ]
         .into_iter()
+        .map(String::from)
         .collect()
     );
 }
@@ -952,7 +956,7 @@ fn conditional_star_import_keeps_imported_and_fallback_settings_correlated() {
     let possible_paths = search
         .possible_origins
         .iter()
-        .map(|origin| origin.path_buf(&db).as_str())
+        .map(|origin| slash_path(origin.path_buf(&db)))
         .collect::<BTreeSet<_>>();
 
     assert_eq!(
@@ -962,6 +966,7 @@ fn conditional_star_import_keeps_imported_and_fallback_settings_correlated() {
             "/test/project/local/templates/shared.html",
         ]
         .into_iter()
+        .map(String::from)
         .collect()
     );
 }
@@ -989,7 +994,7 @@ fn branch_local_namespace_uncertainty_only_pairs_with_its_template_arm() {
     }
     .expect("all feasible arms should select the same physical template");
     assert_eq!(
-        origin.path_buf(&db).as_str(),
+        slash_path(origin.path_buf(&db)),
         "/test/project/second/templates/shared.html"
     );
 }
@@ -1019,7 +1024,7 @@ fn independently_joined_settings_keep_cross_product_feasible_after_branch_transl
     let possible_paths = search
         .possible_origins
         .iter()
-        .map(|origin| origin.path_buf(&db).as_str())
+        .map(|origin| slash_path(origin.path_buf(&db)))
         .collect::<BTreeSet<_>>();
 
     assert_eq!(
@@ -1029,6 +1034,7 @@ fn independently_joined_settings_keep_cross_product_feasible_after_branch_transl
             "/test/project/first/templates/shared.html",
         ]
         .into_iter()
+        .map(String::from)
         .collect()
     );
 }
@@ -1069,7 +1075,7 @@ fn branch_specific_apps_correlate_with_equal_relative_template_lists() {
     let possible_paths = search
         .possible_origins
         .iter()
-        .map(|origin| origin.path_buf(&db).as_str())
+        .map(|origin| slash_path(origin.path_buf(&db)))
         .collect::<BTreeSet<_>>();
 
     assert_eq!(
@@ -1079,6 +1085,7 @@ fn branch_specific_apps_correlate_with_equal_relative_template_lists() {
             "/test/project/second/templates/shared.html",
         ]
         .into_iter()
+        .map(String::from)
         .collect()
     );
 }
@@ -1201,7 +1208,7 @@ fn later_dynamic_directory_does_not_weaken_an_earlier_winner() {
         panic!("earlier directory should win");
     };
     assert_eq!(
-        origin.file(&db).path(&db).as_str(),
+        slash_path(origin.file(&db).path(&db)),
         "/test/project/templates/base.html"
     );
 }
@@ -1227,7 +1234,7 @@ fn later_uncertainty_does_not_weaken_an_earlier_winner() {
         panic!("earlier directory should win");
     };
     assert_eq!(
-        origin.file(&db).path(&db).as_str(),
+        slash_path(origin.file(&db).path(&db)),
         "/test/project/templates/base.html"
     );
 }
@@ -1383,7 +1390,7 @@ fn scoped_resolution_joins_duplicate_backend_memberships() {
     let paths = search
         .possible_origins
         .iter()
-        .map(|origin| origin.path_buf(&db).as_str())
+        .map(|origin| slash_path(origin.path_buf(&db)))
         .collect::<Vec<_>>();
     assert_eq!(
         paths,
@@ -1457,7 +1464,7 @@ fn resolve_excluding_skips_excluded_origins() {
     .expect("resolution should return the non-excluded origin");
 
     assert_eq!(
-        origin.path_buf(&db).as_str(),
+        slash_path(origin.path_buf(&db)),
         "/test/project/app/templates/base.html"
     );
 }

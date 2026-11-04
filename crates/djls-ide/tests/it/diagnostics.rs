@@ -6,6 +6,7 @@ use djls_source::PositionEncoding;
 use djls_testing::ProjectFixture;
 use djls_testing::ProjectSettings;
 use djls_testing::TestDatabase;
+use djls_testing::host_path;
 use tower_lsp_server::ls_types;
 
 #[test]
@@ -17,21 +18,21 @@ fn unreadable_library_diagnostic_is_a_hint_with_python_source_information() {
         "def other_tag(context): pass\n",
         "register.simple_tag(takes_context=True)(globals()['other_tag'])\n",
     );
-    ProjectFixture::new("/proj")
+    ProjectFixture::new(host_path("/proj"))
         .settings(&ProjectSettings {
-            dirs: vec!["/proj/templates".into()],
+            dirs: vec![host_path("/proj/templates").into()],
             libraries: BTreeMap::from([("open".into(), "open_tags".into())]),
             ..ProjectSettings::default()
         })
-        .file("/proj/open_tags.py", library_source)
-        .file("/proj/templates/page.html", "{% load open %}")
+        .file(host_path("/proj/open_tags.py"), library_source)
+        .file(host_path("/proj/templates/page.html"), "{% load open %}")
         .install(&mut db)
         .expect("unreadable-library diagnostic fixture should install");
     let template_file = db
-        .file(Utf8Path::new("/proj/templates/page.html"))
+        .file(Utf8Path::new(host_path("/proj/templates/page.html")))
         .expect("template fixture should exist");
     let registration_file = db
-        .file(Utf8Path::new("/proj/open_tags.py"))
+        .file(Utf8Path::new(host_path("/proj/open_tags.py")))
         .expect("registration fixture should exist");
 
     let diagnostics = collect_diagnostics(&db, template_file, PositionEncoding::Utf8)

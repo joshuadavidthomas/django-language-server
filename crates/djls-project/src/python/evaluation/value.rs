@@ -1272,11 +1272,11 @@ mod tests {
         PythonValue::known(PythonValueKind::Bool(flag), site)
     }
 
-    fn path_value(site: Origin, text: &str) -> PythonValue {
-        let text = format!("/{text}");
+    fn path_value(site: Origin, path: &'static str) -> PythonValue {
         PythonValue::known(
             PythonValueKind::Path(
-                PythonPath::from_absolute_string(&text).expect("test path should be absolute"),
+                PythonPath::from_absolute_string(djls_testing::host_path(path))
+                    .expect("test path should be absolute"),
             ),
             site,
         )
@@ -1358,7 +1358,7 @@ mod tests {
             dict_value(origin(1)),
             list_value(origin(1), Vec::new()),
             module_value(origin(1), "pkg"),
-            path_value(origin(1), "path"),
+            path_value(origin(1), "/path"),
             str_value(origin(1), "text"),
             tuple_value(origin(1), Vec::new()),
             unsupported_literal_value(origin(1)),
@@ -1968,7 +1968,7 @@ mod tests {
                 str_value(origin(1), "s"),
                 dict_value(origin(1)),
                 bool_value(origin(1), true),
-                path_value(origin(1), "p"),
+                path_value(origin(1), "/p"),
                 intrinsic_value(origin(1), PythonIntrinsic::PathlibPathType),
                 unsupported_literal_value(origin(1)),
                 unknown_value(origin(1)),
@@ -2043,7 +2043,7 @@ mod tests {
             Iterability::NotIterable
         ));
         assert!(matches!(
-            path_value(origin(1), "p").iterability(),
+            path_value(origin(1), "/p").iterability(),
             Iterability::NotIterable
         ));
         assert!(matches!(
@@ -2098,7 +2098,7 @@ mod tests {
         ));
         for value in [
             bool_value(origin(1), true),
-            path_value(origin(1), "p"),
+            path_value(origin(1), "/p"),
             intrinsic_value(origin(1), PythonIntrinsic::PathlibPathType),
             unsupported_literal_value(origin(1)),
             dict_value(origin(1)),
@@ -2225,7 +2225,7 @@ mod tests {
         assert!(ok.is_some());
         assert_eq!(item_texts(&from_unknown), vec!["str:seed", "unpack"]);
 
-        let (ok, from_path) = extend_list(&path_value(origin(3), "p"));
+        let (ok, from_path) = extend_list(&path_value(origin(3), "/p"));
         assert!(ok.is_none());
         assert_eq!(item_texts(&from_path), vec!["str:seed"]);
 

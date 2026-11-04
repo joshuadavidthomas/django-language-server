@@ -8,6 +8,8 @@ use djls_source::PositionEncoding;
 use djls_testing::ProjectFixture;
 use djls_testing::ProjectSettings;
 use djls_testing::TestDatabase;
+use djls_testing::host_path;
+use djls_testing::host_source;
 use tower_lsp_server::ls_types;
 
 fn hover(db: &TestDatabase, file: File, offset: Offset) -> Option<ls_types::Hover> {
@@ -24,7 +26,7 @@ fn hover_markdown(hover: ls_types::Hover) -> Option<String> {
 fn collision_fixture(source: &str) -> Result<(TestDatabase, File), Box<dyn std::error::Error>> {
     let mut db = TestDatabase::new();
     let settings = ProjectSettings {
-        dirs: vec!["/test/project/templates".into()],
+        dirs: vec![host_path("/test/project/templates").into()],
         builtins: vec!["builtin_tags".into()],
         libraries: BTreeMap::from([
             ("alpha".into(), "alpha_tags".into()),
@@ -37,23 +39,25 @@ fn collision_fixture(source: &str) -> Result<(TestDatabase, File), Box<dyn std::
             "from django import template\nregister = template.Library()\n\n@register.simple_tag(name='shared')\ndef shared_tag():\n    \"\"\"{doc} tag.\"\"\"\n    return ''\n\n@register.filter(name='shared_filter')\ndef shared_filter(value):\n    \"\"\"{doc} filter.\"\"\"\n    return value\n"
         )
     };
-    ProjectFixture::new("/test/project")
+    ProjectFixture::new(host_path("/test/project"))
         .settings(&settings)
         .file(
-            "/test/project/builtin_tags.py",
+            host_path("/test/project/builtin_tags.py"),
             library_source("Builtin definition"),
         )
         .file(
-            "/test/project/alpha_tags.py",
+            host_path("/test/project/alpha_tags.py"),
             library_source("Alpha definition"),
         )
         .file(
-            "/test/project/beta_tags.py",
+            host_path("/test/project/beta_tags.py"),
             library_source("Beta definition"),
         )
-        .file("/test/project/templates/page.html", source)
+        .file(host_path("/test/project/templates/page.html"), source)
         .install(&mut db)?;
-    let file = db.file(Utf8Path::new("/test/project/templates/page.html"))?;
+    let file = db.file(Utf8Path::new(host_path(
+        "/test/project/templates/page.html",
+    )))?;
     Ok((db, file))
 }
 
@@ -148,21 +152,23 @@ fn symbol_hover_shows_docstrings_read_from_library_source() {
     let mut db = TestDatabase::new();
     let source =
         "{% load custom %}{% for item in items %}{{ item|lower|shout }}{% endfor %}{% greet %}";
-    ProjectFixture::new("/test/project")
+    ProjectFixture::new(host_path("/test/project"))
         .settings(&ProjectSettings {
-            dirs: vec!["/test/project/templates".into()],
+            dirs: vec![host_path("/test/project/templates").into()],
             libraries: BTreeMap::from([("custom".into(), "custom_tags".into())]),
             ..ProjectSettings::default()
         })
         .file(
-            "/test/project/custom_tags.py",
+            host_path("/test/project/custom_tags.py"),
             "from django import template\nregister = template.Library()\n\n@register.simple_tag\ndef greet():\n    \"\"\"Say hello.\n\n    Usage::\n\n        {% greet %}\n    \"\"\"\n    return 'hello'\n\ndef shout(value):\n    'Upper' \"case the value.\"\n    return value.upper()\n\nregister.filter('shout', shout)\n",
         )
-        .file("/test/project/templates/page.html", source)
+        .file(host_path("/test/project/templates/page.html"), source)
         .install(&mut db)
         .expect("docstring project fixture should install");
     let file = db
-        .file(Utf8Path::new("/test/project/templates/page.html"))
+        .file(Utf8Path::new(host_path(
+            "/test/project/templates/page.html",
+        )))
         .expect("template fixture file should exist");
     let hover_at = |needle: &str| {
         let offset = source
@@ -198,21 +204,23 @@ fn symbol_hover_shows_docstrings_read_from_library_source() {
 fn captured_if_else_does_not_hover_a_colliding_custom_definition() {
     let mut db = TestDatabase::new();
     let source = "{% load custom %}{% if condition %}{% else %}{% endif %}{% else %}";
-    ProjectFixture::new("/test/project")
+    ProjectFixture::new(host_path("/test/project"))
         .settings(&ProjectSettings {
-            dirs: vec!["/test/project/templates".into()],
+            dirs: vec![host_path("/test/project/templates").into()],
             libraries: BTreeMap::from([("custom".into(), "custom_tags".into())]),
             ..ProjectSettings::default()
         })
         .file(
-            "/test/project/custom_tags.py",
+            host_path("/test/project/custom_tags.py"),
             "from django import template\nregister = template.Library()\n\n@register.simple_tag(name='else')\ndef custom_else():\n    \"\"\"Custom else definition.\"\"\"\n    return ''\n",
         )
-        .file("/test/project/templates/page.html", source)
+        .file(host_path("/test/project/templates/page.html"), source)
         .install(&mut db)
         .expect("captured-tag project fixture should install");
     let file = db
-        .file(Utf8Path::new("/test/project/templates/page.html"))
+        .file(Utf8Path::new(host_path(
+            "/test/project/templates/page.html",
+        )))
         .expect("template fixture file should exist");
     let offsets = source
         .match_indices("else")
@@ -237,24 +245,26 @@ fn captured_if_else_does_not_hover_a_colliding_custom_definition() {
 #[test]
 fn multi_backend_same_definition_hovers_across_builtin_and_loaded_exposure() {
     let mut db = TestDatabase::new();
-    let settings = "INSTALLED_APPS = []\nif FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/shared'], 'APP_DIRS': False, 'OPTIONS': {'builtins': ['shared_tags'], 'libraries': {'shared': 'empty_tags'}}}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/shared'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'shared_tags'}}}]\n";
+    let settings = host_source(
+        "INSTALLED_APPS = []\nif FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/shared'], 'APP_DIRS': False, 'OPTIONS': {'builtins': ['shared_tags'], 'libraries': {'shared': 'empty_tags'}}}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/shared'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'shared_tags'}}}]\n",
+    );
     let source = "{% load shared %}\n{% common %}";
-    ProjectFixture::new("/test/project")
+    ProjectFixture::new(host_path("/test/project"))
         .django_settings_module("testproject.settings")
-        .file("/test/project/testproject/settings.py", settings)
+        .file(host_path("/test/project/testproject/settings.py"), settings)
         .file(
-            "/test/project/shared_tags.py",
+            host_path("/test/project/shared_tags.py"),
             "from django import template\nregister = template.Library()\n@register.simple_tag\ndef common(): pass\n",
         )
         .file(
-            "/test/project/empty_tags.py",
+            host_path("/test/project/empty_tags.py"),
             "from django import template\nregister = template.Library()\n",
         )
-        .file("/test/project/shared/page.html", source)
+        .file(host_path("/test/project/shared/page.html"), source)
         .install(&mut db)
         .expect("multi-backend hover project fixture should install");
     let file = db
-        .file(Utf8Path::new("/test/project/shared/page.html"))
+        .file(Utf8Path::new(host_path("/test/project/shared/page.html")))
         .expect("shared template fixture should exist");
     let offset = Offset::new(
         u32::try_from(
@@ -299,16 +309,18 @@ fn selective_import_symbol_hover_uses_the_source_library() {
 fn template_hover_does_not_resolve_from_another_backend() {
     let mut db = TestDatabase::new();
     let source = r#"{% extends "base.html" %}"#;
-    let settings = "TEMPLATES = [\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/a'], 'APP_DIRS': False},\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/b'], 'APP_DIRS': False},\n]\n";
-    ProjectFixture::new("/test/project")
+    let settings = host_source(
+        "TEMPLATES = [\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/a'], 'APP_DIRS': False},\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/b'], 'APP_DIRS': False},\n]\n",
+    );
+    ProjectFixture::new(host_path("/test/project"))
         .django_settings_module("testproject.settings")
-        .file("/test/project/testproject/settings.py", settings)
-        .file("/test/project/a/child.html", source)
-        .file("/test/project/b/base.html", "other backend")
+        .file(host_path("/test/project/testproject/settings.py"), settings)
+        .file(host_path("/test/project/a/child.html"), source)
+        .file(host_path("/test/project/b/base.html"), "other backend")
         .install(&mut db)
         .expect("multi-backend template fixture should install");
     let file = db
-        .file(Utf8Path::new("/test/project/a/child.html"))
+        .file(Utf8Path::new(host_path("/test/project/a/child.html")))
         .expect("child template fixture should exist");
 
     let result = hover(
@@ -328,7 +340,7 @@ fn template_hover_does_not_resolve_from_another_backend() {
         hover_markdown(result).expect("missing template hover should use markup content");
     assert!(markdown.contains("Template not found."));
     assert!(!markdown.contains("Resolved to"));
-    assert!(markdown.contains("`/test/project/a/base.html`"));
+    assert!(markdown.contains(&format!("`{}`", host_path("/test/project/a/base.html"))));
     assert!(!markdown.contains("search is incomplete"));
 }
 
@@ -337,17 +349,17 @@ fn template_hover_resolves_absolute_reference_from_originless_file() {
     let mut db = TestDatabase::new();
     let source = r#"{% extends "base.html" %}"#;
 
-    ProjectFixture::new("/test/project")
+    ProjectFixture::new(host_path("/test/project"))
         .settings(&ProjectSettings {
-            dirs: vec!["/test/project/templates".into()],
+            dirs: vec![host_path("/test/project/templates").into()],
             ..ProjectSettings::default()
         })
-        .file("/test/project/scratch.html", source)
-        .file("/test/project/templates/base.html", "base")
+        .file(host_path("/test/project/scratch.html"), source)
+        .file(host_path("/test/project/templates/base.html"), "base")
         .install(&mut db)
         .expect("originless template fixture should install");
     let file = db
-        .file(Utf8Path::new("/test/project/scratch.html"))
+        .file(Utf8Path::new(host_path("/test/project/scratch.html")))
         .expect("scratch template fixture should exist");
 
     let result = hover(
@@ -367,7 +379,10 @@ fn template_hover_resolves_absolute_reference_from_originless_file() {
         hover_markdown(result).expect("resolved template hover should use markup content");
 
     assert!(
-        markdown.contains("Resolved to `/test/project/templates/base.html`"),
+        markdown.contains(&format!(
+            "Resolved to `{}`",
+            host_path("/test/project/templates/base.html")
+        )),
         "{markdown}"
     );
 }
@@ -376,11 +391,11 @@ fn template_hover_resolves_absolute_reference_from_originless_file() {
 fn missing_template_hover_says_template_not_found() {
     let mut db = TestDatabase::new();
     let source = r#"{% extends "missing.html" %}"#;
-    let child_path = "/test/project/templates/child.html";
+    let child_path = host_path("/test/project/templates/child.html");
 
-    ProjectFixture::new("/test/project")
+    ProjectFixture::new(host_path("/test/project"))
         .settings(&ProjectSettings {
-            dirs: vec!["/test/project/templates".into()],
+            dirs: vec![host_path("/test/project/templates").into()],
             ..ProjectSettings::default()
         })
         .file(child_path, source)
@@ -407,7 +422,10 @@ fn missing_template_hover_says_template_not_found() {
         hover_markdown(result).expect("missing template hover should use markup content");
 
     assert!(markdown.contains("Template not found."));
-    assert!(markdown.contains("`/test/project/templates/missing.html`"));
+    assert!(markdown.contains(&format!(
+        "`{}`",
+        host_path("/test/project/templates/missing.html")
+    )));
     assert!(!markdown.contains("search is incomplete"));
 }
 
@@ -415,17 +433,17 @@ fn missing_template_hover_says_template_not_found() {
 fn inconclusive_template_hover_describes_incomplete_search_and_possible_matches() {
     let mut db = TestDatabase::new();
     let source = r#"{% extends "base.html" %}"#;
-    let child_path = "/test/project/templates/child.html";
+    let child_path = host_path("/test/project/templates/child.html");
 
-    ProjectFixture::new("/test/project")
+    ProjectFixture::new(host_path("/test/project"))
         .django_settings_module("testproject.settings")
         .file(
-            "/test/project/testproject/settings.py",
-            "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [UNKNOWN, '/test/project/templates', '/test/project/app/templates'], 'APP_DIRS': False}]\n",
+            host_path("/test/project/testproject/settings.py"),
+            host_source("TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [UNKNOWN, '/test/project/templates', '/test/project/app/templates'], 'APP_DIRS': False}]\n"),
         )
         .file(child_path, source)
-        .file("/test/project/templates/base.html", "first")
-        .file("/test/project/app/templates/base.html", "second")
+        .file(host_path("/test/project/templates/base.html"), "first")
+        .file(host_path("/test/project/app/templates/base.html"), "second")
         .install(&mut db)
         .expect("incomplete-search project fixture should install");
 
@@ -450,7 +468,13 @@ fn inconclusive_template_hover_describes_incomplete_search_and_possible_matches(
 
     assert!(markdown.contains("Template search is incomplete."));
     assert!(markdown.contains("Possible matches:"));
-    assert!(markdown.contains("`/test/project/templates/base.html`"));
-    assert!(!markdown.contains("`/test/project/app/templates/base.html`"));
+    assert!(markdown.contains(&format!(
+        "`{}`",
+        host_path("/test/project/templates/base.html")
+    )));
+    assert!(!markdown.contains(&format!(
+        "`{}`",
+        host_path("/test/project/app/templates/base.html")
+    )));
     assert!(!markdown.contains("Template not found."));
 }

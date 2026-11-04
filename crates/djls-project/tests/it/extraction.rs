@@ -43,6 +43,7 @@ use djls_testing::ProjectFixture;
 use djls_testing::SalsaEventLog;
 use djls_testing::TestDatabase;
 use djls_testing::extract_bundle;
+use djls_testing::slash_path;
 use djls_testing::sorted_snapshot;
 use djls_testing::will_execute_count;
 
@@ -4411,7 +4412,7 @@ def do_asset(parser, token):
 
     let covered_paths = template_library_registration_dependencies(&db, key)
         .iter()
-        .map(|file| file.path(&db).as_str())
+        .map(|file| slash_path(file.path(&db)))
         .collect::<Vec<_>>();
     for path in [
         "/test/project/app/__init__.py",
@@ -4425,7 +4426,7 @@ def do_asset(parser, token):
         "/test/project/app/templatetags/var.py",
     ] {
         assert!(
-            covered_paths.contains(&path),
+            covered_paths.iter().any(|covered| covered == path),
             "coverage should include {path}"
         );
     }

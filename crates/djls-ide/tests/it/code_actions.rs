@@ -14,9 +14,12 @@ use djls_testing::OsTestDatabase;
 use djls_testing::ProjectFixture;
 use djls_testing::ProjectSettings;
 use djls_testing::TestDatabase;
+use djls_testing::host_path;
 use tower_lsp_server::ls_types;
 
-const TEMPLATE_PATH: &str = "/test/project/templates/template.html";
+fn template_path() -> &'static str {
+    host_path("/test/project/templates/template.html")
+}
 
 type TestResult<T> = Result<T, Box<dyn std::error::Error>>;
 
@@ -29,9 +32,9 @@ fn db_with_source_and_config(
     diagnostics_config: DiagnosticsConfig,
 ) -> TestResult<OsTestDatabase> {
     let mut db = OsTestDatabase::default().with_diagnostics_config(diagnostics_config);
-    ProjectFixture::new("/test/project")
+    ProjectFixture::new(host_path("/test/project"))
         .settings(&ProjectSettings {
-            dirs: vec!["/test/project/templates".into()],
+            dirs: vec![host_path("/test/project/templates").into()],
             libraries: BTreeMap::from([
                 ("i18n".into(), "i18n_tags".into()),
                 ("humanize".into(), "humanize_tags".into()),
@@ -39,17 +42,17 @@ fn db_with_source_and_config(
             ]),
             ..ProjectSettings::default()
         })
-        .file("/test/project/i18n_tags.py", "from django import template\nregister = template.Library()\n@register.simple_tag\ndef trans(value): pass\n")
-        .file("/test/project/humanize_tags.py", "from django import template\nregister = template.Library()\n@register.filter\ndef intcomma(value): pass\n")
-        .file("/test/project/static_tags.py", "from django import template\nregister = template.Library()\n")
-        .file(TEMPLATE_PATH, source)
+        .file(host_path("/test/project/i18n_tags.py"), "from django import template\nregister = template.Library()\n@register.simple_tag\ndef trans(value): pass\n")
+        .file(host_path("/test/project/humanize_tags.py"), "from django import template\nregister = template.Library()\n@register.filter\ndef intcomma(value): pass\n")
+        .file(host_path("/test/project/static_tags.py"), "from django import template\nregister = template.Library()\n")
+        .file(template_path(), source)
         .install(&mut db)?;
     Ok(db)
 }
 
 fn ambiguous_db_with_source(source: &str) -> TestResult<OsTestDatabase> {
     let settings = ProjectSettings {
-        dirs: vec!["/test/project/templates".into()],
+        dirs: vec![host_path("/test/project/templates").into()],
         libraries: BTreeMap::from([
             ("alpha".to_string(), "alpha_tags".to_string()),
             ("beta".to_string(), "beta_tags".to_string()),
@@ -58,22 +61,22 @@ fn ambiguous_db_with_source(source: &str) -> TestResult<OsTestDatabase> {
     };
     let mut db = OsTestDatabase::default();
     let library = "from django import template\nregister = template.Library()\n@register.tag(name='ambiguous_tag')\ndef ambiguous_tag(parser, token): pass\n@register.filter(name='ambiguous_filter')\ndef ambiguous_filter(value): pass\n";
-    ProjectFixture::new("/test/project")
+    ProjectFixture::new(host_path("/test/project"))
         .settings(&settings)
-        .file("/test/project/alpha_tags.py", library)
-        .file("/test/project/beta_tags.py", library)
-        .file(TEMPLATE_PATH, source)
+        .file(host_path("/test/project/alpha_tags.py"), library)
+        .file(host_path("/test/project/beta_tags.py"), library)
+        .file(template_path(), source)
         .install(&mut db)?;
     Ok(db)
 }
 
 fn file(db: &dyn djls_semantic::Db) -> Result<djls_source::File, djls_source::FileError> {
-    djls_source::path_to_file(db, Utf8Path::new(TEMPLATE_PATH))
+    djls_source::path_to_file(db, Utf8Path::new(template_path()))
 }
 
 fn template_uri() -> TestResult<ls_types::Uri> {
     Ok(
-        ls_types::Uri::from_file_path(Utf8Path::new(TEMPLATE_PATH).as_std_path())
+        ls_types::Uri::from_file_path(Utf8Path::new(template_path()).as_std_path())
             .ok_or_else(|| io::Error::other("template path should convert to a file URI"))?,
     )
 }
@@ -365,11 +368,11 @@ fn severity_off_suppresses_diagnostic_and_code_action() {
 #[test]
 fn unreadable_library_action_reports_resolved_module_and_first_statement() {
     let source = "{% load open %}\n";
-    let library_path = "/test/project/open_tags.py";
+    let library_path = host_path("/test/project/open_tags.py");
     let mut db = TestDatabase::new();
-    ProjectFixture::new("/test/project")
+    ProjectFixture::new(host_path("/test/project"))
         .settings(&ProjectSettings {
-            dirs: vec!["/test/project/templates".into()],
+            dirs: vec![host_path("/test/project/templates").into()],
             libraries: BTreeMap::from([("open".into(), "open_tags".into())]),
             ..ProjectSettings::default()
         })
@@ -382,7 +385,7 @@ fn unreadable_library_action_reports_resolved_module_and_first_statement() {
                 "register.simple_tag(takes_context=True)(globals()['other_tag'])\n",
             ),
         )
-        .file(TEMPLATE_PATH, source)
+        .file(template_path(), source)
         .install(&mut db)
         .expect("unreadable-library fixture should install");
 
