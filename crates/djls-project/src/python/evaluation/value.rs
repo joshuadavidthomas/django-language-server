@@ -163,6 +163,9 @@ impl ValueEvidenceSet {
     }
 
     fn normalize(&mut self) {
+        if self.0.len() < 2 {
+            return;
+        }
         self.0.sort_by(ValueEvidence::structural_cmp);
         // Sorting orders by origin first, so equal origins are adjacent.
         let mut normalized: Vec<ValueEvidence> = Vec::with_capacity(self.0.len());
