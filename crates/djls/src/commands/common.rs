@@ -67,6 +67,12 @@ pub(crate) fn discover_files(
 ) -> std::result::Result<Vec<Utf8PathBuf>, FileDiscoveryError> {
     let roots = discovery_roots(paths, db, project_root);
     let explicit = !paths.is_empty();
+    let template_roots: Vec<(Utf8PathBuf, &Utf8Path)> = db
+        .project()
+        .into_iter()
+        .flat_map(|project| template_directories(db, project).known_roots())
+        .filter_map(|root| Some((canonicalize(root)?, root)))
+        .collect();
 
     let mut files = Vec::new();
     for path in &roots {
@@ -97,21 +103,43 @@ pub(crate) fn discover_files(
                 continue;
             }
 
-            let path = match entry.path.as_std_path().canonicalize() {
-                Ok(canonical) => {
-                    #[cfg(windows)]
-                    let canonical = dunce::simplified(&canonical).to_path_buf();
-                    Utf8PathBuf::from_path_buf(canonical).unwrap_or(entry.path)
-                }
-                Err(_) => entry.path,
+            let Some(canonical) = canonicalize(&entry.path) else {
+                files.push((entry.path.clone(), entry.path));
+                continue;
             };
-            files.push(path);
+            let path = spell_under_template_root(&canonical, &template_roots);
+            files.push((canonical, path));
         }
     }
 
+    // Dedupe by physical file, but report the path the project's Template index knows.
     files.sort();
-    files.dedup();
-    Ok(files)
+    files.dedup_by(|a, b| a.0 == b.0);
+    Ok(files.into_iter().map(|(_, path)| path).collect())
+}
+
+fn canonicalize(path: &Utf8Path) -> Option<Utf8PathBuf> {
+    let canonical = path.as_std_path().canonicalize().ok()?;
+    #[cfg(windows)]
+    let canonical = dunce::simplified(&canonical).to_path_buf();
+    Utf8PathBuf::from_path_buf(canonical).ok()
+}
+
+/// Template origins are keyed by the root paths settings spell, which may pass through a
+/// symlink. A canonical path under such a root must be rebased onto that spelling, or it is a
+/// different File with no backend scope.
+fn spell_under_template_root(
+    canonical: &Utf8Path,
+    template_roots: &[(Utf8PathBuf, &Utf8Path)],
+) -> Utf8PathBuf {
+    template_roots
+        .iter()
+        .filter_map(|(canonical_root, root)| {
+            let relative = canonical.strip_prefix(canonical_root).ok()?;
+            Some((canonical_root.as_str().len(), root.join(relative)))
+        })
+        .max_by_key(|(len, _)| *len)
+        .map_or_else(|| canonical.to_path_buf(), |(_, path)| path)
 }
 
 /// Selects the directories a batch command enumerates templates from.
@@ -336,10 +364,9 @@ mod tests {
         )
         .expect("explicit Template file should be discovered");
 
+        // Discovery reports Windows paths without the `\\?\` verbatim prefix.
         let canonical = Utf8PathBuf::from_path_buf(
-            file_path
-                .as_std_path()
-                .canonicalize()
+            dunce::canonicalize(file_path.as_std_path())
                 .expect("test fixture path should be canonicalized"),
         )
         .expect("canonical test fixture path should be valid UTF-8");

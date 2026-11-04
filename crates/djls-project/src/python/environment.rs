@@ -746,7 +746,13 @@ mod tests {
                     &djls_source::OsFileSystem::default(),
                     &link,
                 ),
-                vec![packages]
+                // The fallback reads the resolved executable, so the temporary root is resolved
+                // too (macOS: /var -> /private/var).
+                vec![
+                    packages
+                        .canonicalize_utf8()
+                        .expect("site-packages fixture should be canonicalized")
+                ]
             );
         }
 
