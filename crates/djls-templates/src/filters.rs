@@ -68,7 +68,7 @@ pub(crate) fn parse_filter(raw: &str, base_offset: u32) -> Result<Filter, Filter
                 None
             } else {
                 Some(FilterArgument::new(
-                    arg.to_string(),
+                    arg,
                     Span::saturating_from_parts_usize(
                         filter_offset as usize + pos + 1 + arg_trimmed_start,
                         arg.len(),

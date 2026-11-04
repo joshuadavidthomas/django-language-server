@@ -1,3 +1,4 @@
+use compact_str::CompactString;
 use djls_source::Span;
 
 use crate::bits::TagBit;
@@ -15,7 +16,7 @@ pub struct NodeList<'db> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Node {
     Tag {
-        name: String,
+        name: CompactString,
         name_span: Span,
         bits: Vec<TagBit>,
         span: Span,
@@ -28,7 +29,7 @@ pub enum Node {
         span: Span,
     },
     Variable {
-        var: String,
+        var: CompactString,
         var_span: Span,
         filters: Vec<Filter>,
         span: Span,

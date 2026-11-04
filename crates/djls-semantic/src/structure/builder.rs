@@ -92,7 +92,7 @@ impl<'grammar, 'n> TemplateTreeBuilder<'grammar, 'n> {
                 filters,
                 span,
             } => TemplateNode::Variable {
-                var: var.clone(),
+                var: var.to_string(),
                 var_span: *var_span,
                 filters: filters.clone(),
                 span: *span,
