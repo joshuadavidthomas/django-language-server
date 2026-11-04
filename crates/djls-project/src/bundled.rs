@@ -304,7 +304,13 @@ impl Bundle {
         std::fs::create_dir_all(parent)?;
         let mut staging = tempfile::NamedTempFile::new_in(parent)?;
         staging.write_all(text.as_bytes())?;
-        staging.persist(path).map_err(|error| error.error)?;
+        if let Err(error) = staging.persist(path) {
+            // Windows refuses to replace a file another navigation has open. That
+            // navigation wrote the same archive bytes, so its copy is as good as ours.
+            if !std::fs::read_to_string(path).is_ok_and(|cached| cached == text) {
+                return Err(error.error);
+            }
+        }
         Ok(())
     }
 
