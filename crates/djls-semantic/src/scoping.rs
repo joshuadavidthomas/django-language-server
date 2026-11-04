@@ -24,12 +24,11 @@ use djls_templates::Filter;
 use djls_templates::Node;
 use djls_templates::NodeList;
 use rustc_hash::FxHashMap;
-use salsa::Accumulator;
 
-use crate::ValidationErrorAccumulator;
 use crate::db::Db;
 use crate::db::scoped_template_libraries_for_file;
 use crate::filters::effective_filter_arity_in_scope;
+use crate::layout::SourcePositions;
 use crate::layout::TemplateLayout;
 use crate::layout::template_layout;
 use crate::scoping::loads::LoadArgument;
@@ -188,59 +187,43 @@ pub(crate) struct TemplateAnalysisProjection<'db> {
     pub(crate) tree: TemplateTree<'db>,
 }
 
-#[salsa::tracked(returns(copy))]
+/// Template analysis read from source positions. Structure, Tag facts and captured closers
+/// stay in layout coordinates, shared with validation; readers convert a cursor in with
+/// `positions.semantic_offset` and spans out with `positions.span`. Only the small load
+/// table is kept in source coordinates.
+#[derive(Clone, Copy)]
+pub(crate) struct SourceAnalysis<'db> {
+    pub(crate) analysis: TemplateAnalysisProjection<'db>,
+    pub(crate) positions: &'db SourcePositions,
+    pub(crate) loaded_libraries: &'db LoadedLibraries,
+}
+
 pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
     db: &'db dyn Db,
     source_file: File,
     nodelist: NodeList<'db>,
     scope_file: File,
-) -> TemplateAnalysisProjection<'db> {
+) -> SourceAnalysis<'db> {
     let layout = template_layout(db, nodelist);
-    let projection = analyze_template_layout_in_scope(db, source_file, layout, scope_file);
-    let positions = layout.positions(db);
-    let diagnostics = projection
-        .diagnostics(db)
-        .iter()
-        .map(|error| positions.error(error.clone()))
-        .collect::<Vec<_>>();
-    for error in &diagnostics {
-        ValidationErrorAccumulator(error.clone()).accumulate(db);
+    SourceAnalysis {
+        analysis: analyze_template_layout_in_scope(db, source_file, layout, scope_file),
+        positions: layout.positions(db),
+        loaded_libraries: source_loaded_libraries(db, source_file, nodelist, scope_file),
     }
+}
 
-    let tree = projection.tree(db);
-    let mut regions = tree.regions(db).clone();
-    regions.map_spans(|span| positions.span(span));
-    let tree = TemplateTree::new(db, tree.root(db), regions);
-    let loaded = projection
+#[salsa::tracked(returns(ref))]
+fn source_loaded_libraries<'db>(
+    db: &'db dyn Db,
+    source_file: File,
+    nodelist: NodeList<'db>,
+    scope_file: File,
+) -> LoadedLibraries {
+    let layout = template_layout(db, nodelist);
+    let positions = layout.positions(db);
+    analyze_template_layout_in_scope(db, source_file, layout, scope_file)
         .loaded_libraries(db)
-        .map_spans(|span| positions.span(span));
-    let facts = projection
-        .scoped_tag_facts(db)
-        .0
-        .iter()
-        .map(|(key, fact)| {
-            let mut fact = fact.clone();
-            for argument in &mut fact.loader_arguments {
-                argument.argument.map_span(|span| positions.span(span));
-            }
-            (TagOccurrenceKey(positions.offset(key.0)), fact)
-        })
-        .collect::<Vec<_>>();
-    let mut captured_closers = projection.captured_closers(db).clone();
-    for closer in &mut captured_closers {
-        closer.name_span = positions.span(closer.name_span);
-        closer.full_span = positions.span(closer.full_span);
-        crate::layout::map_bits(&mut closer.bits, |span| positions.span(span));
-    }
-    TemplateAnalysisProjection::new(
-        db,
-        scope_file,
-        loaded,
-        ScopedTagFacts::new(facts),
-        captured_closers,
-        diagnostics,
-        tree,
-    )
+        .map_spans(|span| positions.span(span))
 }
 
 #[salsa::tracked(returns(copy))]
@@ -553,12 +536,11 @@ fn occurrence_spec<'a>(
     }
 }
 
-#[salsa::tracked(returns(copy))]
 pub(crate) fn template_analysis_projection_for_file<'db>(
     db: &'db dyn Db,
     file: File,
     nodelist: NodeList<'db>,
-) -> TemplateAnalysisProjection<'db> {
+) -> SourceAnalysis<'db> {
     template_analysis_projection_for_file_in_scope(db, file, nodelist, file)
 }
 
@@ -577,7 +559,7 @@ pub fn effective_symbol_candidate_at<'db>(
 ) -> Option<TemplateSymbolCandidate<'db>> {
     let scoped_libraries = scoped_template_libraries_for_file(db, file);
     let projection = template_analysis_projection_for_file(db, file, nodelist);
-    let load_state = projection.loaded_libraries(db).available_at(position);
+    let load_state = projection.loaded_libraries.available_at(position);
     let loaded_names = load_state.libraries_loading_symbol(name);
     let definitions = scoped_libraries.effective_definition_libraries(name, kind, &loaded_names);
     let candidates = definitions

@@ -66,11 +66,21 @@ pub fn build_template_outline_for_file(
     nodelist: NodeList<'_>,
 ) -> Vec<OutlineItem> {
     let projection = template_analysis_projection_for_file(db, file, nodelist);
-    let tree = projection.tree(db);
+    let tree = projection.analysis.tree(db);
     let roles = OutlineTagRoles {
-        facts: projection.scoped_tag_facts(db),
+        facts: projection.analysis.scoped_tag_facts(db),
     };
-    outline_items_for_region(tree.regions(db), &roles, tree.root(db))
+    let mut items = outline_items_for_region(tree.regions(db), &roles, tree.root(db));
+    map_outline_spans(&mut items, &|span| projection.positions.span(span));
+    items
+}
+
+fn map_outline_spans(items: &mut [OutlineItem], map: &impl Fn(Span) -> Span) {
+    for item in items {
+        item.span = map(item.span);
+        item.selection_span = map(item.selection_span);
+        map_outline_spans(&mut item.children, map);
+    }
 }
 
 struct OutlineTagRoles<'a> {

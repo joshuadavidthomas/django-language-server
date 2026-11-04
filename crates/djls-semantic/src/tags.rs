@@ -409,25 +409,26 @@ pub fn tag_spec_at(
     name: &str,
 ) -> Option<TagSpec> {
     let projection = template_analysis_projection_for_file(db, file, nodelist);
-    let offset = Offset::new(position);
-    if let Some(closer) = projection
+    let analysis = projection.analysis;
+    let offset = Offset::new(projection.positions.semantic_offset(position));
+    if let Some(closer) = analysis
         .captured_closers(db)
         .iter()
         .map(CapturedClosingTag::as_active)
         .find(|closer| closer.tag == name && closer.full_span.contains(offset))
     {
-        return projection
+        return analysis
             .scoped_tag_facts(db)
             .for_tag(closer)
             .and_then(|facts| facts.spec.as_deref().cloned());
     }
 
-    let tree = projection.tree(db);
+    let tree = analysis.tree(db);
     if let Some(tag) = active_template_tags(tree.regions(db), tree.root(db))
         .into_iter()
         .find(|tag| tag.tag == name && tag.full_span.contains(offset))
     {
-        return projection
+        return analysis
             .scoped_tag_facts(db)
             .for_tag(tag)
             .and_then(|facts| facts.spec.as_deref().cloned());
@@ -440,7 +441,7 @@ pub fn tag_spec_at(
         db,
         file,
         name,
-        &projection.loaded_libraries(db).available_at(position),
+        &projection.loaded_libraries.available_at(position),
     )
 }
 
@@ -458,7 +459,7 @@ pub fn tag_specs_at_prefix(
     completion_tag_specs_for_load_state(
         db,
         file,
-        &projection.loaded_libraries(db).available_at(position),
+        &projection.loaded_libraries.available_at(position),
         &prefix,
     )
 }

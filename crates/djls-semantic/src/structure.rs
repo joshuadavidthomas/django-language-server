@@ -27,7 +27,6 @@ use salsa::Accumulator;
 use crate::ValidationErrorAccumulator;
 use crate::db::Db;
 use crate::scoping::template_analysis_projection_for_file;
-use crate::scoping::template_analysis_projection_for_file_in_scope;
 pub(crate) use crate::structure::active::ActiveTemplateNode;
 pub(crate) use crate::structure::active::ActiveTemplateTag;
 pub(crate) use crate::structure::active::ActiveTemplateVariable;
@@ -38,7 +37,7 @@ pub(crate) use crate::structure::active::active_template_tags;
 pub(crate) use crate::structure::builder::TemplateTreeBuilder;
 pub use crate::structure::folding::TemplateFold;
 pub use crate::structure::folding::TemplateFoldKind;
-pub use crate::structure::folding::build_template_folds;
+pub use crate::structure::folding::build_template_folds_for_file;
 pub(crate) use crate::structure::grammar::TagClassification;
 pub use crate::structure::opaque::OpaqueRegions;
 pub use crate::structure::opaque::compute_opaque_regions;
@@ -53,16 +52,6 @@ pub use crate::structure::tree::TemplateRegion;
 pub use crate::structure::tree::TemplateTree;
 
 #[salsa::tracked(returns(copy))]
-pub(crate) fn build_template_tree_for_file_in_scope<'db>(
-    db: &'db dyn Db,
-    file: File,
-    nodelist: NodeList<'db>,
-    scope_file: File,
-) -> TemplateTree<'db> {
-    template_analysis_projection_for_file_in_scope(db, file, nodelist, scope_file).tree(db)
-}
-
-#[salsa::tracked(returns(copy))]
 pub fn build_template_tree_for_file<'db>(
     db: &'db dyn Db,
     file: File,
@@ -71,7 +60,17 @@ pub fn build_template_tree_for_file<'db>(
     if db.project().is_none() {
         return build_projectless_template_tree(db, nodelist);
     }
-    template_analysis_projection_for_file(db, file, nodelist).tree(db)
+    // Production readers walk the analysis tree in layout coordinates. This copy in source
+    // coordinates exists for callers that want the whole tree.
+    let projection = template_analysis_projection_for_file(db, file, nodelist);
+    let positions = projection.positions;
+    for error in projection.analysis.diagnostics(db) {
+        ValidationErrorAccumulator(positions.error(error.clone())).accumulate(db);
+    }
+    let tree = projection.analysis.tree(db);
+    let mut regions = tree.regions(db).clone();
+    regions.map_spans(|span| positions.span(span));
+    TemplateTree::new(db, tree.root(db), regions)
 }
 
 fn build_projectless_template_tree<'db>(

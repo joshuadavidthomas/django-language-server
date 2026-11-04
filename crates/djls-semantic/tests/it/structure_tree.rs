@@ -245,7 +245,7 @@ fn structure_queries_use_correlated_analysis_only_with_a_project() {
     assert!(
         executed
             .iter()
-            .all(|name| !name.ends_with("template_analysis_projection_for_file_in_scope")),
+            .all(|name| !name.ends_with("analyze_template_layout_in_scope")),
         "projectless structure must bypass correlated analysis: {executed:?}"
     );
 
@@ -263,7 +263,7 @@ fn structure_queries_use_correlated_analysis_only_with_a_project() {
     assert!(
         executed
             .iter()
-            .all(|name| !name.ends_with("template_analysis_projection_for_file_in_scope")),
+            .all(|name| !name.ends_with("analyze_template_layout_in_scope")),
         "projectless opaque analysis must bypass correlated analysis: {executed:?}"
     );
     let event_log = SalsaEventLog::default();
@@ -303,7 +303,7 @@ fn structure_queries_use_correlated_analysis_only_with_a_project() {
     assert!(
         executed
             .iter()
-            .any(|name| name.ends_with("template_analysis_projection_for_file_in_scope")),
+            .any(|name| name.ends_with("analyze_template_layout_in_scope")),
         "project-backed structure must use correlated analysis: {executed:?}"
     );
 
@@ -315,7 +315,7 @@ fn structure_queries_use_correlated_analysis_only_with_a_project() {
     assert!(
         executed
             .iter()
-            .any(|name| name.ends_with("template_analysis_projection_for_file_in_scope")),
+            .any(|name| name.ends_with("analyze_template_layout_in_scope")),
         "project-backed opaque analysis must use correlated analysis: {executed:?}"
     );
 }

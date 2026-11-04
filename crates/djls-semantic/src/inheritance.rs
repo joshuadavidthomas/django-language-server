@@ -419,10 +419,10 @@ fn template_symbols_in_scope<'db>(
     scope_file: File,
 ) -> TemplateSymbols {
     let projection = template_analysis_projection_for_file_in_scope(db, file, nodelist, scope_file);
-    let tree = projection.tree(db);
+    let tree = projection.analysis.tree(db);
     let regions = tree.regions(db);
     let mut builder = SymbolBuilder {
-        tag_facts: projection.scoped_tag_facts(db),
+        tag_facts: projection.analysis.scoped_tag_facts(db),
         regions,
         blocks: Vec::new(),
         uncertain_block_names: FxHashSet::default(),
@@ -431,7 +431,9 @@ fn template_symbols_in_scope<'db>(
     };
 
     builder.collect_region(tree.root(db));
-    builder.finish()
+    let mut symbols = builder.finish();
+    symbols.map_spans(|span| projection.positions.span(span));
+    symbols
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -443,6 +445,22 @@ pub struct TemplateSymbols {
 }
 
 impl TemplateSymbols {
+    fn map_spans(&mut self, map: impl Fn(Span) -> Span) {
+        for block in &mut self.blocks {
+            block.name_span = map(block.name_span);
+            block.full_span = map(block.full_span);
+        }
+        for partial in &mut self.partials {
+            partial.name_span = map(partial.name_span);
+            partial.full_span = map(partial.full_span);
+        }
+        if let Some(ExtendsTarget::Literal { span, .. } | ExtendsTarget::Dynamic { span }) =
+            &mut self.extends
+        {
+            *span = map(*span);
+        }
+    }
+
     #[must_use]
     pub fn blocks(&self) -> &[BlockDef] {
         &self.blocks

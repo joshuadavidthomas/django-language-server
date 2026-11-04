@@ -68,7 +68,7 @@ pub use structure::TemplateFoldKind;
 pub use structure::TemplateNode;
 pub use structure::TemplateRegion;
 pub use structure::TemplateTree;
-pub use structure::build_template_folds;
+pub use structure::build_template_folds_for_file;
 pub use structure::build_template_outline_for_file;
 pub use structure::build_template_tree_for_file;
 pub use structure::compute_opaque_regions;

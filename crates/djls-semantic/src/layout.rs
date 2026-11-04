@@ -36,12 +36,24 @@ impl SourcePositions {
         }
     }
 
-    pub(crate) fn offset(&self, position: u32) -> u32 {
+    fn offset(&self, position: u32) -> u32 {
         let index = self
             .0
             .partition_point(|&(semantic, _)| semantic <= position);
         let (semantic, source) = self.0[index.saturating_sub(1)];
         source + (position - semantic)
+    }
+
+    /// The inverse of `offset`. A source position inside a text run or comment body maps
+    /// into that run's single semantic byte, so it never lands on a neighbouring node.
+    pub(crate) fn semantic_offset(&self, source: u32) -> u32 {
+        let index = self.0.partition_point(|&(_, anchor)| anchor <= source);
+        let (semantic, anchor) = self.0[index.saturating_sub(1)];
+        let position = semantic + (source - anchor);
+        match self.0.get(index) {
+            Some(&(next, _)) if position >= next => next.saturating_sub(1).max(semantic),
+            _ => position,
+        }
     }
 
     pub(crate) fn span(&self, span: Span) -> Span {

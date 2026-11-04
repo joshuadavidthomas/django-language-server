@@ -1,11 +1,15 @@
+use djls_source::File;
 use djls_source::Span;
+use djls_templates::NodeList;
 
 use crate::db::Db;
+use crate::scoping::template_analysis_projection_for_file;
 use crate::structure::BlockRole;
 use crate::structure::RegionId;
 use crate::structure::Regions;
 use crate::structure::TemplateNode;
 use crate::structure::TemplateTree;
+use crate::structure::build_template_tree_for_file;
 use crate::tags::BodyAnalysis;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -21,9 +25,29 @@ pub enum TemplateFoldKind {
 }
 
 #[salsa::tracked(returns(ref))]
-pub fn build_template_folds(db: &dyn Db, tree: TemplateTree<'_>) -> Vec<TemplateFold> {
+fn build_template_folds(db: &dyn Db, tree: TemplateTree<'_>) -> Vec<TemplateFold> {
     let mut folds = Vec::new();
     collect_folds_for_region(tree.regions(db), tree.root(db), &mut folds);
+    folds
+}
+
+/// Folds for `file` in source positions, read from the analysis tree rather than a copy of it.
+#[salsa::tracked(returns(ref))]
+pub fn build_template_folds_for_file<'db>(
+    db: &'db dyn Db,
+    file: File,
+    nodelist: NodeList<'db>,
+) -> Vec<TemplateFold> {
+    if db.project().is_none() {
+        return build_template_folds(db, build_template_tree_for_file(db, file, nodelist)).clone();
+    }
+    let projection = template_analysis_projection_for_file(db, file, nodelist);
+    let tree = projection.analysis.tree(db);
+    let mut folds = Vec::new();
+    collect_folds_for_region(tree.regions(db), tree.root(db), &mut folds);
+    for fold in &mut folds {
+        fold.span = projection.positions.span(fold.span);
+    }
     folds
 }
 

@@ -76,7 +76,7 @@ fn repeated_prime_reuses_library_products_without_template_work() {
         "library_tag_specs",
         "library_filter_specs",
         "parse_template",
-        "template_analysis_projection_for_file_in_scope",
+        "analyze_template_layout_in_scope",
         "validate_template_file",
     ] {
         assert_eq!(

@@ -282,8 +282,9 @@ pub fn template_references_in_file(
         return TemplateReferencesInFile::new(db, Vec::new());
     };
     let projection = template_analysis_projection_for_file(db, file, nodelist);
-    let tree = projection.tree(db);
-    let tag_facts = projection.scoped_tag_facts(db);
+    let positions = projection.positions;
+    let tree = projection.analysis.tree(db);
+    let tag_facts = projection.analysis.scoped_tag_facts(db);
 
     let references = active_template_tags(tree.regions(db), tree.root(db))
         .filter_map(|tag| {
@@ -292,7 +293,7 @@ pub fn template_references_in_file(
             Some(TemplateReferenceInFile {
                 target_template_name: TemplateName::new(db, reference.template_name.to_string()),
                 kind: reference.kind,
-                span: reference.span,
+                span: positions.span(reference.span),
             })
         })
         .collect();
@@ -309,8 +310,9 @@ pub fn template_library_references_in_file(
         return TemplateLibraryReferencesInFile::new(db, Vec::new());
     };
     let projection = template_analysis_projection_for_file(db, file, nodelist);
-    let tree = projection.tree(db);
-    let tag_facts = projection.scoped_tag_facts(db);
+    let positions = projection.positions;
+    let tree = projection.analysis.tree(db);
+    let tag_facts = projection.analysis.scoped_tag_facts(db);
 
     let references = active_template_tags(tree.regions(db), tree.root(db))
         .filter(|tag| {
@@ -321,6 +323,10 @@ pub fn template_library_references_in_file(
                 == Some(TagRole::TemplateLibraryLoader)
         })
         .flat_map(|tag| literal_load_references_from_tag(tag.bits))
+        .map(|mut reference| {
+            reference.span = positions.span(reference.span);
+            reference
+        })
         .collect();
 
     TemplateLibraryReferencesInFile::new(db, references)

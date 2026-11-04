@@ -29,7 +29,7 @@ impl LoadArgument {
         self.span
     }
 
-    pub(crate) fn map_span(&mut self, map: impl FnOnce(Span) -> Span) {
+    fn map_span(&mut self, map: impl FnOnce(Span) -> Span) {
         self.span = map(self.span);
     }
 }

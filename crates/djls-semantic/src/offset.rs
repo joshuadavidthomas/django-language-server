@@ -64,9 +64,11 @@ impl<'db> SemanticOffsetContext<'db> {
         };
 
         let projection = template_analysis_projection_for_file(db, file, nodelist);
-        let tree = projection.tree(db);
-        let loaded = projection.loaded_libraries(db);
-        let tag_facts = projection.scoped_tag_facts(db);
+        let positions = projection.positions;
+        let offset = Offset::new(positions.semantic_offset(offset.get()));
+        let tree = projection.analysis.tree(db);
+        let loaded = projection.analysis.loaded_libraries(db);
+        let tag_facts = projection.analysis.scoped_tag_facts(db);
 
         for node in active_template_nodes(tree.regions(db), tree.root(db)) {
             let context = match node {
@@ -80,11 +82,25 @@ impl<'db> SemanticOffsetContext<'db> {
             };
 
             if context != Self::None {
-                return context;
+                return context.map_span(|span| positions.span(span));
             }
         }
 
         Self::None
+    }
+
+    fn map_span(mut self, map: impl Fn(Span) -> Span) -> Self {
+        match &mut self {
+            Self::TemplateReference { span, .. }
+            | Self::LoadLibrary { span, .. }
+            | Self::LoadSymbol { span, .. }
+            | Self::TemplateBlock { span, .. }
+            | Self::Tag { span, .. }
+            | Self::Filter { span, .. }
+            | Self::Variable { span, .. } => *span = map(*span),
+            Self::None => {}
+        }
+        self
     }
 
     fn from_variable(
