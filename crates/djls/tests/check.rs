@@ -11,6 +11,12 @@ fn djls_binary() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_djls"))
 }
 
+/// A path as a string literal that both Python and TOML parse back unchanged, including
+/// Windows backslashes.
+fn quoted(path: &Path) -> String {
+    format!("{:?}", path.to_string_lossy())
+}
+
 fn setup_project(dir: &Path) -> std::io::Result<()> {
     std::fs::write(
         dir.join("djls.toml"),
@@ -55,7 +61,7 @@ fn configure_template_directories(dir: &Path, directories: &[&Path]) -> std::io:
 
     let directories = directories
         .iter()
-        .map(|path| format!("'{path}'", path = path.display()))
+        .map(|path| quoted(path))
         .collect::<Vec<_>>()
         .join(", ");
     std::fs::write(
@@ -78,9 +84,9 @@ fn setup_multi_backend_project(dir: &Path) -> std::io::Result<()> {
     fs::write(
         dir.join("settings.py"),
         format!(
-            "INSTALLED_APPS = []\nTEMPLATES = [\n    {{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['{}'], 'APP_DIRS': False, 'OPTIONS': {{'libraries': {{'shared': 'alpha_tags'}}}}}},\n    {{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['{}'], 'APP_DIRS': False, 'OPTIONS': {{'libraries': {{'shared': 'beta_tags'}}}}}},\n]\n",
-            alpha_templates.display(),
-            beta_templates.display()
+            "INSTALLED_APPS = []\nTEMPLATES = [\n    {{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [{alpha}], 'APP_DIRS': False, 'OPTIONS': {{'libraries': {{'shared': 'alpha_tags'}}}}}},\n    {{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [{beta}], 'APP_DIRS': False, 'OPTIONS': {{'libraries': {{'shared': 'beta_tags'}}}}}},\n]\n",
+            alpha = quoted(&alpha_templates),
+            beta = quoted(&beta_templates),
         ),
     )?;
     fs::write(
@@ -214,8 +220,8 @@ fn check_pythonpath_custom_tag_is_discovered_before_parallel_validation() {
     fs::write(
         dir.path().join("djls.toml"),
         format!(
-            "django_settings_module = \"settings\"\npythonpath = [\"{}\"]\n",
-            vendor.display()
+            "django_settings_module = \"settings\"\npythonpath = [{}]\n",
+            quoted(&vendor)
         ),
     )
     .expect("custom Template tag project configuration should be written");
@@ -706,8 +712,8 @@ fn check_without_paths_does_not_broaden_context_processor_only_branches() {
     fs::write(
         dir.path().join("settings.py"),
         format!(
-            "INSTALLED_APPS = []\nif FLAG:\n    TEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['{root}'], 'APP_DIRS': False, 'OPTIONS': {{'context_processors': ['project.context_processors.site']}}}}]\nelse:\n    TEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['{root}'], 'APP_DIRS': False, 'OPTIONS': {{'context_processors': ['project.context_processors.admin']}}}}]\n",
-            root = configured.display()
+            "INSTALLED_APPS = []\nif FLAG:\n    TEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [{root}], 'APP_DIRS': False, 'OPTIONS': {{'context_processors': ['project.context_processors.site']}}}}]\nelse:\n    TEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [{root}], 'APP_DIRS': False, 'OPTIONS': {{'context_processors': ['project.context_processors.admin']}}}}]\n",
+            root = quoted(&configured)
         ),
     )
     .expect("branched Django Template settings should be written");
@@ -759,8 +765,8 @@ fn check_without_paths_keeps_fallback_for_different_backend_libraries() {
     fs::write(
         dir.path().join("settings.py"),
         format!(
-            "INSTALLED_APPS = []\nif FLAG:\n    TEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['{root}'], 'APP_DIRS': False, 'OPTIONS': {{'libraries': {{'shared': 'alpha_tags'}}}}}}]\nelse:\n    TEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['{root}'], 'APP_DIRS': False, 'OPTIONS': {{'libraries': {{'shared': 'beta_tags'}}}}}}]\n",
-            root = configured.display()
+            "INSTALLED_APPS = []\nif FLAG:\n    TEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [{root}], 'APP_DIRS': False, 'OPTIONS': {{'libraries': {{'shared': 'alpha_tags'}}}}}}]\nelse:\n    TEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [{root}], 'APP_DIRS': False, 'OPTIONS': {{'libraries': {{'shared': 'beta_tags'}}}}}}]\n",
+            root = quoted(&configured)
         ),
     )
     .expect("branched Django Template settings should be written");

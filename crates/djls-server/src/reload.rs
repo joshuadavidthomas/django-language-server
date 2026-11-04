@@ -2230,7 +2230,7 @@ mod tests {
         std::fs::write(
             root.join("djls.toml").as_std_path(),
             format!(
-                "venv_path = \"{}\"\npythonpath = [\"{vendor}\"]\n",
+                "venv_path = {:?}\npythonpath = [{vendor:?}]\n",
                 root.join(".venv")
             ),
         )
