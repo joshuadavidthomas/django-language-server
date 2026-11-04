@@ -1068,6 +1068,138 @@ fn ambiguous_custom_builtin_topology_uses_full_merge_only_for_the_narrow_fallbac
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
+fn text_edits_reuse_semantics_and_relocate_errors_and_navigation() {
+    use djls_semantic::SemanticOffsetContext;
+    use djls_semantic::collect_template_diagnostics;
+    use djls_source::Offset;
+    use djls_source::Span;
+
+    let events = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(events.clone());
+    let body = "{% load static %}{% block alpha %}body{% endblock beta %}{{ value|missing_filter }}{% unknown %}{{ broken| }}{% verbatim %}{% unknown %}{% endverbatim %}";
+    let initial = format!("lead{{# a #}}{body}");
+    ProjectFixture::new("/proj")
+        .settings(&ProjectSettings::default())
+        .file("/proj/page.html", &initial)
+        .install(&mut db)
+        .expect("position-free fixture should install");
+    let file = db
+        .file(Utf8Path::new("/proj/page.html"))
+        .expect("fixture Template should exist");
+
+    for (index, prefix) in [
+        "lead{# a #}",
+        "a longer 🦀\r\n<p>{##}",
+        "x{# a longer comment #}",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let source = format!("{prefix}{body}");
+        if index != 0 {
+            db.add_file("/proj/page.html", &source)
+                .expect("text edit should update the Template");
+            SourceChanges::new([ChangeEvent::ContentChanged("/proj/page.html".into())])
+                .apply(&mut db);
+        }
+        events.take().expect("mutation events should clear");
+        let diagnostics = collect_template_diagnostics(&db, file);
+        assert_eq!(diagnostics.template_errors.len(), 1);
+        assert_eq!(
+            diagnostics.template_errors[0].primary_span(),
+            Some((
+                u32::try_from(
+                    source
+                        .find("{{ broken| }}")
+                        .expect("fixture contains malformed variable")
+                        + 11
+                )
+                .expect("fixture offset fits u32"),
+                1
+            ))
+        );
+        assert_eq!(diagnostics.validation_errors.len(), 3);
+        let errors = &diagnostics.validation_errors;
+        assert_eq!(
+            errors.iter().map(|error| error.code()).collect::<Vec<_>>(),
+            ["S111", "S108", "S103"]
+        );
+        assert!(errors.iter().any(|error| matches!(error,
+            ValidationError::UnmatchedBlockName { got_span, span, opener_span, .. }
+                if *got_span == Span::saturating_from_parts_usize(source.find("beta").expect("fixture contains closing name"), 4)
+                && *span == Span::saturating_from_parts_usize(source.find("{% endblock").expect("fixture contains closer"), "{% endblock beta %}".len())
+                && *opener_span == Span::saturating_from_parts_usize(source.find("{% block").expect("fixture contains opener"), "{% block alpha %}".len())
+        )));
+        assert!(errors.iter().any(|error| matches!(error,
+            ValidationError::UnknownFilter { filter, span }
+                if filter == "missing_filter"
+                && *span == Span::saturating_from_parts_usize(source.find("missing_filter").expect("fixture contains unknown filter"), 14)
+        )));
+        assert!(errors.iter().any(|error| matches!(error,
+            ValidationError::UnknownTag { tag, span }
+                if tag == "unknown"
+                && *span == Span::saturating_from_parts_usize(source.find("{% unknown %}").expect("fixture contains unknown tag"), 13)
+        )));
+        let names = events
+            .take_will_execute_names(&db)
+            .expect("validation events should be readable");
+        assert_eq!(
+            execution_count(&names, "analyze_template_layout_in_scope"),
+            usize::from(index == 0)
+        );
+        assert_eq!(
+            execution_count(&names, "validate_template_layout"),
+            usize::from(index == 0)
+        );
+
+        let offset = source
+            .find("missing_filter")
+            .expect("fixture contains filter navigation target");
+        assert_eq!(
+            SemanticOffsetContext::from_offset(
+                &db,
+                file,
+                Offset::new(u32::try_from(offset).expect("fixture offset fits u32"))
+            ),
+            SemanticOffsetContext::Filter {
+                name: "missing_filter".to_string(),
+                loaded_libraries: vec!["static".to_string()],
+                span: Span::saturating_from_parts_usize(offset, 14),
+            }
+        );
+    }
+
+    // Both a changed filter and a changed load must invalidate the cached semantic result.
+    for (from, to, expected_code) in [
+        ("missing_filter", "default", "S115"),
+        ("load static", "load absent_library", "S120"),
+        ("{% unknown %}", "{% if %}", "S114"),
+    ] {
+        let source = initial.replacen(from, to, 1);
+        db.add_file("/proj/page.html", &source)
+            .expect("semantic edit should update the Template");
+        SourceChanges::new([ChangeEvent::ContentChanged("/proj/page.html".into())]).apply(&mut db);
+        events.take().expect("mutation events should clear");
+        let diagnostics = collect_template_diagnostics(&db, file);
+        assert!(
+            diagnostics
+                .validation_errors
+                .iter()
+                .any(|error| error.code() == expected_code)
+        );
+        let names = events
+            .take_will_execute_names(&db)
+            .expect("semantic edit events should be readable");
+        assert_eq!(
+            execution_count(&names, "analyze_template_layout_in_scope"),
+            1
+        );
+        assert_eq!(execution_count(&names, "validate_template_layout"), 1);
+    }
+}
+
+#[test]
 fn filter_validation_is_the_lazy_arity_boundary_and_recomputes_after_source_edits() {
     let events = SalsaEventLog::default();
     let mut db = TestDatabase::with_event_log(events.clone());

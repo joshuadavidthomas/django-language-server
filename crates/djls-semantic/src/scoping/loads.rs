@@ -28,6 +28,10 @@ impl LoadArgument {
     pub fn span(&self) -> Span {
         self.span
     }
+
+    pub(crate) fn map_span(&mut self, map: impl FnOnce(Span) -> Span) {
+        self.span = map(self.span);
+    }
 }
 
 impl From<&TagBit> for LoadArgument {
@@ -365,6 +369,27 @@ pub(crate) struct LoadedLibraries {
 }
 
 impl LoadedLibraries {
+    pub(crate) fn map_spans(&self, mut map: impl FnMut(Span) -> Span) -> Self {
+        let mut loaded = self.clone();
+        for statement in &mut loaded.statements {
+            statement.span = map(statement.span);
+            match &mut statement.kind {
+                LoadKind::FullLoad { libraries } => {
+                    for library in libraries {
+                        library.map_span(&mut map);
+                    }
+                }
+                LoadKind::SelectiveImport { symbols, library } => {
+                    for symbol in symbols {
+                        symbol.map_span(&mut map);
+                    }
+                    library.map_span(&mut map);
+                }
+            }
+        }
+        loaded
+    }
+
     #[must_use]
     pub(crate) fn new(statements: Vec<LoadStatement>) -> Self {
         debug_assert!(

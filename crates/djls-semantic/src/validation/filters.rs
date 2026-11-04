@@ -3,7 +3,7 @@ use djls_templates::Filter;
 use salsa::Accumulator;
 
 use crate::db::Db;
-use crate::db::ValidationErrorAccumulator;
+use crate::db::LayoutErrorAccumulator as ValidationErrorAccumulator;
 use crate::errors::ValidationError;
 
 /// Internal helper for [`TemplateValidator`](crate::validation::TemplateValidator).

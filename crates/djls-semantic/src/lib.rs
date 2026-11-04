@@ -4,6 +4,7 @@ mod errors;
 mod expressions;
 mod filters;
 mod inheritance;
+mod layout;
 mod offset;
 mod references;
 mod scoping;
@@ -84,7 +85,9 @@ pub use tags::tag_spec_at;
 pub use tags::tag_specs_at_prefix;
 pub use tags::tag_specs_for_file;
 
-use crate::scoping::template_analysis_projection_for_file;
+use crate::layout::TemplateLayout;
+use crate::layout::template_layout;
+use crate::scoping::analyze_template_layout_in_scope;
 use crate::validation::TemplateValidator;
 
 /// Validate a Django template file.
@@ -98,6 +101,26 @@ pub fn validate_template_file(db: &dyn Db, file: File) {
         return;
     };
 
-    let projection = template_analysis_projection_for_file(db, file, nodelist);
+    let layout = template_layout(db, nodelist);
+    let positions = layout.positions(db);
+    for error in
+        validate_template_layout::accumulated::<db::LayoutErrorAccumulator>(db, file, layout)
+    {
+        use salsa::Accumulator;
+
+        ValidationErrorAccumulator(positions.error(error.0.clone())).accumulate(db);
+    }
+}
+
+#[salsa::tracked]
+fn validate_template_layout(db: &dyn Db, file: File, layout: TemplateLayout<'_>) {
+    use salsa::Accumulator;
+
+    let projection = analyze_template_layout_in_scope(db, file, layout, file);
     TemplateValidator::new(db, projection).validate();
+    // Accumulators previously visited validation's own errors before its structural
+    // dependency. Preserve that order when combining both in the layout result.
+    for error in projection.diagnostics(db) {
+        db::LayoutErrorAccumulator(error.clone()).accumulate(db);
+    }
 }

@@ -195,6 +195,51 @@ fn unreadable_library_message(
 }
 
 impl ValidationError {
+    pub(crate) fn map_spans(&mut self, mut map: impl FnMut(Span) -> Span) {
+        match self {
+            Self::UnbalancedStructure {
+                opening_span,
+                closing_span,
+                ..
+            } => {
+                *opening_span = map(*opening_span);
+                if let Some(span) = closing_span {
+                    *span = map(*span);
+                }
+            }
+            Self::UnmatchedBlockName {
+                got_span,
+                span,
+                opener_span,
+                ..
+            } => {
+                *got_span = map(*got_span);
+                *span = map(*span);
+                *opener_span = map(*opener_span);
+            }
+            Self::UnclosedTag { span, .. }
+            | Self::OrphanedTag { span, .. }
+            | Self::OrphanedClosingTag { span, .. }
+            | Self::UnknownTag { span, .. }
+            | Self::TagNotInInstalledApps { span, .. }
+            | Self::UnloadedTag { span, .. }
+            | Self::AmbiguousUnloadedTag { span, .. }
+            | Self::UnknownFilter { span, .. }
+            | Self::FilterNotInInstalledApps { span, .. }
+            | Self::UnloadedFilter { span, .. }
+            | Self::AmbiguousUnloadedFilter { span, .. }
+            | Self::ExpressionSyntaxError { span, .. }
+            | Self::FilterMissingArgument { span, .. }
+            | Self::FilterUnexpectedArgument { span, .. }
+            | Self::ExtractedRuleViolation { span, .. }
+            | Self::UnknownLibrary { span, .. }
+            | Self::LibraryNotInInstalledApps { span, .. }
+            | Self::UnreadableLibrary { span, .. }
+            | Self::ExtendsMustBeFirst { span }
+            | Self::MultipleExtends { span } => *span = map(*span),
+        }
+    }
+
     #[must_use]
     pub fn code(&self) -> &'static str {
         match self {

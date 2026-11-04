@@ -30,6 +30,8 @@ use crate::ValidationErrorAccumulator;
 use crate::db::Db;
 use crate::db::scoped_template_libraries_for_file;
 use crate::filters::effective_filter_arity_in_scope;
+use crate::layout::TemplateLayout;
+use crate::layout::template_layout;
 use crate::scoping::loads::LoadArgument;
 use crate::scoping::loads::LoadArgumentLibraries;
 use crate::scoping::loads::LoadCursor;
@@ -162,18 +164,77 @@ pub(crate) struct TemplateAnalysisProjection<'db> {
     #[tracked]
     #[returns(ref)]
     pub(crate) captured_closers: Vec<CapturedClosingTag>,
+    #[tracked]
+    #[returns(ref)]
+    pub(crate) diagnostics: Vec<crate::errors::ValidationError>,
     #[returns(copy)]
     pub(crate) tree: TemplateTree<'db>,
 }
 
 #[salsa::tracked(returns(copy))]
-#[allow(clippy::too_many_lines)]
 pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
     db: &'db dyn Db,
-    _source_file: File,
+    source_file: File,
     nodelist: NodeList<'db>,
     scope_file: File,
 ) -> TemplateAnalysisProjection<'db> {
+    let layout = template_layout(db, nodelist);
+    let projection = analyze_template_layout_in_scope(db, source_file, layout, scope_file);
+    let positions = layout.positions(db);
+    let diagnostics = projection
+        .diagnostics(db)
+        .iter()
+        .map(|error| positions.error(error.clone()))
+        .collect::<Vec<_>>();
+    for error in &diagnostics {
+        ValidationErrorAccumulator(error.clone()).accumulate(db);
+    }
+
+    let tree = projection.tree(db);
+    let mut regions = tree.regions(db).clone();
+    regions.map_spans(|span| positions.span(span));
+    let tree = TemplateTree::new(db, tree.root(db), regions);
+    let loaded = projection
+        .loaded_libraries(db)
+        .map_spans(|span| positions.span(span));
+    let facts = projection
+        .scoped_tag_facts(db)
+        .0
+        .iter()
+        .map(|(key, fact)| {
+            let mut fact = fact.clone();
+            for argument in &mut fact.loader_arguments {
+                argument.argument.map_span(|span| positions.span(span));
+            }
+            (TagOccurrenceKey(positions.offset(key.0)), fact)
+        })
+        .collect();
+    let mut captured_closers = projection.captured_closers(db).clone();
+    for closer in &mut captured_closers {
+        closer.name_span = positions.span(closer.name_span);
+        closer.full_span = positions.span(closer.full_span);
+        crate::layout::map_bits(&mut closer.bits, |span| positions.span(span));
+    }
+    TemplateAnalysisProjection::new(
+        db,
+        scope_file,
+        loaded,
+        ScopedTagFacts(facts),
+        captured_closers,
+        diagnostics,
+        tree,
+    )
+}
+
+#[salsa::tracked(returns(copy))]
+#[allow(clippy::too_many_lines)]
+pub(crate) fn analyze_template_layout_in_scope<'db>(
+    db: &'db dyn Db,
+    _source_file: File,
+    layout: TemplateLayout<'db>,
+    scope_file: File,
+) -> TemplateAnalysisProjection<'db> {
+    let nodelist = layout.nodes(db);
     // Structural/load feedback can change only at parsed tag occurrences. Keep
     // the convergence budget tied to that semantic input rather than raw text,
     // which would bypass NodeList backdating on presentation-only edits.
@@ -334,9 +395,7 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
             );
         }
 
-        for error in &tree_data.diagnostics {
-            ValidationErrorAccumulator(error.clone()).accumulate(db);
-        }
+        let diagnostics = tree_data.diagnostics.clone();
         let captured_closers = tree_data.captured_closers.clone();
         let tree = tree_data.into_tree(db);
         return TemplateAnalysisProjection::new(
@@ -345,6 +404,7 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
             loaded,
             ScopedTagFacts(tag_facts),
             captured_closers,
+            diagnostics,
             tree,
         );
     }
