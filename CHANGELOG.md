@@ -74,6 +74,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - **Internal**: Added a CodSpeed memory-mode benchmark job alongside the simulation job. `check.rs::corpus_all` (about 5.6M allocations) skips itself in memory mode.
 - **Internal**: Split the bench workflow into `core`, `corpus`, and `real-project` shards that each build only their own bench targets. The `real-project` shard runs on `main`, on manual runs, and on PRs labeled `bench 🏋️`, in simulation mode only. The `djls-bench` workload snapshot tests moved to the Project-backed corpus job in the test workflow.
 - **Internal**: Converted layout positions to source positions through one `MapSpans` trait in `djls-semantic`. IDE readers reach template analysis only through `SourceAnalysis::read` and `read_at`, which convert what they return.
+- **Internal**: Removed the unused opaque-region projection and its benchmark; opaque-body tests now exercise template structure and validation.
 
 ### Fixed
 

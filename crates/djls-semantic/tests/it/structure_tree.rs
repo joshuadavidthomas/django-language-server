@@ -8,6 +8,8 @@ use djls_semantic::IntermediateTag;
 use djls_semantic::RegionId;
 use djls_semantic::TagSpec;
 use djls_semantic::TagSpecs;
+use djls_semantic::TemplateFold;
+use djls_semantic::TemplateFoldKind;
 use djls_semantic::TemplateNode;
 use djls_semantic::TemplateRegion;
 use djls_semantic::TemplateTree;
@@ -16,7 +18,6 @@ use djls_semantic::ValidationErrorAccumulator;
 use djls_semantic::build_projectless_template_tree;
 use djls_semantic::build_template_folds_for_file;
 use djls_semantic::bundled_django_tag_specs;
-use djls_semantic::compute_opaque_regions;
 use djls_source::Span;
 use djls_templates::Filter;
 use djls_templates::TagBit;
@@ -250,22 +251,28 @@ fn structure_queries_use_correlated_analysis_only_with_a_project() {
         "projectless folding must bypass correlated analysis: {executed:?}"
     );
 
-    let regions = compute_opaque_regions(&db, opaque_file, opaque_nodes);
-    assert!(regions.is_opaque(20));
+    let folds = build_template_folds_for_file(&db, opaque_file, opaque_nodes);
+    assert_eq!(
+        folds,
+        &[TemplateFold {
+            span: Span::saturating_from_bounds_usize(0, 47),
+            kind: TemplateFoldKind::Region,
+        }]
+    );
     let executed = event_log
         .take_will_execute_names(&db)
-        .expect("projectless opaque query events should be readable");
+        .expect("projectless opaque folding events should be readable");
     assert!(
         executed
             .iter()
             .any(|name| name.ends_with("build_projectless_template_tree")),
-        "projectless opaque analysis should build one direct tree: {executed:?}"
+        "projectless opaque folding should build one direct tree: {executed:?}"
     );
     assert!(
         executed
             .iter()
             .all(|name| !name.ends_with("analyze_template_layout_in_scope")),
-        "projectless opaque analysis must bypass correlated analysis: {executed:?}"
+        "projectless opaque folding must bypass correlated analysis: {executed:?}"
     );
     let event_log = SalsaEventLog::default();
     let mut db = TestDatabase::with_event_log(event_log.clone());
@@ -308,16 +315,22 @@ fn structure_queries_use_correlated_analysis_only_with_a_project() {
         "project-backed folding must use correlated analysis: {executed:?}"
     );
 
-    let regions = compute_opaque_regions(&db, opaque_file, opaque_nodes);
-    assert!(regions.is_opaque(20));
+    let folds = build_template_folds_for_file(&db, opaque_file, opaque_nodes);
+    assert_eq!(
+        folds,
+        &[TemplateFold {
+            span: Span::saturating_from_bounds_usize(0, 47),
+            kind: TemplateFoldKind::Region,
+        }]
+    );
     let executed = event_log
         .take_will_execute_names(&db)
-        .expect("project-backed opaque query events should be readable");
+        .expect("project-backed opaque folding events should be readable");
     assert!(
         executed
             .iter()
             .any(|name| name.ends_with("analyze_template_layout_in_scope")),
-        "project-backed opaque analysis must use correlated analysis: {executed:?}"
+        "project-backed opaque folding must use correlated analysis: {executed:?}"
     );
 }
 

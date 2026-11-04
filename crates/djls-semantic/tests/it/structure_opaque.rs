@@ -1,21 +1,25 @@
 use camino::Utf8Path;
 use djls_semantic::EndTag;
 use djls_semantic::IntermediateTag;
-use djls_semantic::OpaqueRegions;
 use djls_semantic::TagSpec;
+use djls_semantic::TemplateFold;
+use djls_semantic::TemplateFoldKind;
+use djls_semantic::TemplateNode;
+use djls_semantic::TemplateTree;
 use djls_semantic::ValidationError;
-use djls_semantic::ValidationErrorAccumulator;
 use djls_semantic::build_projectless_template_tree;
+use djls_semantic::build_template_folds_for_file;
 use djls_semantic::bundled_django_tag_specs;
-use djls_semantic::compute_opaque_regions;
+use djls_semantic::collect_template_diagnostics;
 use djls_source::Span;
 use djls_templates::parse_template;
+use djls_testing::ProjectFixture;
+use djls_testing::ProjectSettings;
 use djls_testing::TestDatabase;
 
-fn compute_regions(db: &TestDatabase, source: &str) -> anyhow::Result<OpaqueRegions> {
-    let path = "test.html";
-    db.add_file(path, source)?;
-    let file = db.file(Utf8Path::new(path))?;
+fn tree_for_source<'db>(db: &'db TestDatabase, source: &str) -> anyhow::Result<TemplateTree<'db>> {
+    db.add_file("test.html", source)?;
+    let file = db.file(Utf8Path::new("test.html"))?;
     let nodelist = match parse_template(db, file) {
         djls_templates::TemplateParseResult::Parsed(nodelist) => nodelist,
         djls_templates::TemplateParseResult::NotTemplate => {
@@ -23,7 +27,7 @@ fn compute_regions(db: &TestDatabase, source: &str) -> anyhow::Result<OpaqueRegi
         }
         djls_templates::TemplateParseResult::Unreadable(error) => return Err(error.into()),
     };
-    Ok(compute_opaque_regions(db, file, nodelist))
+    Ok(build_projectless_template_tree(db, nodelist))
 }
 
 #[test]
@@ -45,126 +49,146 @@ fn opaque_opener_treats_intermediate_as_raw_content() {
         ),
     );
     let db = TestDatabase::new().with_projectless_tag_specs(specs);
-    let path = "test.html";
     let source = "{% opaque_if %}first{% opaque_else %}second{% endopaque_if %}";
-    db.add_file(path, source)
-        .expect("fixture file should be added to the test database");
-    let file = db
-        .file(Utf8Path::new(path))
-        .expect("fixture file should exist in the test database");
-    let nodelist = parse_template(&db, file).expect("should parse");
-    let regions = compute_opaque_regions(&db, file, nodelist);
-    let first = u32::try_from(
-        source
-            .find("first")
-            .expect("fixture should contain the first opaque body segment"),
-    )
-    .expect("first segment offset should fit in u32");
-    let opaque_else = u32::try_from(
-        source
-            .find("{% opaque_else %}")
-            .expect("fixture should contain the opaque intermediate tag"),
-    )
-    .expect("opaque intermediate offset should fit in u32");
-    let opaque_else_last = opaque_else
-        + u32::try_from("{% opaque_else %}".len())
-            .expect("opaque intermediate length should fit in u32")
-        - 1;
-    let second = u32::try_from(
-        source
-            .find("second")
-            .expect("fixture should contain the second opaque body segment"),
-    )
-    .expect("second segment offset should fit in u32");
+    let tree = tree_for_source(&db, source).expect("fixture tree should build");
+    let nodes = tree.regions(&db).get(tree.root(&db)).nodes();
+    assert!(
+        matches!(nodes, [TemplateNode::Opaque { tag, body_span, .. }]
+        if tag == "opaque_if" && *body_span == Span::saturating_from_bounds_usize(15, 43))
+    );
 
-    assert!(regions.is_opaque(first));
-    assert!(regions.is_opaque(opaque_else));
-    assert!(regions.is_opaque(opaque_else_last));
-    assert!(regions.is_opaque(second));
+    let file = db
+        .file(Utf8Path::new("test.html"))
+        .expect("fixture should exist");
+    let nodelist = parse_template(&db, file).expect("fixture should parse");
+    assert_eq!(
+        build_template_folds_for_file(&db, file, nodelist),
+        &[TemplateFold {
+            span: Span::saturating_from_bounds_usize(0, 61),
+            kind: TemplateFoldKind::Comment,
+        }]
+    );
 }
 
 #[test]
 fn test_opaque_regions_boundaries_and_ordering() {
-    let regions = OpaqueRegions::default();
-    assert!(!regions.is_opaque(0));
-    assert!(!regions.is_opaque(100));
-    assert!(regions.is_empty());
-    let regions = OpaqueRegions::new(vec![
-        Span::saturating_from_bounds_usize(30, 40),
-        Span::saturating_from_bounds_usize(10, 20),
-    ]);
-    assert!(!regions.is_opaque(5));
-    assert!(!regions.is_opaque(9));
-    assert!(regions.is_opaque(10));
-    assert!(regions.is_opaque(15));
-    assert!(regions.is_opaque(19));
-    assert!(!regions.is_opaque(20));
-    assert!(!regions.is_opaque(25));
-    assert!(regions.is_opaque(35));
-    assert!(!regions.is_opaque(45));
+    let db = TestDatabase::new();
+    let source = "{% comment %}one{% endcomment %}gap{% verbatim %}two{% endverbatim %}";
+    let tree = tree_for_source(&db, source).expect("fixture tree should build");
+    let nodes = tree.regions(&db).get(tree.root(&db)).nodes();
+    let spans = nodes
+        .iter()
+        .filter_map(|node| match node {
+            TemplateNode::Opaque { tag, body_span, .. } => Some((tag.as_str(), *body_span)),
+            TemplateNode::Block { .. }
+            | TemplateNode::StandaloneTag { .. }
+            | TemplateNode::Variable { .. }
+            | TemplateNode::Comment { .. }
+            | TemplateNode::Error { .. } => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        spans,
+        [
+            ("comment", Span::saturating_from_bounds_usize(13, 16)),
+            ("verbatim", Span::saturating_from_bounds_usize(49, 52)),
+        ]
+    );
 }
 
 #[test]
 fn test_comment_block_produces_opaque_region() {
     let db = TestDatabase::new();
-    let source = "{% comment %}inner content{% endcomment %}";
-    let regions = compute_regions(&db, source).expect("opaque-region fixture should build");
-    assert!(!regions.is_empty());
-    assert!(regions.is_opaque(13));
+    let tree = tree_for_source(&db, "{% comment %}inner content{% endcomment %}")
+        .expect("fixture tree should build");
+    let nodes = tree.regions(&db).get(tree.root(&db)).nodes();
+    assert!(
+        matches!(nodes, [TemplateNode::Opaque { tag, full_span, body_span, .. }]
+        if tag == "comment"
+            && *full_span == Span::saturating_from_bounds_usize(0, 42)
+            && *body_span == Span::saturating_from_bounds_usize(13, 26))
+    );
 }
 
 #[test]
 fn test_non_opaque_block_no_region() {
     let db = TestDatabase::new();
-    let source = "{% if True %}content{% endif %}";
-    let regions = compute_regions(&db, source).expect("opaque-region fixture should build");
-    assert!(
-        regions.is_empty(),
-        "if block should NOT produce an opaque region"
-    );
+    let tree =
+        tree_for_source(&db, "{% if True %}content{% endif %}").expect("fixture tree should build");
+    let nodes = tree.regions(&db).get(tree.root(&db)).nodes();
+    assert!(matches!(nodes, [TemplateNode::Block { tag, .. }] if tag == "if"));
+    assert_eq!(tree.regions(&db).iter().count(), 3);
 }
 
 #[test]
 fn unclosed_opaque_block_creates_no_region() {
     let db = TestDatabase::new();
-    let path = "test.html";
-    let source = "{% verbatim %}body";
-    db.add_file(path, source)
-        .expect("fixture file should be added to the test database");
+    let tree = tree_for_source(&db, "{% verbatim %}body").expect("fixture tree should build");
+    let nodes = tree.regions(&db).get(tree.root(&db)).nodes();
+    assert!(nodes.is_empty());
     let file = db
-        .file(Utf8Path::new(path))
-        .expect("fixture file should exist in the test database");
-    let nodelist = parse_template(&db, file).expect("should parse");
-    let regions = compute_opaque_regions(&db, file, nodelist);
-    let errors =
-        build_projectless_template_tree::accumulated::<ValidationErrorAccumulator>(&db, nodelist);
-    let body = u32::try_from(
-        source
-            .find("body")
-            .expect("fixture should contain the unclosed opaque body"),
-    )
-    .expect("opaque body offset should fit in u32");
-
-    assert!(!regions.is_opaque(body));
-    assert!(errors.iter().any(|error| matches!(
-        &error.0,
-        ValidationError::UnclosedTag { tag, .. } if tag == "verbatim"
-    )));
+        .file(Utf8Path::new("test.html"))
+        .expect("fixture should exist");
+    let diagnostics = collect_template_diagnostics(&db, file);
+    assert_eq!(
+        diagnostics.validation_errors,
+        [&ValidationError::UnclosedTag {
+            tag: "verbatim".to_string(),
+            span: Span::saturating_from_bounds_usize(0, 14),
+        }]
+    );
 }
 
 #[test]
 fn test_verbatim_opaque_boundaries() {
     let db = TestDatabase::new();
-    let source = "{% verbatim %}opaque{% endverbatim %}after";
-    let regions = compute_regions(&db, source).expect("opaque-region fixture should build");
+    let tree = tree_for_source(&db, "{% verbatim %}opaque{% endverbatim %}after")
+        .expect("fixture tree should build");
+    let nodes = tree.regions(&db).get(tree.root(&db)).nodes();
+    assert!(
+        matches!(nodes, [TemplateNode::Opaque { tag, full_span, body_span, .. }]
+        if tag == "verbatim"
+            && *full_span == Span::saturating_from_bounds_usize(0, 37)
+            && *body_span == Span::saturating_from_bounds_usize(14, 20))
+    );
+}
 
-    assert!(!regions.is_opaque(0), "start of opener tag");
-    assert!(!regions.is_opaque(13), "end of opener tag");
+#[test]
+fn validation_ignores_tags_in_opaque_bodies_but_reports_outside_tags() {
+    let source = "{% missing_before %}{% comment %}{% missing_inside %}{% endcomment %}{% verbatim %}{% missing_raw %}{% endverbatim %}{% missing_after %}";
+    let mut project_db = TestDatabase::new();
+    ProjectFixture::new("/project")
+        .settings(&ProjectSettings {
+            dirs: vec!["/project/templates".to_string()],
+            ..ProjectSettings::default()
+        })
+        .file("/project/templates/test.html", source)
+        .install(&mut project_db)
+        .expect("project fixture should install");
+    let projectless_db = TestDatabase::new();
+    projectless_db
+        .add_file("test.html", source)
+        .expect("fixture should be added");
 
-    assert!(regions.is_opaque(14), "first byte of opaque content");
-    assert!(regions.is_opaque(19), "last byte of opaque content");
-
-    assert!(!regions.is_opaque(20), "start of closer tag");
-    assert!(!regions.is_opaque(35), "end of closer tag");
-    assert!(!regions.is_opaque(37), "content after closer tag");
+    for (db, path) in [
+        (&projectless_db, "test.html"),
+        (&project_db, "/project/templates/test.html"),
+    ] {
+        let file = db.file(Utf8Path::new(path)).expect("fixture should exist");
+        let diagnostics = collect_template_diagnostics(db, file);
+        assert_eq!(diagnostics.template_errors.len(), 0);
+        assert_eq!(
+            diagnostics.validation_errors,
+            [
+                &ValidationError::UnknownTag {
+                    tag: "missing_before".to_string(),
+                    span: Span::saturating_from_bounds_usize(0, 20)
+                },
+                &ValidationError::UnknownTag {
+                    tag: "missing_after".to_string(),
+                    span: Span::saturating_from_bounds_usize(117, 136)
+                },
+            ]
+        );
+    }
 }
