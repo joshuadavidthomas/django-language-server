@@ -560,6 +560,10 @@ fn analyze_registrations_from_body_in_module(
                 if syntax.has_star() {
                     library_bindings.clear();
                     transparent_decorated_functions.clear();
+                    // A star import can replace register with another Library, including
+                    // its existing registrations. Absence from this file is not proof.
+                    analysis.registrations.clear();
+                    analysis.open_inventory(import, UnreadShape::RegisterRebound);
                 }
                 for member in syntax.named_members() {
                     library_bindings.bind_from_import(

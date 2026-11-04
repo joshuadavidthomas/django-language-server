@@ -189,7 +189,7 @@ fn candidate_membership_is_reused_until_membership_changes() {
         1
     );
 
-    // Removing package identity must invalidate membership even with source overlays.
+    // A namespace templatetags package keeps its candidates without __init__.py.
     fs.inner
         .lock()
         .expect("filesystem lock")
@@ -199,9 +199,9 @@ fn candidate_membership_is_reused_until_membership_changes() {
     )])
     .apply(&mut db);
     let _ = template_library_catalog(&db, project);
-    assert!(template_library_candidate_files(&db, project).is_empty());
+    assert_eq!(template_library_candidate_files(&db, project), &added);
     db.add_file("/proj/app/templatetags/__init__.py", "")
-        .expect("restore missing package identity");
+        .expect("restore regular package");
     let _ = template_library_catalog(&db, project);
     assert_eq!(template_library_candidate_files(&db, project), &added);
 }
