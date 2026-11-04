@@ -11,9 +11,19 @@ use djls_testing::Corpus;
 
 const TEMPLATE_ROOT: &str = "/templates";
 
+/// Fixture labels and virtual template paths are part of snapshot and hash inputs, so they
+/// use `/` on every platform rather than the host separator.
+fn slash_separated(relative: &Utf8Path) -> String {
+    relative
+        .components()
+        .map(|component| component.as_str())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
 #[must_use]
 fn template_path(relative: &Utf8Path) -> Utf8PathBuf {
-    Utf8Path::new(TEMPLATE_ROOT).join(relative)
+    Utf8PathBuf::from(format!("{TEMPLATE_ROOT}/{}", slash_separated(relative)))
 }
 
 #[derive(Clone)]
@@ -334,7 +344,7 @@ fn collect_files(
                 )
             })?;
 
-            fixtures.push((relative.to_string(), utf8_path, source));
+            fixtures.push((slash_separated(relative), utf8_path, source));
         }
     }
 
