@@ -1,0 +1,39 @@
+---
+source: crates/djls-ide/tests/corpus_coverage.rs
+expression: snapshot
+---
+app: linkding
+coverage: 0/5
+diagnostics: []
+fired_codes: []
+probe_codes:
+  S100: false
+  S103: false
+  S108: false
+  S111: false
+  S120: false
+probe_directory: bookmarks/templates
+probe_directory_source: corpus_fallback
+settings:
+  installed_apps:
+    dynamic: 1
+    known: 0
+    malformed: 0
+    unset: 0
+  templates:
+    dynamic: 1
+    known: 0
+    malformed: 0
+    unset: 0
+settings_file: "bookmarks/settings/__init__.py:1"
+settings_module: bookmarks.settings
+settings_source: manage.py
+uncertainty:
+  - kind: DynamicExpression
+    locations: []
+    setting: INSTALLED_APPS
+  - kind: DynamicExpression
+    locations: []
+    setting: TEMPLATES
+unread_libraries: []
+unresolved_apps: []

@@ -486,6 +486,68 @@ pub fn django_settings(db: &dyn Db, project: Project) -> impl Serialize + '_ {
     project_django_settings(db, project)
 }
 
+/// Preserve file identity for coverage reports; the settings snapshots serialize spans only.
+pub fn django_settings_uncertainty(
+    db: &dyn Db,
+    project: Project,
+) -> Vec<(&'static str, String, Vec<djls_source::Origin>)> {
+    use crate::settings::types::InstalledAppEvidence;
+    use crate::settings::types::SettingCase;
+    use crate::settings::types::SettingIssue;
+    use crate::settings::types::TemplateBackendEvidence;
+    use crate::settings::types::TemplateDirectoryEvidence;
+
+    let settings = project_django_settings(db, project);
+    let mut result = Vec::new();
+    let mut push = |setting, issue: &SettingIssue| {
+        result.push((setting, format!("{:?}", issue.kind), issue.origins.clone()));
+    };
+    for case in settings.feasible_cases() {
+        if let SettingCase::Dynamic(apps) | SettingCase::Malformed(apps) = case.installed_apps {
+            for evidence in &apps.evidence {
+                if let InstalledAppEvidence::Issue(issue) = evidence {
+                    push("INSTALLED_APPS", issue);
+                }
+            }
+        }
+        if let SettingCase::Dynamic(templates) | SettingCase::Malformed(templates) = case.templates
+        {
+            for evidence in &templates.evidence {
+                match evidence {
+                    TemplateBackendEvidence::Issue(issue) => push("TEMPLATES", issue),
+                    TemplateBackendEvidence::Backend(backend) => {
+                        for (field, issues) in [
+                            ("TEMPLATES.BACKEND", &backend.backend.issues),
+                            ("TEMPLATES.APP_DIRS", &backend.app_dirs.issues),
+                            ("TEMPLATES.OPTIONS", &backend.options.issues),
+                            ("TEMPLATES.OPTIONS.libraries", &backend.libraries.issues),
+                            ("TEMPLATES.OPTIONS.builtins", &backend.builtins.issues),
+                            (
+                                "TEMPLATES.OPTIONS.context_processors",
+                                &backend.context_processors.issues,
+                            ),
+                        ] {
+                            for issue in issues {
+                                push(field, issue);
+                            }
+                        }
+                        for evidence in &backend.dirs.evidence {
+                            if let TemplateDirectoryEvidence::Issue(issue) = evidence {
+                                push("TEMPLATES.DIRS", issue);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    result
+}
+
+pub fn installed_app_resolves(db: &dyn Db, project: Project, entry: &str) -> bool {
+    crate::templates::installed_app_package_module(db, project, entry).is_some()
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TemplateLibraryDefinitionFactsSnapshot {
     state: TemplateLibraryDefinitionStateSnapshot,

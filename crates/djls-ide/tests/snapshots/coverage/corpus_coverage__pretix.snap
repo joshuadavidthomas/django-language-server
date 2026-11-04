@@ -1,0 +1,66 @@
+---
+source: crates/djls-ide/tests/corpus_coverage.rs
+expression: snapshot
+---
+app: pretix
+coverage: 2/5
+diagnostics:
+  - code: S103
+    line: 3
+    message: "Closing block 'b' does not match opening block 'a'"
+  - code: S100
+    line: 5
+    message: "Unclosed 'if' tag"
+fired_codes:
+  - S103
+  - S100
+probe_codes:
+  S100: true
+  S103: true
+  S108: false
+  S111: false
+  S120: false
+probe_directory: src/templates
+probe_directory_source: discovery
+settings:
+  installed_apps:
+    dynamic: 2
+    known: 4
+    malformed: 0
+    unset: 0
+  templates:
+    dynamic: 1
+    known: 0
+    malformed: 0
+    unset: 0
+settings_file: "src/pretix/settings.py:1"
+settings_module: pretix.settings
+settings_source: config
+uncertainty:
+  - kind: DynamicExpression
+    locations:
+      - "src/pretix/settings.py:441"
+    setting: INSTALLED_APPS
+  - kind: UnsupportedMutation
+    locations:
+      - "src/pretix/settings.py:504"
+    setting: INSTALLED_APPS
+  - kind: DynamicExpression
+    locations:
+      - "src/pretix/settings.py:568"
+    setting: TEMPLATES.DIRS
+unread_libraries:
+  - load_name: dialog
+    module: pretix.base.templatetags.dialog
+    reasons:
+      - at: "src/pretix/base/templatetags/dialog.py:36"
+        reason: the template register is used outside a registration
+    source_failed: false
+  - load_name: formset_tags
+    module: djangoformsetjs.templatetags.formset_tags
+    reasons:
+      - at: "$SITE_PACKAGES/djangoformsetjs/templatetags/formset_tags.py:20"
+        reason: the registered name cannot be resolved
+    source_failed: false
+unresolved_apps:
+  - django_extensions

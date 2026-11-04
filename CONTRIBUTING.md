@@ -219,6 +219,18 @@ The complete suite requires the corpus: pinned project source and dependencies u
 
 `just test` and `just testall` sync source for their focused tests. `just corpus` runs the six corpus-wide sweeps separately, using each project's own environment where import resolution matters. Plain `cargo test` includes those sweeps and therefore needs complete setup. Isolated tests such as `cargo test -p djls-templates` can run without the corpus.
 
+To inspect real-project diagnostic coverage after syncing the corpus, run:
+
+```bash
+DJLS_COVERAGE_JSON=target/coverage.json cargo test -p djls-ide --test corpus_coverage
+```
+
+The per-application snapshots record settings discovery, uncertainty with source locations, unread libraries, unresolved apps, and five diagnostic probes in an unsaved buffer. Coverage counts a diagnostic only on its intended probe line. A higher score does not establish diagnostic correctness. Template-directory fallback is explicit in each snapshot when discovery cannot enumerate a first-party root.
+
+The optional export is a JSON document with `schema_version: 1`, the probe and its code-to-line mapping, the application cohort, deferred applications, application records, and summary totals. Application `coverage` contains numeric `fired` and `total` fields. `complete` is false for filtered or failing runs, so partial results cannot look like a full-cohort improvement. Deferred environments are excluded from the score denominator and listed separately.
+
+For a real-template comparison, add `DJLS_COVERAGE_SCAN=1` to that command. Only the exact value `1` enables scanning. Each application's `real_template_scan` contains `templates`, `code_counts`, and `diagnostics` records with checkout-relative `path`, `code`, zero-based LSP `range`, and `message`. The scan uses `Corpus::templates_in` and the IDE's template file kinds, currently `.html`, `.htm`, and `.djhtml`, with no file limit. Other files, including `.txt` and `.xml`, appear in `excluded_non_targets`; they are not counted as templates with zero diagnostics. Compare exports from the same corpus and environments on both revisions. Scan observations do not assert that existing diagnostics are correct, and they are not included in the probe snapshots.
+
 #### Snapshots
 
 The test suite uses [Insta](https://insta.rs/) snapshots extensively. After running the relevant tests, inspect pending changes interactively:

@@ -1,0 +1,53 @@
+---
+source: crates/djls-ide/tests/corpus_coverage.rs
+expression: snapshot
+---
+app: readthedocs.org
+coverage: 2/5
+diagnostics:
+  - code: S108
+    line: 1
+    message: "Unknown tag 'djls_coverage_unknown_tag'"
+  - code: S111
+    line: 2
+    message: "Unknown filter 'djls_coverage_unknown_filter'"
+  - code: S108
+    line: 3
+    message: "Unknown tag 'block'"
+  - code: S108
+    line: 3
+    message: "Unknown tag 'endblock'"
+  - code: S108
+    line: 4
+    message: "Unknown tag 'load'"
+  - code: S108
+    line: 5
+    message: "Unknown tag 'if'"
+fired_codes:
+  - S108
+  - S111
+probe_codes:
+  S100: false
+  S103: false
+  S108: true
+  S111: true
+  S120: false
+probe_directory: readthedocs/api/v2/templates
+probe_directory_source: corpus_fallback
+settings:
+  installed_apps:
+    dynamic: 0
+    known: 0
+    malformed: 0
+    unset: 1
+  templates:
+    dynamic: 0
+    known: 0
+    malformed: 0
+    unset: 1
+settings_file: "readthedocs/settings/docker_compose.py:1"
+settings_module: readthedocs.settings.docker_compose
+settings_source: manage.py
+uncertainty: []
+unread_libraries: []
+unresolved_apps: []

@@ -1,0 +1,53 @@
+---
+source: crates/djls-ide/tests/corpus_coverage.rs
+expression: snapshot
+---
+app: pythonic-news
+coverage: 3/5
+diagnostics:
+  - code: S120
+    line: 4
+    message: "Unknown template tag library 'djls_coverage_unknown_library'"
+  - code: S103
+    line: 3
+    message: "Closing block 'b' does not match opening block 'a'"
+  - code: S100
+    line: 5
+    message: "Unclosed 'if' tag"
+fired_codes:
+  - S103
+  - S120
+  - S100
+probe_codes:
+  S100: true
+  S103: true
+  S108: false
+  S111: false
+  S120: true
+probe_directory: accounts/templates
+probe_directory_source: discovery
+settings:
+  installed_apps:
+    dynamic: 0
+    known: 1
+    malformed: 0
+    unset: 0
+  templates:
+    dynamic: 0
+    known: 1
+    malformed: 0
+    unset: 0
+settings_file: "hnclone/settings.py:1"
+settings_module: hnclone.settings
+settings_source: manage.py
+uncertainty: []
+unread_libraries:
+  - load_name: mptt_admin
+    module: mptt.templatetags.mptt_admin
+    reasons:
+      - at: "$SITE_PACKAGES/mptt/templatetags/mptt_admin.py:25"
+        reason: "the template register is rebound, deleted, or augmented"
+      - at: "$SITE_PACKAGES/mptt/templatetags/mptt_admin.py:206"
+        reason: the template register is used in control flow or a nested scope
+    source_failed: false
+unresolved_apps: []

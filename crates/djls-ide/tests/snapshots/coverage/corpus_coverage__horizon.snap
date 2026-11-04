@@ -1,0 +1,42 @@
+---
+source: crates/djls-ide/tests/corpus_coverage.rs
+expression: snapshot
+---
+app: horizon
+coverage: 0/5
+diagnostics: []
+fired_codes: []
+probe_codes:
+  S100: false
+  S103: false
+  S108: false
+  S111: false
+  S120: false
+probe_directory: horizon/conf/dash_template/templates
+probe_directory_source: corpus_fallback
+settings:
+  installed_apps:
+    dynamic: 1
+    known: 0
+    malformed: 0
+    unset: 0
+  templates:
+    dynamic: 1
+    known: 0
+    malformed: 0
+    unset: 0
+settings_file: "openstack_dashboard/settings.py:1"
+settings_module: openstack_dashboard.settings
+settings_source: manage.py
+uncertainty:
+  - kind: DynamicExpression
+    locations:
+      - "openstack_dashboard/settings.py:359"
+    setting: INSTALLED_APPS
+  - kind: UnsupportedMutation
+    locations:
+      - "openstack_dashboard/settings.py:257"
+      - "openstack_dashboard/settings.py:261"
+    setting: TEMPLATES
+unread_libraries: []
+unresolved_apps: []

@@ -1,0 +1,50 @@
+---
+source: crates/djls-ide/tests/corpus_coverage.rs
+expression: snapshot
+---
+app: netbox
+coverage: 0/5
+diagnostics: []
+fired_codes: []
+probe_codes:
+  S100: false
+  S103: false
+  S108: false
+  S111: false
+  S120: false
+probe_directory: netbox/templates
+probe_directory_source: discovery
+settings:
+  installed_apps:
+    dynamic: 1
+    known: 2
+    malformed: 0
+    unset: 0
+  templates:
+    dynamic: 1
+    known: 1
+    malformed: 0
+    unset: 0
+settings_file: "netbox/netbox/settings.py:1"
+settings_module: netbox.settings
+settings_source: config
+uncertainty:
+  - kind: DynamicExpression
+    locations:
+      - "netbox/netbox/settings.py:869"
+      - "netbox/netbox/settings.py:975"
+    setting: INSTALLED_APPS
+  - kind: DynamicExpression
+    locations:
+      - "netbox/netbox/settings.py:975"
+    setting: TEMPLATES
+unread_libraries:
+  - load_name: mptt_admin
+    module: mptt.templatetags.mptt_admin
+    reasons:
+      - at: "$SITE_PACKAGES/mptt/templatetags/mptt_admin.py:32"
+        reason: "the template register is rebound, deleted, or augmented"
+      - at: "$SITE_PACKAGES/mptt/templatetags/mptt_admin.py:226"
+        reason: the template register is used in control flow or a nested scope
+    source_failed: false
+unresolved_apps: []

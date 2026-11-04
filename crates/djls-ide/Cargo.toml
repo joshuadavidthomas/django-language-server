@@ -19,10 +19,18 @@ tracing = { workspace = true }
 percent-encoding = { workspace = true }
 
 [dev-dependencies]
+djls-lsp = { workspace = true }
 djls-testing = { workspace = true }
 
+insta = { workspace = true }
+libtest-mimic = { workspace = true }
 proptest = { workspace = true }
+serde_json = { workspace = true }
 tempfile = { workspace = true }
+
+[[test]]
+name = "corpus_coverage"
+harness = false
 
 [lints]
 workspace = true

@@ -121,7 +121,7 @@ use crate::python::PythonModuleName;
 use crate::python::resolve_package_dirs;
 use crate::python::resolve_prefix;
 
-fn installed_app_package_module(
+pub(crate) fn installed_app_package_module(
     db: &dyn ProjectDb,
     project: Project,
     entry: &str,

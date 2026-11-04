@@ -1,0 +1,72 @@
+---
+source: crates/djls-ide/tests/corpus_coverage.rs
+expression: snapshot
+---
+app: archivebox
+coverage: 0/5
+diagnostics: []
+fired_codes: []
+probe_codes:
+  S100: false
+  S103: false
+  S108: false
+  S111: false
+  S120: false
+probe_directory: archivebox/machine/templates
+probe_directory_source: discovery
+settings:
+  installed_apps:
+    dynamic: 0
+    known: 2
+    malformed: 0
+    unset: 0
+  templates:
+    dynamic: 2
+    known: 0
+    malformed: 0
+    unset: 0
+settings_file: "archivebox/core/settings.py:1"
+settings_module: archivebox.core.settings
+settings_source: config
+uncertainty:
+  - kind: UnsupportedMutation
+    locations:
+      - "archivebox/core/settings.py:580"
+    setting: TEMPLATES
+  - kind: UnknownElement
+    locations:
+      - "archivebox/core/settings.py:192"
+    setting: TEMPLATES.DIRS
+  - kind: UnknownElement
+    locations:
+      - "archivebox/core/settings.py:193"
+    setting: TEMPLATES.DIRS
+  - kind: UnknownElement
+    locations:
+      - "archivebox/core/settings.py:194"
+    setting: TEMPLATES.DIRS
+  - kind: UnknownUnpack
+    locations:
+      - "archivebox/core/settings.py:185"
+    setting: TEMPLATES.DIRS
+unread_libraries:
+  - load_name: admin_data_utils
+    module: admin_data_views.templatetags.admin_data_utils
+    reasons:
+      - at: "$SITE_PACKAGES/admin_data_views/templatetags/admin_data_utils.py:12"
+        reason: "the template register is rebound, deleted, or augmented"
+    source_failed: false
+  - load_name: highlighting
+    module: django_extensions.templatetags.highlighting
+    reasons:
+      - at: "$SITE_PACKAGES/django_extensions/templatetags/highlighting.py:49"
+        reason: "the template register is rebound, deleted, or augmented"
+    source_failed: false
+  - load_name: syntax_color
+    module: django_extensions.templatetags.syntax_color
+    reasons:
+      - at: "$SITE_PACKAGES/django_extensions/templatetags/syntax_color.py:53"
+        reason: "the template register is rebound, deleted, or augmented"
+    source_failed: false
+unresolved_apps:
+  - django_autotyping

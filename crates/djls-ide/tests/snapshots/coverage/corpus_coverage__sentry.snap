@@ -1,0 +1,55 @@
+---
+source: crates/djls-ide/tests/corpus_coverage.rs
+expression: snapshot
+---
+app: sentry
+coverage: 3/5
+diagnostics:
+  - code: S120
+    line: 4
+    message: "Unknown template tag library 'djls_coverage_unknown_library'"
+  - code: S103
+    line: 3
+    message: "Closing block 'b' does not match opening block 'a'"
+  - code: S100
+    line: 5
+    message: "Unclosed 'if' tag"
+fired_codes:
+  - S103
+  - S120
+  - S100
+probe_codes:
+  S100: true
+  S103: true
+  S108: false
+  S111: false
+  S120: true
+probe_directory: src/sentry/templates
+probe_directory_source: discovery
+settings:
+  installed_apps:
+    dynamic: 0
+    known: 1
+    malformed: 0
+    unset: 0
+  templates:
+    dynamic: 1
+    known: 0
+    malformed: 0
+    unset: 0
+settings_file: "src/sentry/conf/server.py:1"
+settings_module: sentry.conf.server
+settings_source: config
+uncertainty:
+  - kind: UnknownElement
+    locations:
+      - "src/sentry/conf/server.py:412"
+    setting: TEMPLATES.DIRS
+unread_libraries:
+  - load_name: sentry_helpers
+    module: sentry.templatetags.sentry_helpers
+    reasons:
+      - at: "src/sentry/templatetags/sentry_helpers.py:26"
+        reason: the tag or filter inventory is mutated directly
+    source_failed: false
+unresolved_apps: []

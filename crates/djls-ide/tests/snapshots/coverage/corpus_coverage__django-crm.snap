@@ -1,0 +1,53 @@
+---
+source: crates/djls-ide/tests/corpus_coverage.rs
+expression: snapshot
+---
+app: django-crm
+coverage: 5/5
+diagnostics:
+  - code: S108
+    line: 1
+    message: "Unknown tag 'djls_coverage_unknown_tag'"
+  - code: S111
+    line: 2
+    message: "Unknown filter 'djls_coverage_unknown_filter'"
+  - code: S120
+    line: 4
+    message: "Unknown template tag library 'djls_coverage_unknown_library'"
+  - code: S103
+    line: 3
+    message: "Closing block 'b' does not match opening block 'a'"
+  - code: S100
+    line: 5
+    message: "Unclosed 'if' tag"
+fired_codes:
+  - S108
+  - S111
+  - S103
+  - S120
+  - S100
+probe_codes:
+  S100: true
+  S103: true
+  S108: true
+  S111: true
+  S120: true
+probe_directory: templates
+probe_directory_source: discovery
+settings:
+  installed_apps:
+    dynamic: 0
+    known: 1
+    malformed: 0
+    unset: 0
+  templates:
+    dynamic: 0
+    known: 1
+    malformed: 0
+    unset: 0
+settings_file: "webcrm/settings.py:1"
+settings_module: webcrm.settings
+settings_source: manage.py
+uncertainty: []
+unread_libraries: []
+unresolved_apps: []
