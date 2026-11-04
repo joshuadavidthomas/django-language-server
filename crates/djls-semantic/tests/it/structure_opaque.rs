@@ -5,7 +5,7 @@ use djls_semantic::OpaqueRegions;
 use djls_semantic::TagSpec;
 use djls_semantic::ValidationError;
 use djls_semantic::ValidationErrorAccumulator;
-use djls_semantic::build_template_tree_for_file;
+use djls_semantic::build_projectless_template_tree;
 use djls_semantic::bundled_django_tag_specs;
 use djls_semantic::compute_opaque_regions;
 use djls_source::Span;
@@ -136,9 +136,8 @@ fn unclosed_opaque_block_creates_no_region() {
         .expect("fixture file should exist in the test database");
     let nodelist = parse_template(&db, file).expect("should parse");
     let regions = compute_opaque_regions(&db, file, nodelist);
-    let errors = build_template_tree_for_file::accumulated::<ValidationErrorAccumulator>(
-        &db, file, nodelist,
-    );
+    let errors =
+        build_projectless_template_tree::accumulated::<ValidationErrorAccumulator>(&db, nodelist);
     let body = u32::try_from(
         source
             .find("body")

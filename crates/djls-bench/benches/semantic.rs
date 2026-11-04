@@ -13,7 +13,7 @@ use djls_bench::structure_db;
 use djls_bench::template_fixtures;
 use djls_project::Db as _;
 use djls_semantic::block_overrides;
-use djls_semantic::build_template_tree_for_file;
+use djls_semantic::build_projectless_template_tree;
 use djls_semantic::compute_opaque_regions;
 use djls_semantic::validate_template_file;
 use djls_source::File;
@@ -128,7 +128,7 @@ fn template_tree_cold(bencher: Bencher) {
                         fail(format_args!("parse template-tree benchmark input: {error}"));
                     }
                 };
-                let tree = build_template_tree_for_file(&db, file, nodelist);
+                let tree = build_projectless_template_tree(&db, nodelist);
                 total_regions += tree.regions(&db).iter().count();
             }
             black_box(total_regions);
@@ -153,7 +153,7 @@ fn template_tree_deeply_nested(bencher: Bencher) {
             let TemplateParseResult::Parsed(nodelist) = parse_template(&db, file) else {
                 fail("deeply nested benchmark input should parse as a template");
             };
-            let tree = build_template_tree_for_file(&db, file, nodelist);
+            let tree = build_projectless_template_tree(&db, nodelist);
             black_box(tree.regions(&db).iter().count());
         });
 }

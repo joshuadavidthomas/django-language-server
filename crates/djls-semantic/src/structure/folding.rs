@@ -9,7 +9,7 @@ use crate::structure::RegionId;
 use crate::structure::Regions;
 use crate::structure::TemplateNode;
 use crate::structure::TemplateTree;
-use crate::structure::build_template_tree_for_file;
+use crate::structure::build_projectless_template_tree;
 use crate::tags::BodyAnalysis;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -39,7 +39,7 @@ pub fn build_template_folds_for_file<'db>(
     nodelist: NodeList<'db>,
 ) -> Vec<TemplateFold> {
     if db.project().is_none() {
-        return build_template_folds(db, build_template_tree_for_file(db, file, nodelist)).clone();
+        return build_template_folds(db, build_projectless_template_tree(db, nodelist)).clone();
     }
     let projection = template_analysis_projection_for_file(db, file, nodelist);
     let tree = projection.analysis.tree(db);

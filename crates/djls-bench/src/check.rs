@@ -75,7 +75,7 @@ mod tests {
     use djls_ide::prepare_project_template_analysis;
     use djls_ide::prime_template_library_products;
     use djls_semantic::TemplateDiagnostics;
-    use djls_semantic::build_template_tree_for_file;
+    use djls_semantic::build_projectless_template_tree;
     use djls_semantic::collect_template_diagnostics;
     use djls_semantic::compute_opaque_regions;
     use djls_semantic::validate_template_file;
@@ -799,7 +799,7 @@ mod tests {
         for file in files {
             let nodelist = parse_template(&db, file)
                 .expect("semantic benchmark fixture should be a readable Template");
-            let tree = build_template_tree_for_file(&db, file, nodelist);
+            let tree = build_projectless_template_tree(&db, nodelist);
             snapshots.push(SemanticFileSnapshot {
                 path: file.path(&db).to_string(),
                 template_tree_regions: tree.regions(&db).iter().count(),

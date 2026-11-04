@@ -13,7 +13,8 @@ use djls_semantic::TemplateRegion;
 use djls_semantic::TemplateTree;
 use djls_semantic::ValidationError;
 use djls_semantic::ValidationErrorAccumulator;
-use djls_semantic::build_template_tree_for_file;
+use djls_semantic::build_projectless_template_tree;
+use djls_semantic::build_template_folds_for_file;
 use djls_semantic::bundled_django_tag_specs;
 use djls_semantic::compute_opaque_regions;
 use djls_source::Span;
@@ -200,7 +201,7 @@ fn test_template_tree_building() {
         .expect("fixture file should exist in the test database");
     let nodelist = parse_template(&db, file).expect("should parse");
 
-    let template_tree = build_template_tree_for_file(&db, file, nodelist);
+    let template_tree = build_projectless_template_tree(&db, nodelist);
     insta::assert_yaml_snapshot!(
         "template_tree",
         TemplateTreeSnapshot::from_tree(template_tree, &db)
@@ -231,22 +232,22 @@ fn structure_queries_use_correlated_analysis_only_with_a_project() {
     event_log
         .take()
         .expect("Salsa event log should be readable before the projectless query");
-    let tree = build_template_tree_for_file(&db, tree_file, tree_nodes);
-    assert!(tree.regions(&db).iter().next().is_some());
+    let folds = build_template_folds_for_file(&db, tree_file, tree_nodes);
+    assert_eq!(folds.len(), 1);
     let executed = event_log
         .take_will_execute_names(&db)
-        .expect("projectless tree query events should be readable");
+        .expect("projectless folding query events should be readable");
     assert!(
         executed
             .iter()
-            .any(|name| name.ends_with("build_template_tree_for_file")),
-        "projectless structure should execute its direct tree query: {executed:?}"
+            .any(|name| name.ends_with("build_projectless_template_tree")),
+        "projectless folding should build the tree directly: {executed:?}"
     );
     assert!(
         executed
             .iter()
             .all(|name| !name.ends_with("analyze_template_layout_in_scope")),
-        "projectless structure must bypass correlated analysis: {executed:?}"
+        "projectless folding must bypass correlated analysis: {executed:?}"
     );
 
     let regions = compute_opaque_regions(&db, opaque_file, opaque_nodes);
@@ -257,7 +258,7 @@ fn structure_queries_use_correlated_analysis_only_with_a_project() {
     assert!(
         executed
             .iter()
-            .any(|name| name.ends_with("build_template_tree_for_file")),
+            .any(|name| name.ends_with("build_projectless_template_tree")),
         "projectless opaque analysis should build one direct tree: {executed:?}"
     );
     assert!(
@@ -295,16 +296,16 @@ fn structure_queries_use_correlated_analysis_only_with_a_project() {
     event_log
         .take()
         .expect("Salsa event log should be readable before the project-backed query");
-    let tree = build_template_tree_for_file(&db, tree_file, tree_nodes);
-    assert!(tree.regions(&db).iter().next().is_some());
+    let folds = build_template_folds_for_file(&db, tree_file, tree_nodes);
+    assert_eq!(folds.len(), 1);
     let executed = event_log
         .take_will_execute_names(&db)
-        .expect("project-backed tree query events should be readable");
+        .expect("project-backed folding query events should be readable");
     assert!(
         executed
             .iter()
             .any(|name| name.ends_with("analyze_template_layout_in_scope")),
-        "project-backed structure must use correlated analysis: {executed:?}"
+        "project-backed folding must use correlated analysis: {executed:?}"
     );
 
     let regions = compute_opaque_regions(&db, opaque_file, opaque_nodes);
@@ -330,7 +331,7 @@ fn tree_for_source<'db>(db: &'db TestDatabase, source: &str) -> anyhow::Result<T
         }
         djls_templates::TemplateParseResult::Unreadable(error) => return Err(error.into()),
     };
-    Ok(build_template_tree_for_file(db, file, nodelist))
+    Ok(build_projectless_template_tree(db, nodelist))
 }
 
 fn root_region<'db>(tree: TemplateTree<'db>, db: &'db dyn Db) -> &'db TemplateRegion {
@@ -475,10 +476,9 @@ fn shared_intermediate_inside_opaque_block_has_no_structure() {
         .file(Utf8Path::new("test.html"))
         .expect("fixture file should exist in the test database");
     let nodelist = parse_template(&db, file).expect("should parse");
-    let tree = build_template_tree_for_file(&db, file, nodelist);
-    let errors = build_template_tree_for_file::accumulated::<ValidationErrorAccumulator>(
-        &db, file, nodelist,
-    );
+    let tree = build_projectless_template_tree(&db, nodelist);
+    let errors =
+        build_projectless_template_tree::accumulated::<ValidationErrorAccumulator>(&db, nodelist);
 
     let validation_errors = errors.iter().map(|error| &error.0).collect::<Vec<_>>();
     assert!(
@@ -541,13 +541,12 @@ fn opaque_closer_name_can_also_be_structured_opener() {
         .file(Utf8Path::new("test.html"))
         .expect("fixture file should exist in the test database");
     let nodelist = parse_template(&db, file).expect("should parse");
-    let tree = build_template_tree_for_file(&db, file, nodelist);
-    let errors = build_template_tree_for_file::accumulated::<ValidationErrorAccumulator>(
-        &db, file, nodelist,
-    )
-    .iter()
-    .map(|error| &error.0)
-    .collect::<Vec<_>>();
+    let tree = build_projectless_template_tree(&db, nodelist);
+    let errors =
+        build_projectless_template_tree::accumulated::<ValidationErrorAccumulator>(&db, nodelist)
+            .iter()
+            .map(|error| &error.0)
+            .collect::<Vec<_>>();
 
     assert!(
         errors.is_empty(),
@@ -568,15 +567,15 @@ fn opaque_closer_name_can_also_be_structured_opener() {
         .file(Utf8Path::new("outside.html"))
         .expect("fixture file should exist in the test database");
     let outside_nodelist = parse_template(&db, outside_file).expect("should parse");
-    let outside_tree = build_template_tree_for_file(&db, outside_file, outside_nodelist);
-    let outside_errors = build_template_tree_for_file::accumulated::<ValidationErrorAccumulator>(
-        &db,
-        outside_file,
-        outside_nodelist,
-    )
-    .iter()
-    .map(|error| &error.0)
-    .collect::<Vec<_>>();
+    let outside_tree = build_projectless_template_tree(&db, outside_nodelist);
+    let outside_errors =
+        build_projectless_template_tree::accumulated::<ValidationErrorAccumulator>(
+            &db,
+            outside_nodelist,
+        )
+        .iter()
+        .map(|error| &error.0)
+        .collect::<Vec<_>>();
 
     assert!(
         outside_errors.is_empty(),
@@ -617,13 +616,12 @@ fn standalone_definitions_win_over_top_level_structural_vocabulary() {
         .file(Utf8Path::new("test.html"))
         .expect("fixture file should exist in the test database");
     let nodelist = parse_template(&db, file).expect("should parse");
-    let tree = build_template_tree_for_file(&db, file, nodelist);
-    let errors = build_template_tree_for_file::accumulated::<ValidationErrorAccumulator>(
-        &db, file, nodelist,
-    )
-    .iter()
-    .map(|error| &error.0)
-    .collect::<Vec<_>>();
+    let tree = build_projectless_template_tree(&db, nodelist);
+    let errors =
+        build_projectless_template_tree::accumulated::<ValidationErrorAccumulator>(&db, nodelist)
+            .iter()
+            .map(|error| &error.0)
+            .collect::<Vec<_>>();
 
     assert!(
         errors.is_empty(),
@@ -656,13 +654,12 @@ fn matching_branch_context_wins_but_other_collisions_stay_standalone_in_blocks()
         .file(Utf8Path::new("test.html"))
         .expect("fixture file should exist in the test database");
     let nodelist = parse_template(&db, file).expect("should parse");
-    let tree = build_template_tree_for_file(&db, file, nodelist);
-    let errors = build_template_tree_for_file::accumulated::<ValidationErrorAccumulator>(
-        &db, file, nodelist,
-    )
-    .iter()
-    .map(|error| &error.0)
-    .collect::<Vec<_>>();
+    let tree = build_projectless_template_tree(&db, nodelist);
+    let errors =
+        build_projectless_template_tree::accumulated::<ValidationErrorAccumulator>(&db, nodelist)
+            .iter()
+            .map(|error| &error.0)
+            .collect::<Vec<_>>();
 
     assert!(
         errors.is_empty(),
@@ -711,13 +708,12 @@ fn unclosed_optional_opaque_block_reports_unclosed_without_node() {
         .file(Utf8Path::new("test.html"))
         .expect("fixture file should exist in the test database");
     let nodelist = parse_template(&db, file).expect("should parse");
-    let tree = build_template_tree_for_file(&db, file, nodelist);
-    let errors = build_template_tree_for_file::accumulated::<ValidationErrorAccumulator>(
-        &db, file, nodelist,
-    )
-    .iter()
-    .map(|error| &error.0)
-    .collect::<Vec<_>>();
+    let tree = build_projectless_template_tree(&db, nodelist);
+    let errors =
+        build_projectless_template_tree::accumulated::<ValidationErrorAccumulator>(&db, nodelist)
+            .iter()
+            .map(|error| &error.0)
+            .collect::<Vec<_>>();
 
     assert!(
         errors
@@ -744,13 +740,12 @@ fn known_opener_and_closer_inside_opaque_block_have_no_structure() {
         .file(Utf8Path::new("test.html"))
         .expect("fixture file should exist in the test database");
     let nodelist = parse_template(&db, file).expect("should parse");
-    let tree = build_template_tree_for_file(&db, file, nodelist);
-    let errors = build_template_tree_for_file::accumulated::<ValidationErrorAccumulator>(
-        &db, file, nodelist,
-    )
-    .iter()
-    .map(|error| &error.0)
-    .collect::<Vec<_>>();
+    let tree = build_projectless_template_tree(&db, nodelist);
+    let errors =
+        build_projectless_template_tree::accumulated::<ValidationErrorAccumulator>(&db, nodelist)
+            .iter()
+            .map(|error| &error.0)
+            .collect::<Vec<_>>();
 
     assert!(
         errors.is_empty(),
@@ -780,13 +775,12 @@ fn outer_closer_inside_opaque_block_has_no_structure() {
         .file(Utf8Path::new("test.html"))
         .expect("fixture file should exist in the test database");
     let nodelist = parse_template(&db, file).expect("should parse");
-    let tree = build_template_tree_for_file(&db, file, nodelist);
-    let errors = build_template_tree_for_file::accumulated::<ValidationErrorAccumulator>(
-        &db, file, nodelist,
-    )
-    .iter()
-    .map(|error| &error.0)
-    .collect::<Vec<_>>();
+    let tree = build_projectless_template_tree(&db, nodelist);
+    let errors =
+        build_projectless_template_tree::accumulated::<ValidationErrorAccumulator>(&db, nodelist)
+            .iter()
+            .map(|error| &error.0)
+            .collect::<Vec<_>>();
 
     assert!(
         errors.is_empty(),
@@ -952,10 +946,9 @@ fn malformed_recovery_is_best_effort() {
         .file(Utf8Path::new("test.html"))
         .expect("fixture file should exist in the test database");
     let nodelist = parse_template(&db, file).expect("should parse");
-    let tree = build_template_tree_for_file(&db, file, nodelist);
-    let errors = build_template_tree_for_file::accumulated::<ValidationErrorAccumulator>(
-        &db, file, nodelist,
-    );
+    let tree = build_projectless_template_tree(&db, nodelist);
+    let errors =
+        build_projectless_template_tree::accumulated::<ValidationErrorAccumulator>(&db, nodelist);
 
     assert!(
         root_region(tree, &db)
@@ -1011,9 +1004,8 @@ fn test_endblock_name_mismatch() {
         .file(Utf8Path::new("test.html"))
         .expect("fixture file should exist in the test database");
     let nodelist = parse_template(&db, file).expect("should parse");
-    let errors = build_template_tree_for_file::accumulated::<ValidationErrorAccumulator>(
-        &db, file, nodelist,
-    );
+    let errors =
+        build_projectless_template_tree::accumulated::<ValidationErrorAccumulator>(&db, nodelist);
     assert_eq!(errors.len(), 1);
     let opener_start = source
         .find("{% block content %}")

@@ -5,7 +5,8 @@ use djls_source::Span;
 use djls_templates::NodeList;
 
 use crate::db::Db;
-use crate::structure::build_template_tree_for_file;
+use crate::scoping::template_analysis_projection_for_file;
+use crate::structure::build_projectless_template_tree;
 use crate::structure::tree::Regions;
 use crate::structure::tree::TemplateNode;
 use crate::structure::tree::TemplateRegion;
@@ -54,12 +55,21 @@ pub fn compute_opaque_regions<'db>(
     file: File,
     nodelist: NodeList<'db>,
 ) -> OpaqueRegions {
-    let tree = build_template_tree_for_file(db, file, nodelist);
-    opaque_regions_from_tree(tree.regions(db))
+    if db.project().is_none() {
+        let tree = build_projectless_template_tree(db, nodelist);
+        return OpaqueRegions::new(opaque_body_spans(tree.regions(db)).collect());
+    }
+    let projection = template_analysis_projection_for_file(db, file, nodelist);
+    let tree = projection.analysis.tree(db);
+    OpaqueRegions::new(
+        opaque_body_spans(tree.regions(db))
+            .map(|span| projection.positions.span(span))
+            .collect(),
+    )
 }
 
-fn opaque_regions_from_tree(regions: &Regions) -> OpaqueRegions {
-    let spans = regions
+fn opaque_body_spans(regions: &Regions) -> impl Iterator<Item = Span> + '_ {
+    regions
         .iter()
         .flat_map(TemplateRegion::nodes)
         .filter_map(|node| match node {
@@ -70,7 +80,4 @@ fn opaque_regions_from_tree(regions: &Regions) -> OpaqueRegions {
             | TemplateNode::Comment { .. }
             | TemplateNode::Error { .. } => None,
         })
-        .collect();
-
-    OpaqueRegions::new(spans)
 }

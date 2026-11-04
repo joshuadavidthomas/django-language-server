@@ -120,13 +120,13 @@ pub(crate) fn template_layout<'db>(db: &'db dyn Db, source: NodeList<'db>) -> Te
     TemplateLayout::new(db, NodeList::new(db, nodes), positions)
 }
 
-pub(crate) fn map_bits(bits: &mut [TagBit], mut map: impl FnMut(Span) -> Span) {
+fn map_bits(bits: &mut [TagBit], mut map: impl FnMut(Span) -> Span) {
     for bit in bits {
         bit.span = map(bit.span);
     }
 }
 
-pub(crate) fn map_filters(filters: &mut [Filter], mut map: impl FnMut(Span) -> Span) {
+fn map_filters(filters: &mut [Filter], mut map: impl FnMut(Span) -> Span) {
     for filter in filters {
         filter.span = map(filter.span);
         if let Some(argument) = &mut filter.arg {
