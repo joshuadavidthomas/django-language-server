@@ -153,39 +153,6 @@ impl Project {
         )
     }
 
-    pub fn bootstrap(db: &dyn ProjectDb, root: &Utf8Path, settings: &Settings) -> Project {
-        let process_settings_module = std::env::var("DJANGO_SETTINGS_MODULE").ok();
-        let python_environment = PythonEnvironment::discover(settings.venv_path());
-        let django_settings_module = django_settings_module_name(
-            db.file_system(),
-            root,
-            settings,
-            process_settings_module.as_deref(),
-        );
-        let env_vars = load_env_file(db.file_system(), root, settings);
-        let search_paths = SearchPaths::from_project_settings(
-            db.file_system(),
-            root,
-            &python_environment,
-            settings.pythonpath(),
-        );
-        let pythonpath = settings.pythonpath().to_vec();
-        let tagspecs = settings.tagspecs().clone();
-
-        search_paths.register_roots(db);
-        Project::new(
-            db,
-            root.to_path_buf(),
-            search_paths,
-            python_environment,
-            django_settings_module,
-            settings.django_version(),
-            pythonpath,
-            env_vars,
-            tagspecs,
-        )
-    }
-
     /// Reload settings-derived project fields on this stable Salsa input.
     pub fn reload_from_settings(self, db: &mut dyn ProjectDb, settings: &Settings) {
         let root = self.root(db).clone();
