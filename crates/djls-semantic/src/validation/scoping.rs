@@ -5,7 +5,7 @@ use djls_templates::TagDelimiter;
 use salsa::Accumulator;
 
 use crate::db::Db;
-use crate::db::ValidationErrorAccumulator;
+use crate::db::LayoutErrorAccumulator as ValidationErrorAccumulator;
 use crate::errors::ValidationError;
 use crate::scoping::LoaderArgumentFact;
 use crate::scoping::symbols::SymbolAvailability;

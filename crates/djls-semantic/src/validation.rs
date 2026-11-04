@@ -91,7 +91,7 @@ impl<'db> TemplateValidator<'db> {
             use salsa::Accumulator;
 
             use crate::ValidationError;
-            use crate::ValidationErrorAccumulator;
+            use crate::db::LayoutErrorAccumulator as ValidationErrorAccumulator;
 
             match self.extends_position {
                 ExtendsPosition::Start => {}

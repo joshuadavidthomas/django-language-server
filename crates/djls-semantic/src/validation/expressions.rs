@@ -1,7 +1,7 @@
 use salsa::Accumulator;
 
 use crate::db::Db;
-use crate::db::ValidationErrorAccumulator;
+use crate::db::LayoutErrorAccumulator as ValidationErrorAccumulator;
 use crate::errors::ValidationError;
 use crate::expressions::ConsumedArguments;
 

@@ -35,7 +35,7 @@ impl AsRef<str> for TagBit {
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 pub struct FilterArgument {
     pub(crate) text: String,
-    pub(crate) span: Span,
+    pub span: Span,
 }
 
 impl FilterArgument {

@@ -75,6 +75,61 @@ impl Regions {
         let idx = id.index();
         &mut self.0[idx]
     }
+
+    pub(crate) fn map_spans(&mut self, mut map: impl FnMut(Span) -> Span) {
+        for region in &mut self.0 {
+            region.span = map(region.span);
+            for node in &mut region.nodes {
+                match node {
+                    TemplateNode::Block {
+                        name_span,
+                        bits,
+                        full_span,
+                        ..
+                    }
+                    | TemplateNode::StandaloneTag {
+                        name_span,
+                        bits,
+                        full_span,
+                        ..
+                    } => {
+                        *name_span = map(*name_span);
+                        crate::layout::map_bits(bits, &mut map);
+                        *full_span = map(*full_span);
+                    }
+                    TemplateNode::Opaque {
+                        name_span,
+                        bits,
+                        full_span,
+                        body_span,
+                        ..
+                    } => {
+                        *name_span = map(*name_span);
+                        crate::layout::map_bits(bits, &mut map);
+                        *full_span = map(*full_span);
+                        *body_span = map(*body_span);
+                    }
+                    TemplateNode::Variable {
+                        var_span,
+                        filters,
+                        span,
+                        ..
+                    } => {
+                        *var_span = map(*var_span);
+                        crate::layout::map_filters(filters, &mut map);
+                        *span = map(*span);
+                    }
+                    TemplateNode::Comment { span } | TemplateNode::Text { span } => {
+                        *span = map(*span);
+                    }
+                    TemplateNode::Error { span, full_span } => {
+                        *span = map(*span);
+                        *full_span = map(*full_span);
+                    }
+                }
+            }
+        }
+    }
 }
 
 impl std::ops::Index<RegionId> for Regions {
