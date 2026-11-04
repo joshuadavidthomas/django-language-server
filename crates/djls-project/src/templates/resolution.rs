@@ -267,6 +267,17 @@ pub fn resolve_relative_name<'a>(
     Some(Cow::Owned(normalized))
 }
 
+/// Django template names separate directories with `/` on every platform, while walked
+/// relative paths use the host separator.
+fn template_name_for_relative_path(relative: &Utf8Path) -> String {
+    relative
+        .clean()
+        .components()
+        .map(|component| component.as_str())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
 fn is_relative_template_name(target: &str) -> bool {
     target.starts_with("./") || target.starts_with("../")
 }
@@ -622,9 +633,9 @@ fn collect_backend_selections_scan<'db>(
             TemplateSearchEvidence::Issue {
                 issue: TemplateSearchIssue::Walk { root, .. },
                 backend,
-            } if file_path
-                .strip_prefix(root)
-                .is_ok_and(|relative| relative.clean().as_str() == name.name(db)) =>
+            } if file_path.strip_prefix(root).is_ok_and(|relative| {
+                template_name_for_relative_path(relative) == *name.name(db)
+            }) =>
             {
                 TemplateBackendSelection::Backend(*backend)
             }
@@ -730,10 +741,9 @@ impl<'db> TemplateScopeIndexBuilder<'db> {
                 }
 
                 for (root, selection) in &self.walk_issues {
-                    if file_path
-                        .strip_prefix(root)
-                        .is_ok_and(|relative| relative.clean().as_str() == name.name(db))
-                    {
+                    if file_path.strip_prefix(root).is_ok_and(|relative| {
+                        template_name_for_relative_path(relative) == *name.name(db)
+                    }) {
                         selections.push(*selection);
                     }
                 }
@@ -1350,7 +1360,7 @@ fn project_template_searches(db: &dyn ProjectDb, project: Project) -> ProjectTem
                 if entry.kind != WalkEntryKind::File {
                     continue;
                 }
-                let name = entry.relative.clean().to_string();
+                let name = template_name_for_relative_path(&entry.relative);
                 match path_to_file(db, &entry.path) {
                     Ok(file) => root_evidence.push(ProjectTemplateSearchEvidence::File {
                         template: ProjectTemplateFile::new(name, entry.path.clone(), file),
