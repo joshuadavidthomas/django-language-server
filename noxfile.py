@@ -109,7 +109,7 @@ def tests(session, django):
     else:
         session.install(f"django=={django}")
 
-    command = ["cargo", "test", *session.posargs]
+    command = ["cargo", "test", "--no-fail-fast", *session.posargs]
     if "--" not in command:
         command.append("--")
     for test_filter in CORPUS_SWEEP_FILTERS:
