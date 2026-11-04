@@ -675,6 +675,10 @@ impl FileSystem for OsFileSystem {
             .follow_links(options.follow_links)
             .max_depth(options.max_depth);
 
+        // Depth-first traversal with sorted sibling names yields component-wise
+        // path order without repeatedly comparing the shared absolute prefix.
+        builder.sort_by_file_name(std::ffi::OsStr::cmp);
+
         if !options.globs.is_empty() {
             let mut overrides = OverrideBuilder::new(root.as_std_path());
             for glob in &options.globs {
@@ -721,7 +725,6 @@ impl FileSystem for OsFileSystem {
             });
         }
 
-        entries.sort_by(|left, right| left.path.cmp(&right.path));
         entries.dedup_by(|left, right| left.path == right.path);
         issues.sort_by_cached_key(|kind| format!("{kind:?}"));
         issues.dedup();
@@ -966,6 +969,49 @@ mod tests {
 
         assert!(names.contains(&"visible.html"));
         assert!(!names.contains(&"secret.html"));
+    }
+
+    #[test]
+    fn os_walk_preserves_component_wise_path_order() {
+        let dir = tempfile::tempdir().expect("temporary directory should be created");
+        // Punctuation before '/' distinguishes component order from string order.
+        for path in [
+            "é.html",
+            "a0.html",
+            "a.html",
+            "a-b/sibling.html",
+            "a!/sibling.html",
+            "a space.html",
+            "a/child.html",
+        ] {
+            let path = dir.path().join(path);
+            std::fs::create_dir_all(path.parent().expect("file has a parent"))
+                .expect("test directories should be created");
+            std::fs::write(path, "").expect("test file should be written");
+        }
+
+        let root = temp_path(&dir);
+        for root in [root.clone(), root.join(".")] {
+            let entries =
+                dir_entries(OsFileSystem::default().walk_root(&root, &WalkOptions::unrestricted()));
+            let relative: Vec<_> = entries.into_iter().map(|entry| entry.relative).collect();
+            assert_eq!(
+                relative,
+                [
+                    "a",
+                    "a/child.html",
+                    "a space.html",
+                    "a!",
+                    "a!/sibling.html",
+                    "a-b",
+                    "a-b/sibling.html",
+                    "a.html",
+                    "a0.html",
+                    "é.html",
+                ]
+                .map(Utf8PathBuf::from)
+            );
+        }
     }
 
     #[test]
