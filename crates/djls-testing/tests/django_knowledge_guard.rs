@@ -60,13 +60,18 @@ fn production_code_holds_no_name_keyed_django_knowledge() {
         let src = workspace.join("crates").join(krate).join("src");
         for file in production_files(&src) {
             let source = std::fs::read_to_string(&file).expect("source should be readable");
+            // The allowlist spells paths with `/` on every platform.
             let relative = file
                 .strip_prefix(&workspace)
-                .expect("scanned files live in the workspace");
+                .expect("scanned files live in the workspace")
+                .components()
+                .map(|component| component.as_str())
+                .collect::<Vec<_>>()
+                .join("/");
             for (value, line) in string_literals(&source) {
                 if names.contains(&value) || value.starts_with("django.") {
                     found
-                        .entry((relative.to_string(), value))
+                        .entry((relative.clone(), value))
                         .or_default()
                         .push(line);
                 }

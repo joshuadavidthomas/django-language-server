@@ -591,7 +591,9 @@ impl<'a> ScenarioCollector<'a> {
             "test.html".to_string()
         };
 
-        if Utf8Path::new(&file_path).is_absolute() {
+        // `has_root` also rejects `/templates/x.html` on Windows, where it is not absolute but
+        // would still escape the scenario's project directory.
+        if Utf8Path::new(&file_path).has_root() {
             return Err(format!(
                 "scenario '{}' template path '{}' must be relative",
                 current.name, file_path
@@ -627,7 +629,9 @@ impl<'a> ScenarioCollector<'a> {
             .take()
             .ok_or_else(|| format!("heading '{}' has an unlabeled py code block", current.name))?;
 
-        if Utf8Path::new(&file_path).is_absolute() {
+        // `has_root` also rejects `/templates/x.html` on Windows, where it is not absolute but
+        // would still escape the scenario's project directory.
+        if Utf8Path::new(&file_path).has_root() {
             return Err(format!(
                 "heading '{}' Python path '{}' must be relative",
                 current.name, file_path
