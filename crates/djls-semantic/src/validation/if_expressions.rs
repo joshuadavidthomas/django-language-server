@@ -1,22 +1,23 @@
 use djls_source::Span;
 use djls_templates::TagBit;
 use djls_templates::TagDelimiter;
-use salsa::Accumulator;
 
-use crate::db::Db;
-use crate::db::LayoutErrorAccumulator as ValidationErrorAccumulator;
 use crate::errors::ValidationError;
 
 /// Internal helper for [`TemplateValidator`](crate::validation::TemplateValidator).
-pub(crate) fn check_if_expression_rule(db: &dyn Db, name: &str, bits: &[TagBit], span: Span) {
+pub(crate) fn check_if_expression_rule(
+    errors: &mut Vec<ValidationError>,
+    name: &str,
+    bits: &[TagBit],
+    span: Span,
+) {
     if let Some(message) = validate_expression(bits) {
         let full_span = span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32);
-        ValidationErrorAccumulator(ValidationError::ExpressionSyntaxError {
+        errors.push(ValidationError::ExpressionSyntaxError {
             tag: name.to_string(),
             message,
             span: full_span,
-        })
-        .accumulate(db);
+        });
     }
 }
 

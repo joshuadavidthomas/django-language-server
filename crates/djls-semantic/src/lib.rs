@@ -103,24 +103,26 @@ pub fn validate_template_file(db: &dyn Db, file: File) {
 
     let layout = template_layout(db, nodelist);
     let positions = layout.positions(db);
-    for error in
-        validate_template_layout::accumulated::<db::LayoutErrorAccumulator>(db, file, layout)
-    {
+    for error in validate_template_layout(db, file, layout) {
         use salsa::Accumulator;
 
-        ValidationErrorAccumulator(positions.error(error.0.clone())).accumulate(db);
+        ValidationErrorAccumulator(positions.error(error.clone())).accumulate(db);
     }
 }
 
-#[salsa::tracked]
-fn validate_template_layout(db: &dyn Db, file: File, layout: TemplateLayout<'_>) {
-    use salsa::Accumulator;
-
+// Returned rather than accumulated: reading accumulated values inside a tracked
+// function is an untracked read, which would re-run every file's validation on
+// every revision.
+#[salsa::tracked(returns(ref))]
+fn validate_template_layout(
+    db: &dyn Db,
+    file: File,
+    layout: TemplateLayout<'_>,
+) -> Vec<ValidationError> {
     let projection = analyze_template_layout_in_scope(db, file, layout, file);
-    TemplateValidator::new(db, projection).validate();
-    // Accumulators previously visited validation's own errors before its structural
-    // dependency. Preserve that order when combining both in the layout result.
-    for error in projection.diagnostics(db) {
-        db::LayoutErrorAccumulator(error.clone()).accumulate(db);
-    }
+    let mut errors = TemplateValidator::new(db, projection).validate();
+    // Validation's own errors come before its structural dependency's, as when both
+    // were accumulated.
+    errors.extend(projection.diagnostics(db).iter().cloned());
+    errors
 }

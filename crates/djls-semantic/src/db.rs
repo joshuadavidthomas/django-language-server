@@ -37,7 +37,3 @@ pub fn scoped_template_libraries_for_file(
 
 #[salsa::accumulator]
 pub struct ValidationErrorAccumulator(pub ValidationError);
-
-/// Internal errors use semantic coordinates, never source positions.
-#[salsa::accumulator]
-pub(crate) struct LayoutErrorAccumulator(pub ValidationError);

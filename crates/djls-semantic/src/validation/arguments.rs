@@ -2,15 +2,13 @@ use djls_project::TagRule;
 use djls_source::Span;
 use djls_templates::TagBit;
 use djls_templates::TagDelimiter;
-use salsa::Accumulator;
 
-use crate::db::Db;
-use crate::db::LayoutErrorAccumulator as ValidationErrorAccumulator;
+use crate::errors::ValidationError;
 use crate::tags::evaluate_tag_rules;
 
 /// Internal helper for [`TemplateValidator`](crate::validation::TemplateValidator).
 pub(crate) fn check_tag_arguments_rule(
-    db: &dyn Db,
+    errors: &mut Vec<ValidationError>,
     name: &str,
     bits: &[TagBit],
     span: Span,
@@ -19,6 +17,6 @@ pub(crate) fn check_tag_arguments_rule(
     let full_span = span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32);
     let bits = bits.iter().map(TagBit::as_str).collect::<Vec<_>>();
     for error in evaluate_tag_rules(name, &bits, rules, full_span) {
-        ValidationErrorAccumulator(error).accumulate(db);
+        errors.push(error);
     }
 }
