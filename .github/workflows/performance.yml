@@ -1,0 +1,153 @@
+name: nightly performance
+
+on:
+  schedule:
+    - cron: "43 8 * * *"
+  workflow_dispatch:
+
+# Never run on PRs. CodSpeed in bench.yml remains the regression gate.
+permissions: {}
+concurrency:
+  group: nightly-performance
+  cancel-in-progress: false
+
+env:
+  UV_CACHE_DIR: ${{ github.workspace }}/.cache/uv
+
+jobs:
+  measure:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    outputs:
+      commit: ${{ steps.identity.outputs.commit }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Record main and select latest stable release
+        id: identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git rev-parse HEAD | sed 's/^/commit=/' >> "$GITHUB_OUTPUT"
+          gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq '"release=" + .tag_name' >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.identity.outputs.release }}
+          path: .performance-release
+          persist-credentials: false
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - uses: $/.github/actions/setup
+        with:
+          tools: rust uv just
+          save: false
+          rust-cache: corpus
+          corpus: true
+          uv-cache-key: ${{ runner.os }}-${{ runner.arch }}-uv-corpus-${{ hashFiles('crates/djls-testing/manifest.lock', 'crates/djls-testing/manifest.toml', 'mise.toml') }}
+
+      - name: Install corpus native prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev libffi-dev liblzma-dev libpq-dev libcurl4-openssl-dev
+
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: crates/djls-testing/.corpus/interpreters
+          key: ${{ runner.os }}-${{ runner.arch }}-ubuntu22-corpus-python-${{ hashFiles('tools/corpus-python.sh') }}
+
+      - run: just corpus sync --source-only
+
+      - name: Collect wall-time samples
+        env:
+          RELEASE_REF: ${{ steps.identity.outputs.release }}
+        run: |
+          uv run --no-project --python 3.12 python tools/performance.py collect --release-dir "$GITHUB_WORKSPACE/.performance-release" --release-ref "$RELEASE_REF" --output "$RUNNER_TEMP/performance"
+          cat "$RUNNER_TEMP/performance/summary.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: performance
+          path: ${{ runner.temp }}/performance
+          retention-days: 30
+          if-no-files-found: error
+
+  publish:
+    needs: measure
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.measure.outputs.commit }}
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: performance
+          path: ${{ runner.temp }}/performance
+
+      - name: Add the run to the history and render the page
+        run: |
+          if git ls-remote --exit-code --heads origin gh-pages; then
+            git fetch origin gh-pages
+            git worktree add pages FETCH_HEAD
+          else
+            git worktree add --detach pages
+            git -C pages switch --orphan gh-pages
+          fi
+          mkdir -p pages/performance
+          python3 tools/performance.py page --latest "$RUNNER_TEMP/performance/latest.json" --history pages/performance/history.json --output pages/performance
+          cp "$RUNNER_TEMP/performance/latest.json" pages/performance/
+          touch pages/.nojekyll
+
+      - name: Push the history
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: pages
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Update real-project performance history'
+          gh auth setup-git
+          git push origin HEAD:gh-pages
+
+      # GITHUB_TOKEN pushes do not trigger a branch-based Pages build. Deploy the history
+      # branch explicitly, without a PAT or a second workflow trigger.
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
+        with:
+          path: pages
+
+      - uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
+        id: deployment
+
+      - name: Flag incomplete measurements after preserving the report
+        run: |
+          python3 - <<'PY'
+          import json, os
+          data = json.load(open(os.environ["RUNNER_TEMP"] + "/performance/latest.json"))
+          failures = [app["app"] for app in data["apps"] if app["status"] not in ("ok", "deferred") or app.get("release", {}).get("status") == "failed"]
+          if data["release"]["status"] == "build-failed":
+              failures.append("release build")
+          if failures:
+              raise SystemExit("Incomplete measurements (report published): " + ", ".join(failures))
+          PY
