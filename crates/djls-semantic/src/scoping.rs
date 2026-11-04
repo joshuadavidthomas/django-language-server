@@ -128,18 +128,35 @@ pub(crate) struct ScopedTagFact {
     pub(crate) loader_arguments: Vec<LoaderArgumentFact>,
 }
 
+/// Facts sorted by occurrence. A slice rather than a map: it is built once, kept for the
+/// life of the analysis, and holds one entry per tag in every analyzed template.
 #[derive(Clone, Debug, Default, PartialEq)]
-pub(crate) struct ScopedTagFacts(BTreeMap<TagOccurrenceKey, ScopedTagFact>);
+pub(crate) struct ScopedTagFacts(Box<[(TagOccurrenceKey, ScopedTagFact)]>);
 
 impl ScopedTagFacts {
+    /// A later entry for the same occurrence replaces an earlier one.
+    fn new(mut entries: Vec<(TagOccurrenceKey, ScopedTagFact)>) -> Self {
+        entries.sort_by_key(|(key, _)| *key);
+        entries.dedup_by(|later, earlier| {
+            let same = later.0 == earlier.0;
+            if same {
+                std::mem::swap(later, earlier);
+            }
+            same
+        });
+        Self(entries.into_boxed_slice())
+    }
+
     #[must_use]
     pub(crate) fn for_tag(&self, tag: ActiveTemplateTag<'_>) -> Option<&ScopedTagFact> {
-        self.0.get(&TagOccurrenceKey::from_name_span(tag.name_span))
+        self.for_name_span(tag.name_span)
     }
 
     #[must_use]
     pub(crate) fn for_name_span(&self, name_span: Span) -> Option<&ScopedTagFact> {
-        self.0.get(&TagOccurrenceKey::from_name_span(name_span))
+        let key = TagOccurrenceKey::from_name_span(name_span);
+        let index = self.0.binary_search_by_key(&key, |(key, _)| *key).ok()?;
+        Some(&self.0[index].1)
     }
 }
 
@@ -208,7 +225,7 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
             }
             (TagOccurrenceKey(positions.offset(key.0)), fact)
         })
-        .collect();
+        .collect::<Vec<_>>();
     let mut captured_closers = projection.captured_closers(db).clone();
     for closer in &mut captured_closers {
         closer.name_span = positions.span(closer.name_span);
@@ -219,7 +236,7 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
         db,
         scope_file,
         loaded,
-        ScopedTagFacts(facts),
+        ScopedTagFacts::new(facts),
         captured_closers,
         diagnostics,
         tree,
@@ -303,7 +320,7 @@ pub(crate) fn analyze_template_layout_in_scope<'db>(
             continue;
         }
 
-        let mut tag_facts = BTreeMap::new();
+        let mut tag_facts = Vec::new();
         let mut tag_context_cache = ContextualFactCache::default();
         let argument_libraries = loaded.argument_libraries(scoped_libraries);
         let mut load_cursor = loaded.cursor();
@@ -371,7 +388,7 @@ pub(crate) fn analyze_template_layout_in_scope<'db>(
                 } else {
                     Vec::new()
                 };
-            tag_facts.insert(
+            tag_facts.push((
                 TagOccurrenceKey::from_name_span(tag.name_span),
                 ScopedTagFact {
                     spec: spec.cloned(),
@@ -392,7 +409,7 @@ pub(crate) fn analyze_template_layout_in_scope<'db>(
                     unknown_load_can_shadow: contextual_fact.unknown_load_can_shadow,
                     loader_arguments,
                 },
-            );
+            ));
         }
 
         let diagnostics = tree_data.diagnostics.clone();
@@ -402,7 +419,7 @@ pub(crate) fn analyze_template_layout_in_scope<'db>(
             db,
             scope_file,
             loaded,
-            ScopedTagFacts(tag_facts),
+            ScopedTagFacts::new(tag_facts),
             captured_closers,
             diagnostics,
             tree,
