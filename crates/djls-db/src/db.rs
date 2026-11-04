@@ -430,7 +430,7 @@ mod invalidation_tests {
             fs.add_file(
                 root.join("settings.py"),
                 format!(
-                    "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['{templates_dir}'], 'APP_DIRS': False}}]\n"
+                    "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [{templates_dir:?}], 'APP_DIRS': False}}]\n"
                 ),
             );
             fs.add_file(
@@ -1084,7 +1084,7 @@ mod invalidation_tests {
         fs.lock().expect("test mutex should not be poisoned").add_file(
             settings_path,
             format!(
-                "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['{templates_dir}'], 'APP_DIRS': False, 'OPTIONS': {{'libraries': {{'custom': 'missing.custom_tags'}}}}}}]\n"
+                "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [{templates_dir:?}], 'APP_DIRS': False, 'OPTIONS': {{'libraries': {{'custom': 'missing.custom_tags'}}}}}}]\n"
             ),
         );
         SourceChanges::new([ChangeEvent::ContentChanged(settings_file.path(&db).clone())])
@@ -1237,7 +1237,7 @@ mod invalidation_tests {
         fs.add_file(
             root.join("settings.py"),
             format!(
-                "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['{templates_dir}'], 'APP_DIRS': False}}]\n"
+                "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [{templates_dir:?}], 'APP_DIRS': False}}]\n"
             ),
         );
         fs.add_file(templates_dir.join("child.html"), source.to_string());
@@ -1333,7 +1333,7 @@ mod invalidation_tests {
         inner.add_file(
             root.join("settings.py"),
             format!(
-                "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['{templates_dir}'], 'APP_DIRS': False}}]\n"
+                "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [{templates_dir:?}], 'APP_DIRS': False}}]\n"
             ),
         );
         inner.add_file(templates_dir.join("base.html"), "base".to_string());
@@ -1437,7 +1437,7 @@ mod invalidation_tests {
         fs.add_file(
             settings_path,
             format!(
-                "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['{templates_dir}'], 'APP_DIRS': False}}]\n"
+                "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [{templates_dir:?}], 'APP_DIRS': False}}]\n"
             ),
         );
         fs.add_file(templates_dir.join("base.html"), "base".to_string());
@@ -1503,7 +1503,7 @@ mod invalidation_tests {
             fs.add_file(
                 settings_path.clone(),
                 format!(
-                    "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['{templates_dir}'], 'APP_DIRS': False}}]\n"
+                    "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [{templates_dir:?}], 'APP_DIRS': False}}]\n"
                 ),
             );
             fs.add_file(templates_dir.join("base.html"), "base".to_string());
@@ -1541,7 +1541,7 @@ mod invalidation_tests {
         fs.lock().expect("test mutex should not be poisoned").add_file(
             settings_path,
             format!(
-                "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['{other_templates_dir}'], 'APP_DIRS': False}}]\n"
+                "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [{other_templates_dir:?}], 'APP_DIRS': False}}]\n"
             ),
         );
         SourceChanges::new([ChangeEvent::ContentChanged(settings_file.path(&db).clone())])
@@ -1582,7 +1582,7 @@ mod invalidation_tests {
         fs.add_file(
             settings_path,
             format!(
-                "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['{templates_dir}'], 'APP_DIRS': False}}]\n"
+                "INSTALLED_APPS = []\nTEMPLATES = [{{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [{templates_dir:?}], 'APP_DIRS': False}}]\n"
             ),
         );
         fs.add_file(templates_dir.join("base.html"), "base".to_string());
@@ -1641,7 +1641,7 @@ mod invalidation_tests {
         let vendor = root.join("vendor");
         std::fs::write(
             root.join("djls.toml").as_std_path(),
-            format!("django_settings_module = \"unrelated\"\npythonpath = [\"{vendor}\"]\n"),
+            format!("django_settings_module = \"unrelated\"\npythonpath = [{vendor:?}]\n"),
         )
         .expect("test fixture file should be written");
         let settings =
@@ -1803,7 +1803,7 @@ type = "block"
             format!(
                 r#"
 django_settings_module = "config.settings"
-pythonpath = ["{extra_path}"]
+pythonpath = [{extra_path:?}]
 env_file = ".env.local"
 "#
             ),

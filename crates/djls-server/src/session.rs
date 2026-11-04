@@ -1929,7 +1929,7 @@ mod tests {
             format!(
                 r#"
 django_settings_module = "config.settings"
-pythonpath = ["{config_extra_path}"]
+pythonpath = [{config_extra_path:?}]
 "#
             ),
         )
