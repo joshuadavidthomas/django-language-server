@@ -64,31 +64,27 @@ pub(crate) fn template_layout<'db>(db: &'db dyn Db, source: NodeList<'db>) -> Te
     positions.anchor(0, 0);
     let mut next = 0;
     for source_node in source_nodes {
-        // Comments do not contribute content to structure. Avoid copying their source text.
-        let mut node = match source_node {
-            Node::Comment { span, .. } => Node::Comment {
-                content: String::new(),
-                span: *span,
-            },
-            Node::Tag { .. } | Node::Text { .. } | Node::Variable { .. } | Node::Error { .. } => {
-                source_node.clone()
-            }
-        };
-        let full_span = node.full_span();
+        let full_span = source_node.full_span();
         let start = next;
         positions.anchor(start, full_span.start());
-        match &mut node {
-            Node::Text { span } => {
-                *span = Span::new(start, 1);
+        let node = match source_node {
+            // Nothing downstream of the layout reads text, so a run keeps only its anchors.
+            Node::Text { .. } => {
                 next += 1;
+                None
             }
+            // Comments do not contribute content to structure. Avoid copying their source text.
             Node::Comment { span, .. } => {
                 positions.anchor(start + 2, span.start());
                 positions.anchor(start + 3, span.end());
-                *span = Span::new(start + 2, 1);
                 next += 5;
+                Some(Node::Comment {
+                    content: String::new(),
+                    span: Span::new(start + 2, 1),
+                })
             }
             Node::Tag { .. } | Node::Variable { .. } | Node::Error { .. } => {
+                let mut node = source_node.clone();
                 map_node_spans(&mut node, |span| {
                     Span::new(start + span.start() - full_span.start(), span.length())
                 });
@@ -101,11 +97,15 @@ pub(crate) fn template_layout<'db>(db: &'db dyn Db, source: NodeList<'db>) -> Te
                     *position = start as usize + (*position - full_span.start_usize());
                 }
                 next += full_span.length();
+                Some(node)
             }
-        }
+        };
         positions.anchor(next, full_span.end());
-        nodes.push(node);
+        nodes.extend(node);
     }
+    // Contiguous syntax shares anchors, so the table usually ends well below its reservation
+    // and is kept for the life of the layout.
+    positions.0.shrink_to_fit();
     TemplateLayout::new(db, NodeList::new(db, nodes), positions)
 }
 

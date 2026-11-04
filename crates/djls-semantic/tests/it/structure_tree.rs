@@ -94,9 +94,6 @@ enum NodeSnapshot {
     Comment {
         span: Span,
     },
-    Text {
-        span: Span,
-    },
     Error {
         span: Span,
         full_span: Span,
@@ -114,9 +111,9 @@ impl From<&TemplateNode> for NodeSnapshot {
                 body,
                 role,
             } => Self::BlockTag {
-                tag: tag.clone(),
+                tag: tag.to_string(),
                 name_span: *name_span,
-                bits: bits.clone(),
+                bits: bits.to_vec(),
                 full_span: *full_span,
                 body: body.id(),
                 role: format!("{role:?}"),
@@ -129,9 +126,9 @@ impl From<&TemplateNode> for NodeSnapshot {
                 body_span,
                 body_analysis,
             } => Self::Opaque {
-                tag: tag.clone(),
+                tag: tag.to_string(),
                 name_span: *name_span,
-                bits: bits.clone(),
+                bits: bits.to_vec(),
                 full_span: *full_span,
                 body_span: *body_span,
                 body_analysis: format!("{body_analysis:?}"),
@@ -142,9 +139,9 @@ impl From<&TemplateNode> for NodeSnapshot {
                 bits,
                 full_span,
             } => Self::StandaloneTag {
-                tag: tag.clone(),
+                tag: tag.to_string(),
                 name_span: *name_span,
-                bits: bits.clone(),
+                bits: bits.to_vec(),
                 full_span: *full_span,
             },
             TemplateNode::Variable {
@@ -153,13 +150,12 @@ impl From<&TemplateNode> for NodeSnapshot {
                 filters,
                 span,
             } => Self::Variable {
-                var: var.clone(),
+                var: var.to_string(),
                 var_span: *var_span,
-                filters: filters.clone(),
+                filters: filters.to_vec(),
                 span: *span,
             },
             TemplateNode::Comment { span } => Self::Comment { span: *span },
-            TemplateNode::Text { span } => Self::Text { span: *span },
             TemplateNode::Error { span, full_span } => Self::Error {
                 span: *span,
                 full_span: *full_span,
@@ -350,7 +346,6 @@ fn first_block_body(region: &TemplateRegion, tag_name: &str) -> Option<RegionId>
         | TemplateNode::StandaloneTag { .. }
         | TemplateNode::Variable { .. }
         | TemplateNode::Comment { .. }
-        | TemplateNode::Text { .. }
         | TemplateNode::Error { .. } => None,
     })
 }
@@ -368,7 +363,6 @@ fn segment_body(region: &TemplateRegion, tag_name: &str) -> Option<RegionId> {
         | TemplateNode::StandaloneTag { .. }
         | TemplateNode::Variable { .. }
         | TemplateNode::Comment { .. }
-        | TemplateNode::Text { .. }
         | TemplateNode::Error { .. } => None,
     })
 }
@@ -381,7 +375,6 @@ fn opaque_body_span(region: &TemplateRegion, tag_name: &str) -> Option<Span> {
         | TemplateNode::StandaloneTag { .. }
         | TemplateNode::Variable { .. }
         | TemplateNode::Comment { .. }
-        | TemplateNode::Text { .. }
         | TemplateNode::Error { .. } => None,
     })
 }
@@ -645,7 +638,6 @@ fn standalone_definitions_win_over_top_level_structural_vocabulary() {
             | TemplateNode::Opaque { .. }
             | TemplateNode::Variable { .. }
             | TemplateNode::Comment { .. }
-            | TemplateNode::Text { .. }
             | TemplateNode::Error { .. } => None,
         })
         .collect::<Vec<_>>();
@@ -836,7 +828,6 @@ fn top_level_standalone_tags_are_visible() {
             | TemplateNode::Opaque { .. }
             | TemplateNode::Variable { .. }
             | TemplateNode::Comment { .. }
-            | TemplateNode::Text { .. }
             | TemplateNode::Error { .. } => None,
         })
         .collect::<Vec<_>>();
@@ -850,13 +841,10 @@ fn top_level_standalone_tags_are_visible() {
 #[test]
 fn nested_blocks_preserve_hierarchy() {
     let db = TestDatabase::new();
-    let tree = tree_for_source(
-        &db,
-        r"{% block content %}
+    let source = r"{% block content %}
   {% block title %}Title{% endblock %}
-{% endblock %}",
-    )
-    .expect("template tree fixture should build");
+{% endblock %}";
+    let tree = tree_for_source(&db, source).expect("template tree fixture should build");
 
     let root = root_region(tree, &db);
     let content_container =
@@ -868,12 +856,10 @@ fn nested_blocks_preserve_hierarchy() {
     let title_body = segment_body(tree.regions(&db).get(title_container), "block")
         .expect("fixture should contain the title segment");
 
-    assert!(
-        tree.regions(&db)
-            .get(title_body)
-            .nodes()
-            .iter()
-            .any(|node| matches!(node, TemplateNode::Text { .. }))
+    let title_span = tree.regions(&db).get(title_body).span();
+    assert_eq!(
+        &source[title_span.start_usize()..title_span.end_usize()],
+        "Title"
     );
 }
 
@@ -914,7 +900,6 @@ fn intermediate_tags_preserve_segments() {
             | TemplateNode::StandaloneTag { .. }
             | TemplateNode::Variable { .. }
             | TemplateNode::Comment { .. }
-            | TemplateNode::Text { .. }
             | TemplateNode::Error { .. } => None,
         })
         .collect::<Vec<_>>();

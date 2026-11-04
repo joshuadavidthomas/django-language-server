@@ -850,11 +850,13 @@ mod invalidation_tests {
         assert!(errors.is_empty());
         let events = event_log.take();
         assert_eq!(will_execute_count(&db, &events, "parse_template"), 1);
+        // The layout keeps no text nodes, so appending text leaves it unchanged
+        // and analysis is backdated rather than re-run.
         assert_eq!(
             will_execute_count(&db, &events, "analyze_template_layout_in_scope"),
-            1
+            0
         );
-        // The new text node changes no error and no source position, so the
+        // It changes no error and no source position either, so the
         // position-mapping wrapper is backdated rather than re-run.
         assert_eq!(
             will_execute_count(&db, &events, "validate_template_file"),

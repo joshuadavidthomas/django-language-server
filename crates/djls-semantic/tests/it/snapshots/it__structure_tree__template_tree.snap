@@ -6,13 +6,9 @@ root: 0
 regions:
   - span:
       start: 0
-      length: 468
+      length: 467
     parent: ~
     nodes:
-      - node: Text
-        span:
-          start: 0
-          length: 1
       - node: StandaloneTag
         tag: extends
         name_span:
@@ -26,10 +22,6 @@ regions:
         full_span:
           start: 1
           length: 25
-      - node: Text
-        span:
-          start: 26
-          length: 1
       - node: StandaloneTag
         tag: load
         name_span:
@@ -47,10 +39,6 @@ regions:
         full_span:
           start: 27
           length: 22
-      - node: Text
-        span:
-          start: 49
-          length: 1
       - node: BlockTag
         tag: block
         name_span:
@@ -66,10 +54,6 @@ regions:
           length: 18
         body: 1
         role: Opener
-      - node: Text
-        span:
-          start: 109
-          length: 2
       - node: BlockTag
         tag: if
         name_span:
@@ -85,10 +69,6 @@ regions:
           length: 30
         body: 3
         role: Opener
-      - node: Text
-        span:
-          start: 405
-          length: 2
       - node: BlockTag
         tag: for
         name_span:
@@ -112,10 +92,6 @@ regions:
           length: 23
         body: 10
         role: Opener
-      - node: Text
-        span:
-          start: 467
-          length: 1
   - span:
       start: 50
       length: 59
@@ -140,11 +116,7 @@ regions:
       start: 68
       length: 20
     parent: 1
-    nodes:
-      - node: Text
-        span:
-          start: 68
-          length: 20
+    nodes: []
   - span:
       start: 111
       length: 294
@@ -181,10 +153,6 @@ regions:
       length: 217
     parent: 3
     nodes:
-      - node: Text
-        span:
-          start: 141
-          length: 16
       - node: Variable
         var: user.name
         var_span:
@@ -194,10 +162,6 @@ regions:
         span:
           start: 159
           length: 11
-      - node: Text
-        span:
-          start: 172
-          length: 9
       - node: BlockTag
         tag: if
         name_span:
@@ -213,10 +177,6 @@ regions:
           length: 26
         body: 5
         role: Opener
-      - node: Text
-        span:
-          start: 357
-          length: 1
   - span:
       start: 181
       length: 176
@@ -267,38 +227,22 @@ regions:
       start: 207
       length: 32
     parent: 5
-    nodes:
-      - node: Text
-        span:
-          start: 207
-          length: 32
+    nodes: []
   - span:
       start: 263
       length: 34
     parent: 5
-    nodes:
-      - node: Text
-        span:
-          start: 263
-          length: 34
+    nodes: []
   - span:
       start: 307
       length: 39
     parent: 5
-    nodes:
-      - node: Text
-        span:
-          start: 307
-          length: 39
+    nodes: []
   - span:
       start: 368
       length: 26
     parent: 3
-    nodes:
-      - node: Text
-        span:
-          start: 368
-          length: 26
+    nodes: []
   - span:
       start: 407
       length: 60
@@ -332,10 +276,6 @@ regions:
       length: 25
     parent: 10
     nodes:
-      - node: Text
-        span:
-          start: 430
-          length: 9
       - node: Variable
         var: item
         var_span:
@@ -344,8 +284,4 @@ regions:
         filters: []
         span:
           start: 441
-          length: 6
-      - node: Text
-        span:
-          start: 449
           length: 6

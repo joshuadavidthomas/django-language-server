@@ -55,6 +55,7 @@ pub use filters::Filter;
 pub use lexer::TagLines;
 pub use nodelist::Node;
 pub use nodelist::NodeList;
+pub use nodelist::NodeText;
 pub use parser::ParseError;
 pub use quotes::TemplateString;
 use salsa::Accumulator;

@@ -62,13 +62,13 @@ pub(crate) fn check_filter_scoping_rule(
         SymbolAvailability::Available | SymbolAvailability::Inconclusive => {}
         SymbolAvailability::Unknown => {
             errors.push(ValidationError::UnknownFilter {
-                filter: filter.name.clone(),
+                filter: filter.name.to_string(),
                 span: filter.span,
             });
         }
         SymbolAvailability::NotInInstalledApps { app, load_name } => {
             errors.push(ValidationError::FilterNotInInstalledApps {
-                filter: filter.name.clone(),
+                filter: filter.name.to_string(),
                 app: app.clone(),
                 load_name: load_name.clone(),
                 span: filter.span,
@@ -78,14 +78,14 @@ pub(crate) fn check_filter_scoping_rule(
             if unknown_load_can_supply_symbol => {}
         SymbolAvailability::Unloaded { library } => {
             errors.push(ValidationError::UnloadedFilter {
-                filter: filter.name.clone(),
+                filter: filter.name.to_string(),
                 library: library.clone(),
                 span: filter.span,
             });
         }
         SymbolAvailability::AmbiguousUnloaded { libraries } => {
             errors.push(ValidationError::AmbiguousUnloadedFilter {
-                filter: filter.name.clone(),
+                filter: filter.name.to_string(),
                 libraries: libraries.clone(),
                 span: filter.span,
             });

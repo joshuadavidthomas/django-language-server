@@ -1,6 +1,5 @@
 use std::iter::Peekable;
 
-use compact_str::CompactString;
 use djls_source::Span;
 use serde::Serialize;
 use thiserror::Error;
@@ -11,6 +10,7 @@ use crate::filters::parse_filter;
 use crate::filters::split_variable_expression;
 use crate::lexer::Lexer;
 use crate::nodelist::Node;
+use crate::nodelist::NodeText;
 use crate::quotes::split_on_unquoted_whitespace;
 use crate::tokens::TagDelimiter;
 use crate::tokens::Token;
@@ -93,7 +93,7 @@ impl<'src> Parser<'src> {
     fn parse_tag_args(
         content: &str,
         position: usize,
-    ) -> Result<(CompactString, Span, Vec<TagBit>), ParseError> {
+    ) -> Result<(NodeText, Span, Box<[TagBit]>), ParseError> {
         let mut iter = split_on_unquoted_whitespace(content);
         let name = iter.next().ok_or(ParseError::EmptyTag { position })?;
         let name_span =
@@ -131,7 +131,7 @@ impl<'src> Parser<'src> {
             position: span.start_usize(),
         })?;
         let var_trimmed_start = var_raw.len() - var_raw.trim_start().len();
-        let var = CompactString::from(var_raw.trim());
+        let var = NodeText::from(var_raw.trim());
         let var_span = Span::saturating_from_parts_usize(
             base_offset as usize + var_offset as usize + var_trimmed_start,
             var.len(),
@@ -153,7 +153,7 @@ impl<'src> Parser<'src> {
         Ok(Node::Variable {
             var,
             var_span,
-            filters,
+            filters: filters.into_boxed_slice(),
             span,
         })
     }
@@ -304,7 +304,7 @@ mod tests {
     impl TestFilter {
         fn from_filter(filter: &crate::filters::Filter) -> Self {
             Self {
-                name: filter.name.clone(),
+                name: filter.name.to_string(),
                 arg: filter.arg.as_ref().map(TestSpannedText::from_filter),
                 span: (&filter.span).into(),
             }

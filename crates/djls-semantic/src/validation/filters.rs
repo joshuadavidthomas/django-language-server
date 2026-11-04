@@ -13,14 +13,14 @@ pub(crate) fn check_filter_arity_rule(
         FilterArity::NoArgument if filter.arg.is_some() => {
             // S116: unexpected argument provided
             errors.push(ValidationError::FilterUnexpectedArgument {
-                filter: filter.name.clone(),
+                filter: filter.name.to_string(),
                 span: filter.span,
             });
         }
         FilterArity::RequiredArgument if filter.arg.is_none() => {
             // S115: required argument missing
             errors.push(ValidationError::FilterMissingArgument {
-                filter: filter.name.clone(),
+                filter: filter.name.to_string(),
                 span: filter.span,
             });
         }

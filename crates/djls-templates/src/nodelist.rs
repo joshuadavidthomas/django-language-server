@@ -1,10 +1,13 @@
-use compact_str::CompactString;
 use djls_source::Span;
 
 use crate::bits::TagBit;
 use crate::filters::Filter;
 use crate::parser::ParseError;
 use crate::tokens::TagDelimiter;
+
+/// Owned text for tag names, tag arguments, variables and filters. Most fit inline, and
+/// each template's nodes are copied into its layout and structure tree.
+pub type NodeText = compact_str::CompactString;
 
 #[salsa::tracked(debug)]
 pub struct NodeList<'db> {
@@ -16,9 +19,9 @@ pub struct NodeList<'db> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Node {
     Tag {
-        name: CompactString,
+        name: NodeText,
         name_span: Span,
-        bits: Vec<TagBit>,
+        bits: Box<[TagBit]>,
         span: Span,
     },
     Comment {
@@ -29,9 +32,9 @@ pub enum Node {
         span: Span,
     },
     Variable {
-        var: CompactString,
+        var: NodeText,
         var_span: Span,
-        filters: Vec<Filter>,
+        filters: Box<[Filter]>,
         span: Span,
     },
     Error {

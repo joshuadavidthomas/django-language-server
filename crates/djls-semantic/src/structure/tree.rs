@@ -1,5 +1,6 @@
 use djls_source::Span;
 use djls_templates::Filter;
+use djls_templates::NodeText;
 use djls_templates::TagBit;
 use serde::Serialize;
 
@@ -119,7 +120,7 @@ impl Regions {
                         crate::layout::map_filters(filters, &mut map);
                         *span = map(*span);
                     }
-                    TemplateNode::Comment { span } | TemplateNode::Text { span } => {
+                    TemplateNode::Comment { span } => {
                         *span = map(*span);
                     }
                     TemplateNode::Error { span, full_span } => {
@@ -211,38 +212,35 @@ pub enum TemplateNode {
     /// region. This keeps intermediate tags like `elif`/`else` in source order
     /// without nested ownership inside the Salsa-tracked tree.
     Block {
-        tag: String,
+        tag: NodeText,
         name_span: Span,
-        bits: Vec<TagBit>,
+        bits: Box<[TagBit]>,
         full_span: Span,
         body: RegionId,
         role: BlockRole,
     },
     /// A paired opaque tag whose body is raw bytes with no internal structure.
     Opaque {
-        tag: String,
+        tag: NodeText,
         name_span: Span,
-        bits: Vec<TagBit>,
+        bits: Box<[TagBit]>,
         full_span: Span,
         body_span: Span,
         body_analysis: BodyAnalysis,
     },
     StandaloneTag {
-        tag: String,
+        tag: NodeText,
         name_span: Span,
-        bits: Vec<TagBit>,
+        bits: Box<[TagBit]>,
         full_span: Span,
     },
     Variable {
-        var: String,
+        var: NodeText,
         var_span: Span,
-        filters: Vec<Filter>,
+        filters: Box<[Filter]>,
         span: Span,
     },
     Comment {
-        span: Span,
-    },
-    Text {
         span: Span,
     },
     Error {
@@ -258,9 +256,7 @@ impl TemplateNode {
             | TemplateNode::Opaque { full_span, .. }
             | TemplateNode::StandaloneTag { full_span, .. }
             | TemplateNode::Error { full_span, .. } => *full_span,
-            TemplateNode::Variable { span, .. }
-            | TemplateNode::Comment { span }
-            | TemplateNode::Text { span } => *span,
+            TemplateNode::Variable { span, .. } | TemplateNode::Comment { span } => *span,
         }
     }
 }

@@ -68,7 +68,6 @@ fn collect_folds_for_region(regions: &Regions, region: RegionId, folds: &mut Vec
             TemplateNode::StandaloneTag { .. }
             | TemplateNode::Variable { .. }
             | TemplateNode::Comment { .. }
-            | TemplateNode::Text { .. }
             | TemplateNode::Error { .. } => {}
         }
     }

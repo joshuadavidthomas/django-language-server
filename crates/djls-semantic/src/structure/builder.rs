@@ -1,6 +1,7 @@
 use djls_source::Span;
 use djls_templates::Node;
 use djls_templates::NodeList;
+use djls_templates::NodeText;
 use djls_templates::TagBit;
 use djls_templates::TagDelimiter;
 
@@ -85,14 +86,15 @@ impl<'grammar, 'n> TemplateTreeBuilder<'grammar, 'n> {
                 return;
             }
             Node::Comment { span, .. } => TemplateNode::Comment { span: *span },
-            Node::Text { span } => TemplateNode::Text { span: *span },
+            // Layouts carry no text runs.
+            Node::Text { .. } => return,
             Node::Variable {
                 var,
                 var_span,
                 filters,
                 span,
             } => TemplateNode::Variable {
-                var: var.to_string(),
+                var: var.clone(),
                 var_span: *var_span,
                 filters: filters.clone(),
                 span: *span,
@@ -133,7 +135,7 @@ impl<'grammar, 'n> TemplateTreeBuilder<'grammar, 'n> {
         matches!(self.stack.last(), Some(TreeFrame::Opaque(_)))
     }
 
-    fn handle_tag(&mut self, name: &'n str, name_span: Span, bits: &'n [TagBit], span: Span) {
+    fn handle_tag(&mut self, name: &'n NodeText, name_span: Span, bits: &'n [TagBit], span: Span) {
         let full_span = span.expand_template_tag_marker();
         if self.close_active_opaque_if_closer(name, name_span, bits, span, full_span) {
             return;
@@ -177,9 +179,9 @@ impl<'grammar, 'n> TemplateTreeBuilder<'grammar, 'n> {
                 self.regions.push_node(
                     parent,
                     TemplateNode::Block {
-                        tag: name.to_string(),
+                        tag: name.clone(),
                         name_span,
-                        bits: bits.to_vec(),
+                        bits: Box::from(bits),
                         full_span,
                         body: container,
                         role: BlockRole::Opener,
@@ -188,9 +190,9 @@ impl<'grammar, 'n> TemplateTreeBuilder<'grammar, 'n> {
                 self.regions.push_node(
                     container,
                     TemplateNode::Block {
-                        tag: name.to_string(),
+                        tag: name.clone(),
                         name_span,
-                        bits: bits.to_vec(),
+                        bits: Box::from(bits),
                         full_span,
                         body: segment,
                         role: BlockRole::Segment,
@@ -226,14 +228,16 @@ impl<'grammar, 'n> TemplateTreeBuilder<'grammar, 'n> {
 
     fn close_active_opaque_if_closer(
         &mut self,
-        closer_name: &str,
+        closer_name: &NodeText,
         name_span: Span,
         closer_bits: &[TagBit],
         span: Span,
         full_span: Span,
     ) -> bool {
         let frame = match self.stack.last() {
-            Some(TreeFrame::Opaque(frame)) if frame.contract.closer == closer_name => *frame,
+            Some(TreeFrame::Opaque(frame)) if frame.contract.closer == closer_name.as_str() => {
+                *frame
+            }
             // Returning false promises the caller that this tag did not change frame state.
             _ => return false,
         };
@@ -277,7 +281,7 @@ impl<'grammar, 'n> TemplateTreeBuilder<'grammar, 'n> {
 
     fn add_standalone_tag(
         &mut self,
-        tag_name: &str,
+        tag_name: &NodeText,
         name_span: Span,
         bits: &[TagBit],
         full_span: Span,
@@ -285,9 +289,9 @@ impl<'grammar, 'n> TemplateTreeBuilder<'grammar, 'n> {
         self.regions.push_node(
             self.active_region(),
             TemplateNode::StandaloneTag {
-                tag: tag_name.to_string(),
+                tag: tag_name.clone(),
                 name_span,
-                bits: bits.to_vec(),
+                bits: Box::from(bits),
                 full_span,
             },
         );
@@ -311,7 +315,7 @@ impl<'grammar, 'n> TemplateTreeBuilder<'grammar, 'n> {
 
     fn close_block_at(
         &mut self,
-        closer_name: &str,
+        closer_name: &NodeText,
         name_span: Span,
         frame_idx: usize,
         closer_bits: &[TagBit],
@@ -352,9 +356,15 @@ impl<'grammar, 'n> TemplateTreeBuilder<'grammar, 'n> {
         }
     }
 
-    fn capture_closer(&mut self, tag: &str, name_span: Span, bits: &[TagBit], full_span: Span) {
+    fn capture_closer(
+        &mut self,
+        tag: &NodeText,
+        name_span: Span,
+        bits: &[TagBit],
+        full_span: Span,
+    ) {
         self.captured_closers.push(CapturedClosingTag {
-            tag: tag.to_string(),
+            tag: tag.clone(),
             name_span,
             bits: bits.to_vec(),
             full_span,
@@ -390,9 +400,9 @@ impl<'grammar, 'n> TemplateTreeBuilder<'grammar, 'n> {
                 self.regions.push_node(
                     frame.parent_region,
                     TemplateNode::Opaque {
-                        tag: frame.opener_name.to_string(),
+                        tag: frame.opener_name.clone(),
                         name_span: frame.name_span,
-                        bits: frame.bits.to_vec(),
+                        bits: Box::from(frame.bits),
                         full_span,
                         body_span,
                         body_analysis: frame.contract.body_analysis,
@@ -402,7 +412,13 @@ impl<'grammar, 'n> TemplateTreeBuilder<'grammar, 'n> {
         }
     }
 
-    fn add_intermediate(&mut self, tag_name: &str, name_span: Span, bits: &[TagBit], span: Span) {
+    fn add_intermediate(
+        &mut self,
+        tag_name: &NodeText,
+        name_span: Span,
+        bits: &[TagBit],
+        span: Span,
+    ) {
         let full_span = span.expand_template_tag_marker();
 
         if let Some(TreeFrame::Block(frame)) = self.stack.last()
@@ -410,7 +426,7 @@ impl<'grammar, 'n> TemplateTreeBuilder<'grammar, 'n> {
                 .contract
                 .intermediates
                 .iter()
-                .any(|name| name == tag_name)
+                .any(|name| name == tag_name.as_str())
         {
             let content_end = span.start().saturating_sub(TagDelimiter::LENGTH_U32);
             let segment_to_finalize = frame.segment_body;
@@ -424,9 +440,9 @@ impl<'grammar, 'n> TemplateTreeBuilder<'grammar, 'n> {
             self.regions.push_node(
                 container,
                 TemplateNode::Block {
-                    tag: tag_name.to_string(),
+                    tag: tag_name.clone(),
                     name_span,
-                    bits: bits.to_vec(),
+                    bits: Box::from(bits),
                     full_span,
                     body: new_segment_id,
                     role: BlockRole::Segment,
@@ -527,7 +543,7 @@ impl<'grammar, 'n> TreeFrame<'grammar, 'n> {
         }
     }
 
-    fn opener_name(&self) -> &'n str {
+    fn opener_name(&self) -> &'n NodeText {
         match self {
             TreeFrame::Block(frame) => frame.opener_name,
             TreeFrame::Opaque(frame) => frame.opener_name,
@@ -627,7 +643,7 @@ impl<'grammar, 'n> OpenFrames<'grammar, 'n> {
 }
 
 struct BlockFrame<'grammar, 'n> {
-    opener_name: &'n str,
+    opener_name: &'n NodeText,
     contract: &'grammar OpeningContract,
     opener_bits: &'n [TagBit],
     opener_span: Span,
@@ -638,7 +654,7 @@ struct BlockFrame<'grammar, 'n> {
 
 #[derive(Clone, Copy)]
 struct OpaqueFrame<'grammar, 'n> {
-    opener_name: &'n str,
+    opener_name: &'n NodeText,
     contract: &'grammar OpeningContract,
     name_span: Span,
     bits: &'n [TagBit],

@@ -1,5 +1,6 @@
 use djls_source::Span;
 use djls_templates::Filter;
+use djls_templates::NodeText;
 use djls_templates::TagBit;
 use djls_templates::TagDelimiter;
 
@@ -20,7 +21,7 @@ pub(crate) enum StructuralOccurrenceMeaning {
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct CapturedClosingTag {
-    pub tag: String,
+    pub tag: NodeText,
     pub name_span: Span,
     pub bits: Vec<TagBit>,
     pub full_span: Span,
@@ -256,9 +257,7 @@ impl<'a> Iterator for ActiveTemplateNodes<'a> {
                         StructuralOccurrenceMeaning::Definition,
                     ));
                 }
-                TemplateNode::Comment { .. }
-                | TemplateNode::Text { .. }
-                | TemplateNode::Error { .. } => {}
+                TemplateNode::Comment { .. } | TemplateNode::Error { .. } => {}
             }
         }
     }
@@ -268,8 +267,8 @@ impl<'a> Iterator for ActiveTemplateNodes<'a> {
 mod tests {
     use super::*;
 
-    fn empty_bits() -> Vec<TagBit> {
-        Vec::new()
+    fn empty_bits() -> Box<[TagBit]> {
+        Box::default()
     }
 
     #[test]
@@ -283,7 +282,7 @@ mod tests {
         regions.push_node(
             root,
             TemplateNode::StandaloneTag {
-                tag: "load".to_string(),
+                tag: "load".into(),
                 name_span: Span::new(3, 4),
                 bits: bits.clone(),
                 full_span: Span::new(0, 15),
@@ -292,7 +291,7 @@ mod tests {
         regions.push_node(
             root,
             TemplateNode::Block {
-                tag: "if".to_string(),
+                tag: "if".into(),
                 name_span: Span::new(18, 2),
                 bits: bits.clone(),
                 full_span: Span::new(15, 12),
@@ -303,7 +302,7 @@ mod tests {
         regions.push_node(
             if_container,
             TemplateNode::Block {
-                tag: "if".to_string(),
+                tag: "if".into(),
                 name_span: Span::new(18, 2),
                 bits: bits.clone(),
                 full_span: Span::new(15, 12),
@@ -314,16 +313,16 @@ mod tests {
         regions.push_node(
             if_segment,
             TemplateNode::Variable {
-                var: "value".to_string(),
+                var: "value".into(),
                 var_span: Span::new(30, 5),
-                filters: Vec::new(),
+                filters: Box::default(),
                 span: Span::new(27, 11),
             },
         );
         regions.push_node(
             root,
             TemplateNode::StandaloneTag {
-                tag: "include".to_string(),
+                tag: "include".into(),
                 name_span: Span::new(53, 7),
                 bits,
                 full_span: Span::new(50, 25),
@@ -352,7 +351,7 @@ mod tests {
         regions.push_node(
             root,
             TemplateNode::Opaque {
-                tag: "verbatim".to_string(),
+                tag: "verbatim".into(),
                 name_span: Span::new(3, 8),
                 bits,
                 full_span: Span::new(0, 54),
@@ -363,9 +362,9 @@ mod tests {
         regions.push_node(
             root,
             TemplateNode::Variable {
-                var: "active".to_string(),
+                var: "active".into(),
                 var_span: Span::new(59, 6),
-                filters: Vec::new(),
+                filters: Box::default(),
                 span: Span::new(56, 12),
             },
         );

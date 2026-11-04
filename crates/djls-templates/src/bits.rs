@@ -1,18 +1,18 @@
-use compact_str::CompactString;
 use djls_source::Span;
 use serde::Serialize;
 
+use crate::nodelist::NodeText;
 use crate::quotes::TemplateString;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 pub struct TagBit {
-    pub(crate) text: CompactString,
+    pub(crate) text: NodeText,
     pub span: Span,
 }
 
 impl TagBit {
     #[must_use]
-    pub fn new(text: impl Into<CompactString>, span: Span) -> Self {
+    pub fn new(text: impl Into<NodeText>, span: Span) -> Self {
         Self {
             text: text.into(),
             span,
@@ -38,13 +38,13 @@ impl AsRef<str> for TagBit {
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 pub struct FilterArgument {
-    pub(crate) text: CompactString,
+    pub(crate) text: NodeText,
     pub span: Span,
 }
 
 impl FilterArgument {
     #[must_use]
-    pub fn new(text: impl Into<CompactString>, span: Span) -> Self {
+    pub fn new(text: impl Into<NodeText>, span: Span) -> Self {
         Self {
             text: text.into(),
             span,

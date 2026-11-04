@@ -102,7 +102,7 @@ impl<'db> SemanticOffsetContext<'db> {
                     .map(str::to_string)
                     .collect();
                 return Self::Filter {
-                    name: filter.name.clone(),
+                    name: filter.name.to_string(),
                     loaded_libraries,
                     span,
                 };
