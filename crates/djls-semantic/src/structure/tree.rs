@@ -72,6 +72,14 @@ impl Regions {
         self.region_mut(target).nodes.push(node);
     }
 
+    /// Regions and their node lists grow while building and are kept with the tree.
+    pub(crate) fn shrink_to_fit(&mut self) {
+        self.0.shrink_to_fit();
+        for region in &mut self.0 {
+            region.nodes.shrink_to_fit();
+        }
+    }
+
     fn region_mut(&mut self, id: RegionId) -> &mut TemplateRegion {
         let idx = id.index();
         &mut self.0[idx]

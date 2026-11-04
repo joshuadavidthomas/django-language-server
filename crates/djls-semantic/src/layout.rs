@@ -73,13 +73,11 @@ pub(crate) fn template_layout<'db>(db: &'db dyn Db, source: NodeList<'db>) -> Te
                 next += 1;
                 None
             }
-            // Comments do not contribute content to structure. Avoid copying their source text.
             Node::Comment { span, .. } => {
                 positions.anchor(start + 2, span.start());
                 positions.anchor(start + 3, span.end());
                 next += 5;
                 Some(Node::Comment {
-                    content: String::new(),
                     span: Span::new(start + 2, 1),
                 })
             }
@@ -103,8 +101,9 @@ pub(crate) fn template_layout<'db>(db: &'db dyn Db, source: NodeList<'db>) -> Te
         positions.anchor(next, full_span.end());
         nodes.extend(node);
     }
-    // Contiguous syntax shares anchors, so the table usually ends well below its reservation
-    // and is kept for the life of the layout.
+    // Both are reserved for every source node, but text runs add no node and contiguous
+    // syntax shares anchors. They are kept for the life of the layout.
+    nodes.shrink_to_fit();
     positions.0.shrink_to_fit();
     TemplateLayout::new(db, NodeList::new(db, nodes), positions)
 }

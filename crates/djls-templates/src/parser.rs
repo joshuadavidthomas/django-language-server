@@ -35,10 +35,7 @@ impl<'src> Parser<'src> {
         while let Some(token) = self.tokens.next() {
             let node = match &token {
                 Token::Block { content, span } => Self::parse_block(content, *span),
-                Token::Comment { content, span } => Ok(Node::Comment {
-                    content: (*content).to_string(),
-                    span: *span,
-                }),
+                Token::Comment { span, .. } => Ok(Node::Comment { span: *span }),
                 Token::Error {
                     content, delimiter, ..
                 } => Err(Self::parse_error(&token, content, *delimiter)),
@@ -322,7 +319,6 @@ mod tests {
             full_span: (u32, u32),
         },
         Comment {
-            content: String,
             span: (u32, u32),
             full_span: (u32, u32),
         },
@@ -358,8 +354,7 @@ mod tests {
                     span: span.into(),
                     full_span: node.full_span().into(),
                 },
-                Node::Comment { content, span } => TestNode::Comment {
-                    content: content.clone(),
+                Node::Comment { span } => TestNode::Comment {
                     span: span.into(),
                     full_span: node.full_span().into(),
                 },

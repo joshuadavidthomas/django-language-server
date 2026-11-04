@@ -128,7 +128,9 @@ pub fn parse_template(db: &dyn Db, file: File) -> TemplateParseResult<'_> {
         return TemplateParseResult::NotTemplate;
     }
 
-    let (nodes, errors) = parse_template_impl(source.as_ref(), db.tag_lines());
+    let (mut nodes, errors) = parse_template_impl(source.as_ref(), db.tag_lines());
+    // The node list grows while parsing and is kept until the next edit.
+    nodes.shrink_to_fit();
 
     // Accumulate any errors via Salsa
     for error in errors {

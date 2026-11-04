@@ -27,7 +27,8 @@ pub(crate) struct TemplateTreeData {
 }
 
 impl TemplateTreeData {
-    pub(crate) fn into_tree(self, db: &dyn Db) -> TemplateTree<'_> {
+    pub(crate) fn into_tree(mut self, db: &dyn Db) -> TemplateTree<'_> {
+        self.regions.shrink_to_fit();
         TemplateTree::new(db, self.root, self.regions)
     }
 }

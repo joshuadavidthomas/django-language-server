@@ -25,7 +25,6 @@ pub enum Node {
         span: Span,
     },
     Comment {
-        content: String,
         span: Span,
     },
     Text {
