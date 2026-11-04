@@ -550,6 +550,42 @@ fn check_multi_backend_stdin_uses_inventory_while_concrete_path_uses_backend() {
     assert_eq!(String::from_utf8_lossy(&stdin.stderr), "No errors found.\n");
 }
 
+#[cfg(unix)]
+#[test]
+fn check_concrete_path_uses_backend_when_project_is_reached_through_symlink() {
+    let dir = tempdir().expect("temporary test directory should be created");
+    let real = dir.path().join("real");
+    let link = dir.path().join("link");
+    fs::create_dir(&real).expect("real project directory should be created");
+    std::os::unix::fs::symlink(&real, &link).expect("project symlink should be created");
+    // Settings spell DIRS through the symlink, while djls's cwd resolves to the real path.
+    setup_multi_backend_project(&link).expect("multi-backend test project should be configured");
+    fs::write(
+        link.join("alpha-templates/page.html"),
+        "{% load shared %}{% shared_tag %}\n",
+    )
+    .expect("test fixture file should be written");
+
+    for args in [&["check", "alpha-templates/page.html"][..], &["check"][..]] {
+        let output = Command::new(djls_binary())
+            .args(args)
+            .current_dir(&link)
+            .output()
+            .expect("djls check process should run");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert_eq!(
+            output.status.code(),
+            Some(1),
+            "{args:?} must use only the resolving backend\nstdout: {stdout}\nstderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            stdout.contains("'shared_tag' did not receive value(s) for the argument(s): 'value'"),
+            "{stdout}"
+        );
+    }
+}
+
 #[test]
 fn check_help_describes_generic_stdin_template() {
     let output = Command::new(djls_binary())
