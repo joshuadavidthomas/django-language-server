@@ -991,6 +991,8 @@ mod tests {
     use camino::Utf8PathBuf;
     use djls_ide::prime_template_library_products;
     use djls_source::path_to_file;
+    use djls_testing::host_path;
+    use djls_testing::host_uri;
     use percent_encoding::percent_decode_str;
     use tokio::spawn as spawn_task;
     use tokio::time::timeout;
@@ -1386,7 +1388,7 @@ mod tests {
     fn report_params() -> ReportUnreadableRegistrationParams {
         ReportUnreadableRegistrationParams {
             module: "app.templatetags.open_tags".to_string(),
-            file: "file:///tmp/open_tags.py"
+            file: host_uri("/tmp/open_tags.py")
                 .parse()
                 .expect("test file URI should parse"),
             line: 7,
@@ -1477,7 +1479,7 @@ mod tests {
         assert!(
             parse_report_unreadable_registration_params(&[serde_json::json!({
                 "module": "app.tags",
-                "file": "file:///tmp/tags.py",
+                "file": host_uri("/tmp/tags.py"),
                 "line": 1,
                 "shape": "unknown",
                 "count": 1,
@@ -1553,8 +1555,8 @@ mod tests {
     #[tokio::test]
     async fn cancellation_restarts_at_barrier_and_waits_for_reprime() {
         let session = Arc::new(Mutex::new(Session::default()));
-        let path = Utf8PathBuf::from("/tmp/retry.py");
-        let uri: ls_types::Uri = "file:///tmp/retry.py".parse().expect("valid test URI");
+        let path = Utf8PathBuf::from(host_path("/tmp/retry.py"));
+        let uri: ls_types::Uri = host_uri("/tmp/retry.py").parse().expect("valid test URI");
         let generation = {
             let mut session = session.lock().await;
             match session.open_document(&ls_types::TextDocumentItem {

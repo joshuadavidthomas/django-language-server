@@ -11,19 +11,21 @@ use djls_testing::ProjectFixture;
 use djls_testing::SalsaEventLog;
 use djls_testing::TestDatabase;
 use djls_testing::execution_count;
+use djls_testing::host_path;
+use djls_testing::host_source;
 
 fn install_project_fixture(db: &mut TestDatabase) -> Result<(), Box<dyn std::error::Error>> {
-    ProjectFixture::new("/project")
+    ProjectFixture::new(host_path("/project"))
         .django_settings_module("settings")
         .file(
-            "/project/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/project/templates'], 'OPTIONS': {'builtins': ['tags']}}]\n",
+            host_path("/project/settings.py"),
+            host_source("INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/project/templates'], 'OPTIONS': {'builtins': ['tags']}}]\n"),
         )
         .file(
-            "/project/tags.py",
+            host_path("/project/tags.py"),
             "from django import template\nregister = template.Library()\n@register.simple_tag\ndef hello(): pass\n@register.filter\ndef shout(value): pass\n",
         )
-        .file("/project/templates/page.html", "{% hello %}{{ value|shout }}")
+        .file(host_path("/project/templates/page.html"), "{% hello %}{{ value|shout }}")
         .install(db)?;
     Ok(())
 }
@@ -42,8 +44,8 @@ fn repeated_prime_reuses_library_products_without_template_work() {
         .covered_files()
         .map(|file| file.path(&db).as_str())
         .collect();
-    assert!(covered_paths.contains(&"/project/tags.py"));
-    assert!(covered_paths.contains(&"/project/settings.py"));
+    assert!(covered_paths.contains(&host_path("/project/tags.py")));
+    assert!(covered_paths.contains(&host_path("/project/settings.py")));
     assert_eq!(
         covered_paths.len(),
         primed.reprime_files().len() + primed.full_reload_files().len()
@@ -52,7 +54,7 @@ fn repeated_prime_reuses_library_products_without_template_work() {
         primed
             .reprime_files()
             .iter()
-            .any(|file| file.path(&db) == Utf8Path::new("/project/tags.py"))
+            .any(|file| file.path(&db) == Utf8Path::new(host_path("/project/tags.py")))
     );
     assert_eq!(primed.full_reload_files().len(), 1);
 
@@ -115,16 +117,16 @@ fn repeated_prime_reuses_library_products_without_template_work() {
 fn priming_many_custom_libraries_and_rule_helper_edits_keep_details_cold() {
     let events = SalsaEventLog::default();
     let mut db = TestDatabase::with_event_log(events.clone());
-    ProjectFixture::new("/project")
+    ProjectFixture::new(host_path("/project"))
         .django_settings_module("settings")
         .file(
-            "/project/settings.py",
+            host_path("/project/settings.py"),
             r"INSTALLED_APPS = []
 TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'libraries': {'alpha': 'alpha_tags', 'beta': 'beta_tags', 'gamma': 'gamma_tags'}, 'builtins': []}}]
 ",
         )
         .file(
-            "/project/alpha_tags.py",
+            host_path("/project/alpha_tags.py"),
             r"from django import template
 from helper import bits
 register = template.Library()
@@ -138,7 +140,7 @@ def alpha_filter(value): pass
 ",
         )
         .file(
-            "/project/beta_tags.py",
+            host_path("/project/beta_tags.py"),
             r"from django import template
 register = template.Library()
 @register.simple_tag
@@ -148,7 +150,7 @@ def beta_filter(value): pass
 ",
         )
         .file(
-            "/project/gamma_tags.py",
+            host_path("/project/gamma_tags.py"),
             r"from django import template
 register = template.Library()
 @register.simple_tag
@@ -158,7 +160,7 @@ def gamma_filter(value): pass
 ",
         )
         .file(
-            "/project/helper.py",
+            host_path("/project/helper.py"),
             r"def bits(token):
     return token.split_contents()[1:]
 ",
@@ -173,7 +175,7 @@ def gamma_filter(value): pass
     assert!(
         primed
             .covered_files()
-            .all(|file| file.path(&db) != Utf8Path::new("/project/helper.py")),
+            .all(|file| file.path(&db) != Utf8Path::new(host_path("/project/helper.py"))),
         "a dependency used only for Tag Rule inference must not be eager coverage"
     );
     let names = events
@@ -198,13 +200,16 @@ def gamma_filter(value): pass
     }
 
     db.add_file(
-        "/project/helper.py",
+        host_path("/project/helper.py"),
         r"def bits(token):
     return token.split_contents()[2:]
 ",
     )
     .expect("rule helper should change");
-    SourceChanges::new([ChangeEvent::ContentChanged("/project/helper.py".into())]).apply(&mut db);
+    SourceChanges::new([ChangeEvent::ContentChanged(
+        host_path("/project/helper.py").into(),
+    )])
+    .apply(&mut db);
     let repeated = prime_template_library_products(&db).expect("fixture has a Project");
     assert_eq!(repeated, primed);
     let names = events
@@ -227,20 +232,20 @@ def gamma_filter(value): pass
 #[test]
 fn priming_covers_imported_registration_sources() {
     let mut db = TestDatabase::new();
-    ProjectFixture::new("/project")
+    ProjectFixture::new(host_path("/project"))
         .django_settings_module("settings")
         .file(
-            "/project/settings.py",
+            host_path("/project/settings.py"),
             "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'builtins': ['app.templatetags.tags']}}]\n",
         )
-        .file("/project/app/__init__.py", "")
-        .file("/project/app/templatetags/__init__.py", "")
+        .file(host_path("/project/app/__init__.py"), "")
+        .file(host_path("/project/app/templatetags/__init__.py"), "")
         .file(
-            "/project/app/templatetags/tags.py",
+            host_path("/project/app/templatetags/tags.py"),
             "from django import template\nfrom . import implementation\nregister = template.Library()\nregister.tag(implementation.TAG, implementation.compile_tag)\n",
         )
         .file(
-            "/project/app/templatetags/implementation.py",
+            host_path("/project/app/templatetags/implementation.py"),
             "TAG = 'imported'\ndef compile_tag(parser, token): pass\n",
         )
         .install(&mut db)
@@ -248,9 +253,9 @@ fn priming_covers_imported_registration_sources() {
 
     let primed = prime_template_library_products(&db).expect("fixture has a Project");
     for path in [
-        "/project/app/__init__.py",
-        "/project/app/templatetags/__init__.py",
-        "/project/app/templatetags/implementation.py",
+        host_path("/project/app/__init__.py"),
+        host_path("/project/app/templatetags/__init__.py"),
+        host_path("/project/app/templatetags/implementation.py"),
     ] {
         assert!(
             primed
@@ -296,24 +301,24 @@ fn project_template_preparation_reuses_shared_products() {
 fn discovery_and_warmup_defer_model_work() {
     let events = SalsaEventLog::default();
     let mut db = TestDatabase::with_event_log(events.clone());
-    ProjectFixture::new("/project")
+    ProjectFixture::new(host_path("/project"))
         .django_settings_module("settings")
         .file(
-            "/project/settings.py",
-            "INSTALLED_APPS = ['app']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/project/templates'], 'OPTIONS': {'builtins': ['app.templatetags.tags']}}]\n",
+            host_path("/project/settings.py"),
+            host_source("INSTALLED_APPS = ['app']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/project/templates'], 'OPTIONS': {'builtins': ['app.templatetags.tags']}}]\n"),
         )
-        .file("/project/app/__init__.py", "")
+        .file(host_path("/project/app/__init__.py"), "")
         .file(
-            "/project/app/models.py",
+            host_path("/project/app/models.py"),
             "from django.db import models\nclass Article(models.Model):\n    pass\n",
         )
-        .file("/project/app/templatetags/__init__.py", "")
+        .file(host_path("/project/app/templatetags/__init__.py"), "")
         .file(
-            "/project/app/templatetags/tags.py",
+            host_path("/project/app/templatetags/tags.py"),
             "from django import template\nregister = template.Library()\n@register.simple_tag\ndef article_title(): pass\n",
         )
         .file(
-            "/project/templates/article.html",
+            host_path("/project/templates/article.html"),
             "{% article_title %}",
         )
         .install(&mut db)
@@ -325,16 +330,20 @@ fn discovery_and_warmup_defer_model_work() {
     let facts = run_django_discovery(&mut db)
         .expect("Django Discovery should assemble its phases")
         .expect("fixture should have a Project");
-    assert!(facts.file_paths().contains(&"/project/settings.py".into()));
     assert!(
         facts
             .file_paths()
-            .contains(&"/project/app/templatetags/tags.py".into())
+            .contains(&host_path("/project/settings.py").into())
+    );
+    assert!(
+        facts
+            .file_paths()
+            .contains(&host_path("/project/app/templatetags/tags.py").into())
     );
     assert!(
         !facts
             .file_paths()
-            .contains(&"/project/app/models.py".into()),
+            .contains(&host_path("/project/app/models.py").into()),
         "routine Django Discovery should not index Django Model sources",
     );
 

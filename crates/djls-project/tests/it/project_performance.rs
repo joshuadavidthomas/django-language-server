@@ -20,6 +20,7 @@ use djls_source::SourceChanges;
 use djls_source::WalkOptions;
 use djls_testing::OsTestDatabase;
 use djls_testing::ProjectFixture;
+use djls_testing::slash_path;
 
 #[derive(Default)]
 struct CountedFileSystem {
@@ -133,14 +134,14 @@ fn candidate_membership_is_reused_until_membership_changes() {
     assert_eq!(
         cold_walks
             .iter()
-            .filter(|path| path.as_str() == "/proj")
+            .filter(|path| slash_path(path) == "/proj")
             .count(),
         1
     );
     assert_eq!(
         cold_walks
             .iter()
-            .filter(|path| path.as_str() == "/proj/app/templatetags")
+            .filter(|path| slash_path(path) == "/proj/app/templatetags")
             .count(),
         1
     );
@@ -176,14 +177,14 @@ fn candidate_membership_is_reused_until_membership_changes() {
     assert_eq!(
         new_walks
             .iter()
-            .filter(|path| path.as_str() == "/proj")
+            .filter(|path| slash_path(path) == "/proj")
             .count(),
         1
     );
     assert_eq!(
         new_walks
             .iter()
-            .filter(|path| path.as_str() == "/proj/app/templatetags")
+            .filter(|path| slash_path(path) == "/proj/app/templatetags")
             .count(),
         1
     );
@@ -249,7 +250,7 @@ fn shared_template_roots_are_walked_once_without_losing_partial_evidence() {
         assert_eq!(
             walks
                 .iter()
-                .filter(|path| path.as_str() == "/proj/templates")
+                .filter(|path| slash_path(path) == "/proj/templates")
                 .count(),
             1
         );

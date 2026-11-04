@@ -694,6 +694,7 @@ mod tests {
     use djls_source::FileKind;
     use djls_source::FileStatus;
     use djls_source::path_to_file;
+    use djls_testing::host_path;
     use tempfile::tempdir;
     use tokio::spawn;
     use tokio::sync::Mutex;
@@ -865,7 +866,7 @@ mod tests {
     #[test]
     fn document_mutations_return_work_when_they_stale_readiness() {
         let mut session = Session::default();
-        let path = Utf8Path::new("/tmp/mutation-outcome.py");
+        let path = Utf8Path::new(host_path("/tmp/mutation-outcome.py"));
         let uri = ls_types::Uri::from_file_path(path.as_std_path())
             .expect("mutation test path should convert to a file URI");
         let project_work = match session.open_document(&ls_types::TextDocumentItem {
@@ -980,7 +981,7 @@ mod tests {
         let session = Session::default();
         let file = File::new(
             session.db(),
-            Utf8PathBuf::from("/tmp/invalid-reprime.py"),
+            Utf8PathBuf::from(host_path("/tmp/invalid-reprime.py")),
             1,
             FileStatus::Exists,
         );
@@ -1009,7 +1010,7 @@ mod tests {
         let mut session = Session::default();
         let file = File::new(
             session.db(),
-            Utf8PathBuf::from("/tmp/reprime-admission.py"),
+            Utf8PathBuf::from(host_path("/tmp/reprime-admission.py")),
             1,
             FileStatus::Exists,
         );
@@ -1118,7 +1119,7 @@ mod tests {
         let mut session = Session::default();
         let readiness = session.readiness_receiver();
         let project_work = session.mark_intrinsic_change(
-            &ChangeEvent::ContentChanged("/tmp/unrelated.py".into()),
+            &ChangeEvent::ContentChanged(host_path("/tmp/unrelated.py").into()),
             FileKind::Python,
         );
         assert_eq!(
@@ -1134,7 +1135,7 @@ mod tests {
 
         let generation = session.desired_generation();
         let project_work = session.mark_intrinsic_change(
-            &ChangeEvent::ContentChanged("/tmp/page.html".into()),
+            &ChangeEvent::ContentChanged(host_path("/tmp/page.html").into()),
             FileKind::Template,
         );
         assert_eq!(session.desired_generation(), generation);
@@ -1145,27 +1146,37 @@ mod tests {
     fn uncovered_content_edits_reprime_only_within_registered_python_roots() {
         for (path, kind, expected) in [
             (
-                "/tmp/lazy-project/helper.py",
+                host_path("/tmp/lazy-project/helper.py"),
                 FileKind::Python,
                 Some(ProjectWork::Reprime),
             ),
             (
-                "/tmp/lazy-search/helper.py",
+                host_path("/tmp/lazy-search/helper.py"),
                 FileKind::Python,
                 Some(ProjectWork::Reprime),
             ),
             (
-                "/tmp/lazy-project-sibling/helper.py",
+                host_path("/tmp/lazy-project-sibling/helper.py"),
                 FileKind::Python,
                 None,
             ),
-            ("/tmp/outside/helper.py", FileKind::Python, None),
-            ("/tmp/lazy-project/page.html", FileKind::Template, None),
+            (host_path("/tmp/outside/helper.py"), FileKind::Python, None),
+            (
+                host_path("/tmp/lazy-project/page.html"),
+                FileKind::Template,
+                None,
+            ),
         ] {
             let mut session = Session::default();
             for (root, kind) in [
-                ("/tmp/lazy-project", djls_source::FileRootKind::Project),
-                ("/tmp/lazy-search", djls_source::FileRootKind::SearchPath),
+                (
+                    host_path("/tmp/lazy-project"),
+                    djls_source::FileRootKind::Project,
+                ),
+                (
+                    host_path("/tmp/lazy-search"),
+                    djls_source::FileRootKind::SearchPath,
+                ),
             ] {
                 session
                     .db()
@@ -1228,10 +1239,10 @@ mod tests {
     #[test]
     fn uncovered_helper_reprime_failure_tracks_revisions_and_gates_publication() {
         let mut session = Session::default();
-        let path = Utf8Path::new("/tmp/lazy-retry/helper.py");
+        let path = Utf8Path::new(host_path("/tmp/lazy-retry/helper.py"));
         session.db().files().try_add_root(
             session.db(),
-            "/tmp/lazy-retry".into(),
+            host_path("/tmp/lazy-retry").into(),
             djls_source::FileRootKind::Project,
         );
         let uri = ls_types::Uri::from_file_path(path.as_std_path()).expect("fixture URI");
@@ -1330,11 +1341,11 @@ mod tests {
         let mut session = Session::default();
         session.db().files().try_add_root(
             session.db(),
-            "/tmp/lazy-admission".into(),
+            host_path("/tmp/lazy-admission").into(),
             djls_source::FileRootKind::Project,
         );
         for name in ["first", "second", "third"] {
-            let path = Utf8PathBuf::from(format!("/tmp/lazy-admission/{name}.py"));
+            let path = Utf8Path::new(host_path("/tmp/lazy-admission")).join(format!("{name}.py"));
             assert!(matches!(
                 session.open_document(&ls_types::TextDocumentItem {
                     uri: ls_types::Uri::from_file_path(path.as_std_path()).expect("fixture URI"),
@@ -1347,7 +1358,7 @@ mod tests {
         }
         session.install_ready_coverage_for_test(Vec::new(), Vec::new());
         for (index, name) in ["first", "second", "third"].into_iter().enumerate() {
-            let path = Utf8PathBuf::from(format!("/tmp/lazy-admission/{name}.py"));
+            let path = Utf8Path::new(host_path("/tmp/lazy-admission")).join(format!("{name}.py"));
             let generation = session.desired_generation();
             assert!(matches!(
                 session.update_document(
@@ -1399,7 +1410,7 @@ mod tests {
     #[test]
     fn final_state_matrix_09_only_covered_python_edits_stale_readiness() {
         let mut session = Session::default();
-        let covered_path = Utf8Path::new("/tmp/covered.py");
+        let covered_path = Utf8Path::new(host_path("/tmp/covered.py"));
         let covered_document = ls_types::TextDocumentItem {
             uri: ls_types::Uri::from_file_path(covered_path.as_std_path())
                 .expect("covered Python path should convert to a file URI"),
@@ -1418,7 +1429,7 @@ mod tests {
         let generation = session.desired_generation();
 
         let unrelated_work = session.mark_intrinsic_change(
-            &ChangeEvent::ContentChanged("/tmp/other.py".into()),
+            &ChangeEvent::ContentChanged(host_path("/tmp/other.py").into()),
             FileKind::Python,
         );
         assert_eq!(
@@ -1441,7 +1452,7 @@ mod tests {
     #[test]
     fn failed_intrinsic_generation_records_covered_source_revisions() {
         let mut session = Session::default();
-        let path = Utf8Path::new("/tmp/templatetags/failed.py");
+        let path = Utf8Path::new(host_path("/tmp/templatetags/failed.py"));
         match session.open_document(&ls_types::TextDocumentItem {
             uri: ls_types::Uri::from_file_path(path.as_std_path())
                 .expect("failed source path should convert to a file URI"),
@@ -1476,7 +1487,7 @@ mod tests {
     #[test]
     fn failed_intrinsic_generation_retries_for_a_changed_source_revision() {
         let mut session = Session::default();
-        let path = Utf8Path::new("/tmp/templatetags/current.py");
+        let path = Utf8Path::new(host_path("/tmp/templatetags/current.py"));
         let uri = ls_types::Uri::from_file_path(path.as_std_path())
             .expect("current Python path should convert to a file URI");
         match session.open_document(&ls_types::TextDocumentItem {
@@ -1563,7 +1574,7 @@ mod tests {
     fn failed_intrinsic_generation_recovery_suppresses_unchanged_save_and_newer_source_supersedes()
     {
         let mut session = Session::default();
-        let path = Utf8Path::new("/tmp/templatetags/recovery.py");
+        let path = Utf8Path::new(host_path("/tmp/templatetags/recovery.py"));
         let uri = ls_types::Uri::from_file_path(path.as_std_path())
             .expect("recovery Python path should convert to a file URI");
         match session.open_document(&ls_types::TextDocumentItem {
@@ -1654,7 +1665,7 @@ mod tests {
     #[test]
     fn retry_reprime_failure_retains_admission_and_accepts_newer_revision() {
         let mut session = Session::default();
-        let path = Utf8Path::new("/tmp/templatetags/retry-failure.py");
+        let path = Utf8Path::new(host_path("/tmp/templatetags/retry-failure.py"));
         let uri = ls_types::Uri::from_file_path(path.as_std_path())
             .expect("retry Python path should convert to a file URI");
         match session.open_document(&ls_types::TextDocumentItem {
@@ -1758,9 +1769,9 @@ mod tests {
     #[test]
     fn new_python_membership_requests_discovery_even_with_published_coverage() {
         for path in [
-            "/tmp/app/templatetags/new_library.py",
-            "/tmp/configured_settings.py",
-            "/tmp/missing_settings_candidate.py",
+            host_path("/tmp/app/templatetags/new_library.py"),
+            host_path("/tmp/configured_settings.py"),
+            host_path("/tmp/missing_settings_candidate.py"),
         ] {
             let mut session = Session::default();
             session.install_ready_coverage_for_test(Vec::new(), Vec::new());
@@ -1817,7 +1828,7 @@ mod tests {
     #[test]
     fn full_reload_clears_coverage_and_classifies_conservatively_until_publish() {
         let mut session = Session::default();
-        let settings_path = Utf8Path::new("/tmp/settings.py");
+        let settings_path = Utf8Path::new(host_path("/tmp/settings.py"));
         match session.open_document(&ls_types::TextDocumentItem {
             uri: ls_types::Uri::from_file_path(settings_path.as_std_path())
                 .expect("settings path should convert to a file URI"),
@@ -1841,7 +1852,7 @@ mod tests {
         assert_eq!(settings_work, Some(ProjectWork::FullReload));
 
         let conservative_work = session.mark_intrinsic_change(
-            &ChangeEvent::ContentChanged("/tmp/not-previously-covered.py".into()),
+            &ChangeEvent::ContentChanged(host_path("/tmp/not-previously-covered.py").into()),
             FileKind::Python,
         );
         assert_eq!(conservative_work, Some(ProjectWork::FullReload));
@@ -1896,7 +1907,7 @@ mod tests {
 
         assert_eq!(
             session.mark_intrinsic_change(
-                &ChangeEvent::ContentChanged("/tmp/unknown.py".into()),
+                &ChangeEvent::ContentChanged(host_path("/tmp/unknown.py").into()),
                 FileKind::Python,
             ),
             Some(ProjectWork::FullReload)

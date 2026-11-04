@@ -35,6 +35,8 @@ use djls_testing::SalsaEventLog;
 use djls_testing::TestDatabase;
 use djls_testing::capture_events;
 use djls_testing::django_facts_project;
+use djls_testing::host_path;
+use djls_testing::slash_path;
 use djls_testing::will_execute_count;
 use serde_json::Value;
 use serde_json::to_value;
@@ -2115,7 +2117,7 @@ fn settings_sources_follow_reachable_imports_and_deduplicate_edges() {
 
 #[test]
 fn unreadable_root_settings_are_dynamic_never_unset() {
-    let settings_path = Utf8PathBuf::from("/proj/myproject/settings.py");
+    let settings_path = Utf8PathBuf::from(host_path("/proj/myproject/settings.py"));
     let mut fs = InMemoryFileSystem::new();
     fs.add_file(settings_path.clone(), "INSTALLED_APPS = []\n".to_string());
 
@@ -2124,9 +2126,9 @@ fn unreadable_root_settings_are_dynamic_never_unset() {
             inner: fs,
             failure: FileSystemFailure::Read(settings_path),
         }),
-        [Utf8PathBuf::from("/proj")],
+        [Utf8PathBuf::from(host_path("/proj"))],
     );
-    let project = ProjectFixture::new("/proj")
+    let project = ProjectFixture::new(host_path("/proj"))
         .django_settings_module("myproject.settings")
         .python_environment(PythonEnvironment::Auto)
         .install(&mut db)
@@ -2152,9 +2154,14 @@ fn unreadable_root_settings_are_dynamic_never_unset() {
         visible.contains("error_kind=filesystem error: PermissionDenied"),
         "{visible}"
     );
-    assert!(!visible.contains("/proj"), "leaked path: {visible}");
     assert!(
-        events.debug.contains("/proj/myproject/settings.py"),
+        !visible.contains(host_path("/proj")),
+        "leaked path: {visible}"
+    );
+    assert!(
+        events
+            .debug
+            .contains(host_path("/proj/myproject/settings.py")),
         "{}",
         events.debug
     );
@@ -2691,28 +2698,29 @@ fn template_dirs_recover_from_star_import_cycle() {
 
 #[test]
 fn template_dirs_include_dirs_entries_before_app_dirs() {
+    // `Path(__file__)` is exact only for an absolute settings path, so this project needs a
+    // host-absolute root rather than `project_with_settings`'s `/proj`.
     let mut db = TestDatabase::new();
-    let project = project_with_settings(
-        &mut db,
-        "myproject.settings",
-        &[
-            ("/proj/templates/base.html", "base"),
-            ("/proj/blog/__init__.py", ""),
-            ("/proj/blog/templates/blog/detail.html", "detail"),
-            (
-                "/proj/myproject/settings.py",
-                "from pathlib import Path\nBASE_DIR = Path(__file__).parent.parent\nINSTALLED_APPS = ['blog']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [BASE_DIR / 'templates'], 'APP_DIRS': True}]\n",
-            ),
-        ],
-    ).expect("settings project fixture should build");
+    let project = ProjectFixture::new(host_path("/proj"))
+        .without_bundled_django()
+        .django_settings_module("myproject.settings")
+        .file(host_path("/proj/templates/base.html"), "base")
+        .file(host_path("/proj/blog/__init__.py"), "")
+        .file(host_path("/proj/blog/templates/blog/detail.html"), "detail")
+        .file(
+            host_path("/proj/myproject/settings.py"),
+            "from pathlib import Path\nBASE_DIR = Path(__file__).parent.parent\nINSTALLED_APPS = ['blog']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [BASE_DIR / 'templates'], 'APP_DIRS': True}]\n",
+        )
+        .install(&mut db)
+        .expect("settings project fixture should build");
 
     let dirs = complete_template_dirs(&db, project);
 
     assert_eq!(
         dirs,
         vec![
-            Utf8PathBuf::from("/proj/templates"),
-            Utf8PathBuf::from("/proj/blog/templates"),
+            Utf8PathBuf::from(host_path("/proj/templates")),
+            Utf8PathBuf::from(host_path("/proj/blog/templates")),
         ]
     );
 }
@@ -4267,8 +4275,10 @@ fn django_facts_golden_template_dirs_match() {
         .template_dirs
         .into_iter()
         .map(|path| {
-            path.replace("${PROJECT}", project_root.as_str())
-                .replace("${SITE_PACKAGES}", django_source_root.as_str())
+            slash_path(
+                path.replace("${PROJECT}", project_root.as_str())
+                    .replace("${SITE_PACKAGES}", django_source_root.as_str()),
+            )
         })
         .collect();
     let actual: Vec<_> = complete_template_dirs(&db, project)
@@ -4276,7 +4286,7 @@ fn django_facts_golden_template_dirs_match() {
         // APP_DIRS now retains missing candidate roots so detailed walking can distinguish
         // absence from metadata failure; the golden records concrete directories only.
         .filter(|path| db.path_is_dir(path))
-        .map(|path| path.to_string())
+        .map(slash_path)
         .collect();
 
     assert_eq!(actual, expected);
