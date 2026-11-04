@@ -19,6 +19,7 @@ use djls_project::TemplateSymbolKind;
 use djls_project::UnreadRegistration;
 use djls_project::template_library_definition_facts;
 use djls_source::File;
+use djls_source::Offset;
 use djls_source::Span;
 use djls_templates::Filter;
 use djls_templates::Node;
@@ -28,6 +29,7 @@ use rustc_hash::FxHashMap;
 use crate::db::Db;
 use crate::db::scoped_template_libraries_for_file;
 use crate::filters::effective_filter_arity_in_scope;
+use crate::layout::MapSpans;
 use crate::layout::SourcePositions;
 use crate::layout::TemplateLayout;
 use crate::layout::template_layout;
@@ -188,14 +190,38 @@ pub(crate) struct TemplateAnalysisProjection<'db> {
 }
 
 /// Template analysis read from source positions. Structure, Tag facts and captured closers
-/// stay in layout coordinates, shared with validation; readers convert a cursor in with
-/// `positions.semantic_offset` and spans out with `positions.span`. Only the small load
-/// table is kept in source coordinates.
+/// stay in layout coordinates, shared with validation. Readers reach them only through
+/// `read` and `read_at`, which convert whatever they return to source positions, so layout
+/// positions cannot leave the analysis. Only the small load table is kept in source
+/// coordinates.
 #[derive(Clone, Copy)]
 pub(crate) struct SourceAnalysis<'db> {
-    pub(crate) analysis: TemplateAnalysisProjection<'db>,
-    pub(crate) positions: &'db SourcePositions,
-    pub(crate) loaded_libraries: &'db LoadedLibraries,
+    analysis: TemplateAnalysisProjection<'db>,
+    positions: &'db SourcePositions,
+    loaded_libraries: &'db LoadedLibraries,
+}
+
+impl<'db> SourceAnalysis<'db> {
+    pub(crate) fn read<T: MapSpans>(
+        self,
+        read: impl FnOnce(TemplateAnalysisProjection<'db>) -> T,
+    ) -> T {
+        self.positions.resolve(read(self.analysis))
+    }
+
+    /// Like `read`, with the source position `source` converted to a layout offset.
+    pub(crate) fn read_at<T: MapSpans>(
+        self,
+        source: u32,
+        read: impl FnOnce(TemplateAnalysisProjection<'db>, Offset) -> T,
+    ) -> T {
+        let offset = Offset::new(self.positions.semantic_offset(source));
+        self.positions.resolve(read(self.analysis, offset))
+    }
+
+    pub(crate) fn loaded_libraries(self) -> &'db LoadedLibraries {
+        self.loaded_libraries
+    }
 }
 
 pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
@@ -220,10 +246,10 @@ fn source_loaded_libraries<'db>(
     scope_file: File,
 ) -> LoadedLibraries {
     let layout = template_layout(db, nodelist);
-    let positions = layout.positions(db);
-    analyze_template_layout_in_scope(db, source_file, layout, scope_file)
+    let loaded = analyze_template_layout_in_scope(db, source_file, layout, scope_file)
         .loaded_libraries(db)
-        .map_spans(|span| positions.span(span))
+        .clone();
+    layout.positions(db).resolve(loaded)
 }
 
 #[salsa::tracked(returns(copy))]
@@ -559,7 +585,7 @@ pub fn effective_symbol_candidate_at<'db>(
 ) -> Option<TemplateSymbolCandidate<'db>> {
     let scoped_libraries = scoped_template_libraries_for_file(db, file);
     let projection = template_analysis_projection_for_file(db, file, nodelist);
-    let load_state = projection.loaded_libraries.available_at(position);
+    let load_state = projection.loaded_libraries().available_at(position);
     let loaded_names = load_state.libraries_loading_symbol(name);
     let definitions = scoped_libraries.effective_definition_libraries(name, kind, &loaded_names);
     let candidates = definitions

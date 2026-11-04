@@ -59,12 +59,9 @@ pub fn compute_opaque_regions<'db>(
         let tree = build_projectless_template_tree(db, nodelist);
         return OpaqueRegions::new(opaque_body_spans(tree.regions(db)).collect());
     }
-    let projection = template_analysis_projection_for_file(db, file, nodelist);
-    let tree = projection.analysis.tree(db);
     OpaqueRegions::new(
-        opaque_body_spans(tree.regions(db))
-            .map(|span| projection.positions.span(span))
-            .collect(),
+        template_analysis_projection_for_file(db, file, nodelist)
+            .read(|analysis| opaque_body_spans(analysis.tree(db).regions(db)).collect()),
     )
 }
 

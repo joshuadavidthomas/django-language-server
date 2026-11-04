@@ -9,7 +9,6 @@ use djls_templates::NodeList;
 use djls_templates::TagBit;
 
 use crate::db::Db;
-use crate::errors::ValidationError;
 
 #[salsa::tracked]
 pub(crate) struct TemplateLayout<'db> {
@@ -56,15 +55,44 @@ impl SourcePositions {
         }
     }
 
-    pub(crate) fn span(&self, span: Span) -> Span {
+    fn span(&self, span: Span) -> Span {
         let start = self.offset(span.start());
         let end = self.offset(span.end());
         Span::new(start, end - start)
     }
 
-    pub(crate) fn error(&self, mut error: ValidationError) -> ValidationError {
-        error.map_spans(|span| self.span(span));
-        error
+    /// Converts every layout position `value` holds into a source position.
+    pub(crate) fn resolve<T: MapSpans>(&self, mut value: T) -> T {
+        value.map_spans(&mut |span| self.span(span));
+        value
+    }
+}
+
+/// A value that holds template positions. Implementing it is how a type becomes
+/// convertible by `SourcePositions::resolve`; nothing else rewrites positions.
+pub(crate) trait MapSpans {
+    fn map_spans(&mut self, map: &mut impl FnMut(Span) -> Span);
+}
+
+impl MapSpans for Span {
+    fn map_spans(&mut self, map: &mut impl FnMut(Span) -> Span) {
+        *self = map(*self);
+    }
+}
+
+impl<T: MapSpans> MapSpans for Option<T> {
+    fn map_spans(&mut self, map: &mut impl FnMut(Span) -> Span) {
+        if let Some(value) = self {
+            value.map_spans(map);
+        }
+    }
+}
+
+impl<T: MapSpans> MapSpans for Vec<T> {
+    fn map_spans(&mut self, map: &mut impl FnMut(Span) -> Span) {
+        for value in self {
+            value.map_spans(map);
+        }
     }
 }
 

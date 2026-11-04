@@ -3,6 +3,7 @@ use djls_source::Span;
 use djls_templates::NodeList;
 
 use crate::db::Db;
+use crate::layout::MapSpans;
 use crate::scoping::template_analysis_projection_for_file;
 use crate::structure::BlockRole;
 use crate::structure::RegionId;
@@ -41,14 +42,18 @@ pub fn build_template_folds_for_file<'db>(
     if db.project().is_none() {
         return build_template_folds(db, build_projectless_template_tree(db, nodelist)).clone();
     }
-    let projection = template_analysis_projection_for_file(db, file, nodelist);
-    let tree = projection.analysis.tree(db);
-    let mut folds = Vec::new();
-    collect_folds_for_region(tree.regions(db), tree.root(db), &mut folds);
-    for fold in &mut folds {
-        fold.span = projection.positions.span(fold.span);
+    template_analysis_projection_for_file(db, file, nodelist).read(|analysis| {
+        let tree = analysis.tree(db);
+        let mut folds = Vec::new();
+        collect_folds_for_region(tree.regions(db), tree.root(db), &mut folds);
+        folds
+    })
+}
+
+impl MapSpans for TemplateFold {
+    fn map_spans(&mut self, map: &mut impl FnMut(Span) -> Span) {
+        self.span.map_spans(map);
     }
-    folds
 }
 
 fn collect_folds_for_region(regions: &Regions, region: RegionId, folds: &mut Vec<TemplateFold>) {

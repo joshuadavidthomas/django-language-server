@@ -22,6 +22,7 @@ use rustc_hash::FxHashMap;
 
 use crate::TagSpec;
 use crate::db::Db as SemanticDb;
+use crate::layout::MapSpans;
 use crate::scoping::LoadKind;
 use crate::scoping::template_analysis_projection_for_file;
 use crate::structure::active_template_tags;
@@ -146,6 +147,18 @@ impl<'db> TemplateLibraryReferencesInFile<'db> {
 pub struct TemplateLibraryReferenceInFile {
     load_name: LibraryName,
     span: Span,
+}
+
+impl MapSpans for TemplateReferenceInFile<'_> {
+    fn map_spans(&mut self, map: &mut impl FnMut(Span) -> Span) {
+        self.span.map_spans(map);
+    }
+}
+
+impl MapSpans for TemplateLibraryReferenceInFile {
+    fn map_spans(&mut self, map: &mut impl FnMut(Span) -> Span) {
+        self.span.map_spans(map);
+    }
 }
 
 /// Django's `extends` skips the referencing origin; `include` may name itself.
@@ -281,22 +294,24 @@ pub fn template_references_in_file(
     let TemplateParseResult::Parsed(nodelist) = parse_template(db, file) else {
         return TemplateReferencesInFile::new(db, Vec::new());
     };
-    let projection = template_analysis_projection_for_file(db, file, nodelist);
-    let positions = projection.positions;
-    let tree = projection.analysis.tree(db);
-    let tag_facts = projection.analysis.scoped_tag_facts(db);
-
-    let references = active_template_tags(tree.regions(db), tree.root(db))
-        .filter_map(|tag| {
-            let spec = tag_facts.for_tag(tag)?.spec.as_deref()?;
-            let reference = LiteralTemplateReference::from_spec(spec, tag.bits)?;
-            Some(TemplateReferenceInFile {
-                target_template_name: TemplateName::new(db, reference.template_name.to_string()),
-                kind: reference.kind,
-                span: positions.span(reference.span),
+    let references = template_analysis_projection_for_file(db, file, nodelist).read(|analysis| {
+        let tree = analysis.tree(db);
+        let tag_facts = analysis.scoped_tag_facts(db);
+        active_template_tags(tree.regions(db), tree.root(db))
+            .filter_map(|tag| {
+                let spec = tag_facts.for_tag(tag)?.spec.as_deref()?;
+                let reference = LiteralTemplateReference::from_spec(spec, tag.bits)?;
+                Some(TemplateReferenceInFile {
+                    target_template_name: TemplateName::new(
+                        db,
+                        reference.template_name.to_string(),
+                    ),
+                    kind: reference.kind,
+                    span: reference.span,
+                })
             })
-        })
-        .collect();
+            .collect::<Vec<_>>()
+    });
 
     TemplateReferencesInFile::new(db, references)
 }
@@ -309,25 +324,20 @@ pub fn template_library_references_in_file(
     let TemplateParseResult::Parsed(nodelist) = parse_template(db, file) else {
         return TemplateLibraryReferencesInFile::new(db, Vec::new());
     };
-    let projection = template_analysis_projection_for_file(db, file, nodelist);
-    let positions = projection.positions;
-    let tree = projection.analysis.tree(db);
-    let tag_facts = projection.analysis.scoped_tag_facts(db);
-
-    let references = active_template_tags(tree.regions(db), tree.root(db))
-        .filter(|tag| {
-            tag_facts
-                .for_tag(*tag)
-                .and_then(|facts| facts.spec.as_deref())
-                .and_then(TagSpec::role)
-                == Some(TagRole::TemplateLibraryLoader)
-        })
-        .flat_map(|tag| literal_load_references_from_tag(tag.bits))
-        .map(|mut reference| {
-            reference.span = positions.span(reference.span);
-            reference
-        })
-        .collect();
+    let references = template_analysis_projection_for_file(db, file, nodelist).read(|analysis| {
+        let tree = analysis.tree(db);
+        let tag_facts = analysis.scoped_tag_facts(db);
+        active_template_tags(tree.regions(db), tree.root(db))
+            .filter(|tag| {
+                tag_facts
+                    .for_tag(*tag)
+                    .and_then(|facts| facts.spec.as_deref())
+                    .and_then(TagSpec::role)
+                    == Some(TagRole::TemplateLibraryLoader)
+            })
+            .flat_map(|tag| literal_load_references_from_tag(tag.bits))
+            .collect::<Vec<_>>()
+    });
 
     TemplateLibraryReferencesInFile::new(db, references)
 }

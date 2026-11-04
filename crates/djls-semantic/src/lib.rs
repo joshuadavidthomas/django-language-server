@@ -106,7 +106,7 @@ pub fn validate_template_file(db: &dyn Db, file: File) {
     for error in validate_template_layout(db, file, layout) {
         use salsa::Accumulator;
 
-        ValidationErrorAccumulator(positions.error(error.clone())).accumulate(db);
+        ValidationErrorAccumulator(positions.resolve(error.clone())).accumulate(db);
     }
 }
 

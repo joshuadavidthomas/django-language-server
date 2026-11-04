@@ -18,7 +18,7 @@ use djls_project::scoped_template_libraries;
 use djls_project::template_library_structure_facts;
 use djls_project::template_library_tag_facts;
 use djls_source::File;
-use djls_source::Offset;
+use djls_source::Span;
 use djls_templates::NodeList;
 pub(crate) use rules::effective_tag_bits;
 pub(crate) use rules::evaluate_tag_rules;
@@ -31,6 +31,7 @@ pub use specs::TagSpec;
 pub use specs::TagSpecs;
 
 use crate::db::Db;
+use crate::layout::MapSpans;
 use crate::scoping::LoadState;
 use crate::scoping::LoadedLibraries;
 use crate::scoping::template_analysis_projection_for_file;
@@ -396,6 +397,11 @@ pub fn tag_specs_for_file(db: &dyn Db, file: File) -> TagSpecs {
     completion_tag_specs_for_load_state(db, file, &empty.available_at(0), "")
 }
 
+// Tag specs come from Python source, not the template, so they hold no template positions.
+impl MapSpans for TagSpec {
+    fn map_spans(&mut self, _map: &mut impl FnMut(Span) -> Span) {}
+}
+
 /// Return the converged spec for the active tag occurrence at `position`.
 ///
 /// This is occurrence meaning, not a name lookup: a spelling captured as an
@@ -409,29 +415,28 @@ pub fn tag_spec_at(
     name: &str,
 ) -> Option<TagSpec> {
     let projection = template_analysis_projection_for_file(db, file, nodelist);
-    let analysis = projection.analysis;
-    let offset = Offset::new(projection.positions.semantic_offset(position));
-    if let Some(closer) = analysis
-        .captured_closers(db)
-        .iter()
-        .map(CapturedClosingTag::as_active)
-        .find(|closer| closer.tag == name && closer.full_span.contains(offset))
-    {
-        return analysis
-            .scoped_tag_facts(db)
-            .for_tag(closer)
-            .and_then(|facts| facts.spec.as_deref().cloned());
-    }
-
-    let tree = analysis.tree(db);
-    if let Some(tag) = active_template_tags(tree.regions(db), tree.root(db))
-        .into_iter()
-        .find(|tag| tag.tag == name && tag.full_span.contains(offset))
-    {
-        return analysis
-            .scoped_tag_facts(db)
-            .for_tag(tag)
-            .and_then(|facts| facts.spec.as_deref().cloned());
+    let occurrence = projection.read_at(position, |analysis, offset| {
+        let tag_facts = analysis.scoped_tag_facts(db);
+        let spec = |tag| {
+            tag_facts
+                .for_tag(tag)
+                .and_then(|facts| facts.spec.as_deref().cloned())
+        };
+        if let Some(closer) = analysis
+            .captured_closers(db)
+            .iter()
+            .map(CapturedClosingTag::as_active)
+            .find(|closer| closer.tag == name && closer.full_span.contains(offset))
+        {
+            return Some(spec(closer));
+        }
+        let tree = analysis.tree(db);
+        active_template_tags(tree.regions(db), tree.root(db))
+            .find(|tag| tag.tag == name && tag.full_span.contains(offset))
+            .map(spec)
+    });
+    if let Some(spec) = occurrence {
+        return spec;
     }
 
     // Error recovery can leave a syntactically recognizable completion context
@@ -441,7 +446,7 @@ pub fn tag_spec_at(
         db,
         file,
         name,
-        &projection.loaded_libraries.available_at(position),
+        &projection.loaded_libraries().available_at(position),
     )
 }
 
@@ -459,7 +464,7 @@ pub fn tag_specs_at_prefix(
     completion_tag_specs_for_load_state(
         db,
         file,
-        &projection.loaded_libraries.available_at(position),
+        &projection.loaded_libraries().available_at(position),
         &prefix,
     )
 }

@@ -22,6 +22,7 @@ use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 
 use crate::db::Db;
+use crate::layout::MapSpans;
 use crate::scoping::ScopedTagFacts;
 use crate::scoping::template_analysis_projection_for_file_in_scope;
 use crate::structure::BlockRole;
@@ -419,21 +420,19 @@ fn template_symbols_in_scope<'db>(
     scope_file: File,
 ) -> TemplateSymbols {
     let projection = template_analysis_projection_for_file_in_scope(db, file, nodelist, scope_file);
-    let tree = projection.analysis.tree(db);
-    let regions = tree.regions(db);
-    let mut builder = SymbolBuilder {
-        tag_facts: projection.analysis.scoped_tag_facts(db),
-        regions,
-        blocks: Vec::new(),
-        uncertain_block_names: FxHashSet::default(),
-        partials: Vec::new(),
-        extends: None,
-    };
-
-    builder.collect_region(tree.root(db));
-    let mut symbols = builder.finish();
-    symbols.map_spans(|span| projection.positions.span(span));
-    symbols
+    projection.read(|analysis| {
+        let tree = analysis.tree(db);
+        let mut builder = SymbolBuilder {
+            tag_facts: analysis.scoped_tag_facts(db),
+            regions: tree.regions(db),
+            blocks: Vec::new(),
+            uncertain_block_names: FxHashSet::default(),
+            partials: Vec::new(),
+            extends: None,
+        };
+        builder.collect_region(tree.root(db));
+        builder.finish()
+    })
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -444,23 +443,25 @@ pub struct TemplateSymbols {
     extends: Option<ExtendsTarget>,
 }
 
-impl TemplateSymbols {
-    fn map_spans(&mut self, map: impl Fn(Span) -> Span) {
+impl MapSpans for TemplateSymbols {
+    fn map_spans(&mut self, map: &mut impl FnMut(Span) -> Span) {
         for block in &mut self.blocks {
-            block.name_span = map(block.name_span);
-            block.full_span = map(block.full_span);
+            block.name_span.map_spans(map);
+            block.full_span.map_spans(map);
         }
         for partial in &mut self.partials {
-            partial.name_span = map(partial.name_span);
-            partial.full_span = map(partial.full_span);
+            partial.name_span.map_spans(map);
+            partial.full_span.map_spans(map);
         }
         if let Some(ExtendsTarget::Literal { span, .. } | ExtendsTarget::Dynamic { span }) =
             &mut self.extends
         {
-            *span = map(*span);
+            span.map_spans(map);
         }
     }
+}
 
+impl TemplateSymbols {
     #[must_use]
     pub fn blocks(&self) -> &[BlockDef] {
         &self.blocks
