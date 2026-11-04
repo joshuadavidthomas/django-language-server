@@ -24,6 +24,7 @@ use djls_templates::parse_template;
 use djls_testing::ProjectFixture;
 use djls_testing::ProjectSettings;
 use djls_testing::TestDatabase;
+use djls_testing::slash_path;
 
 fn project_with_templates(
     db: &TestDatabase,
@@ -65,7 +66,7 @@ fn inheritance_summary(db: &TestDatabase, project: Project, file: File) -> (Vec<
     let ancestors = inheritance
         .ancestors(db)
         .iter()
-        .map(|origin| origin.file(db).path(db).as_str().to_string())
+        .map(|origin| slash_path(origin.file(db).path(db)))
         .collect();
 
     (ancestors, inheritance.end(db))
@@ -524,7 +525,7 @@ fn block_overrides_preserves_breadth_first_order_through_non_overriding_template
     let overrides = block_overrides(&db, project, base, "content");
     let paths = overrides
         .iter()
-        .map(|site| site.file.path(&db).as_str())
+        .map(|site| slash_path(site.file.path(&db)))
         .collect::<Vec<_>>();
     assert_eq!(
         paths,
@@ -724,7 +725,7 @@ fn inherited_symbols_use_the_child_backend_scope() {
     assert_eq!(inherited.len(), 1);
     assert_eq!(inherited[0].0, "content");
     assert_eq!(
-        inherited[0].1.file.path(&db).as_str(),
+        slash_path(inherited[0].1.file.path(&db)),
         "/test/project/shared/base.html"
     );
     assert_eq!(

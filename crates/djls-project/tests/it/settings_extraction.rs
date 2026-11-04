@@ -30,6 +30,8 @@ use djls_source::Span;
 use djls_testing::ProjectFixture;
 use djls_testing::ProjectFixtureDatabase;
 use djls_testing::TestDatabase;
+use djls_testing::host_path;
+use djls_testing::host_source;
 use serde_json::Value;
 use serde_json::json;
 use serde_json::to_value;
@@ -38,14 +40,15 @@ fn extract_project(
     source: &str,
     modules: &[(&str, &str)],
 ) -> Result<(TestDatabase, Project, Value), Box<dyn std::error::Error>> {
-    let mut fixture = ProjectFixture::new("/project/settings")
+    let mut fixture = ProjectFixture::new(host_path("/project/settings"))
         .without_bundled_django()
         .django_settings_module("config.settings")
-        .file("/project/settings/config/__init__.py", "")
-        .file("/project/settings/config/settings.py", source);
+        .file(host_path("/project/settings/config/__init__.py"), "")
+        .file(host_path("/project/settings/config/settings.py"), source);
     for (module, source) in modules {
         fixture = fixture.file(
-            format!("/project/settings/{}.py", module.replace('.', "/")),
+            Utf8Path::new(host_path("/project/settings"))
+                .join(format!("{}.py", module.replace('.', "/"))),
             *source,
         );
     }
@@ -92,7 +95,7 @@ fn python_project_with_paths(
     db: &impl ProjectFixtureDatabase,
     pythonpath: &[Utf8PathBuf],
 ) -> Project {
-    let root = Utf8Path::new("/project");
+    let root = Utf8Path::new(host_path("/project"));
     let python_environment = PythonEnvironment::Auto;
     let search_paths =
         SearchPaths::from_project_settings(db.file_system(), root, &python_environment, pythonpath);
@@ -174,17 +177,17 @@ fn env_reads_keep_file_candidates_and_runtime_uncertainty() {
     let db = TestDatabase::new();
     let source = "import os\nfrom os import environ as imported_environ, getenv as imported_getenv\nENVIRON = os.environ\nENV_GET = os.environ.get\nGETENV = os.getenv\nPRESENT = os.environ.get('APP')\nALIASED = ENV_GET('APP')\nIMPORTED_GET = imported_environ.get('APP')\nIMPORTED_GETENV = imported_getenv('APP')\nDEFAULTED = GETENV('MISSING', 'fallback')\nGET_DEFAULTED = os.environ.get('MISSING', 'fallback')\nABSENT = os.environ.get('ABSENT')\nGETENV_ABSENT = os.getenv('ABSENT')\nDYNAMIC_KEY = os.getenv(KEY)\nDYNAMIC_DEFAULT = os.getenv('MISSING', fallback())\nKEYWORD_DEFAULT = os.getenv('MISSING', default='fallback')\nSUBSCRIPT = os.environ['APP']\nos.getenv('APP')\nAFTER_DISCARDED = os.getenv('APP')\nINSTALLED_APPS = [os.getenv('APP', 'fallback')]\n";
     for (path, content) in [
-        ("/project/.env", "APP=stale.app\nAPP=env.app\n"),
-        ("/project/manage.py", ""),
-        ("/project/config/__init__.py", ""),
-        ("/project/config/settings.py", source),
+        (host_path("/project/.env"), "APP=stale.app\nAPP=env.app\n"),
+        (host_path("/project/manage.py"), ""),
+        (host_path("/project/config/__init__.py"), ""),
+        (host_path("/project/config/settings.py"), source),
     ] {
         db.add_file(path, content)
             .expect("env settings fixture file should be added");
     }
     let settings_config: Settings = toml::from_str("django_settings_module = 'config.settings'\n")
         .expect("env settings fixture config should parse");
-    let project = Project::bootstrap(&db, Utf8Path::new("/project"), &settings_config);
+    let project = Project::bootstrap(&db, Utf8Path::new(host_path("/project")), &settings_config);
     assert_eq!(
         project
             .django_settings_module(&db)
@@ -221,9 +224,9 @@ fn env_reads_keep_file_candidates_and_runtime_uncertainty() {
 fn env_read_default_reaches_settings_with_runtime_uncertainty() {
     let db = TestDatabase::new();
     for (path, content) in [
-        ("/project/config/__init__.py", ""),
+        (host_path("/project/config/__init__.py"), ""),
         (
-            "/project/config/settings.py",
+            host_path("/project/config/settings.py"),
             "import os\nINSTALLED_APPS = [os.getenv('APP', 'fallback.app')]\n",
         ),
     ] {
@@ -232,7 +235,7 @@ fn env_read_default_reaches_settings_with_runtime_uncertainty() {
     }
     let settings_config: Settings = toml::from_str("django_settings_module = 'config.settings'\n")
         .expect("env settings fixture config should parse");
-    let project = Project::bootstrap(&db, Utf8Path::new("/project"), &settings_config);
+    let project = Project::bootstrap(&db, Utf8Path::new(host_path("/project")), &settings_config);
     assert!(project.env_vars(&db).is_empty());
 
     let settings =
@@ -493,18 +496,18 @@ fn canonical_unknown_origins_import_rebase_is_exactly_local() {
 #[test]
 fn python_module_cycle_side_dependency_change_invalidates_the_product() {
     let mut db = TestDatabase::new();
-    db.add_file("/project/side.py", "SIDE = 'before'\n")
+    db.add_file(host_path("/project/side.py"), "SIDE = 'before'\n")
         .expect("settings-extraction test file should be added");
     db.add_file(
-        "/project/a.py",
+        host_path("/project/a.py"),
         "from side import SIDE\nfrom b import B\nA = B\n",
     )
     .expect("settings-extraction test file should be added");
-    db.add_file("/project/b.py", "from a import A\nB = A\n")
+    db.add_file(host_path("/project/b.py"), "from a import A\nB = A\n")
         .expect("settings-extraction test file should be added");
     let project = python_project(&db);
     let a = db
-        .file(Utf8Path::new("/project/a.py"))
+        .file(Utf8Path::new(host_path("/project/a.py")))
         .expect("settings-extraction test file should exist");
 
     let before =
@@ -520,9 +523,12 @@ fn python_module_cycle_side_dependency_change_invalidates_the_product() {
         })] if value == "before"
     ));
 
-    db.add_file("/project/side.py", "SIDE = 'after'\n")
+    db.add_file(host_path("/project/side.py"), "SIDE = 'after'\n")
         .expect("settings-extraction test file should be added");
-    SourceChanges::new([ChangeEvent::ContentChanged("/project/side.py".into())]).apply(&mut db);
+    SourceChanges::new([ChangeEvent::ContentChanged(
+        host_path("/project/side.py").into(),
+    )])
+    .apply(&mut db);
 
     let after =
         python_module_evaluation(&db, project, a).expect("Python file should map to a module");
@@ -875,7 +881,7 @@ fn unreachable_boolean_calls_do_not_contaminate_path_values() {
         assert_eq!(setting_cases.len(), 1, "{statement}");
         assert_eq!(
             setting_cases[0]["known"]["backends"][0]["dirs"][0]["value"],
-            "/project/settings/config/templates",
+            host_path("/project/settings/config/templates"),
             "{statement}"
         );
     }
@@ -1352,7 +1358,7 @@ fn wrong_installed_apps_shape_is_malformed() {
 #[test]
 fn templates_keep_simultaneous_backends_correlated() {
     let settings = extract(
-        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/a']}, {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/b']}]",
+        host_source("TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/a']}, {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/b']}]"),
     ).expect("Django settings extraction should succeed");
     let known = &cases(&settings, "/templates/cases")
         .expect("settings JSON pointer should identify an array")[0]["known"];
@@ -1364,14 +1370,14 @@ fn templates_keep_simultaneous_backends_correlated() {
             .len(),
         2
     );
-    assert_eq!(known["backends"][0]["dirs"][0]["value"], "/a");
-    assert_eq!(known["backends"][1]["dirs"][0]["value"], "/b");
+    assert_eq!(known["backends"][0]["dirs"][0]["value"], host_path("/a"));
+    assert_eq!(known["backends"][1]["dirs"][0]["value"], host_path("/b"));
 }
 
 #[test]
 fn templates_keep_mutually_exclusive_settings_cases_separate() {
     let settings = extract(
-        "if FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/a']}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/b']}]",
+        host_source("if FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/a']}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/b']}]"),
     ).expect("Django settings extraction should succeed");
     let cases = cases(&settings, "/templates/cases")
         .expect("settings JSON pointer should identify an array");
@@ -1385,13 +1391,16 @@ fn templates_keep_mutually_exclusive_settings_cases_separate() {
                 .expect("expected JSON value should be a string")
         })
         .collect();
-    assert_eq!(roots, ["/a", "/b"].into_iter().collect());
+    assert_eq!(
+        roots,
+        [host_path("/a"), host_path("/b")].into_iter().collect()
+    );
 }
 
 #[test]
 fn template_field_uncertainty_does_not_erase_siblings() {
     let settings = extract(
-        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/templates'], 'OPTIONS': {'libraries': {'good': 'app.templatetags.good'}, 'context_processors': ['app.context.good', unknown]}}]",
+        host_source("TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/templates'], 'OPTIONS': {'libraries': {'good': 'app.templatetags.good'}, 'context_processors': ['app.context.good', unknown]}}]"),
     ).expect("Django settings extraction should succeed");
     let template_case = &cases(&settings, "/templates/cases")
         .expect("settings JSON pointer should identify an array")[0];
@@ -1401,7 +1410,7 @@ fn template_field_uncertainty_does_not_erase_siblings() {
 
     assert_eq!(
         backend["dirs"]["evidence"][0]["known"]["value"],
-        "/templates"
+        host_path("/templates")
     );
     assert_eq!(backend["libraries"]["known"][0][0], "good");
     assert_eq!(
@@ -1544,7 +1553,7 @@ fn dynamic_template_members_are_not_malformed() {
 #[test]
 fn dynamic_templates_preserve_backend_order_and_complete_siblings() {
     let settings = extract(
-        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/first']}, {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [UNKNOWN]}, {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/third']}]",
+        host_source("TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/first']}, {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [UNKNOWN]}, {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/third']}]"),
     ).expect("Django settings extraction should succeed");
     let evidence = cases(&settings, "/templates/cases")
         .expect("settings JSON pointer should identify an array")[0]["dynamic"]["evidence"]
@@ -1558,18 +1567,18 @@ fn dynamic_templates_preserve_backend_order_and_complete_siblings() {
     assert_eq!(backends.len(), 3);
     assert_eq!(
         backends[0]["dirs"]["evidence"][0]["known"]["value"],
-        "/first"
+        host_path("/first")
     );
     assert_eq!(
         backends[2]["dirs"]["evidence"][0]["known"]["value"],
-        "/third"
+        host_path("/third")
     );
 }
 
 #[test]
 fn malformed_templates_preserve_backend_order_and_complete_siblings() {
     let settings = extract(
-        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/first']}, {'DIRS': ['/broken']}, {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/third']}]",
+        host_source("TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/first']}, {'DIRS': ['/broken']}, {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/third']}]"),
     ).expect("Django settings extraction should succeed");
     let evidence = cases(&settings, "/templates/cases")
         .expect("settings JSON pointer should identify an array")[0]["malformed"]["evidence"]
@@ -1583,11 +1592,11 @@ fn malformed_templates_preserve_backend_order_and_complete_siblings() {
     assert_eq!(backends.len(), 3);
     assert_eq!(
         backends[0]["dirs"]["evidence"][0]["known"]["value"],
-        "/first"
+        host_path("/first")
     );
     assert_eq!(
         backends[2]["dirs"]["evidence"][0]["known"]["value"],
-        "/third"
+        host_path("/third")
     );
 }
 
@@ -1630,11 +1639,11 @@ fn overwritten_invalid_library_value_contributes_no_issue() {
 #[test]
 fn duplicate_mapping_keys_use_last_exact_value() {
     let settings = extract(
-        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': unknown, 'DIRS': ['/last']}]",
+        host_source("TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': unknown, 'DIRS': ['/last']}]"),
     ).expect("Django settings extraction should succeed");
     let backend = &cases(&settings, "/templates/cases")
         .expect("settings JSON pointer should identify an array")[0]["known"]["backends"][0];
-    assert_eq!(backend["dirs"][0]["value"], "/last");
+    assert_eq!(backend["dirs"][0]["value"], host_path("/last"));
 }
 
 #[test]
@@ -1731,20 +1740,20 @@ fn typed_unknowns_reach_module_name_and_path_extractors_with_all_origins() {
 #[test]
 fn path_collections_keep_known_paths_and_uncertainty_in_source_order() {
     let settings = extract(
-        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/first', *UNKNOWN, '/later']}]",
+        host_source("TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/first', *UNKNOWN, '/later']}]"),
     ).expect("Django settings extraction should succeed");
     let template_evidence = &cases(&settings, "/templates/cases")
         .expect("settings JSON pointer should identify an array")[0]["dynamic"]["evidence"][0]["backend"]
         ["dirs"]["evidence"];
-    assert_eq!(template_evidence[0]["known"]["value"], "/first");
+    assert_eq!(template_evidence[0]["known"]["value"], host_path("/first"));
     assert_eq!(template_evidence[1]["issue"]["kind"], "unknown_unpack");
-    assert_eq!(template_evidence[2]["known"]["value"], "/later");
+    assert_eq!(template_evidence[2]["known"]["value"], host_path("/later"));
 }
 
 #[test]
 fn exact_path_lists_preserve_duplicate_entries() {
     let settings = extract(
-        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/same', '/same']} ]",
+        host_source("TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/same', '/same']} ]"),
     ).expect("Django settings extraction should succeed");
 
     let template_dirs = &cases(&settings, "/templates/cases")
@@ -1756,8 +1765,8 @@ fn exact_path_lists_preserve_duplicate_entries() {
             .len(),
         2
     );
-    assert_eq!(template_dirs[0]["value"], "/same");
-    assert_eq!(template_dirs[1]["value"], "/same");
+    assert_eq!(template_dirs[0]["value"], host_path("/same"));
+    assert_eq!(template_dirs[1]["value"], host_path("/same"));
 }
 
 #[test]
@@ -2093,12 +2102,14 @@ fn string_installed_apps_are_not_accepted_as_a_collection() {
 
 #[test]
 fn tuple_collection_shaped_template_settings_are_accepted() {
-    let source = "TEMPLATES = ({'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ('/templates',), 'OPTIONS': {'context_processors': ('app.context.processor',), 'builtins': ('app.builtins',)}},)";
+    let source = host_source(
+        "TEMPLATES = ({'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ('/templates',), 'OPTIONS': {'context_processors': ('app.context.processor',), 'builtins': ('app.builtins',)}},)",
+    );
     let settings = extract(source).expect("Django settings extraction should succeed");
 
     let backend = &cases(&settings, "/templates/cases")
         .expect("settings JSON pointer should identify an array")[0]["known"]["backends"][0];
-    assert_eq!(backend["dirs"][0]["value"], "/templates");
+    assert_eq!(backend["dirs"][0]["value"], host_path("/templates"));
     assert_eq!(
         backend["context_processors"][0],
         json!({
@@ -2429,7 +2440,7 @@ fn chained_mutable_dict_assignment_keeps_templates_conservative() {
 #[test]
 fn nested_template_dirs_append_and_extend_are_supported() {
     let settings = extract(
-        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/a']}]\nTEMPLATES[0]['DIRS'].append('/b')\nTEMPLATES[0]['DIRS'].extend(['/c', '/d'])",
+        host_source("TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/a']}]\nTEMPLATES[0]['DIRS'].append('/b')\nTEMPLATES[0]['DIRS'].extend(['/c', '/d'])"),
     ).expect("Django settings extraction should succeed");
     let dirs = cases(&settings, "/templates/cases")
         .expect("settings JSON pointer should identify an array")[0]["known"]["backends"][0]["dirs"]
@@ -2437,17 +2448,17 @@ fn nested_template_dirs_append_and_extend_are_supported() {
         .expect("expected JSON field should be an array");
 
     assert_eq!(dirs.len(), 4);
-    assert_eq!(dirs[1]["value"], "/b");
-    assert_eq!(dirs[2]["value"], "/c");
-    assert_eq!(dirs[3]["value"], "/d");
+    assert_eq!(dirs[1]["value"], host_path("/b"));
+    assert_eq!(dirs[2]["value"], host_path("/c"));
+    assert_eq!(dirs[3]["value"], host_path("/d"));
 }
 
 #[test]
 fn nested_template_dirs_insert_and_remove_are_supported() {
     let settings = extract(
-        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/a', '/c', '/removed']}]
+        host_source("TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/a', '/c', '/removed']}]
 TEMPLATES[0]['DIRS'].insert(1, '/b')
-TEMPLATES[0]['DIRS'].remove('/removed')",
+TEMPLATES[0]['DIRS'].remove('/removed')"),
     ).expect("Django settings extraction should succeed");
     let cases = cases(&settings, "/templates/cases")
         .expect("settings JSON pointer should identify an array");
@@ -2457,9 +2468,9 @@ TEMPLATES[0]['DIRS'].remove('/removed')",
 
     assert_eq!(cases.len(), 1, "{settings:#}");
     assert_eq!(dirs.len(), 3, "{settings:#}");
-    assert_eq!(dirs[0]["value"], "/a");
-    assert_eq!(dirs[1]["value"], "/b");
-    assert_eq!(dirs[2]["value"], "/c");
+    assert_eq!(dirs[0]["value"], host_path("/a"));
+    assert_eq!(dirs[1]["value"], host_path("/b"));
+    assert_eq!(dirs[2]["value"], host_path("/c"));
 }
 
 #[test]
@@ -2468,7 +2479,7 @@ fn imported_template_nested_mutation_preserves_known_backend_fields() {
         "from base import *\nif FLAG:\n    TEMPLATES[0]['OPTIONS']['loaders'] = ('loader',)\nTEMPLATES[0]['DIRS'].insert(0, dynamic_path())\n",
         &[(
             "base",
-            "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/base'], 'OPTIONS': {'context_processors': ['app.context.processor']}}]\n",
+            host_source("TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/base'], 'OPTIONS': {'context_processors': ['app.context.processor']}}]\n"),
         )],
     )
     .expect("settings extraction project should build")
@@ -2486,7 +2497,9 @@ fn imported_template_nested_mutation_preserves_known_backend_fields() {
         "app.context.processor"
     );
     assert!(backend["dirs"].to_string().contains("dynamic_expression"));
-    assert!(backend["dirs"].to_string().contains("/base"));
+    // `Value::to_string` escapes Windows separators, so look for the JSON string literal.
+    let base = Value::from(host_path("/base")).to_string();
+    assert!(backend["dirs"].to_string().contains(&base));
 }
 
 #[test]
@@ -2519,7 +2532,7 @@ fn self_extension_duplicates_elements_without_creating_recursion() {
 #[test]
 fn nested_template_dirs_mutation_updates_all_correlated_equal_lists() {
     let settings = extract(
-        "if FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/a']}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/a']}]\nTEMPLATES[0]['DIRS'].append('/b')",
+        host_source("if FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/a']}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/a']}]\nTEMPLATES[0]['DIRS'].append('/b')"),
     ).expect("Django settings extraction should succeed");
     let cases = cases(&settings, "/templates/cases")
         .expect("settings JSON pointer should identify an array");
@@ -2530,15 +2543,15 @@ fn nested_template_dirs_mutation_updates_all_correlated_equal_lists() {
             .as_array()
             .expect("expected JSON field should be an array");
         assert_eq!(dirs.len(), 2, "{settings:#}");
-        assert_eq!(dirs[0]["value"], "/a");
-        assert_eq!(dirs[1]["value"], "/b");
+        assert_eq!(dirs[0]["value"], host_path("/a"));
+        assert_eq!(dirs[1]["value"], host_path("/b"));
     }
 }
 
 #[test]
 fn nested_template_dirs_augmented_assignment_is_supported() {
     let settings = extract(
-        "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/a']}]\nTEMPLATES[0]['DIRS'] += ['/b']",
+        host_source("TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/a']}]\nTEMPLATES[0]['DIRS'] += ['/b']"),
     ).expect("Django settings extraction should succeed");
     let cases = cases(&settings, "/templates/cases")
         .expect("settings JSON pointer should identify an array");
@@ -2551,7 +2564,10 @@ fn nested_template_dirs_augmented_assignment_is_supported() {
             .len(),
         2
     );
-    assert_eq!(cases[0]["known"]["backends"][0]["dirs"][1]["value"], "/b");
+    assert_eq!(
+        cases[0]["known"]["backends"][0]["dirs"][1]["value"],
+        host_path("/b")
+    );
 }
 
 #[test]
@@ -2559,8 +2575,8 @@ fn differing_branch_scalars_distribute_through_settings_collections() {
     let settings = extract_project(
         "if FLAG:\n    from one.values import ROOT, BASE_APPS\nelse:\n    from two.values import ROOT, BASE_APPS\nINSTALLED_APPS = BASE_APPS + ['local']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [ROOT]}]",
         &[
-            ("one.values", "ROOT = '/one'\nBASE_APPS = ['one']"),
-            ("two.values", "ROOT = '/two'\nBASE_APPS = ['two']"),
+            ("one.values", host_source("ROOT = '/one'\nBASE_APPS = ['one']")),
+            ("two.values", host_source("ROOT = '/two'\nBASE_APPS = ['two']")),
         ],
     ).expect("settings extraction project should build")
     .2;
@@ -2597,7 +2613,10 @@ fn differing_branch_scalars_distribute_through_settings_collections() {
                 .expect("expected JSON value should be a string")
         })
         .collect::<BTreeSet<_>>();
-    assert_eq!(paths, ["/one", "/two"].into_iter().collect());
+    assert_eq!(
+        paths,
+        [host_path("/one"), host_path("/two")].into_iter().collect()
+    );
 }
 
 #[test]
@@ -2629,20 +2648,20 @@ fn independent_imported_scalar_paths_expand_to_a_cartesian_product() {
         .collect::<BTreeSet<_>>();
     let expected = [
         vec![
-            "/project/settings/one/first",
-            "/project/settings/one/second",
+            host_path("/project/settings/one/first"),
+            host_path("/project/settings/one/second"),
         ],
         vec![
-            "/project/settings/one/first",
-            "/project/settings/two/second",
+            host_path("/project/settings/one/first"),
+            host_path("/project/settings/two/second"),
         ],
         vec![
-            "/project/settings/two/first",
-            "/project/settings/one/second",
+            host_path("/project/settings/two/first"),
+            host_path("/project/settings/one/second"),
         ],
         vec![
-            "/project/settings/two/first",
-            "/project/settings/two/second",
+            host_path("/project/settings/two/first"),
+            host_path("/project/settings/two/second"),
         ],
     ]
     .into_iter()
@@ -2698,8 +2717,8 @@ fn repeated_branch_selected_scalar_retains_two_feasible_settings_cases() {
     assert_eq!(
         roots,
         [
-            "/project/settings/one/shared",
-            "/project/settings/two/shared",
+            host_path("/project/settings/one/shared"),
+            host_path("/project/settings/two/shared"),
         ]
         .into_iter()
         .collect()
@@ -2888,8 +2907,8 @@ fn two_backends_sharing_a_branch_path_keep_only_feasible_settings_cases() {
     assert_eq!(
         roots,
         [
-            "/project/settings/one/templates",
-            "/project/settings/two/templates",
+            host_path("/project/settings/one/templates"),
+            host_path("/project/settings/two/templates"),
         ]
         .into_iter()
         .collect()
@@ -2899,21 +2918,21 @@ fn two_backends_sharing_a_branch_path_keep_only_feasible_settings_cases() {
 #[test]
 fn same_join_settings_reach_only_matching_template_winners() {
     let db = TestDatabase::new();
-    let project = ProjectFixture::new("/project/settings")
+    let project = ProjectFixture::new(host_path("/project/settings"))
         .django_settings_module("config.settings")
         .file(
-            "/project/settings/config/settings.py",
-            "if FLAG:\n    INSTALLED_APPS = ['first']\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/project/settings/a'], 'APP_DIRS': True}]\nelse:\n    INSTALLED_APPS = ['second']\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/project/settings/b'], 'APP_DIRS': True}]\n",
+            host_path("/project/settings/config/settings.py"),
+            host_source("if FLAG:\n    INSTALLED_APPS = ['first']\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/project/settings/a'], 'APP_DIRS': True}]\nelse:\n    INSTALLED_APPS = ['second']\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/project/settings/b'], 'APP_DIRS': True}]\n"),
         )
-        .file("/project/settings/a/shared.html", "a")
-        .file("/project/settings/first/__init__.py", "")
+        .file(host_path("/project/settings/a/shared.html"), "a")
+        .file(host_path("/project/settings/first/__init__.py"), "")
         .file(
-            "/project/settings/first/templates/shared.html",
+            host_path("/project/settings/first/templates/shared.html"),
             "impossible cross-pair",
         )
-        .file("/project/settings/second/__init__.py", "")
+        .file(host_path("/project/settings/second/__init__.py"), "")
         .file(
-            "/project/settings/second/templates/shared.html",
+            host_path("/project/settings/second/templates/shared.html"),
             "second",
         )
         .build(&db).expect("template-resolution project fixture should build");
@@ -2933,8 +2952,8 @@ fn same_join_settings_reach_only_matching_template_winners() {
     assert_eq!(
         possible_paths,
         [
-            "/project/settings/a/shared.html",
-            "/project/settings/second/templates/shared.html",
+            host_path("/project/settings/a/shared.html"),
+            host_path("/project/settings/second/templates/shared.html"),
         ]
         .into_iter()
         .collect()
@@ -3051,12 +3070,12 @@ fn imported_template_fields_remain_correlated_alternatives() {
         template_dirs,
         [
             vec![
-                "/project/settings/one/first",
-                "/project/settings/one/second",
+                host_path("/project/settings/one/first"),
+                host_path("/project/settings/one/second"),
             ],
             vec![
-                "/project/settings/two/first",
-                "/project/settings/two/second",
+                host_path("/project/settings/two/first"),
+                host_path("/project/settings/two/second"),
             ],
         ]
     );
@@ -3101,12 +3120,12 @@ fn equal_mixed_origin_path_lists_retain_each_original_settings_case() {
 
     let expected = [
         vec![
-            "/project/settings/one/first",
-            "/project/settings/two/second",
+            host_path("/project/settings/one/first"),
+            host_path("/project/settings/two/second"),
         ],
         vec![
-            "/project/settings/two/first",
-            "/project/settings/one/second",
+            host_path("/project/settings/two/first"),
+            host_path("/project/settings/one/second"),
         ],
     ]
     .into_iter()
@@ -3316,8 +3335,8 @@ fn imports_feed_values_and_semantic_dependencies() {
     assert_eq!(
         compute_project_facts(&db, project).file_paths(),
         [
-            Utf8PathBuf::from("/project/settings/base.py"),
-            Utf8PathBuf::from("/project/settings/config/settings.py"),
+            Utf8PathBuf::from(host_path("/project/settings/base.py")),
+            Utf8PathBuf::from(host_path("/project/settings/config/settings.py")),
         ]
     );
 }
@@ -3336,6 +3355,8 @@ fn unreachable_import_is_not_a_dependency() {
     );
     assert_eq!(
         compute_project_facts(&db, project).file_paths(),
-        [Utf8PathBuf::from("/project/settings/config/settings.py")]
+        [Utf8PathBuf::from(host_path(
+            "/project/settings/config/settings.py"
+        ))]
     );
 }

@@ -365,6 +365,8 @@ mod tests {
     use std::time::Duration;
 
     use djls_source::FileKind;
+    use djls_testing::host_path;
+    use djls_testing::host_uri;
     use futures_util::SinkExt;
     use futures_util::StreamExt;
     use tower_lsp_server::LspService;
@@ -409,8 +411,10 @@ mod tests {
                 },
                 ..Default::default()
             });
-            let uri: ls_types::Uri = "file:///tmp/backpressure.html".parse().expect("file URI");
-            let path = Utf8Path::new("/tmp/backpressure.html");
+            let uri: ls_types::Uri = host_uri("/tmp/backpressure.html")
+                .parse()
+                .expect("file URI");
+            let path = Utf8Path::new(host_path("/tmp/backpressure.html"));
             let _mutation = session.open_document(&ls_types::TextDocumentItem {
                 uri: uri.clone(),
                 language_id: "htmldjango".into(),
@@ -653,7 +657,7 @@ mod tests {
         let (service, _socket) = LspService::new(TransportBackend);
         let mut session = Session::default();
         let _mutation = session.open_document(&ls_types::TextDocumentItem {
-            uri: "file:///tmp/page.html".parse().expect("URI"),
+            uri: host_uri("/tmp/page.html").parse().expect("URI"),
             language_id: "htmldjango".into(),
             version: 9,
             text: "{{ value".into(),
@@ -707,7 +711,9 @@ mod tests {
         let mut session = Session::default();
         let _mutation = session.update_document(
             &ls_types::VersionedTextDocumentIdentifier {
-                uri: "file:///tmp/without-open.html".parse().expect("file URI"),
+                uri: host_uri("/tmp/without-open.html")
+                    .parse()
+                    .expect("file URI"),
                 version: 7,
             },
             vec![ls_types::TextDocumentContentChangeEvent {
@@ -739,7 +745,7 @@ mod tests {
             },
             ..Default::default()
         });
-        let uri = "file:///tmp/fallback.html".parse().expect("file URI");
+        let uri = host_uri("/tmp/fallback.html").parse().expect("file URI");
         let _mutation = session.open_document(&ls_types::TextDocumentItem {
             uri,
             language_id: "html".into(),
@@ -749,7 +755,7 @@ mod tests {
         assert!(
             !session
                 .diagnostics
-                .has_outstanding(Utf8Path::new("/tmp/fallback.html"))
+                .has_outstanding(Utf8Path::new(host_path("/tmp/fallback.html")))
         );
         session.queue_all_diagnostics();
         let queued = session.diagnostics.take_next().expect("queued fallback");
@@ -762,7 +768,7 @@ mod tests {
                 (version == 3).then(|| session.diagnostics.take_next().expect("queued fallback"));
             let _mutation = session.update_document(
                 &ls_types::VersionedTextDocumentIdentifier {
-                    uri: "file:///tmp/fallback.html".parse().expect("file URI"),
+                    uri: host_uri("/tmp/fallback.html").parse().expect("file URI"),
                     version,
                 },
                 vec![ls_types::TextDocumentContentChangeEvent {
@@ -792,7 +798,7 @@ mod tests {
         assert!(!session.diagnostics.has_outstanding(&delivered.path));
         let _mutation = session.update_document(
             &ls_types::VersionedTextDocumentIdentifier {
-                uri: "file:///tmp/fallback.html".parse().expect("file URI"),
+                uri: host_uri("/tmp/fallback.html").parse().expect("file URI"),
                 version: 4,
             },
             vec![ls_types::TextDocumentContentChangeEvent {
@@ -948,7 +954,7 @@ mod tests {
                 ..Default::default()
             });
             let document = ls_types::TextDocumentItem {
-                uri: "file:///tmp/djls-diagnostic-delivery.html"
+                uri: host_uri("/tmp/djls-diagnostic-delivery.html")
                     .parse()
                     .expect("file URI"),
                 language_id: "htmldjango".to_string(),
@@ -956,7 +962,7 @@ mod tests {
                 text: "{{ value".to_string(),
             };
             let _mutation = session.open_document(&document);
-            let path = Utf8Path::new("/tmp/djls-diagnostic-delivery.html");
+            let path = Utf8Path::new(host_path("/tmp/djls-diagnostic-delivery.html"));
             session.diagnostics.close(path);
             let generation = session.desired_generation();
             let prime = djls_ide::prime_template_library_products(session.db()).expect("project");
@@ -979,7 +985,7 @@ mod tests {
 
     #[test]
     fn latest_pending_version_wins_and_close_reopen_rejects_old_work() {
-        let path = Utf8PathBuf::from("/project/page.html");
+        let path = Utf8PathBuf::from(host_path("/project/page.html"));
         let mut queue = DiagnosticQueue::default();
         for version in 0..40 {
             queue.schedule(&TextDocument::new(
@@ -1015,7 +1021,7 @@ mod tests {
 
     #[test]
     fn stale_retry_and_finish_do_not_retire_replacement() {
-        let path = Utf8PathBuf::from("/project/page.html");
+        let path = Utf8PathBuf::from(host_path("/project/page.html"));
         let mut queue = DiagnosticQueue::default();
         queue.schedule(&TextDocument::new(
             path.clone(),
@@ -1048,7 +1054,11 @@ mod tests {
     #[test]
     fn take_next_skips_active_path_when_ordering_queued_work() {
         let mut queue = DiagnosticQueue::default();
-        for path in ["/project/a.html", "/project/b.html", "/project/c.html"] {
+        for path in [
+            host_path("/project/a.html"),
+            host_path("/project/b.html"),
+            host_path("/project/c.html"),
+        ] {
             queue.schedule(&TextDocument::new(
                 Utf8PathBuf::from(path),
                 path.to_string(),
@@ -1058,11 +1068,11 @@ mod tests {
         }
 
         let first = queue.take_next().expect("first document");
-        assert_eq!(first.path, Utf8Path::new("/project/a.html"));
+        assert_eq!(first.path, Utf8Path::new(host_path("/project/a.html")));
         let second = queue.take_next().expect("second document");
-        assert_eq!(second.path, Utf8Path::new("/project/b.html"));
+        assert_eq!(second.path, Utf8Path::new(host_path("/project/b.html")));
         let third = queue.take_next().expect("third document");
-        assert_eq!(third.path, Utf8Path::new("/project/c.html"));
+        assert_eq!(third.path, Utf8Path::new(host_path("/project/c.html")));
         assert!(queue.take_next().is_none());
     }
 }

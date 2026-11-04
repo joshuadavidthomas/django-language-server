@@ -14,6 +14,7 @@ use djls_source::Span;
 use djls_testing::ProjectFixture;
 use djls_testing::ProjectSettings;
 use djls_testing::TestDatabase;
+use djls_testing::slash_path;
 use rustc_hash::FxHashMap;
 
 fn project_with_templates(
@@ -481,7 +482,7 @@ fn template_references_to_template_name_include_all_sources() {
     let references = references_to_template_name(&db, project, partial);
     let source_paths: Vec<_> = references
         .iter()
-        .map(|reference| reference.source_file(&db).path(&db).as_str())
+        .map(|reference| slash_path(reference.source_file(&db).path(&db)))
         .collect();
 
     assert_eq!(

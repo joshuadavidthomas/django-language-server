@@ -9,6 +9,9 @@ use djls_source::PositionEncoding;
 use djls_testing::ProjectFixture;
 use djls_testing::ProjectSettings;
 use djls_testing::TestDatabase;
+use djls_testing::host_path;
+use djls_testing::host_source;
+use djls_testing::host_uri;
 use tower_lsp_server::ls_types;
 
 fn goto_definition(
@@ -43,16 +46,21 @@ fn custom_symbol_navigation_fixture(
     library_source: &str,
 ) -> Result<(TestDatabase, File), Box<dyn std::error::Error>> {
     let mut db = TestDatabase::new();
-    ProjectFixture::new("/test/project")
+    ProjectFixture::new(host_path("/test/project"))
         .settings(&ProjectSettings {
-            dirs: vec!["/test/project/templates".into()],
+            dirs: vec![host_path("/test/project/templates").into()],
             libraries: BTreeMap::from([("custom".into(), "custom_tags".into())]),
             ..ProjectSettings::default()
         })
-        .file("/test/project/custom_tags.py", library_source)
-        .file("/test/project/templates/page.html", template_source)
+        .file(host_path("/test/project/custom_tags.py"), library_source)
+        .file(
+            host_path("/test/project/templates/page.html"),
+            template_source,
+        )
         .install(&mut db)?;
-    let file = db.file(Utf8Path::new("/test/project/templates/page.html"))?;
+    let file = db.file(Utf8Path::new(host_path(
+        "/test/project/templates/page.html",
+    )))?;
     Ok((db, file))
 }
 
@@ -60,16 +68,18 @@ fn custom_symbol_navigation_fixture(
 fn goto_definition_does_not_leak_a_template_from_another_backend() {
     let mut db = TestDatabase::new();
     let source = r#"{% extends "base.html" %}"#;
-    let settings = "TEMPLATES = [\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/a'], 'APP_DIRS': False},\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/b'], 'APP_DIRS': False},\n]\n";
-    ProjectFixture::new("/test/project")
+    let settings = host_source(
+        "TEMPLATES = [\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/a'], 'APP_DIRS': False},\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/b'], 'APP_DIRS': False},\n]\n",
+    );
+    ProjectFixture::new(host_path("/test/project"))
         .django_settings_module("testproject.settings")
-        .file("/test/project/testproject/settings.py", settings)
-        .file("/test/project/a/child.html", source)
-        .file("/test/project/b/base.html", "other backend")
+        .file(host_path("/test/project/testproject/settings.py"), settings)
+        .file(host_path("/test/project/a/child.html"), source)
+        .file(host_path("/test/project/b/base.html"), "other backend")
         .install(&mut db)
         .expect("multi-backend project fixture should install");
     let file = db
-        .file(Utf8Path::new("/test/project/a/child.html"))
+        .file(Utf8Path::new(host_path("/test/project/a/child.html")))
         .expect("child template fixture should exist");
 
     assert!(
@@ -94,15 +104,15 @@ fn goto_definition_does_not_leak_a_template_from_another_backend() {
 fn goto_definition_reports_location_link_with_origin_range() {
     let mut db = TestDatabase::new();
     let source = r#"{% extends "base.html" %}"#;
-    let child_path = "/test/project/templates/child.html";
+    let child_path = host_path("/test/project/templates/child.html");
 
-    ProjectFixture::new("/test/project")
+    ProjectFixture::new(host_path("/test/project"))
         .settings(&ProjectSettings {
-            dirs: vec!["/test/project/templates".into()],
+            dirs: vec![host_path("/test/project/templates").into()],
             ..ProjectSettings::default()
         })
         .file(child_path, source)
-        .file("/test/project/templates/base.html", "base")
+        .file(host_path("/test/project/templates/base.html"), "base")
         .install(&mut db)
         .expect("location-link project fixture should install");
 
@@ -131,7 +141,7 @@ fn goto_definition_reports_location_link_with_origin_range() {
                 ls_types::Position::new(0, 12),
                 ls_types::Position::new(0, 21),
             )),
-            target_uri: "file:///test/project/templates/base.html"
+            target_uri: host_uri("/test/project/templates/base.html")
                 .parse()
                 .expect("test URI should parse"),
             target_range: ls_types::Range::default(),
@@ -142,7 +152,7 @@ fn goto_definition_reports_location_link_with_origin_range() {
         goto_definition(&db, file, offset_of(source, "base"), false),
         Some(ls_types::GotoDefinitionResponse::Scalar(
             ls_types::Location {
-                uri: "file:///test/project/templates/base.html"
+                uri: host_uri("/test/project/templates/base.html")
                     .parse()
                     .expect("test URI should parse"),
                 range: ls_types::Range::default(),
@@ -155,14 +165,14 @@ fn goto_definition_reports_location_link_with_origin_range() {
 fn goto_definition_encodes_existing_template_reference_origins() {
     let mut db = TestDatabase::new();
     let source = "😀{% extends \"base.html\" %}";
-    let child_path = "/test/project/templates/child.html";
-    ProjectFixture::new("/test/project")
+    let child_path = host_path("/test/project/templates/child.html");
+    ProjectFixture::new(host_path("/test/project"))
         .settings(&ProjectSettings {
-            dirs: vec!["/test/project/templates".into()],
+            dirs: vec![host_path("/test/project/templates").into()],
             ..ProjectSettings::default()
         })
         .file(child_path, source)
-        .file("/test/project/templates/base.html", "base")
+        .file(host_path("/test/project/templates/base.html"), "base")
         .install(&mut db)
         .expect("encoded Template-reference fixture should install");
     let file = db
@@ -195,17 +205,17 @@ fn goto_definition_resolves_absolute_reference_from_originless_file() {
     let mut db = TestDatabase::new();
     let source = r#"{% extends "base.html" %}"#;
 
-    ProjectFixture::new("/test/project")
+    ProjectFixture::new(host_path("/test/project"))
         .settings(&ProjectSettings {
-            dirs: vec!["/test/project/templates".into()],
+            dirs: vec![host_path("/test/project/templates").into()],
             ..ProjectSettings::default()
         })
-        .file("/test/project/scratch.html", source)
-        .file("/test/project/templates/base.html", "base")
+        .file(host_path("/test/project/scratch.html"), source)
+        .file(host_path("/test/project/templates/base.html"), "base")
         .install(&mut db)
         .expect("originless template project fixture should install");
     let file = db
-        .file(Utf8Path::new("/test/project/scratch.html"))
+        .file(Utf8Path::new(host_path("/test/project/scratch.html")))
         .expect("scratch template fixture should exist");
 
     let response = goto_definition(
@@ -226,7 +236,7 @@ fn goto_definition_resolves_absolute_reference_from_originless_file() {
         response,
         Some(ls_types::GotoDefinitionResponse::Scalar(
             ls_types::Location {
-                uri: "file:///test/project/templates/base.html"
+                uri: host_uri("/test/project/templates/base.html")
                     .parse()
                     .expect("test URI should parse"),
                 range: ls_types::Range::default(),
@@ -240,17 +250,17 @@ fn goto_definition_leaves_relative_reference_from_originless_file_unresolved() {
     let mut db = TestDatabase::new();
     let source = r#"{% extends "./base.html" %}"#;
 
-    ProjectFixture::new("/test/project")
+    ProjectFixture::new(host_path("/test/project"))
         .settings(&ProjectSettings {
-            dirs: vec!["/test/project/templates".into()],
+            dirs: vec![host_path("/test/project/templates").into()],
             ..ProjectSettings::default()
         })
-        .file("/test/project/scratch.html", source)
-        .file("/test/project/templates/base.html", "base")
+        .file(host_path("/test/project/scratch.html"), source)
+        .file(host_path("/test/project/templates/base.html"), "base")
         .install(&mut db)
         .expect("originless relative-reference fixture should install");
     let file = db
-        .file(Utf8Path::new("/test/project/scratch.html"))
+        .file(Utf8Path::new(host_path("/test/project/scratch.html")))
         .expect("scratch template fixture should exist");
 
     assert!(
@@ -275,17 +285,17 @@ fn goto_definition_leaves_relative_reference_from_originless_file_unresolved() {
 fn goto_definition_reports_the_known_possible_winner_for_inconclusive_search() {
     let mut db = TestDatabase::new();
     let source = r#"{% extends "base.html" %}"#;
-    let child_path = "/test/project/templates/child.html";
+    let child_path = host_path("/test/project/templates/child.html");
 
-    ProjectFixture::new("/test/project")
+    ProjectFixture::new(host_path("/test/project"))
         .django_settings_module("testproject.settings")
         .file(
-            "/test/project/testproject/settings.py",
-            "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [UNKNOWN, '/test/project/templates', '/test/project/app/templates'], 'APP_DIRS': False}]\n",
+            host_path("/test/project/testproject/settings.py"),
+            host_source("TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [UNKNOWN, '/test/project/templates', '/test/project/app/templates'], 'APP_DIRS': False}]\n"),
         )
         .file(child_path, source)
-        .file("/test/project/templates/base.html", "first")
-        .file("/test/project/app/templates/base.html", "second")
+        .file(host_path("/test/project/templates/base.html"), "first")
+        .file(host_path("/test/project/app/templates/base.html"), "second")
         .install(&mut db)
         .expect("incomplete-search project fixture should install");
 
@@ -317,7 +327,7 @@ fn goto_definition_reports_the_known_possible_winner_for_inconclusive_search() {
         .iter()
         .map(|link| link.target_uri.as_str())
         .collect::<Vec<_>>();
-    assert_eq!(target_uris, ["file:///test/project/templates/base.html"]);
+    assert_eq!(target_uris, [host_uri("/test/project/templates/base.html")]);
     assert!(links.iter().all(|link| {
         link.origin_selection_range
             == Some(ls_types::Range::new(
@@ -338,13 +348,13 @@ fn goto_definition_reports_the_known_possible_winner_for_inconclusive_search() {
 fn goto_definition_returns_none_for_originless_inconclusive_search() {
     let mut db = TestDatabase::new();
     let source = r#"{% extends "missing.html" %}"#;
-    let child_path = "/test/project/scratch.html";
+    let child_path = host_path("/test/project/scratch.html");
 
-    ProjectFixture::new("/test/project")
+    ProjectFixture::new(host_path("/test/project"))
         .django_settings_module("testproject.settings")
         .file(
-            "/test/project/testproject/settings.py",
-            "TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [UNKNOWN, '/test/project/templates'], 'APP_DIRS': False}]\n",
+            host_path("/test/project/testproject/settings.py"),
+            host_source("TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [UNKNOWN, '/test/project/templates'], 'APP_DIRS': False}]\n"),
         )
         .file(child_path, source)
         .install(&mut db)
@@ -371,24 +381,38 @@ fn goto_definition_returns_none_for_originless_inconclusive_search() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "keep the three-level inheritance fixture and both client shapes inline"
+)]
 fn goto_definition_resolves_template_block_to_nearest_parent() {
     let mut db = TestDatabase::new();
     let parent_source = "{% block title %}Parent{% endblock %}";
     let child_source = "{% extends \"base.html\" %}\n{% block title %}Child{% endblock %}";
-    ProjectFixture::new("/test/project")
+    ProjectFixture::new(host_path("/test/project"))
         .settings(&ProjectSettings {
-            dirs: vec!["/test/project/templates".into()],
+            dirs: vec![host_path("/test/project/templates").into()],
             ..ProjectSettings::default()
         })
-        .file("/test/project/templates/base.html", parent_source)
-        .file("/test/project/templates/child.html", child_source)
+        .file(
+            host_path("/test/project/templates/base.html"),
+            parent_source,
+        )
+        .file(
+            host_path("/test/project/templates/child.html"),
+            child_source,
+        )
         .install(&mut db)
         .expect("Template Block navigation fixture should install");
     let child = db
-        .file(Utf8Path::new("/test/project/templates/child.html"))
+        .file(Utf8Path::new(host_path(
+            "/test/project/templates/child.html",
+        )))
         .expect("child Template fixture should exist");
     let parent = db
-        .file(Utf8Path::new("/test/project/templates/base.html"))
+        .file(Utf8Path::new(host_path(
+            "/test/project/templates/base.html",
+        )))
         .expect("parent Template fixture should exist");
 
     let response = goto_definition(&db, child, offset_of(child_source, "title"), true)
@@ -401,7 +425,7 @@ fn goto_definition_resolves_template_block_to_nearest_parent() {
                 ls_types::Position::new(1, 9),
                 ls_types::Position::new(1, 14),
             )),
-            target_uri: "file:///test/project/templates/base.html"
+            target_uri: host_uri("/test/project/templates/base.html")
                 .parse()
                 .expect("test URI should parse"),
             target_range: ls_types::Range::new(
@@ -425,7 +449,7 @@ fn goto_definition_resolves_template_block_to_nearest_parent() {
     };
     assert_eq!(
         root_links[0].target_uri.as_str(),
-        "file:///test/project/templates/base.html"
+        host_uri("/test/project/templates/base.html")
     );
     assert_eq!(
         root_links[0].target_selection_range,
@@ -447,7 +471,7 @@ fn goto_definition_resolves_template_block_to_nearest_parent() {
         references,
         vec![
             ls_types::Location {
-                uri: "file:///test/project/templates/base.html"
+                uri: host_uri("/test/project/templates/base.html")
                     .parse()
                     .expect("test URI should parse"),
                 range: ls_types::Range::new(
@@ -456,7 +480,7 @@ fn goto_definition_resolves_template_block_to_nearest_parent() {
                 ),
             },
             ls_types::Location {
-                uri: "file:///test/project/templates/child.html"
+                uri: host_uri("/test/project/templates/child.html")
                     .parse()
                     .expect("test URI should parse"),
                 range: ls_types::Range::new(
@@ -472,10 +496,10 @@ fn goto_definition_resolves_template_block_to_nearest_parent() {
 fn goto_definition_resolves_a_projectless_root_block_to_itself() {
     let db = TestDatabase::new();
     let source = "{% block title %}Root{% endblock %}";
-    db.add_file("/projectless.html", source)
+    db.add_file(host_path("/projectless.html"), source)
         .expect("projectless Template fixture should load");
     let file = db
-        .file(Utf8Path::new("/projectless.html"))
+        .file(Utf8Path::new(host_path("/projectless.html")))
         .expect("projectless Template fixture should exist");
 
     let response = goto_definition(&db, file, offset_of(source, "title"), true)
@@ -483,7 +507,7 @@ fn goto_definition_resolves_a_projectless_root_block_to_itself() {
     let ls_types::GotoDefinitionResponse::Link(links) = response else {
         panic!("LocationLink client should receive a projectless Template Block link")
     };
-    assert_eq!(links[0].target_uri.as_str(), "file:///projectless.html");
+    assert_eq!(links[0].target_uri.as_str(), host_uri("/projectless.html"));
     assert_eq!(
         links[0].target_selection_range,
         ls_types::Range::new(
@@ -498,17 +522,25 @@ fn goto_definition_encodes_template_block_targets_for_link_and_plain_clients() {
     let mut db = TestDatabase::new();
     let parent_source = "😀{% block title %}Parent{% endblock %}";
     let child_source = "{% extends \"base.html\" %}\n😀{% block title %}Child{% endblock %}";
-    ProjectFixture::new("/test/project")
+    ProjectFixture::new(host_path("/test/project"))
         .settings(&ProjectSettings {
-            dirs: vec!["/test/project/templates".into()],
+            dirs: vec![host_path("/test/project/templates").into()],
             ..ProjectSettings::default()
         })
-        .file("/test/project/templates/base.html", parent_source)
-        .file("/test/project/templates/child.html", child_source)
+        .file(
+            host_path("/test/project/templates/base.html"),
+            parent_source,
+        )
+        .file(
+            host_path("/test/project/templates/child.html"),
+            child_source,
+        )
         .install(&mut db)
         .expect("encoded Template Block navigation fixture should install");
     let child = db
-        .file(Utf8Path::new("/test/project/templates/child.html"))
+        .file(Utf8Path::new(host_path(
+            "/test/project/templates/child.html",
+        )))
         .expect("encoded child Template fixture should exist");
     let offset = offset_of(child_source, "title");
 
@@ -540,7 +572,7 @@ fn goto_definition_encodes_template_block_targets_for_link_and_plain_clients() {
     };
     assert_eq!(
         location.uri,
-        "file:///test/project/templates/base.html"
+        host_uri("/test/project/templates/base.html")
             .parse()
             .expect("test URI should parse")
     );
@@ -571,25 +603,29 @@ fn goto_definition_does_not_skip_an_uncertain_parent_block() {
     let mut db = TestDatabase::new();
     let base_source = "{% block title %}Base{% endblock %}";
     let child_source = "{% extends \"layout.html\" %}\n{% block title %}Child{% endblock %}";
-    ProjectFixture::new("/test/project")
+    ProjectFixture::new(host_path("/test/project"))
         .django_settings_module("testproject.settings")
         .file(
-            "/test/project/testproject/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {**UNKNOWN}}}]\n",
+            host_path("/test/project/testproject/settings.py"),
+            host_source("INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {**UNKNOWN}}}]\n"),
         )
-        .file("/test/project/templates/base.html", base_source)
+        .file(host_path("/test/project/templates/base.html"), base_source)
         .file(
-            "/test/project/templates/layout.html",
+            host_path("/test/project/templates/layout.html"),
             "{% extends \"base.html\" %}\n{% load block from unknown_library %}\n{% block title %}Layout{% endblock %}",
         )
-        .file("/test/project/templates/child.html", child_source)
+        .file(host_path("/test/project/templates/child.html"), child_source)
         .install(&mut db)
         .expect("uncertain parent Template Block fixture should install");
     let child = db
-        .file(Utf8Path::new("/test/project/templates/child.html"))
+        .file(Utf8Path::new(host_path(
+            "/test/project/templates/child.html",
+        )))
         .expect("child Template fixture should exist");
     let base = db
-        .file(Utf8Path::new("/test/project/templates/base.html"))
+        .file(Utf8Path::new(host_path(
+            "/test/project/templates/base.html",
+        )))
         .expect("base Template fixture should exist");
 
     let response = goto_definition(&db, child, offset_of(child_source, "title"), true)
@@ -599,7 +635,7 @@ fn goto_definition_does_not_skip_an_uncertain_parent_block() {
     };
     assert_eq!(
         links[0].target_uri.as_str(),
-        "file:///test/project/templates/child.html"
+        host_uri("/test/project/templates/child.html")
     );
     assert_eq!(
         links[0].target_selection_range,
@@ -630,7 +666,7 @@ fn goto_definition_does_not_skip_an_uncertain_parent_block() {
     assert_eq!(local_references.len(), 1);
     assert_eq!(
         local_references[0].uri.as_str(),
-        "file:///test/project/templates/child.html"
+        host_uri("/test/project/templates/child.html")
     );
 }
 
@@ -638,20 +674,20 @@ fn goto_definition_does_not_skip_an_uncertain_parent_block() {
 fn find_references_keeps_an_originless_local_override() {
     let mut db = TestDatabase::new();
     let source = "{% extends \"base.html\" %}\n{% block title %}Scratch{% endblock %}";
-    ProjectFixture::new("/test/project")
+    ProjectFixture::new(host_path("/test/project"))
         .settings(&ProjectSettings {
-            dirs: vec!["/test/project/templates".into()],
+            dirs: vec![host_path("/test/project/templates").into()],
             ..ProjectSettings::default()
         })
         .file(
-            "/test/project/templates/base.html",
+            host_path("/test/project/templates/base.html"),
             "{% block title %}Base{% endblock %}",
         )
-        .file("/test/project/scratch.html", source)
+        .file(host_path("/test/project/scratch.html"), source)
         .install(&mut db)
         .expect("originless block-reference fixture should install");
     let scratch = db
-        .file(Utf8Path::new("/test/project/scratch.html"))
+        .file(Utf8Path::new(host_path("/test/project/scratch.html")))
         .expect("originless Template fixture should exist");
 
     let references = find_references(
@@ -665,7 +701,7 @@ fn find_references_keeps_an_originless_local_override() {
     assert_eq!(references.len(), 1);
     assert_eq!(
         references[0].uri.as_str(),
-        "file:///test/project/scratch.html"
+        host_uri("/test/project/scratch.html")
     );
 }
 
@@ -685,7 +721,7 @@ fn goto_definition_resolves_template_library_to_module_start() {
                 ls_types::Position::new(0, 8),
                 ls_types::Position::new(0, 14),
             )),
-            target_uri: "file:///test/project/custom_tags.py"
+            target_uri: host_uri("/test/project/custom_tags.py")
                 .parse()
                 .expect("test URI should parse"),
             target_range: ls_types::Range::default(),
@@ -698,9 +734,9 @@ fn goto_definition_resolves_template_library_to_module_start() {
 fn goto_definition_resolves_django_load_and_static_tags() {
     let source = "{% load static %}\n{% static 'asset.css' %}";
     let mut db = TestDatabase::new();
-    ProjectFixture::new("/test/project")
+    ProjectFixture::new(host_path("/test/project"))
         .settings(&ProjectSettings {
-            dirs: vec!["/test/project/templates".into()],
+            dirs: vec![host_path("/test/project/templates").into()],
             builtins: vec!["django.template.defaulttags".into()],
             libraries: BTreeMap::from([(
                 "static".into(),
@@ -708,22 +744,24 @@ fn goto_definition_resolves_django_load_and_static_tags() {
             )]),
             ..ProjectSettings::default()
         })
-        .file("/test/project/django/__init__.py", "")
-        .file("/test/project/django/template/__init__.py", "")
+        .file(host_path("/test/project/django/__init__.py"), "")
+        .file(host_path("/test/project/django/template/__init__.py"), "")
         .file(
-            "/test/project/django/template/defaulttags.py",
+            host_path("/test/project/django/template/defaulttags.py"),
             "from django import template\nregister = template.Library()\n@register.tag\ndef load(parser, token):\n    parser.add_library(None)\n",
         )
-        .file("/test/project/django/templatetags/__init__.py", "")
+        .file(host_path("/test/project/django/templatetags/__init__.py"), "")
         .file(
-            "/test/project/django/templatetags/static.py",
+            host_path("/test/project/django/templatetags/static.py"),
             "from django import template\nregister = template.Library()\n@register.tag('static')\ndef do_static(parser, token): pass\n",
         )
-        .file("/test/project/templates/page.html", source)
+        .file(host_path("/test/project/templates/page.html"), source)
         .install(&mut db)
         .expect("Django Tag project fixture should install");
     let file = db
-        .file(Utf8Path::new("/test/project/templates/page.html"))
+        .file(Utf8Path::new(host_path(
+            "/test/project/templates/page.html",
+        )))
         .expect("Django Tag template should exist");
 
     let load = goto_definition(&db, file, offset_of(source, "load"), true)
@@ -815,7 +853,7 @@ fn goto_definition_resolves_loaded_tag_and_filter_to_local_functions() {
     assert_eq!(tag_links.len(), 1);
     assert_eq!(
         tag_links[0].target_uri.as_str(),
-        "file:///test/project/custom_tags.py"
+        host_uri("/test/project/custom_tags.py")
     );
     assert_eq!(
         tag_links[0].origin_selection_range,
@@ -868,27 +906,29 @@ fn goto_definition_resolves_loaded_tag_and_filter_to_local_functions() {
 fn goto_definition_resolves_imported_registration_callable() {
     let source = "{% load bird %}\n{% bird component %}";
     let mut db = TestDatabase::new();
-    ProjectFixture::new("/test/project")
+    ProjectFixture::new(host_path("/test/project"))
         .django_settings_module("settings")
         .file(
-            "/test/project/settings.py",
-            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'OPTIONS': {'libraries': {'bird': 'app.templatetags.bird_tags'}}}]\n",
+            host_path("/test/project/settings.py"),
+            host_source("INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'OPTIONS': {'libraries': {'bird': 'app.templatetags.bird_tags'}}}]\n"),
         )
-        .file("/test/project/app/__init__.py", "")
-        .file("/test/project/app/templatetags/__init__.py", "")
+        .file(host_path("/test/project/app/__init__.py"), "")
+        .file(host_path("/test/project/app/templatetags/__init__.py"), "")
         .file(
-            "/test/project/app/templatetags/bird_tags.py",
+            host_path("/test/project/app/templatetags/bird_tags.py"),
             "from django import template\nfrom . import bird\nregister = template.Library()\nregister.tag(bird.TAG, bird.do_bird)\n",
         )
         .file(
-            "/test/project/app/templatetags/bird.py",
+            host_path("/test/project/app/templatetags/bird.py"),
             "TAG = 'bird'\n\ndef do_bird(parser, token):\n    return None\n",
         )
-        .file("/test/project/templates/page.html", source)
+        .file(host_path("/test/project/templates/page.html"), source)
         .install(&mut db)
         .expect("imported registration navigation fixture should install");
     let file = db
-        .file(Utf8Path::new("/test/project/templates/page.html"))
+        .file(Utf8Path::new(host_path(
+            "/test/project/templates/page.html",
+        )))
         .expect("Template fixture should exist");
 
     let response = goto_definition(&db, file, offset_of(source, "bird component"), true)
@@ -899,7 +939,7 @@ fn goto_definition_resolves_imported_registration_callable() {
     assert_eq!(links.len(), 1);
     assert_eq!(
         links[0].target_uri.as_str(),
-        "file:///test/project/app/templatetags/bird.py"
+        host_uri("/test/project/app/templatetags/bird.py")
     );
     assert_eq!(
         links[0].target_range,
@@ -926,9 +966,9 @@ fn goto_definition_follows_source_order_shadowing() {
             "from django import template\nregister = template.Library()\n@register.simple_tag(name='shared')\ndef {function}(): pass\n"
         )
     };
-    ProjectFixture::new("/test/project")
+    ProjectFixture::new(host_path("/test/project"))
         .settings(&ProjectSettings {
-            dirs: vec!["/test/project/templates".into()],
+            dirs: vec![host_path("/test/project/templates").into()],
             builtins: vec!["builtin_tags".into()],
             libraries: BTreeMap::from([
                 ("alpha".into(), "alpha_tags".into()),
@@ -936,14 +976,25 @@ fn goto_definition_follows_source_order_shadowing() {
             ]),
             ..ProjectSettings::default()
         })
-        .file("/test/project/builtin_tags.py", library_source("builtin"))
-        .file("/test/project/alpha_tags.py", library_source("alpha"))
-        .file("/test/project/beta_tags.py", library_source("beta"))
-        .file("/test/project/templates/page.html", source)
+        .file(
+            host_path("/test/project/builtin_tags.py"),
+            library_source("builtin"),
+        )
+        .file(
+            host_path("/test/project/alpha_tags.py"),
+            library_source("alpha"),
+        )
+        .file(
+            host_path("/test/project/beta_tags.py"),
+            library_source("beta"),
+        )
+        .file(host_path("/test/project/templates/page.html"), source)
         .install(&mut db)
         .expect("shadowed-definition project fixture should install");
     let file = db
-        .file(Utf8Path::new("/test/project/templates/page.html"))
+        .file(Utf8Path::new(host_path(
+            "/test/project/templates/page.html",
+        )))
         .expect("shadowed-definition template should exist");
     let offsets = source
         .match_indices("shared")
@@ -970,9 +1021,9 @@ fn goto_definition_follows_source_order_shadowing() {
     assert_eq!(
         target_uris,
         [
-            "file:///test/project/builtin_tags.py",
-            "file:///test/project/alpha_tags.py",
-            "file:///test/project/beta_tags.py",
+            host_uri("/test/project/builtin_tags.py"),
+            host_uri("/test/project/alpha_tags.py"),
+            host_uri("/test/project/beta_tags.py"),
         ]
     );
 }
@@ -980,24 +1031,26 @@ fn goto_definition_follows_source_order_shadowing() {
 #[test]
 fn goto_definition_requires_backend_definition_agreement() {
     let shared_source = "{% load shared %}\n{% common %}";
-    let shared_settings = "INSTALLED_APPS = []\nif FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/shared'], 'APP_DIRS': False, 'OPTIONS': {'builtins': ['shared_tags'], 'libraries': {'shared': 'empty_tags'}}}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/shared'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'shared_tags'}}}]\n";
+    let shared_settings = host_source(
+        "INSTALLED_APPS = []\nif FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/shared'], 'APP_DIRS': False, 'OPTIONS': {'builtins': ['shared_tags'], 'libraries': {'shared': 'empty_tags'}}}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/shared'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'shared': 'shared_tags'}}}]\n",
+    );
     let mut shared_db = TestDatabase::new();
-    ProjectFixture::new("/test/project")
+    ProjectFixture::new(host_path("/test/project"))
         .django_settings_module("testproject.settings")
-        .file("/test/project/testproject/settings.py", shared_settings)
+        .file(host_path("/test/project/testproject/settings.py"), shared_settings)
         .file(
-            "/test/project/shared_tags.py",
+            host_path("/test/project/shared_tags.py"),
             "from django import template\nregister = template.Library()\n@register.simple_tag\ndef common(): pass\n",
         )
         .file(
-            "/test/project/empty_tags.py",
+            host_path("/test/project/empty_tags.py"),
             "from django import template\nregister = template.Library()\n",
         )
-        .file("/test/project/shared/page.html", shared_source)
+        .file(host_path("/test/project/shared/page.html"), shared_source)
         .install(&mut shared_db)
         .expect("shared-definition project fixture should install");
     let shared_file = shared_db
-        .file(Utf8Path::new("/test/project/shared/page.html"))
+        .file(Utf8Path::new(host_path("/test/project/shared/page.html")))
         .expect("shared-definition template should exist");
 
     assert_eq!(
@@ -1009,7 +1062,7 @@ fn goto_definition_requires_backend_definition_agreement() {
         ),
         Some(ls_types::GotoDefinitionResponse::Scalar(
             ls_types::Location {
-                uri: "file:///test/project/shared_tags.py"
+                uri: host_uri("/test/project/shared_tags.py")
                     .parse()
                     .expect("test URI should parse"),
                 range: ls_types::Range::new(
@@ -1021,27 +1074,29 @@ fn goto_definition_requires_backend_definition_agreement() {
     );
 
     let conflicting_source = "{% common %}";
-    let conflicting_settings = "INSTALLED_APPS = []\nif FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/shared'], 'APP_DIRS': False, 'OPTIONS': {'builtins': ['alpha_tags']}}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/shared'], 'APP_DIRS': False, 'OPTIONS': {'builtins': ['beta_tags']}}]\n";
+    let conflicting_settings = host_source(
+        "INSTALLED_APPS = []\nif FLAG:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/shared'], 'APP_DIRS': False, 'OPTIONS': {'builtins': ['alpha_tags']}}]\nelse:\n    TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/shared'], 'APP_DIRS': False, 'OPTIONS': {'builtins': ['beta_tags']}}]\n",
+    );
     let mut conflicting_db = TestDatabase::new();
-    ProjectFixture::new("/test/project")
+    ProjectFixture::new(host_path("/test/project"))
         .django_settings_module("testproject.settings")
         .file(
-            "/test/project/testproject/settings.py",
+            host_path("/test/project/testproject/settings.py"),
             conflicting_settings,
         )
         .file(
-            "/test/project/alpha_tags.py",
+            host_path("/test/project/alpha_tags.py"),
             "from django import template\nregister = template.Library()\n@register.simple_tag\ndef common(): pass\n",
         )
         .file(
-            "/test/project/beta_tags.py",
+            host_path("/test/project/beta_tags.py"),
             "from django import template\nregister = template.Library()\n@register.simple_tag\ndef common(): pass\n",
         )
-        .file("/test/project/shared/page.html", conflicting_source)
+        .file(host_path("/test/project/shared/page.html"), conflicting_source)
         .install(&mut conflicting_db)
         .expect("conflicting-definition project fixture should install");
     let conflicting_file = conflicting_db
-        .file(Utf8Path::new("/test/project/shared/page.html"))
+        .file(Utf8Path::new(host_path("/test/project/shared/page.html")))
         .expect("conflicting-definition template should exist");
 
     assert_eq!(
@@ -1137,7 +1192,10 @@ fn goto_definition_encodes_template_origins_and_python_targets() {
     let ls_types::GotoDefinitionResponse::Scalar(location) = plain else {
         panic!("one exact target should use a scalar Location")
     };
-    assert_eq!(location.uri.as_str(), "file:///test/project/custom_tags.py");
+    assert_eq!(
+        location.uri.as_str(),
+        host_uri("/test/project/custom_tags.py")
+    );
     assert_eq!(location.range.start, ls_types::Position::new(2, 0));
 }
 
@@ -1176,19 +1234,22 @@ fn goto_definition_does_not_guess_unloaded_or_member_callable_targets() {
 fn find_references_resolves_extends_with_the_source_origin_skipped() {
     let mut db = TestDatabase::new();
     let source = r#"{% extends "base.html" %}"#;
-    let child_path = "/test/project/first/base.html";
+    let child_path = host_path("/test/project/first/base.html");
 
-    ProjectFixture::new("/test/project")
+    ProjectFixture::new(host_path("/test/project"))
         .settings(&ProjectSettings {
-            dirs: vec!["/test/project/first".into(), "/test/project/second".into()],
+            dirs: vec![
+                host_path("/test/project/first").into(),
+                host_path("/test/project/second").into(),
+            ],
             ..ProjectSettings::default()
         })
         .file(child_path, source)
         .file(
-            "/test/project/first/include.html",
+            host_path("/test/project/first/include.html"),
             r#"{% include "base.html" %}"#,
         )
-        .file("/test/project/second/base.html", "parent")
+        .file(host_path("/test/project/second/base.html"), "parent")
         .install(&mut db)
         .expect("shadowed-template project fixture should install");
 
@@ -1214,7 +1275,7 @@ fn find_references_resolves_extends_with_the_source_origin_skipped() {
     assert_eq!(
         locations,
         [ls_types::Location {
-            uri: "file:///test/project/first/base.html"
+            uri: host_uri("/test/project/first/base.html")
                 .parse()
                 .expect("test URI should parse"),
             range: ls_types::Range::new(
@@ -1229,23 +1290,26 @@ fn find_references_resolves_extends_with_the_source_origin_skipped() {
 fn find_references_skips_the_source_file_across_template_name_aliases() {
     let mut db = TestDatabase::new();
     let source = r#"{% extends "alias/base.html" %}"#;
-    let source_path = "/test/project/templates/alias/base.html";
+    let source_path = host_path("/test/project/templates/alias/base.html");
 
-    ProjectFixture::new("/test/project")
+    ProjectFixture::new(host_path("/test/project"))
         .settings(&ProjectSettings {
             dirs: vec![
-                "/test/project/templates".into(),
-                "/test/project/templates/alias".into(),
-                "/test/project/fallback".into(),
+                host_path("/test/project/templates").into(),
+                host_path("/test/project/templates/alias").into(),
+                host_path("/test/project/fallback").into(),
             ],
             ..ProjectSettings::default()
         })
         .file(source_path, source)
         .file(
-            "/test/project/templates/include.html",
+            host_path("/test/project/templates/include.html"),
             r#"{% include "alias/base.html" %}"#,
         )
-        .file("/test/project/fallback/alias/base.html", "parent")
+        .file(
+            host_path("/test/project/fallback/alias/base.html"),
+            "parent",
+        )
         .install(&mut db)
         .expect("template-alias project fixture should install");
 
@@ -1271,7 +1335,7 @@ fn find_references_skips_the_source_file_across_template_name_aliases() {
     assert_eq!(locations.len(), 1);
     assert_eq!(
         locations[0].uri,
-        "file:///test/project/templates/alias/base.html"
+        host_uri("/test/project/templates/alias/base.html")
             .parse()
             .expect("test URI should parse")
     );
@@ -1281,15 +1345,15 @@ fn find_references_skips_the_source_file_across_template_name_aliases() {
 fn find_references_reports_template_name_interior_range() {
     let mut db = TestDatabase::new();
     let source = r#"{% extends "base.html" %}"#;
-    let child_path = "/test/project/templates/child.html";
+    let child_path = host_path("/test/project/templates/child.html");
 
-    ProjectFixture::new("/test/project")
+    ProjectFixture::new(host_path("/test/project"))
         .settings(&ProjectSettings {
-            dirs: vec!["/test/project/templates".into()],
+            dirs: vec![host_path("/test/project/templates").into()],
             ..ProjectSettings::default()
         })
         .file(child_path, source)
-        .file("/test/project/templates/base.html", "base")
+        .file(host_path("/test/project/templates/base.html"), "base")
         .install(&mut db)
         .expect("template-reference project fixture should install");
 

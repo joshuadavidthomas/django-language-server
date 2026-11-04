@@ -5,6 +5,7 @@ mod extraction;
 mod fixtures;
 pub mod log_capture;
 mod mdtest;
+mod paths;
 mod settings;
 mod vendor;
 
@@ -55,6 +56,10 @@ pub use mdtest::Scenario;
 pub use mdtest::ScenarioFileKind;
 pub use mdtest::run_file;
 pub use mdtest::run_file_with;
+pub use paths::host_path;
+pub use paths::host_source;
+pub use paths::host_uri;
+pub use paths::slash_path;
 pub use settings::ProjectSettings;
 pub use vendor::VendorSpecFixturesOptions;
 pub use vendor::vendor_spec_fixtures;

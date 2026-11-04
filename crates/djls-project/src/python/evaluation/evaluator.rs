@@ -1169,6 +1169,8 @@ mod tests {
     use djls_source::WalkOptions;
     use djls_testing::OsTestDatabase;
     use djls_testing::TestDatabase;
+    use djls_testing::host_path;
+    use djls_testing::host_source;
     use salsa::Setter;
     use salsa::plumbing::FromId;
     use salsa::plumbing::Id;
@@ -1259,24 +1261,28 @@ mod tests {
         for (path, content) in files {
             inner.add_file((*path).into(), (*content).to_string());
         }
-        inner.add_file("/project/settings.py".into(), source.to_string());
+        inner.add_file(host_path("/project/settings.py").into(), source.to_string());
         let fs = ReadFailingFileSystem {
             inner,
             unreadable: unreadable.into(),
         };
-        let mut db = OsTestDatabase::with_file_system(Arc::new(fs), ["/project".into()]);
-        let project =
-            crate::project::Project::initial(&db, Utf8Path::new("/project"), &Settings::default());
+        let mut db = OsTestDatabase::with_file_system(Arc::new(fs), [host_path("/project").into()]);
+        let project = crate::project::Project::initial(
+            &db,
+            Utf8Path::new(host_path("/project")),
+            &Settings::default(),
+        );
         let search_paths = crate::python::SearchPaths::from_project_settings(
             db.file_system(),
-            Utf8Path::new("/project"),
+            Utf8Path::new(host_path("/project")),
             &crate::python::PythonEnvironment::Auto,
             &[],
         );
         search_paths.register_roots(&db);
         project.set_search_paths(&mut db).to(search_paths);
-        let module = crate::python::file_to_module(&db, project, "/project/settings.py".into())
-            .expect("module resolves");
+        let module =
+            crate::python::file_to_module(&db, project, host_path("/project/settings.py").into())
+                .expect("module resolves");
         let facts = python_module_facts(&db, project, module.clone(), EvaluationDemand::Full)
             .as_ref()
             .expect("module evaluates")
@@ -1292,12 +1298,16 @@ mod tests {
 
     fn evaluate_source_with_file(source: &str) -> (File, PythonModuleFacts) {
         let db = TestDatabase::new();
-        let project =
-            crate::project::Project::initial(&db, Utf8Path::new("/project"), &Settings::default());
-        db.add_file("/project/settings.py", source)
+        let project = crate::project::Project::initial(
+            &db,
+            Utf8Path::new(host_path("/project")),
+            &Settings::default(),
+        );
+        db.add_file(host_path("/project/settings.py"), source)
             .expect("fixture should be writable");
-        let module = crate::python::file_to_module(&db, project, "/project/settings.py".into())
-            .expect("module should resolve");
+        let module =
+            crate::python::file_to_module(&db, project, host_path("/project/settings.py").into())
+                .expect("module should resolve");
         let file = module.file();
         let parsed = ruff_python_parser::parse_module(source)
             .expect("fixture should parse")
@@ -1317,7 +1327,7 @@ mod tests {
         files: &[(&str, &str)],
         source: &str,
     ) -> (File, PythonModuleFacts, super::PythonImportTrace) {
-        evaluate_imports_at(files, "/project/settings.py", source)
+        evaluate_imports_at(files, host_path("/project/settings.py"), source)
     }
 
     fn evaluate_imports_at(
@@ -1338,11 +1348,14 @@ mod tests {
             db.add_file(path, content)
                 .expect("fixture should be writable");
         }
-        let project =
-            crate::project::Project::initial(&db, Utf8Path::new("/project"), &Settings::default());
+        let project = crate::project::Project::initial(
+            &db,
+            Utf8Path::new(host_path("/project")),
+            &Settings::default(),
+        );
         let paths = crate::python::SearchPaths::from_project_settings(
             db.file_system(),
-            Utf8Path::new("/project"),
+            Utf8Path::new(host_path("/project")),
             &crate::python::PythonEnvironment::Auto,
             pythonpath,
         );
@@ -1428,11 +1441,14 @@ mod tests {
         }
         db.add_file(entry, source)
             .expect("fixture should be writable");
-        let project =
-            crate::project::Project::initial(&db, Utf8Path::new("/project"), &Settings::default());
+        let project = crate::project::Project::initial(
+            &db,
+            Utf8Path::new(host_path("/project")),
+            &Settings::default(),
+        );
         let search_paths = crate::python::SearchPaths::from_project_settings(
             db.file_system(),
-            Utf8Path::new("/project"),
+            Utf8Path::new(host_path("/project")),
             &crate::python::PythonEnvironment::Auto,
             pythonpath,
         );
@@ -1493,6 +1509,10 @@ mod tests {
             })
             .collect()
     }
+
+    /// `os.path` string operations follow POSIX semantics, so the evaluator declines them on
+    /// Windows rather than guess at `ntpath`.
+    const OS_PATH_EVALUATED: bool = !cfg!(windows);
 
     fn binding_strings<'a>(
         facts: &'a PythonModuleFacts,
@@ -1574,20 +1594,27 @@ mod tests {
         let source = "import os\nfrom os import environ as imported_environ, getenv as imported_getenv\nENVIRON = os.environ\nENV_GET = os.environ.get\nGETENV = os.getenv\nPRESENT = os.environ.get('APP')\nALIASED = ENV_GET('APP')\nIMPORTED_GET = imported_environ.get('APP')\nIMPORTED_GETENV = imported_getenv('APP')\nDEFAULTED = GETENV('MISSING', 'fallback')\nGET_DEFAULTED = os.environ.get('MISSING', 'fallback')\nABSENT = os.environ.get('ABSENT')\nGETENV_ABSENT = os.getenv('ABSENT')\nDYNAMIC_KEY = os.getenv(KEY)\nDYNAMIC_DEFAULT = os.getenv('MISSING', fallback())\nKEYWORD_DEFAULT = os.getenv('MISSING', default='fallback')\nSUBSCRIPT = os.environ['APP']\nos.getenv('APP')\nAFTER_DISCARDED = os.getenv('APP')\nINSTALLED_APPS = [os.getenv('APP', 'fallback')]\n";
         let db = TestDatabase::new();
         for (path, content) in [
-            ("/project/.env", "APP=stale.app\nAPP=env.app\n"),
-            ("/project/manage.py", ""),
-            ("/project/config/__init__.py", ""),
-            ("/project/config/settings.py", source),
+            (host_path("/project/.env"), "APP=stale.app\nAPP=env.app\n"),
+            (host_path("/project/manage.py"), ""),
+            (host_path("/project/config/__init__.py"), ""),
+            (host_path("/project/config/settings.py"), source),
         ] {
             db.add_file(path, content)
                 .expect("fixture should be writable");
         }
         let settings: Settings =
             toml::from_str("django_settings_module = 'config.settings'\n").expect("config parses");
-        let project = crate::project::Project::bootstrap(&db, Utf8Path::new("/project"), &settings);
-        let module =
-            crate::python::file_to_module(&db, project, "/project/config/settings.py".into())
-                .expect("module resolves");
+        let project = crate::project::Project::bootstrap(
+            &db,
+            Utf8Path::new(host_path("/project")),
+            &settings,
+        );
+        let module = crate::python::file_to_module(
+            &db,
+            project,
+            host_path("/project/config/settings.py").into(),
+        )
+        .expect("module resolves");
         let facts = python_module_facts(&db, project, module, EvaluationDemand::Full);
         let facts = facts.as_ref().expect("evaluation succeeds");
         for (name, expected) in [
@@ -1639,15 +1666,15 @@ mod tests {
         let source = "from plugin import INSTALLED_APPS\n";
         let (db, file, facts, trace) = evaluate_imports_with_paths(
             &[(
-                "/project/plugin.py",
+                host_path("/project/plugin.py"),
                 "if ENABLED:\n    from missing import *\n",
             )],
-            "/project/settings.py",
+            host_path("/project/settings.py"),
             source,
             &[],
         );
         let plugin = db
-            .file(Utf8Path::new("/project/plugin.py"))
+            .file(Utf8Path::new(host_path("/project/plugin.py")))
             .expect("plugin exists");
         let binding = &facts.bindings["INSTALLED_APPS"];
         assert!(
@@ -1670,15 +1697,15 @@ mod tests {
     fn named_import_of_conditional_binding_preserves_known_member_and_namespace_outcomes() {
         let (db, _, facts, trace) = evaluate_imports_with_paths(
             &[(
-                "/project/plugin.py",
+                host_path("/project/plugin.py"),
                 "if ENABLED:\n    INSTALLED_APPS = ['imported']\n    from missing import *\n",
             )],
-            "/project/settings.py",
+            host_path("/project/settings.py"),
             "from plugin import INSTALLED_APPS\n",
             &[],
         );
         let plugin = db
-            .file(Utf8Path::new("/project/plugin.py"))
+            .file(Utf8Path::new(host_path("/project/plugin.py")))
             .expect("plugin exists");
         let binding = &facts.bindings["INSTALLED_APPS"];
         assert!(
@@ -1696,9 +1723,9 @@ mod tests {
     #[test]
     fn mixed_direct_and_from_cycle_records_cycle_on_both_forms() {
         let files = [
-            ("/project/a.py", "import b\nVALUE_A = 'a'\n"),
+            (host_path("/project/a.py"), "import b\nVALUE_A = 'a'\n"),
             (
-                "/project/b.py",
+                host_path("/project/b.py"),
                 "from a import VALUE_A\nVALUE_B = VALUE_A\n",
             ),
         ];
@@ -1749,9 +1776,9 @@ mod tests {
     #[test]
     fn external_star_import_of_cycle_is_entry_order_independent() {
         let files = [
-            ("/project/a.py", "from b import *\n"),
-            ("/project/b.py", "from a import *\n"),
-            ("/project/external.py", "from a import *\n"),
+            (host_path("/project/a.py"), "from b import *\n"),
+            (host_path("/project/b.py"), "from a import *\n"),
+            (host_path("/project/external.py"), "from a import *\n"),
         ];
         let a_first = cycle_products(&files, "a", &["external"]);
         let b_first = cycle_products(&files, "b", &["external"]);
@@ -1772,11 +1799,11 @@ mod tests {
     fn python_module_cycle_keeps_local_mutations_without_copying_dynamic_star_mutations() {
         let files = [
             (
-                "/project/a.py",
+                host_path("/project/a.py"),
                 "from b import *\nVALUES_A = []\nVALUES_A.append('a')\n",
             ),
             (
-                "/project/b.py",
+                host_path("/project/b.py"),
                 "from a import *\nVALUES_B = []\nVALUES_B.append('b')\n",
             ),
         ];
@@ -1806,8 +1833,8 @@ mod tests {
     #[test]
     fn ordinary_import_cycle_products_are_entry_order_independent() {
         let files = [
-            ("/project/a.py", "import b\nVALUE_A = 'a'\n"),
-            ("/project/b.py", "import a\nVALUE_B = 'b'\n"),
+            (host_path("/project/a.py"), "import b\nVALUE_A = 'a'\n"),
+            (host_path("/project/b.py"), "import a\nVALUE_B = 'b'\n"),
         ];
         let a_first = cycle_products(&files, "a", &["a", "b"]);
         let b_first = cycle_products(&files, "b", &["a", "b"]);
@@ -1832,8 +1859,14 @@ mod tests {
     #[test]
     fn python_module_cycle_products_are_entry_order_independent() {
         let files = [
-            ("/project/a.py", "from b import B\nA = B\nAFTER_A = 'a'\n"),
-            ("/project/b.py", "from a import A\nB = A\nAFTER_B = 'b'\n"),
+            (
+                host_path("/project/a.py"),
+                "from b import B\nA = B\nAFTER_A = 'a'\n",
+            ),
+            (
+                host_path("/project/b.py"),
+                "from a import A\nB = A\nAFTER_B = 'b'\n",
+            ),
         ];
         let a_first = cycle_products(&files, "a", &["a", "b"]);
         let b_first = cycle_products(&files, "b", &["a", "b"]);
@@ -1858,8 +1891,14 @@ mod tests {
     #[test]
     fn python_module_cycle_widens_cyclic_values_but_keeps_post_cycle_assignments() {
         let files = [
-            ("/project/a.py", "from b import B\nA = B\nAFTER_A = 'a'\n"),
-            ("/project/b.py", "from a import A\nB = A\nAFTER_B = 'b'\n"),
+            (
+                host_path("/project/a.py"),
+                "from b import B\nA = B\nAFTER_A = 'a'\n",
+            ),
+            (
+                host_path("/project/b.py"),
+                "from a import A\nB = A\nAFTER_B = 'b'\n",
+            ),
         ];
         let products = cycle_products(&files, "a", &["a", "b"]);
         for ((facts, _), cycle_name, stable_name, stable_value) in [
@@ -1879,10 +1918,16 @@ mod tests {
     fn relative_import_cycle_uses_module_identities_in_overlapping_roots() {
         let (db, project) = evaluation_project(
             &[
-                ("/project/lib/pkg/a.py", "from .b import B\nA = B\n"),
-                ("/project/lib/pkg/b.py", "from lib.pkg.a import A\nB = A\n"),
+                (
+                    host_path("/project/lib/pkg/a.py"),
+                    "from .b import B\nA = B\n",
+                ),
+                (
+                    host_path("/project/lib/pkg/b.py"),
+                    "from lib.pkg.a import A\nB = A\n",
+                ),
             ],
-            &[Utf8PathBuf::from("/project/lib")],
+            &[Utf8PathBuf::from(host_path("/project/lib"))],
         );
         let module = crate::python::PythonSourceModule::resolve(
             &db,
@@ -1912,19 +1957,19 @@ mod tests {
         let (db, project) = evaluation_project(
             &[
                 (
-                    "/project/lib/pkg/settings.py",
+                    host_path("/project/lib/pkg/settings.py"),
                     "from .sibling import VALUE\n",
                 ),
                 (
-                    "/project/pkg/sibling.py",
+                    host_path("/project/pkg/sibling.py"),
                     "VALUE = 'inbound module identity'\n",
                 ),
                 (
-                    "/project/lib/pkg/sibling.py",
+                    host_path("/project/lib/pkg/sibling.py"),
                     "VALUE = 'canonical file identity'\n",
                 ),
             ],
-            &[Utf8PathBuf::from("/project/lib")],
+            &[Utf8PathBuf::from(host_path("/project/lib"))],
         );
         let module = crate::python::PythonSourceModule::resolve(
             &db,
@@ -1933,7 +1978,7 @@ mod tests {
         )
         .expect("module resolves");
         let sibling = db
-            .file(Utf8Path::new("/project/pkg/sibling.py"))
+            .file(Utf8Path::new(host_path("/project/pkg/sibling.py")))
             .expect("file exists");
         let trace = python_import_trace(&db, project, module.clone(), EvaluationDemand::Full);
         assert!(
@@ -1943,9 +1988,12 @@ mod tests {
         assert!(
             matches!(&bound(facts.as_ref().expect("evaluation succeeds"), "VALUE").value.kind, PythonValueKind::Str(value) if value == "inbound module identity")
         );
-        let canonical =
-            crate::python::file_to_module(&db, project, "/project/lib/pkg/settings.py".into())
-                .expect("canonical module resolves");
+        let canonical = crate::python::file_to_module(
+            &db,
+            project,
+            host_path("/project/lib/pkg/settings.py").into(),
+        )
+        .expect("canonical module resolves");
         let facts = python_module_facts(&db, project, canonical, EvaluationDemand::Full);
         assert!(
             matches!(&bound(facts.as_ref().expect("evaluation succeeds"), "VALUE").value.kind, PythonValueKind::Str(value) if value == "canonical file identity")
@@ -1956,8 +2004,14 @@ mod tests {
     fn python_module_package_identity_relative_import_from_init_alias_uses_parent_package() {
         let (db, project) = evaluation_project(
             &[
-                ("/project/pkg/__init__.py", "from .base import VALUE\n"),
-                ("/project/pkg/base.py", "VALUE = 'package value'\n"),
+                (
+                    host_path("/project/pkg/__init__.py"),
+                    "from .base import VALUE\n",
+                ),
+                (
+                    host_path("/project/pkg/base.py"),
+                    "VALUE = 'package value'\n",
+                ),
             ],
             &[],
         );
@@ -1978,8 +2032,8 @@ mod tests {
         let source = "from a import *\nfrom b import *\n";
         let (file, facts, _) = evaluate_imports(
             &[
-                ("/project/a.py", "from b import *\n"),
-                ("/project/b.py", "from a import *\n"),
+                (host_path("/project/a.py"), "from b import *\n"),
+                (host_path("/project/b.py"), "from a import *\n"),
             ],
             source,
         );
@@ -2009,8 +2063,8 @@ mod tests {
         let source = "from a import *\n";
         let (file, facts, _) = evaluate_imports(
             &[
-                ("/project/a.py", "from b import INSTALLED_APPS\n"),
-                ("/project/b.py", "from a import INSTALLED_APPS\n"),
+                (host_path("/project/a.py"), "from b import INSTALLED_APPS\n"),
+                (host_path("/project/b.py"), "from a import INSTALLED_APPS\n"),
             ],
             source,
         );
@@ -2089,7 +2143,7 @@ mod tests {
         let source = "VALUE = 'local'\nfrom plugin import *\n";
         let (file, facts, _) = evaluate_imports(
             &[(
-                "/project/plugin.py",
+                host_path("/project/plugin.py"),
                 "if ENABLED:\n    from missing import *\nelse:\n    from ...invalid import *\n",
             )],
             source,
@@ -2126,12 +2180,12 @@ mod tests {
     fn branch_constraints_distinguish_overlapping_root_module_identities() {
         let (_, _, facts, _) = evaluate_imports_with_paths(
             &[(
-                "/project/lib/pkg/branch.py",
+                host_path("/project/lib/pkg/branch.py"),
                 "if FLAG:\n    VALUE = 'left'\nelse:\n    VALUE = 'right'\n",
             )],
-            "/project/settings.py",
+            host_path("/project/settings.py"),
             "from lib.pkg.branch import VALUE as ROOT_VALUE\nfrom pkg.branch import VALUE as NESTED_VALUE\nPAIR = (ROOT_VALUE, NESTED_VALUE)\n",
-            &[Utf8PathBuf::from("/project/lib")],
+            &[Utf8PathBuf::from(host_path("/project/lib"))],
         );
         let pairs = facts.bindings["PAIR"]
             .alternatives()
@@ -2158,10 +2212,13 @@ mod tests {
     #[test]
     fn predicates_distinguish_overlapping_root_module_executions() {
         let (_, _, facts, _) = evaluate_imports_with_paths(
-            &[("/project/lib/pkg/branch.py", "FLAG = get_flag()\n")],
-            "/project/settings.py",
+            &[(
+                host_path("/project/lib/pkg/branch.py"),
+                "FLAG = get_flag()\n",
+            )],
+            host_path("/project/settings.py"),
             "from lib.pkg.branch import FLAG as ROOT_FLAG\nfrom pkg.branch import FLAG as NESTED_FLAG\nINSTALLED_APPS = []\nif ROOT_FLAG:\n    INSTALLED_APPS.append('root')\nif NESTED_FLAG:\n    INSTALLED_APPS.append('nested')\n",
-            &[Utf8PathBuf::from("/project/lib")],
+            &[Utf8PathBuf::from(host_path("/project/lib"))],
         );
         let alternatives = facts.bindings["INSTALLED_APPS"]
             .alternatives()
@@ -2188,15 +2245,15 @@ mod tests {
         let source = "INSTALLED_APPS = ['stale']\nfrom plugin import MISSING as INSTALLED_APPS\n";
         let (db, settings, facts, trace) = evaluate_imports_with_paths(
             &[
-                ("/project/config/__init__.py", ""),
-                ("/project/plugin.py", "PRESENT = 'known'\n"),
+                (host_path("/project/config/__init__.py"), ""),
+                (host_path("/project/plugin.py"), "PRESENT = 'known'\n"),
             ],
-            "/project/config/settings.py",
+            host_path("/project/config/settings.py"),
             source,
             &[],
         );
         let plugin = db
-            .file(Utf8Path::new("/project/plugin.py"))
+            .file(Utf8Path::new(host_path("/project/plugin.py")))
             .expect("plugin exists");
         let imports = trace.imports().collect::<Vec<_>>();
         assert!(
@@ -2260,10 +2317,10 @@ mod tests {
         let cycle_edges = |source| {
             let (_, _, trace) = evaluate_imports(
                 &[
-                    ("/project/a.py", "from b import B\nA = B\n"),
-                    ("/project/b.py", "from a import A\nB = A\n"),
-                    ("/project/x.py", "from y import Y\nX = Y\n"),
-                    ("/project/y.py", "from x import X\nY = X\n"),
+                    (host_path("/project/a.py"), "from b import B\nA = B\n"),
+                    (host_path("/project/b.py"), "from a import A\nB = A\n"),
+                    (host_path("/project/x.py"), "from y import Y\nX = Y\n"),
+                    (host_path("/project/y.py"), "from x import X\nY = X\n"),
                 ],
                 source,
             );
@@ -2295,8 +2352,11 @@ mod tests {
     #[test]
     fn cycle_edge_preserves_imported_module_syntax_errors() {
         let (_, _, trace) = evaluate_imports_at(
-            &[("/project/b.py", "from a import A\nB = A\nbroken(\n")],
-            "/project/a.py",
+            &[(
+                host_path("/project/b.py"),
+                "from a import A\nB = A\nbroken(\n",
+            )],
+            host_path("/project/a.py"),
             "from b import B\nA = B\n",
         );
         let cycle = trace
@@ -2324,15 +2384,15 @@ mod tests {
     fn python_module_evaluation_reports_import_syntax_errors() {
         let (db, settings, facts, trace) = evaluate_imports_with_paths(
             &[(
-                "/project/broken.py",
+                host_path("/project/broken.py"),
                 "if FLAG:\n    VALUE = 'known'\n    broken(\n",
             )],
-            "/project/settings.py",
+            host_path("/project/settings.py"),
             "from broken import VALUE\n",
             &[],
         );
         let broken = db
-            .file(Utf8Path::new("/project/broken.py"))
+            .file(Utf8Path::new(host_path("/project/broken.py")))
             .expect("broken file exists");
         let imports = trace.imports().collect::<Vec<_>>();
         let [
@@ -2365,15 +2425,16 @@ mod tests {
     fn ordinary_dotted_import_unreadable_leaf_leaves_failed_child_unattached() {
         let (db, _, facts, trace) = evaluate_unreadable_module(
             &[
-                ("/project/pkg/__init__.py", "PARENT = 'parent'\n"),
-                ("/project/pkg/sub.py", "LEAF = 'leaf'\n"),
+                (host_path("/project/pkg/__init__.py"), "PARENT = 'parent'\n"),
+                (host_path("/project/pkg/sub.py"), "LEAF = 'leaf'\n"),
             ],
-            "/project/pkg/sub.py",
+            host_path("/project/pkg/sub.py"),
             "import pkg\nimport pkg.sub as s\nCHILD = pkg.sub\n",
         );
-        let pkg = djls_source::path_to_file(&db, Utf8Path::new("/project/pkg/__init__.py"))
-            .expect("package exists");
-        let sub = djls_source::path_to_file(&db, Utf8Path::new("/project/pkg/sub.py"))
+        let pkg =
+            djls_source::path_to_file(&db, Utf8Path::new(host_path("/project/pkg/__init__.py")))
+                .expect("package exists");
+        let sub = djls_source::path_to_file(&db, Utf8Path::new(host_path("/project/pkg/sub.py")))
             .expect("sub exists");
         assert!(matches!(trace.imports().collect::<Vec<_>>().as_slice(),
             [PythonImportOutcome::Evaluated { edge: a, status: PythonImportEvaluationStatus::Resolved },
@@ -2395,17 +2456,21 @@ mod tests {
     fn ordinary_dotted_import_unreadable_intermediate_preserves_root_edge() {
         let (db, _, facts, trace) = evaluate_unreadable_module(
             &[
-                ("/project/pkg/__init__.py", ""),
-                ("/project/pkg/mid/__init__.py", "MID = 'mid'\n"),
-                ("/project/pkg/mid/leaf.py", "LEAF = 'leaf'\n"),
+                (host_path("/project/pkg/__init__.py"), ""),
+                (host_path("/project/pkg/mid/__init__.py"), "MID = 'mid'\n"),
+                (host_path("/project/pkg/mid/leaf.py"), "LEAF = 'leaf'\n"),
             ],
-            "/project/pkg/mid/__init__.py",
+            host_path("/project/pkg/mid/__init__.py"),
             "import pkg.mid.leaf\n",
         );
-        let pkg = djls_source::path_to_file(&db, Utf8Path::new("/project/pkg/__init__.py"))
-            .expect("package exists");
-        let mid = djls_source::path_to_file(&db, Utf8Path::new("/project/pkg/mid/__init__.py"))
-            .expect("mid exists");
+        let pkg =
+            djls_source::path_to_file(&db, Utf8Path::new(host_path("/project/pkg/__init__.py")))
+                .expect("package exists");
+        let mid = djls_source::path_to_file(
+            &db,
+            Utf8Path::new(host_path("/project/pkg/mid/__init__.py")),
+        )
+        .expect("mid exists");
         assert!(matches!(trace.imports().collect::<Vec<_>>().as_slice(),
             [PythonImportOutcome::Evaluated { edge: first, status: PythonImportEvaluationStatus::Resolved }, PythonImportOutcome::Unreadable { edge: second, .. }]
             if first.imported.name().as_str() == "pkg" && first.imported.file() == pkg && second.imported.name().as_str() == "pkg.mid" && second.imported.file() == mid));
@@ -2418,15 +2483,16 @@ mod tests {
     fn from_dotted_import_unreadable_leaf_records_parent_prefix_and_fails_selection() {
         let (db, _, facts, trace) = evaluate_unreadable_module(
             &[
-                ("/project/pkg/__init__.py", "PARENT = 'parent'\n"),
-                ("/project/pkg/sub.py", "VALUE = 'v'\n"),
+                (host_path("/project/pkg/__init__.py"), "PARENT = 'parent'\n"),
+                (host_path("/project/pkg/sub.py"), "VALUE = 'v'\n"),
             ],
-            "/project/pkg/sub.py",
+            host_path("/project/pkg/sub.py"),
             "from pkg.sub import VALUE\n",
         );
-        let pkg = djls_source::path_to_file(&db, Utf8Path::new("/project/pkg/__init__.py"))
-            .expect("package exists");
-        let sub = djls_source::path_to_file(&db, Utf8Path::new("/project/pkg/sub.py"))
+        let pkg =
+            djls_source::path_to_file(&db, Utf8Path::new(host_path("/project/pkg/__init__.py")))
+                .expect("package exists");
+        let sub = djls_source::path_to_file(&db, Utf8Path::new(host_path("/project/pkg/sub.py")))
             .expect("sub exists");
         assert!(matches!(trace.imports().collect::<Vec<_>>().as_slice(),
             [PythonImportOutcome::Evaluated { edge: first, status: PythonImportEvaluationStatus::Resolved }, PythonImportOutcome::Unreadable { edge: second, .. }]
@@ -2440,17 +2506,21 @@ mod tests {
     fn from_dotted_import_unreadable_intermediate_records_root_prefix_and_fails_selection() {
         let (db, _, facts, trace) = evaluate_unreadable_module(
             &[
-                ("/project/pkg/__init__.py", ""),
-                ("/project/pkg/mid/__init__.py", "MID = 'mid'\n"),
-                ("/project/pkg/mid/leaf.py", "VALUE = 'v'\n"),
+                (host_path("/project/pkg/__init__.py"), ""),
+                (host_path("/project/pkg/mid/__init__.py"), "MID = 'mid'\n"),
+                (host_path("/project/pkg/mid/leaf.py"), "VALUE = 'v'\n"),
             ],
-            "/project/pkg/mid/__init__.py",
+            host_path("/project/pkg/mid/__init__.py"),
             "from pkg.mid.leaf import VALUE\n",
         );
-        let pkg = djls_source::path_to_file(&db, Utf8Path::new("/project/pkg/__init__.py"))
-            .expect("package exists");
-        let mid = djls_source::path_to_file(&db, Utf8Path::new("/project/pkg/mid/__init__.py"))
-            .expect("mid exists");
+        let pkg =
+            djls_source::path_to_file(&db, Utf8Path::new(host_path("/project/pkg/__init__.py")))
+                .expect("package exists");
+        let mid = djls_source::path_to_file(
+            &db,
+            Utf8Path::new(host_path("/project/pkg/mid/__init__.py")),
+        )
+        .expect("mid exists");
         assert!(matches!(trace.imports().collect::<Vec<_>>().as_slice(),
             [PythonImportOutcome::Evaluated { edge: first, status: PythonImportEvaluationStatus::Resolved }, PythonImportOutcome::Unreadable { edge: second, .. }]
             if first.imported.name().as_str() == "pkg" && first.imported.file() == pkg && second.imported.name().as_str() == "pkg.mid" && second.imported.file() == mid));
@@ -2463,16 +2533,18 @@ mod tests {
     fn named_from_import_unreadable_child_records_edge_without_attachment() {
         let (db, settings, facts, trace) = evaluate_unreadable_module(
             &[
-                ("/project/pkg/__init__.py", ""),
-                ("/project/pkg/child.py", "VALUE = 'hidden'\n"),
+                (host_path("/project/pkg/__init__.py"), ""),
+                (host_path("/project/pkg/child.py"), "VALUE = 'hidden'\n"),
             ],
-            "/project/pkg/child.py",
+            host_path("/project/pkg/child.py"),
             "from pkg import child\nimport pkg\nATTR = pkg.child\n",
         );
-        let package = djls_source::path_to_file(&db, Utf8Path::new("/project/pkg/__init__.py"))
-            .expect("package exists");
-        let child_file = djls_source::path_to_file(&db, Utf8Path::new("/project/pkg/child.py"))
-            .expect("child exists");
+        let package =
+            djls_source::path_to_file(&db, Utf8Path::new(host_path("/project/pkg/__init__.py")))
+                .expect("package exists");
+        let child_file =
+            djls_source::path_to_file(&db, Utf8Path::new(host_path("/project/pkg/child.py")))
+                .expect("child exists");
         let imports = trace.imports().collect::<Vec<_>>();
         assert!(
             matches!(imports[0], PythonImportOutcome::Evaluated { edge, status: PythonImportEvaluationStatus::Resolved } if edge.imported.name().as_str() == "pkg")
@@ -2496,8 +2568,8 @@ mod tests {
     fn unreadable_star_source_preserves_stale_bindings_and_opens_the_namespace() {
         let source = "VALUE = 'local'\nfrom unreadable import *\n";
         let (_, file, facts, _) = evaluate_unreadable_module(
-            &[("/project/unreadable.py", "VALUE = 'hidden'\n")],
-            "/project/unreadable.py",
+            &[(host_path("/project/unreadable.py"), "VALUE = 'hidden'\n")],
+            host_path("/project/unreadable.py"),
             source,
         );
         assert_eq!(
@@ -2518,12 +2590,13 @@ mod tests {
     #[test]
     fn ordinary_import_unreadable_root_binds_typed_unreadable_unknown() {
         let (db, settings, facts, trace) = evaluate_unreadable_module(
-            &[("/project/unreadable.py", "VALUE = 'hidden'\n")],
-            "/project/unreadable.py",
+            &[(host_path("/project/unreadable.py"), "VALUE = 'hidden'\n")],
+            host_path("/project/unreadable.py"),
             "import unreadable\n",
         );
-        let unreadable = djls_source::path_to_file(&db, Utf8Path::new("/project/unreadable.py"))
-            .expect("file exists");
+        let unreadable =
+            djls_source::path_to_file(&db, Utf8Path::new(host_path("/project/unreadable.py")))
+                .expect("file exists");
         let imports = trace.imports().collect::<Vec<_>>();
         let [PythonImportOutcome::Unreadable { edge, error }] = imports.as_slice() else {
             panic!("expected one unreadable outcome")
@@ -2545,25 +2618,29 @@ mod tests {
     #[test]
     fn python_module_evaluation_reports_unreadable_import() {
         let (db, settings, facts, trace) = evaluate_unreadable_module(
-            &[("/project/unreadable.py", "VALUE = 'hidden'\n")],
-            "/project/unreadable.py",
+            &[(host_path("/project/unreadable.py"), "VALUE = 'hidden'\n")],
+            host_path("/project/unreadable.py"),
             "from unreadable import VALUE\n",
         );
-        let unreadable = djls_source::path_to_file(&db, Utf8Path::new("/project/unreadable.py"))
-            .expect("file exists");
+        let unreadable =
+            djls_source::path_to_file(&db, Utf8Path::new(host_path("/project/unreadable.py")))
+                .expect("file exists");
         let imports = trace.imports().collect::<Vec<_>>();
         let [PythonImportOutcome::Unreadable { edge, error }] = imports.as_slice() else {
             panic!("expected one unreadable outcome")
         };
         assert_eq!(edge.origin.file, settings);
         assert_eq!(edge.imported.file(), unreadable);
-        assert_eq!(error.path(), Utf8Path::new("/project/unreadable.py"));
+        assert_eq!(
+            error.path(),
+            Utf8Path::new(host_path("/project/unreadable.py"))
+        );
         assert_eq!(
             error.kind(),
             FileReadErrorKind::Filesystem(io::ErrorKind::PermissionDenied)
         );
         assert!(
-            matches!(&bound(&facts, "VALUE").value.kind, PythonValueKind::Unknown(unknown) if matches!(&unknown.cause, PythonUnknownCause::Unreadable(error) if error.path() == Utf8Path::new("/project/unreadable.py") && error.kind() == FileReadErrorKind::Filesystem(io::ErrorKind::PermissionDenied)))
+            matches!(&bound(&facts, "VALUE").value.kind, PythonValueKind::Unknown(unknown) if matches!(&unknown.cause, PythonUnknownCause::Unreadable(error) if error.path() == Utf8Path::new(host_path("/project/unreadable.py")) && error.kind() == FileReadErrorKind::Filesystem(io::ErrorKind::PermissionDenied)))
         );
     }
 
@@ -2586,27 +2663,34 @@ mod tests {
                 "{name}"
             );
         }
+        assert!(
+            matches!(&bound(&facts, "MODULE_FILE").value.kind, PythonValueKind::Str(value) if value == host_path("/project/settings.py"))
+        );
         for (name, expected) in [
-            ("MODULE_FILE", "/project/settings.py"),
-            ("TEMPLATES_DIR", "/project/templates"),
-            ("STATIC_DIR", "/project/static"),
-            ("PARENT", "/project"),
+            ("TEMPLATES_DIR", host_path("/project/templates")),
+            ("STATIC_DIR", host_path("/project/static")),
+            ("PARENT", host_path("/project")),
             ("EMPTY_PARENT", ""),
-            ("TRAILING_PARENT", "/project"),
+            ("TRAILING_PARENT", host_path("/project")),
             ("ROOT_PARENT", "/"),
-            ("STATIC_TEXT", "/project/static"),
+            ("STATIC_TEXT", host_path("/project/static")),
         ] {
-            assert!(
-                matches!(&bound(&facts, name).value.kind, PythonValueKind::Str(value) if value == expected),
-                "{name}"
-            );
+            let kind = &bound(&facts, name).value.kind;
+            if OS_PATH_EVALUATED {
+                assert!(
+                    matches!(kind, PythonValueKind::Str(value) if value == expected),
+                    "{name}"
+                );
+            } else {
+                assert!(matches!(kind, PythonValueKind::Unknown(_)), "{name}");
+            }
         }
         for (name, expected) in [
-            ("ROOT", "/project"),
-            ("RESOLVED", "/project/settings.py"),
-            ("FIRST_PARENT", "/project"),
-            ("SECOND_PARENT", "/"),
-            ("NORMALIZED", "/"),
+            ("ROOT", host_path("/project")),
+            ("RESOLVED", host_path("/project/settings.py")),
+            ("FIRST_PARENT", host_path("/project")),
+            ("SECOND_PARENT", host_path("/")),
+            ("NORMALIZED", host_path("/")),
         ] {
             assert!(
                 matches!(&bound(&facts, name).value.kind, PythonValueKind::Path(value) if value.as_path() == expected),
@@ -2640,18 +2724,18 @@ mod tests {
     fn ordinary_dotted_import_records_exact_prefix_dependencies_and_surviving_child_value() {
         let (db, settings, facts, trace) = evaluate_imports_with_paths(
             &[
-                ("/project/pkg/__init__.py", "PARENT = 'parent'\n"),
-                ("/project/pkg/sub.py", "LEAF = 'leaf'\n"),
+                (host_path("/project/pkg/__init__.py"), "PARENT = 'parent'\n"),
+                (host_path("/project/pkg/sub.py"), "LEAF = 'leaf'\n"),
             ],
-            "/project/settings.py",
+            host_path("/project/settings.py"),
             "import pkg.sub\nCHILD = pkg.sub\nVIA = pkg.sub.LEAF\n",
             &[],
         );
         let pkg_init = db
-            .file(Utf8Path::new("/project/pkg/__init__.py"))
+            .file(Utf8Path::new(host_path("/project/pkg/__init__.py")))
             .expect("package exists");
         let pkg_sub = db
-            .file(Utf8Path::new("/project/pkg/sub.py"))
+            .file(Utf8Path::new(host_path("/project/pkg/sub.py")))
             .expect("submodule exists");
         assert_eq!(import_names(&trace), ["resolved:pkg", "resolved:pkg.sub"]);
         assert_eq!(
@@ -2669,18 +2753,18 @@ mod tests {
         let source = "import pkg.sub\n";
         let (db, settings, _, trace) = evaluate_imports_with_paths(
             &[
-                ("/project/pkg/__init__.py", "PARENT = 'parent'\n"),
-                ("/project/pkg/sub.py", "LEAF = 'leaf'\n"),
+                (host_path("/project/pkg/__init__.py"), "PARENT = 'parent'\n"),
+                (host_path("/project/pkg/sub.py"), "LEAF = 'leaf'\n"),
             ],
-            "/project/settings.py",
+            host_path("/project/settings.py"),
             source,
             &[],
         );
         let pkg_init = db
-            .file(Utf8Path::new("/project/pkg/__init__.py"))
+            .file(Utf8Path::new(host_path("/project/pkg/__init__.py")))
             .expect("package exists");
         let pkg_sub = db
-            .file(Utf8Path::new("/project/pkg/sub.py"))
+            .file(Utf8Path::new(host_path("/project/pkg/sub.py")))
             .expect("submodule exists");
         let clause = Origin::new(
             settings,
@@ -2701,10 +2785,13 @@ mod tests {
     #[test]
     fn python_module_evaluation_reports_skipped_external_import() {
         let (_, settings, facts, trace) = evaluate_imports_with_paths(
-            &[("/vendor/site-packages/external.py", "VALUE = 'external'\n")],
-            "/project/settings.py",
+            &[(
+                host_path("/vendor/site-packages/external.py"),
+                "VALUE = 'external'\n",
+            )],
+            host_path("/project/settings.py"),
             "from external import VALUE\n",
-            &["/vendor/site-packages".into()],
+            &[host_path("/vendor/site-packages").into()],
         );
         assert!(matches!(trace.imports().collect::<Vec<_>>().as_slice(),
             [PythonImportOutcome::SkippedExternal { origin, module }] if origin.file == settings && module.as_str() == "external"));
@@ -2716,10 +2803,13 @@ mod tests {
     #[test]
     fn python_module_evaluation_skips_external_star_import() {
         let (_, settings, facts, trace) = evaluate_imports_with_paths(
-            &[("/vendor/site-packages/external.py", "VALUE = 'external'\n")],
-            "/project/settings.py",
+            &[(
+                host_path("/vendor/site-packages/external.py"),
+                "VALUE = 'external'\n",
+            )],
+            host_path("/project/settings.py"),
             "from external import *\n",
-            &["/vendor/site-packages".into()],
+            &[host_path("/vendor/site-packages").into()],
         );
         assert!(matches!(trace.imports().collect::<Vec<_>>().as_slice(),
             [PythonImportOutcome::SkippedExternal { origin, module }] if origin.file == settings && module.as_str() == "external"));
@@ -2736,12 +2826,18 @@ mod tests {
         for source in ["from external import VALUE\n", "from external import *\n"] {
             let (_, settings, _, trace) = evaluate_imports_with_paths(
                 &[
-                    ("/vendor/site-packages/project.pth", "/editable-package\n"),
-                    ("/editable-package/external.py", "VALUE = 'external'\n"),
+                    (
+                        host_path("/vendor/site-packages/project.pth"),
+                        "/editable-package\n",
+                    ),
+                    (
+                        host_path("/editable-package/external.py"),
+                        "VALUE = 'external'\n",
+                    ),
                 ],
-                "/project/settings.py",
+                host_path("/project/settings.py"),
                 source,
-                &["/vendor/site-packages".into()],
+                &[host_path("/vendor/site-packages").into()],
             );
             assert!(matches!(trace.imports().collect::<Vec<_>>().as_slice(),
                 [PythonImportOutcome::SkippedExternal { origin, module }] if origin.file == settings && module.as_str() == "external"));
@@ -2752,13 +2848,13 @@ mod tests {
     #[test]
     fn ordinary_import_binds_module_from_extra_root() {
         let (db, settings, facts, trace) = evaluate_imports_with_paths(
-            &[("/vendor/shared.py", "VALUE = 'extra'\n")],
-            "/project/settings.py",
+            &[(host_path("/vendor/shared.py"), "VALUE = 'extra'\n")],
+            host_path("/project/settings.py"),
             "import shared\n",
-            &["/vendor".into()],
+            &[host_path("/vendor").into()],
         );
         let shared = db
-            .file(Utf8Path::new("/vendor/shared.py"))
+            .file(Utf8Path::new(host_path("/vendor/shared.py")))
             .expect("shared exists");
         assert_eq!(module_name(&facts, "shared"), ("shared", false));
         assert!(matches!(trace.imports().collect::<Vec<_>>().as_slice(),
@@ -2771,13 +2867,13 @@ mod tests {
     fn python_module_evaluation_follows_named_and_star_imports_from_extra_roots() {
         for source in ["from shared import VALUE\n", "from shared import *\n"] {
             let (db, settings, facts, trace) = evaluate_imports_with_paths(
-                &[("/vendor/shared.py", "VALUE = 'extra'\n")],
-                "/project/settings.py",
+                &[(host_path("/vendor/shared.py"), "VALUE = 'extra'\n")],
+                host_path("/project/settings.py"),
                 source,
-                &["/vendor".into()],
+                &[host_path("/vendor").into()],
             );
             let shared = db
-                .file(Utf8Path::new("/vendor/shared.py"))
+                .file(Utf8Path::new(host_path("/vendor/shared.py")))
                 .expect("shared exists");
             assert!(matches!(trace.imports().collect::<Vec<_>>().as_slice(),
                 [PythonImportOutcome::Evaluated { edge, status: PythonImportEvaluationStatus::Resolved }]
@@ -2793,10 +2889,10 @@ mod tests {
     fn python_module_cycle_preserves_stable_side_dependencies() {
         let (_, _, trace) = evaluate_imports_at(
             &[
-                ("/project/side.py", "SIDE = 'stable'\n"),
-                ("/project/b.py", "from a import A\nB = A\n"),
+                (host_path("/project/side.py"), "SIDE = 'stable'\n"),
+                (host_path("/project/b.py"), "from a import A\nB = A\n"),
             ],
-            "/project/a.py",
+            host_path("/project/a.py"),
             "from side import SIDE\nfrom b import B\nA = B\n",
         );
         let side = trace
@@ -2820,8 +2916,8 @@ mod tests {
     #[test]
     fn ordinary_dotted_import_self_cycle_attaches_open_child() {
         let (_, facts, trace) = evaluate_imports_at(
-            &[("/project/pkg/__init__.py", "import pkg.sub\n")],
-            "/project/pkg/sub.py",
+            &[(host_path("/project/pkg/__init__.py"), "import pkg.sub\n")],
+            host_path("/project/pkg/sub.py"),
             "import pkg.sub\nLEAF = 'sub'\nSELF = pkg.sub\nCYC = pkg.sub.LEAF\n",
         );
         let imports = import_names(&trace);
@@ -2841,11 +2937,14 @@ mod tests {
     fn ordinary_import_cycle_widening_preserves_unrelated_child_coordinate() {
         let (_, facts, trace) = evaluate_imports_at(
             &[
-                ("/project/pkg/__init__.py", ""),
-                ("/project/pkg/stable.py", "LEAF = 'stable'\n"),
-                ("/project/pkg/cyc.py", "import root\nLEAF = 'cyc'\n"),
+                (host_path("/project/pkg/__init__.py"), ""),
+                (host_path("/project/pkg/stable.py"), "LEAF = 'stable'\n"),
+                (
+                    host_path("/project/pkg/cyc.py"),
+                    "import root\nLEAF = 'cyc'\n",
+                ),
             ],
-            "/project/root.py",
+            host_path("/project/root.py"),
             "import pkg.stable\nimport pkg.cyc\nSTABLE = pkg.stable\nCYC = pkg.cyc\n",
         );
         assert!(facts.bindings["STABLE"].alternatives().any(|state| matches!(state, PythonBindingState::Bound(bound) if matches!(&bound.value.kind, PythonValueKind::Module(PythonModule::Source(module)) if module.name().as_str() == "pkg.stable"))));
@@ -2862,8 +2961,8 @@ mod tests {
     fn ordinary_dotted_import_branch_attachment_correlates_present_and_absent_child() {
         let (_, facts, _) = evaluate_imports(
             &[
-                ("/project/pkg/__init__.py", ""),
-                ("/project/pkg/sub.py", "LEAF = 'leaf'\n"),
+                (host_path("/project/pkg/__init__.py"), ""),
+                (host_path("/project/pkg/sub.py"), "LEAF = 'leaf'\n"),
             ],
             "import pkg\nif condition:\n    import pkg.sub\nCHILD = pkg.sub\n",
         );
@@ -2876,8 +2975,8 @@ mod tests {
     fn ordinary_dotted_import_zero_iteration_loop_leaves_child_uncertain() {
         let (_, facts, _) = evaluate_imports(
             &[
-                ("/project/pkg/__init__.py", ""),
-                ("/project/pkg/sub.py", "LEAF = 'leaf'\n"),
+                (host_path("/project/pkg/__init__.py"), ""),
+                (host_path("/project/pkg/sub.py"), "LEAF = 'leaf'\n"),
             ],
             "import pkg\nfor item in ITEMS:\n    import pkg.sub\nCHILD = pkg.sub\n",
         );
@@ -2890,7 +2989,7 @@ mod tests {
     #[test]
     fn ordinary_import_non_dotted_self_cycle_binds_handle_and_records_cycle_edge() {
         let (_, facts, trace) =
-            evaluate_imports_at(&[], "/project/a.py", "import a\nVALUE = 'a'\n");
+            evaluate_imports_at(&[], host_path("/project/a.py"), "import a\nVALUE = 'a'\n");
         assert!(import_names(&trace).contains(&"cycle:a".to_string()));
         assert!(
             matches!(&bound(&facts, "VALUE").value.kind, PythonValueKind::Str(text) if text == "a")
@@ -2900,8 +2999,11 @@ mod tests {
     #[test]
     fn parent_package_component_cycle_records_the_parent_edge() {
         let (_, facts, trace) = evaluate_imports_at(
-            &[("/project/pkg/__init__.py", "from pkg.sub import X\n")],
-            "/project/pkg/sub.py",
+            &[(
+                host_path("/project/pkg/__init__.py"),
+                "from pkg.sub import X\n",
+            )],
+            host_path("/project/pkg/sub.py"),
             "import pkg\nX = 'x'\n",
         );
         let imports = import_names(&trace);
@@ -2920,10 +3022,10 @@ mod tests {
     fn dotted_chain_cycle_records_leaf_cycle_and_resolves_prefix() {
         let (_, facts, trace) = evaluate_imports_at(
             &[
-                ("/project/a/__init__.py", ""),
-                ("/project/a/b/__init__.py", ""),
+                (host_path("/project/a/__init__.py"), ""),
+                (host_path("/project/a/b/__init__.py"), ""),
             ],
-            "/project/a/b/c.py",
+            host_path("/project/a/b/c.py"),
             "import a.b.c\nVALUE = 'c'\n",
         );
         let imports = import_names(&trace);
@@ -2939,8 +3041,8 @@ mod tests {
     #[test]
     fn ordinary_dotted_import_self_cycle_binds_root_and_records_leaf_cycle() {
         let (_, facts, trace) = evaluate_imports_at(
-            &[("/project/pkg/__init__.py", "import pkg.sub\n")],
-            "/project/pkg/sub.py",
+            &[(host_path("/project/pkg/__init__.py"), "import pkg.sub\n")],
+            host_path("/project/pkg/sub.py"),
             "import pkg.sub\nLEAF = 'sub'\n",
         );
         let imports = import_names(&trace);
@@ -2955,8 +3057,8 @@ mod tests {
     #[test]
     fn from_dotted_import_self_cycle_records_leaf_cycle_and_retains_local_value() {
         let (_, facts, trace) = evaluate_imports_at(
-            &[("/project/pkg/__init__.py", "")],
-            "/project/pkg/sub.py",
+            &[(host_path("/project/pkg/__init__.py"), "")],
+            host_path("/project/pkg/sub.py"),
             "from pkg.sub import LEAF\nLEAF = 'sub'\n",
         );
         let imports = import_names(&trace);
@@ -2970,8 +3072,8 @@ mod tests {
     #[test]
     fn named_from_import_cycle_seed_parent_still_loads_exact_child() {
         let (package, facts, trace) = evaluate_imports_at(
-            &[("/project/pkg/child.py", "VALUE = 'child'\n")],
-            "/project/pkg/__init__.py",
+            &[(host_path("/project/pkg/child.py"), "VALUE = 'child'\n")],
+            host_path("/project/pkg/__init__.py"),
             "from . import child\nATTR = child.VALUE\n",
         );
         assert_eq!(import_names(&trace), ["cycle:pkg", "resolved:pkg.child"]);
@@ -2998,9 +3100,9 @@ mod tests {
     fn named_from_import_child_cycle_records_recovery_and_binds_handle() {
         let (_, facts, trace) = evaluate_imports(
             &[
-                ("/project/pkg/__init__.py", ""),
+                (host_path("/project/pkg/__init__.py"), ""),
                 (
-                    "/project/pkg/child.py",
+                    host_path("/project/pkg/child.py"),
                     "import settings\nVALUE = 'partial'\n",
                 ),
             ],
@@ -3020,8 +3122,8 @@ mod tests {
     #[test]
     fn ordinary_import_two_file_cycle_binds_handle_and_records_cycle_edge() {
         let (_, facts, trace) = evaluate_imports_at(
-            &[("/project/b.py", "import a\nVALUE = 'b'\n")],
-            "/project/a.py",
+            &[(host_path("/project/b.py"), "import a\nVALUE = 'b'\n")],
+            host_path("/project/a.py"),
             "import b\nVALUE = 'a'\n",
         );
         assert_eq!(module_name(&facts, "b"), ("b", false));
@@ -3044,7 +3146,9 @@ mod tests {
             .map(|index| {
                 let next = (index + 1) % MEMBERS;
                 (
-                    format!("/project/member_{index}.py"),
+                    Utf8Path::new(host_path("/project"))
+                        .join(format!("member_{index}.py"))
+                        .into_string(),
                     format!("from member_{next} import VALUE_{next}\nVALUE_{index} = '{index}'\n"),
                 )
             })
@@ -3055,7 +3159,7 @@ mod tests {
             .collect::<Vec<_>>();
         let (_, facts, trace) = evaluate_imports_at(
             &files,
-            "/project/member_0.py",
+            host_path("/project/member_0.py"),
             "from member_1 import VALUE_1\nVALUE_0 = '0'\n",
         );
         assert!(
@@ -3129,9 +3233,9 @@ mod tests {
     fn from_dotted_import_external_suffix_skips_and_fails_selection() {
         let (_, facts, trace) = evaluate_imports(
             &[
-                ("/project/ns/placeholder.py", ""),
+                (host_path("/project/ns/placeholder.py"), ""),
                 (
-                    "/project/.venv/lib/python3.12/site-packages/ns/sub.py",
+                    host_path("/project/.venv/lib/python3.12/site-packages/ns/sub.py"),
                     "VALUE = 'ext'\n",
                 ),
             ],
@@ -3149,9 +3253,9 @@ mod tests {
     fn ordinary_dotted_import_external_suffix_attaches_open_child() {
         let (_, facts, trace) = evaluate_imports(
             &[
-                ("/project/ns/placeholder.py", ""),
+                (host_path("/project/ns/placeholder.py"), ""),
                 (
-                    "/project/.venv/lib/python3.12/site-packages/ns/sub.py",
+                    host_path("/project/.venv/lib/python3.12/site-packages/ns/sub.py"),
                     "VALUE = 'ext'\n",
                 ),
             ],
@@ -3167,7 +3271,7 @@ mod tests {
     #[test]
     fn named_from_import_loads_namespace_child_and_types_missing_child() {
         let (_, success, trace) = evaluate_imports(
-            &[("/project/ns/child.py", "")],
+            &[(host_path("/project/ns/child.py"), "")],
             "from ns import child\nimport ns as parent\nATTR = parent.child\n",
         );
         assert_eq!(module_name(&success, "child"), ("ns.child", false));
@@ -3175,7 +3279,7 @@ mod tests {
         assert_eq!(trace.files().count(), 2);
         assert_eq!(module_name(&success, "ATTR"), ("ns.child", false));
         let (_, missing, trace) = evaluate_imports(
-            &[("/project/pkg/__init__.py", "")],
+            &[(host_path("/project/pkg/__init__.py"), "")],
             "from pkg import absent\nimport pkg\nATTR = pkg.absent\n",
         );
         assert_eq!(
@@ -3196,11 +3300,11 @@ mod tests {
         let (_, facts, trace) = evaluate_imports(
             &[
                 (
-                    "/project/.venv/lib/python3.12/site-packages/external/__init__.py",
+                    host_path("/project/.venv/lib/python3.12/site-packages/external/__init__.py"),
                     "PARENT = 'not evaluated'\n",
                 ),
                 (
-                    "/project/.venv/lib/python3.12/site-packages/external/child.py",
+                    host_path("/project/.venv/lib/python3.12/site-packages/external/child.py"),
                     "VALUE = 'not evaluated'\n",
                 ),
             ],
@@ -3227,11 +3331,11 @@ mod tests {
         let (_, facts, trace) = evaluate_imports(
             &[
                 (
-                    "/project/pkg/__init__.py",
+                    host_path("/project/pkg/__init__.py"),
                     "if FLAG:\n    child = 'member'\n",
                 ),
-                ("/project/pkg/child.py", "import pkg.side\n"),
-                ("/project/pkg/side.py", ""),
+                (host_path("/project/pkg/child.py"), "import pkg.side\n"),
+                (host_path("/project/pkg/side.py"), ""),
             ],
             "from pkg import child\nimport pkg\nATTR = pkg.child\nSIDE = pkg.side\n",
         );
@@ -3254,11 +3358,11 @@ mod tests {
         let (_, facts, trace) = evaluate_imports(
             &[
                 (
-                    "/project/pkg/__init__.py",
+                    host_path("/project/pkg/__init__.py"),
                     "if FLAG:\n    child = []\n    child.append('member')\nif BROKEN:\n    from clean import *\n    broken(]\nfrom missing import *\n",
                 ),
-                ("/project/pkg/child.py", ""),
-                ("/project/clean.py", ""),
+                (host_path("/project/pkg/child.py"), ""),
+                (host_path("/project/clean.py"), ""),
             ],
             "from pkg import child\n",
         );
@@ -3283,7 +3387,7 @@ mod tests {
     fn ordinary_import_of_external_module_binds_handle_and_skips_body() {
         let (_, facts, trace) = evaluate_imports(
             &[(
-                "/project/.venv/lib/python3.12/site-packages/ext/__init__.py",
+                host_path("/project/.venv/lib/python3.12/site-packages/ext/__init__.py"),
                 "VALUE = 'external'\n",
             )],
             "import ext\nATTR = ext.VALUE\n",
@@ -3329,7 +3433,8 @@ mod tests {
     #[test]
     fn unresolved_moduleless_relative_import_records_canonical_failure() {
         let source = "VALUE = 'local'\nfrom . import VALUE\n";
-        let (file, facts, trace) = evaluate_imports_at(&[], "/project/pkg/settings.py", source);
+        let (file, facts, trace) =
+            evaluate_imports_at(&[], host_path("/project/pkg/settings.py"), source);
         let text = "from . import VALUE";
         let origin = Origin::new(
             file,
@@ -3346,7 +3451,8 @@ mod tests {
     #[test]
     fn relative_import_cannot_escape_the_importer_package() {
         let source = "from ..missing import VALUE\n";
-        let (file, _, trace) = evaluate_imports_at(&[], "/project/pkg/settings.py", source);
+        let (file, _, trace) =
+            evaluate_imports_at(&[], host_path("/project/pkg/settings.py"), source);
         let origin = Origin::new(
             file,
             Span::saturating_from_parts_usize(0, source.trim_end().len()),
@@ -3362,7 +3468,7 @@ mod tests {
             &[],
             "from dynamic import *\nOPEN = __file__\n__file__ = '/override.py'\nAFTER = __file__\n",
         );
-        assert!(binding_strings(&facts, "OPEN").contains("/project/settings.py"));
+        assert!(binding_strings(&facts, "OPEN").contains(host_path("/project/settings.py")));
         assert!(facts.bindings["OPEN"].alternatives().any(|state| matches!(state, PythonBindingState::Bound(bound) if matches!(&bound.value.kind, PythonValueKind::Unknown(_)))));
         assert!(
             matches!(&bound(&facts, "AFTER").value.kind, PythonValueKind::Str(path) if path == "/override.py")
@@ -3375,7 +3481,7 @@ mod tests {
             &[],
             "from dynamic import *\nif FLAG:\n    __file__ = '/override.py'\nVALUE = __file__\n",
         );
-        for expected in ["/override.py", "/project/settings.py"] {
+        for expected in ["/override.py", host_path("/project/settings.py")] {
             assert!(binding_strings(&facts, "VALUE").contains(expected));
         }
         assert!(facts.bindings["VALUE"].alternatives().any(|state| matches!(state, PythonBindingState::Bound(bound) if matches!(&bound.value.kind, PythonValueKind::Unknown(_)))));
@@ -3413,7 +3519,7 @@ mod tests {
             &[],
             "from pathlib import Path\nif FLAG:\n    stringify = str\nelse:\n    stringify = dynamic\nVALUE = stringify(Path(__file__))\n",
         );
-        assert!(binding_strings(&facts, "VALUE").contains("/project/settings.py"));
+        assert!(binding_strings(&facts, "VALUE").contains(host_path("/project/settings.py")));
         assert!(facts.bindings["VALUE"].alternatives().any(|state| matches!(state, PythonBindingState::Bound(bound) if matches!(&bound.value.kind, PythonValueKind::Unknown(_)))));
         assert!(matches!(
             &bound(&facts, "Path").value.kind,
@@ -3425,14 +3531,16 @@ mod tests {
     fn python_intrinsics_respect_shadowing_and_branch_constraints() {
         let (_, facts, _) = evaluate_imports(
             &[],
-            "from pathlib import Path\nimport os\nif FLAG:\n    Path = custom_path\nif OTHER:\n    os = custom_os\nif THIRD:\n    str = custom_str\nPATH_VALUE = Path(__file__)\nOS_VALUE = os.path.join('/project', 'templates')\nSTR_VALUE = str('/project/templates')\n",
+            host_source(
+                "from pathlib import Path\nimport os\nif FLAG:\n    Path = custom_path\nif OTHER:\n    os = custom_os\nif THIRD:\n    str = custom_str\nPATH_VALUE = Path(__file__)\nOS_VALUE = os.path.join('/project', 'templates')\nSTR_VALUE = str('/project/templates')\n",
+            ),
         );
         for name in ["PATH_VALUE", "OS_VALUE", "STR_VALUE"] {
             let alternatives = facts.bindings[name].alternatives().collect::<Vec<_>>();
             assert!(alternatives.iter().any(|state| matches!(state, PythonBindingState::Bound(bound)
                 if matches!(&bound.value.kind, PythonValueKind::Unknown(unknown) if unknown.cause == PythonUnknownCause::UnsupportedExpression))), "{name} should retain the shadowed path");
-            assert!(alternatives.iter().any(|state| matches!(state, PythonBindingState::Bound(bound)
-                if matches!(&bound.value.kind, PythonValueKind::Path(_) | PythonValueKind::Str(_)))), "{name} should retain the intrinsic result");
+            assert_eq!(alternatives.iter().any(|state| matches!(state, PythonBindingState::Bound(bound)
+                if matches!(&bound.value.kind, PythonValueKind::Path(_) | PythonValueKind::Str(_)))), name != "OS_VALUE" || OS_PATH_EVALUATED, "{name} should retain the intrinsic result");
         }
         let (_, unimported, _) = evaluate_imports(&[], "VALUE = Path(__file__)\n");
         assert!(matches!(
@@ -3444,7 +3552,7 @@ mod tests {
     #[test]
     fn project_modules_named_like_stdlib_path_helpers_are_not_intrinsics() {
         let (_, facts, _) = evaluate_imports(
-            &[("/project/pathlib.py", "Path = custom\n")],
+            &[(host_path("/project/pathlib.py"), "Path = custom\n")],
             "from pathlib import Path\nVALUE = Path(__file__)\n",
         );
         assert!(matches!(
@@ -3456,8 +3564,10 @@ mod tests {
     #[test]
     fn partial_project_path_helper_chains_do_not_become_stdlib_intrinsics() {
         let (_, facts, trace) = evaluate_imports(
-            &[("/project/os/__init__.py", "")],
-            "import os.path as os_path\nfrom os.path import join\nDIRECT = os_path.join('/project', 'templates')\nNAMED = join('/project', 'static')\n",
+            &[(host_path("/project/os/__init__.py"), "")],
+            host_source(
+                "import os.path as os_path\nfrom os.path import join\nDIRECT = os_path.join('/project', 'templates')\nNAMED = join('/project', 'static')\n",
+            ),
         );
         for name in ["os_path", "join", "DIRECT", "NAMED"] {
             assert!(facts.bindings[name].alternatives().all(|state| !matches!(state, PythonBindingState::Bound(bound) if matches!(&bound.value.kind, PythonValueKind::Path(_)))), "{name} must not become an intrinsic value");
@@ -3477,7 +3587,7 @@ mod tests {
         );
         for name in ["DIVIDED", "METHOD", "STRING"] {
             let alternatives = facts.bindings[name].alternatives().collect::<Vec<_>>();
-            assert!(alternatives.iter().any(|state| matches!(state, PythonBindingState::Bound(bound) if matches!(&bound.value.kind, PythonValueKind::Path(_) | PythonValueKind::Str(_)))), "{name} should retain the bound path");
+            assert_eq!(alternatives.iter().any(|state| matches!(state, PythonBindingState::Bound(bound) if matches!(&bound.value.kind, PythonValueKind::Path(_) | PythonValueKind::Str(_)))), name != "STRING" || OS_PATH_EVALUATED, "{name} should retain the bound path");
             assert!(alternatives.iter().any(|state| matches!(state, PythonBindingState::Bound(bound) if matches!(&bound.value.kind, PythonValueKind::Unknown(unknown) if unknown.cause == PythonUnknownCause::UnsupportedExpression))), "{name} should retain the unbound fallthrough");
         }
     }
@@ -3508,15 +3618,17 @@ mod tests {
         let (_, facts, _) = evaluate_imports(
             &[
                 (
-                    "/project/helper.py",
+                    host_path("/project/helper.py"),
                     "import os\nif FLAG:\n    os.path.join = replacement\n",
                 ),
                 (
-                    "/project/consumer.py",
-                    "import os\nVALUE = os.path.join('/project', 'templates')\n",
+                    host_path("/project/consumer.py"),
+                    host_source("import os\nVALUE = os.path.join('/project', 'templates')\n"),
                 ),
             ],
-            "import os\nimport helper\nimport consumer\nVALUE = os.path.join('/project', 'templates')\nIMPORTED_VALUE = consumer.VALUE\n",
+            host_source(
+                "import os\nimport helper\nimport consumer\nVALUE = os.path.join('/project', 'templates')\nIMPORTED_VALUE = consumer.VALUE\n",
+            ),
         );
         for name in ["VALUE", "IMPORTED_VALUE"] {
             let alternatives = facts.bindings[name].alternatives().collect::<Vec<_>>();
@@ -3529,7 +3641,9 @@ mod tests {
     fn unsupported_calls_persist_intrinsic_namespace_contamination() {
         let (_, facts, _) = evaluate_imports(
             &[],
-            "def mutate(path):\n    pass\nimport os\n_ = mutate(os.path)\nimport os as fresh_os\nVALUE = fresh_os.path.join('/project', 'templates')\n",
+            host_source(
+                "def mutate(path):\n    pass\nimport os\n_ = mutate(os.path)\nimport os as fresh_os\nVALUE = fresh_os.path.join('/project', 'templates')\n",
+            ),
         );
         for name in ["fresh_os", "VALUE"] {
             let cause = if name == "VALUE" {
@@ -3547,7 +3661,9 @@ mod tests {
     fn intrinsic_namespace_contamination_survives_reimports() {
         let (_, facts, _) = evaluate_imports(
             &[],
-            "import pathlib\nimport os\nimport builtins\npathlib.Path = custom_path\nbuiltins.str = custom_str\n(os.path if FLAG else other).join = replacement\nimport pathlib as fresh_pathlib\nimport os as fresh_os\nfrom builtins import str as fresh_str\nPATH_VALUE = fresh_pathlib.Path(__file__).parent\nOS_VALUE = fresh_os.path.join('/project', 'templates')\nSTR_VALUE = fresh_str(__file__)\n",
+            host_source(
+                "import pathlib\nimport os\nimport builtins\npathlib.Path = custom_path\nbuiltins.str = custom_str\n(os.path if FLAG else other).join = replacement\nimport pathlib as fresh_pathlib\nimport os as fresh_os\nfrom builtins import str as fresh_str\nPATH_VALUE = fresh_pathlib.Path(__file__).parent\nOS_VALUE = fresh_os.path.join('/project', 'templates')\nSTR_VALUE = fresh_str(__file__)\n",
+            ),
         );
         for name in [
             "fresh_pathlib",
@@ -3572,7 +3688,9 @@ mod tests {
     fn os_path_abspath_follows_import_and_assignment_aliases() {
         let (_, facts, _) = evaluate_imports(
             &[],
-            "import os as operating_system\nfrom os.path import abspath as path_abspath\nassigned_abspath = path_abspath\nROOT_ABS = operating_system.path.abspath(__file__)\nBASE_DIR = operating_system.path.dirname(operating_system.path.dirname(operating_system.path.abspath(__file__)))\nNORMALIZED_ABS = path_abspath('/project/one/../settings.py')\nASSIGNED_ABS = assigned_abspath(__file__)\nRELATIVE_ABS = path_abspath('relative')\nMISSING_ABS = path_abspath()\nKEYWORD_ABS = path_abspath(path=__file__)\n",
+            host_source(
+                "import os as operating_system\nfrom os.path import abspath as path_abspath\nassigned_abspath = path_abspath\nROOT_ABS = operating_system.path.abspath(__file__)\nBASE_DIR = operating_system.path.dirname(operating_system.path.dirname(operating_system.path.abspath(__file__)))\nNORMALIZED_ABS = path_abspath('/project/one/../settings.py')\nASSIGNED_ABS = assigned_abspath(__file__)\nRELATIVE_ABS = path_abspath('relative')\nMISSING_ABS = path_abspath()\nKEYWORD_ABS = path_abspath(path=__file__)\n",
+            ),
         );
         for name in ["path_abspath", "assigned_abspath"] {
             assert!(
@@ -3583,15 +3701,22 @@ mod tests {
                 "{name}"
             );
         }
-        for name in ["ROOT_ABS", "NORMALIZED_ABS", "ASSIGNED_ABS"] {
-            assert!(
-                matches!(&bound(&facts, name).value.kind, PythonValueKind::Str(value) if value == "/project/settings.py"),
-                "{name}"
-            );
+        for (name, expected) in [
+            ("ROOT_ABS", host_path("/project/settings.py")),
+            ("NORMALIZED_ABS", host_path("/project/settings.py")),
+            ("ASSIGNED_ABS", host_path("/project/settings.py")),
+            ("BASE_DIR", "/"),
+        ] {
+            let kind = &bound(&facts, name).value.kind;
+            if OS_PATH_EVALUATED {
+                assert!(
+                    matches!(kind, PythonValueKind::Str(value) if value == expected),
+                    "{name}"
+                );
+            } else {
+                assert!(matches!(kind, PythonValueKind::Unknown(_)), "{name}");
+            }
         }
-        assert!(
-            matches!(&bound(&facts, "BASE_DIR").value.kind, PythonValueKind::Str(value) if value == "/")
-        );
         for name in ["RELATIVE_ABS", "MISSING_ABS", "KEYWORD_ABS"] {
             assert!(
                 matches!(&bound(&facts, name).value.kind, PythonValueKind::Unknown(_)),
@@ -3717,7 +3842,7 @@ mod tests {
     #[test]
     fn short_circuit_returns_the_decisive_operand_without_boolean_coercion() {
         let (_, facts, _) = evaluate_imports(
-            &[("/project/helper.py", "")],
+            &[(host_path("/project/helper.py"), "")],
             "import helper\nVALUE = helper or UNKNOWN\n",
         );
         assert_eq!(module_name(&facts, "VALUE"), ("helper", false));
@@ -3726,7 +3851,7 @@ mod tests {
     #[test]
     fn python_module_evaluation_follows_recursive_imports() {
         let (settings, facts, trace) = evaluate_imports(
-            &[("/project/base.py", "VALUE = 'from base'\n")],
+            &[(host_path("/project/base.py"), "VALUE = 'from base'\n")],
             "from base import VALUE\nCOPY = VALUE\n",
         );
         assert_eq!(facts.bindings["VALUE"].alternatives().count(), 1);
@@ -3746,7 +3871,9 @@ mod tests {
     fn intrinsic_attribute_writes_invalidate_aliasing_owners() {
         let (_, facts, _) = evaluate_imports(
             &[],
-            "import os\npath_alias = os.path\npath_alias.join = replacement\nimport os as fresh_os\nVALUE = os.path.join('/project', 'templates')\nFRESH_VALUE = fresh_os.path.join('/project', 'static')\n",
+            host_source(
+                "import os\npath_alias = os.path\npath_alias.join = replacement\nimport os as fresh_os\nVALUE = os.path.join('/project', 'templates')\nFRESH_VALUE = fresh_os.path.join('/project', 'static')\n",
+            ),
         );
         for name in ["os", "path_alias", "fresh_os", "VALUE", "FRESH_VALUE"] {
             let cause = if name.ends_with("VALUE") {
@@ -3770,7 +3897,7 @@ mod tests {
     fn star_import_copies_mutations_only_for_exact_or_absent_selected_names() {
         let (_, exact, _) = evaluate_imports(
             &[(
-                "/project/plugin.py",
+                host_path("/project/plugin.py"),
                 "SELECTED = []\nSELECTED.append('selected')\nOMITTED = []\nOMITTED.append('omitted')\n__all__ = ['SELECTED']\n",
             )],
             "from plugin import *\n",
@@ -3785,7 +3912,7 @@ mod tests {
         );
         let (caller_file, absent, _) = evaluate_imports(
             &[(
-                "/project/plugin.py",
+                host_path("/project/plugin.py"),
                 "PUBLIC = []\nPUBLIC.append('public')\n_PRIVATE = []\n_PRIVATE.append('private')\n",
             )],
             "PUBLIC = []\nPUBLIC.append('caller')\nfrom plugin import *\n",
@@ -3805,7 +3932,7 @@ mod tests {
         );
         let (_, dynamic, _) = evaluate_imports(
             &[(
-                "/project/plugin.py",
+                host_path("/project/plugin.py"),
                 "VALUE = []\nVALUE.append('dynamic')\n__all__ = NAMES\n",
             )],
             "from plugin import *\n",
@@ -3817,9 +3944,9 @@ mod tests {
     fn ordinary_import_of_project_namespace_prefix_to_external_suffix() {
         let (_, facts, trace) = evaluate_imports(
             &[
-                ("/project/ns/placeholder.py", ""),
+                (host_path("/project/ns/placeholder.py"), ""),
                 (
-                    "/project/.venv/lib/python3.12/site-packages/ns/sub.py",
+                    host_path("/project/.venv/lib/python3.12/site-packages/ns/sub.py"),
                     "VALUE = 'external'\n",
                 ),
             ],
@@ -3834,11 +3961,11 @@ mod tests {
         let (_, facts, _) = evaluate_imports(
             &[
                 (
-                    "/project/pkg/__init__.py",
+                    host_path("/project/pkg/__init__.py"),
                     "if FLAG:\n    __all__ = ['child']\nelse:\n    __all__ = []\n",
                 ),
-                ("/project/pkg/child.py", "import pkg.side\n"),
-                ("/project/pkg/side.py", ""),
+                (host_path("/project/pkg/child.py"), "import pkg.side\n"),
+                (host_path("/project/pkg/side.py"), ""),
             ],
             "from pkg import *\nimport pkg\nCHILD = pkg.child\nSIDE = pkg.side\n",
         );
@@ -3871,11 +3998,11 @@ mod tests {
         let source = "import root\nimport pkg.sub as salias\nimport dpkg.leaf\n";
         let (file, facts, _) = evaluate_imports(
             &[
-                ("/project/root.py", "R = 'r'\n"),
-                ("/project/pkg/__init__.py", ""),
-                ("/project/pkg/sub.py", "S = 's'\n"),
-                ("/project/dpkg/__init__.py", ""),
-                ("/project/dpkg/leaf.py", "L = 'l'\n"),
+                (host_path("/project/root.py"), "R = 'r'\n"),
+                (host_path("/project/pkg/__init__.py"), ""),
+                (host_path("/project/pkg/sub.py"), "S = 's'\n"),
+                (host_path("/project/dpkg/__init__.py"), ""),
+                (host_path("/project/dpkg/leaf.py"), "L = 'l'\n"),
             ],
             source,
         );
@@ -3907,8 +4034,10 @@ mod tests {
     #[test]
     fn ambiguous_while_records_import_and_mutation() {
         let source = "INSTALLED_APPS = []\nwhile FLAG:\n    INSTALLED_APPS.append('loop')\nelse:\n    from plugin import VALUE\n";
-        let (file, facts, trace) =
-            evaluate_imports(&[("/project/plugin.py", "VALUE = '/static/'")], source);
+        let (file, facts, trace) = evaluate_imports(
+            &[(host_path("/project/plugin.py"), "VALUE = '/static/'")],
+            source,
+        );
         let imported = trace
             .files()
             .find(|item| *item != file)
@@ -3930,8 +4059,11 @@ mod tests {
         let source = "PUBLIC = 'prior'\nimport pkg.__all__\nfrom pkg import *\n";
         let (file, facts, _) = evaluate_imports(
             &[
-                ("/project/pkg/__init__.py", "PUBLIC = 'imported'\n"),
-                ("/project/pkg/__all__.py", ""),
+                (
+                    host_path("/project/pkg/__init__.py"),
+                    "PUBLIC = 'imported'\n",
+                ),
+                (host_path("/project/pkg/__all__.py"), ""),
             ],
             source,
         );
@@ -3962,7 +4094,7 @@ mod tests {
         let source = "VALUE = 'local'\nfrom plugin import *\n";
         let (file, facts, _) = evaluate_imports(
             &[(
-                "/project/plugin.py",
+                host_path("/project/plugin.py"),
                 "VALUE = 'imported'\n__all__ = [\n    'VALUE',\n    @\n]\n",
             )],
             source,
@@ -3994,10 +4126,10 @@ mod tests {
         let (file, facts, _) = evaluate_imports(
             &[
                 (
-                    "/project/a.py",
+                    host_path("/project/a.py"),
                     "VALUE = 'imported'\n__all__ = ['VALUE']\nfrom b import *\n",
                 ),
-                ("/project/b.py", "from a import *\n"),
+                (host_path("/project/b.py"), "from a import *\n"),
             ],
             source,
         );
@@ -4118,8 +4250,8 @@ mod tests {
         ] {
             let (_, facts, _) = evaluate_imports(
                 &[
-                    ("/project/pkg/__init__.py", all),
-                    ("/project/pkg/child.py", ""),
+                    (host_path("/project/pkg/__init__.py"), all),
+                    (host_path("/project/pkg/child.py"), ""),
                 ],
                 "import pkg.child\nfrom pkg import *\nATTR = pkg.child\n",
             );
@@ -4133,8 +4265,8 @@ mod tests {
     fn dynamic_all_does_not_scan_a_listable_package_child() {
         let (_, facts, trace) = evaluate_imports(
             &[
-                ("/project/pkg/__init__.py", "__all__ = NAMES\n"),
-                ("/project/pkg/child.py", "VALUE = 'child'\n"),
+                (host_path("/project/pkg/__init__.py"), "__all__ = NAMES\n"),
+                (host_path("/project/pkg/child.py"), "VALUE = 'child'\n"),
             ],
             "from pkg import *\nimport pkg\nCHILD = pkg.child\n",
         );
@@ -4149,7 +4281,7 @@ mod tests {
     fn exact_all_closes_an_otherwise_open_source_namespace() {
         let (_, facts, _) = evaluate_imports(
             &[(
-                "/project/plugin.py",
+                host_path("/project/plugin.py"),
                 "VALUE = 'imported'\nfrom missing import *\n__all__ = ['VALUE']\n",
             )],
             "VALUE = 'local'\nfrom plugin import *\n",
@@ -4169,8 +4301,10 @@ mod tests {
     #[test]
     fn exact_all_copies_only_mutations_from_selected_branch_paths() {
         let plugin = "if FLAG:\n    VALUE = []\n    VALUE.append('same')\n    __all__ = ['VALUE']\nelse:\n    VALUE = []\n    VALUE.append('same')\n    __all__ = []\n";
-        let (_, facts, _) =
-            evaluate_imports(&[("/project/plugin.py", plugin)], "from plugin import *\n");
+        let (_, facts, _) = evaluate_imports(
+            &[(host_path("/project/plugin.py"), plugin)],
+            "from plugin import *\n",
+        );
         assert_eq!(facts.mutations.as_slice().len(), 1);
         let text = "VALUE.append('same')";
         assert_eq!(
@@ -4184,12 +4318,12 @@ mod tests {
         let (_, _, trace) = evaluate_imports(
             &[
                 (
-                    "/project/pkg/__init__.py",
+                    host_path("/project/pkg/__init__.py"),
                     "if FLAG:\n    __all__ = ['z_child', 'm_child']\nelse:\n    __all__ = ['a_child']\n",
                 ),
-                ("/project/pkg/z_child.py", ""),
-                ("/project/pkg/m_child.py", ""),
-                ("/project/pkg/a_child.py", ""),
+                (host_path("/project/pkg/z_child.py"), ""),
+                (host_path("/project/pkg/m_child.py"), ""),
+                (host_path("/project/pkg/a_child.py"), ""),
             ],
             "from pkg import *\n",
         );
@@ -4209,11 +4343,11 @@ mod tests {
         let (_, _, trace) = evaluate_imports(
             &[
                 (
-                    "/project/pkg/__init__.py",
+                    host_path("/project/pkg/__init__.py"),
                     "if FLAG:\n    __all__ = ['z_child', 'a_child']\nelse:\n    __all__ = ['a_child', 'z_child']\n",
                 ),
-                ("/project/pkg/z_child.py", ""),
-                ("/project/pkg/a_child.py", ""),
+                (host_path("/project/pkg/z_child.py"), ""),
+                (host_path("/project/pkg/a_child.py"), ""),
             ],
             "from pkg import *\n",
         );
@@ -4232,7 +4366,8 @@ mod tests {
         let plugin =
             "if FLAG:\n    VALUE = []\n    VALUE.append('imported')\n__all__ = ['VALUE']\n";
         let source = "VALUE = []\nVALUE.append('local')\nfrom plugin import *\n";
-        let (file, facts, _) = evaluate_imports(&[("/project/plugin.py", plugin)], source);
+        let (file, facts, _) =
+            evaluate_imports(&[(host_path("/project/plugin.py"), plugin)], source);
         assert!(facts.bindings["VALUE"].alternatives().all(|state| matches!(state, PythonBindingState::Bound(bound) if matches!(&bound.value.kind, PythonValueKind::List(_)))));
         assert_eq!(facts.mutations.as_slice().len(), 2);
         for (body, text, local) in [
@@ -4257,7 +4392,8 @@ mod tests {
     fn conditional_exact_and_absent_all_keep_selection_and_mutations_correlated() {
         let plugin = "VALUE = []\nVALUE.append('imported')\nif FLAG:\n    __all__ = []\n";
         let source = "VALUE = []\nVALUE.append('local')\nfrom plugin import *\n";
-        let (file, facts, _) = evaluate_imports(&[("/project/plugin.py", plugin)], source);
+        let (file, facts, _) =
+            evaluate_imports(&[(host_path("/project/plugin.py"), plugin)], source);
         assert_eq!(facts.bindings["VALUE"].alternatives().filter(|state| matches!(state, PythonBindingState::Bound(bound) if matches!(&bound.value.kind, PythonValueKind::List(_)))).count(), 2);
         assert_eq!(facts.mutations.as_slice().len(), 2);
         for (body, text, local) in [
@@ -4284,10 +4420,10 @@ mod tests {
         let (file, facts, _) = evaluate_imports(
             &[
                 (
-                    "/project/a.py",
+                    host_path("/project/a.py"),
                     "from b import VALUE\n__all__ = ['VALUE']\n",
                 ),
-                ("/project/b.py", "from a import VALUE\n"),
+                (host_path("/project/b.py"), "from a import VALUE\n"),
             ],
             source,
         );
@@ -4314,7 +4450,8 @@ mod tests {
         ] {
             let source = "VALUE = 'local'\nfrom plugin import *\n";
             let plugin = format!("VALUE = 'imported'\n__all__ = {all}\n");
-            let (file, facts, _) = evaluate_imports(&[("/project/plugin.py", &plugin)], source);
+            let (file, facts, _) =
+                evaluate_imports(&[(host_path("/project/plugin.py"), &plugin)], source);
             assert_eq!(
                 binding_strings(&facts, "VALUE"),
                 ["imported", "local"].into_iter().collect()
@@ -4344,10 +4481,10 @@ mod tests {
         let (_, facts, trace) = evaluate_imports(
             &[
                 (
-                    "/project/pkg/__init__.py",
+                    host_path("/project/pkg/__init__.py"),
                     "PUBLIC = 'public'\n_PRIVATE = 'private'\n",
                 ),
-                ("/project/pkg/child.py", "VALUE = 'child'\n"),
+                (host_path("/project/pkg/child.py"), "VALUE = 'child'\n"),
             ],
             "PUBLIC = 'stale public'\n_PRIVATE = 'stale private'\nfrom pkg import *\nimport pkg\nCHILD = pkg.child\n",
         );
@@ -4370,15 +4507,18 @@ mod tests {
         let (_, facts, trace) = evaluate_imports(
             &[
                 (
-                    "/project/pkg/__init__.py",
+                    host_path("/project/pkg/__init__.py"),
                     "__all__ = ['_PRIVATE', 'second', 'first', 'second']\n_PRIVATE = 'private'\nUNLISTED = 'hidden'\n",
                 ),
-                ("/project/pkg/first.py", "VALUE = 'first'\n"),
+                (host_path("/project/pkg/first.py"), "VALUE = 'first'\n"),
                 (
-                    "/project/pkg/second/__init__.py",
+                    host_path("/project/pkg/second/__init__.py"),
                     "VALUE = 'second package'\n",
                 ),
-                ("/project/pkg/unlisted.py", "VALUE = 'unlisted'\n"),
+                (
+                    host_path("/project/pkg/unlisted.py"),
+                    "VALUE = 'unlisted'\n",
+                ),
             ],
             "from pkg import *\n",
         );
@@ -4400,7 +4540,7 @@ mod tests {
     fn exact_all_branch_alternatives_keep_common_exports_exact_and_omitted_stale_values() {
         let (_, facts, _) = evaluate_imports(
             &[(
-                "/project/plugin.py",
+                host_path("/project/plugin.py"),
                 "COMMON = 'imported common'\nLEFT = 'imported left'\nRIGHT = 'imported right'\nif FLAG:\n    __all__ = ['COMMON', 'LEFT']\nelse:\n    __all__ = ['COMMON', 'RIGHT']\n",
             )],
             "COMMON = 'stale common'\nLEFT = 'stale left'\nRIGHT = 'stale right'\nUNLISTED = 'stale unlisted'\nfrom plugin import *\n",
@@ -4432,8 +4572,8 @@ mod tests {
     fn named_from_import_existing_private_member_shadows_child() {
         let (_, facts, trace) = evaluate_imports(
             &[
-                ("/project/pkg/__init__.py", "_child = 'member'\n"),
-                ("/project/pkg/_child.py", "VALUE = 'child'\n"),
+                (host_path("/project/pkg/__init__.py"), "_child = 'member'\n"),
+                (host_path("/project/pkg/_child.py"), "VALUE = 'child'\n"),
             ],
             "from pkg import _child\n",
         );
@@ -4448,8 +4588,8 @@ mod tests {
         let source = "from pkg import child as alias\n";
         let (file, facts, trace) = evaluate_imports(
             &[
-                ("/project/pkg/__init__.py", ""),
-                ("/project/pkg/child.py", "VALUE = 'child'\n"),
+                (host_path("/project/pkg/__init__.py"), ""),
+                (host_path("/project/pkg/child.py"), "VALUE = 'child'\n"),
             ],
             source,
         );
@@ -4484,9 +4624,9 @@ mod tests {
     fn from_dotted_import_syntax_leaf_records_syntax_edge_and_selects_member() {
         let (_, facts, trace) = evaluate_imports(
             &[
-                ("/project/pkg/__init__.py", "PARENT = 'parent'\n"),
+                (host_path("/project/pkg/__init__.py"), "PARENT = 'parent'\n"),
                 (
-                    "/project/pkg/sub.py",
+                    host_path("/project/pkg/sub.py"),
                     "CHILD = 'child'\nif FLAG:\n    OTHER = 'o'\n    broken(\n",
                 ),
             ],
@@ -4538,8 +4678,8 @@ mod tests {
     fn from_dotted_import_namespace_leaf_records_source_prefix_and_not_found() {
         let (_, facts, trace) = evaluate_imports(
             &[
-                ("/project/pkg/__init__.py", "PARENT = 'parent'\n"),
-                ("/project/pkg/ns/mod.py", "X = 'x'\n"),
+                (host_path("/project/pkg/__init__.py"), "PARENT = 'parent'\n"),
+                (host_path("/project/pkg/ns/mod.py"), "X = 'x'\n"),
             ],
             "from pkg.ns import VALUE\n",
         );
@@ -4556,8 +4696,8 @@ mod tests {
     fn ordinary_dotted_import_recovers_leaf_syntax_and_attaches_child() {
         let (_, facts, trace) = evaluate_imports(
             &[
-                ("/project/pkg/__init__.py", ""),
-                ("/project/pkg/sub.py", "LEAF = 'leaf'\nbroken(\n"),
+                (host_path("/project/pkg/__init__.py"), ""),
+                (host_path("/project/pkg/sub.py"), "LEAF = 'leaf'\nbroken(\n"),
             ],
             "import pkg.sub\nCHILD = pkg.sub\n",
         );
@@ -4712,8 +4852,8 @@ mod tests {
     fn from_dotted_import_named_records_parent_effects_and_selects_member() {
         let (_, facts, trace) = evaluate_imports(
             &[
-                ("/project/pkg/__init__.py", "PARENT = 'parent'\n"),
-                ("/project/pkg/sub.py", "CHILD = 'child'\n"),
+                (host_path("/project/pkg/__init__.py"), "PARENT = 'parent'\n"),
+                (host_path("/project/pkg/sub.py"), "CHILD = 'child'\n"),
             ],
             "from pkg.sub import CHILD\n",
         );
@@ -4727,8 +4867,8 @@ mod tests {
     fn from_dotted_import_star_records_parent_effects_and_binds_members() {
         let (_, facts, trace) = evaluate_imports(
             &[
-                ("/project/pkg/__init__.py", "PARENT = 'parent'\n"),
-                ("/project/pkg/sub.py", "CHILD = 'child'\n"),
+                (host_path("/project/pkg/__init__.py"), "PARENT = 'parent'\n"),
+                (host_path("/project/pkg/sub.py"), "CHILD = 'child'\n"),
             ],
             "from pkg.sub import *\n",
         );
@@ -4744,11 +4884,11 @@ mod tests {
         let (_, facts, trace) = evaluate_imports(
             &[
                 (
-                    "/project/pkg/__init__.py",
+                    host_path("/project/pkg/__init__.py"),
                     "__all__ = ['bad-name', 'child.grandchild']\n",
                 ),
-                ("/project/pkg/child/__init__.py", ""),
-                ("/project/pkg/child/grandchild.py", ""),
+                (host_path("/project/pkg/child/__init__.py"), ""),
+                (host_path("/project/pkg/child/grandchild.py"), ""),
             ],
             "from pkg import *\n",
         );
@@ -4765,7 +4905,7 @@ mod tests {
     fn exact_tuple_all_selects_only_its_named_member() {
         let (_, facts, _) = evaluate_imports(
             &[(
-                "/project/plugin.py",
+                host_path("/project/plugin.py"),
                 "__all__ = ('SELECTED',)\nSELECTED = 'selected'\nOMITTED = 'omitted'\n",
             )],
             "from plugin import *\n",
@@ -4789,7 +4929,7 @@ mod tests {
     #[test]
     fn from_dotted_import_not_found_records_parent_prefix_and_fails_selection() {
         let (_, facts, trace) = evaluate_imports(
-            &[("/project/pkg/__init__.py", "PARENT = 'parent'\n")],
+            &[(host_path("/project/pkg/__init__.py"), "PARENT = 'parent'\n")],
             "from pkg.missing import VALUE\n",
         );
         assert_eq!(
@@ -4804,7 +4944,7 @@ mod tests {
     #[test]
     fn from_dotted_import_not_found_intermediate_records_root_prefix_and_fails_selection() {
         let (_, facts, trace) = evaluate_imports(
-            &[("/project/pkg/__init__.py", "PARENT = 'parent'\n")],
+            &[(host_path("/project/pkg/__init__.py"), "PARENT = 'parent'\n")],
             "from pkg.missing.leaf import VALUE\n",
         );
         assert_eq!(
@@ -4819,7 +4959,7 @@ mod tests {
     #[test]
     fn from_dotted_import_namespace_parent_selects_source_child_member() {
         let (_, facts, trace) = evaluate_imports(
-            &[("/project/nspkg/mod.py", "VALUE = 'child'\n")],
+            &[(host_path("/project/nspkg/mod.py"), "VALUE = 'child'\n")],
             "from nspkg.mod import VALUE\n",
         );
         assert_eq!(import_names(&trace), ["resolved:nspkg.mod"]);
@@ -4831,7 +4971,7 @@ mod tests {
     #[test]
     fn ordinary_import_single_alias_binds_module_and_omits_source_name() {
         let (_, facts, trace) = evaluate_imports(
-            &[("/project/a/__init__.py", "VALUE = 'a'\n")],
+            &[(host_path("/project/a/__init__.py"), "VALUE = 'a'\n")],
             "import a as x\n",
         );
         assert_eq!(module_name(&facts, "x"), ("a", false));
@@ -4842,7 +4982,7 @@ mod tests {
     #[test]
     fn member_read_of_intrinsic_binding_after_bare_import_selects_value() {
         let (_, facts, _) = evaluate_imports(
-            &[("/project/pkg/__init__.py", "VALUE = 'pkg'\n")],
+            &[(host_path("/project/pkg/__init__.py"), "VALUE = 'pkg'\n")],
             "import pkg\nATTR = pkg.VALUE\n",
         );
         assert_eq!(module_name(&facts, "pkg"), ("pkg", false));
@@ -4855,8 +4995,8 @@ mod tests {
     fn member_read_of_parent_init_binding_after_dotted_root_import_selects_value() {
         let (_, facts, _) = evaluate_imports(
             &[
-                ("/project/pkg/__init__.py", "PARENT = 'parent'\n"),
-                ("/project/pkg/sub.py", "LEAF = 'leaf'\n"),
+                (host_path("/project/pkg/__init__.py"), "PARENT = 'parent'\n"),
+                (host_path("/project/pkg/sub.py"), "LEAF = 'leaf'\n"),
             ],
             "import pkg.sub\nATTR = pkg.PARENT\n",
         );
@@ -4870,8 +5010,8 @@ mod tests {
     fn member_read_of_leaf_binding_through_dotted_alias_selects_value() {
         let (_, facts, _) = evaluate_imports(
             &[
-                ("/project/pkg/__init__.py", "PARENT = 'parent'\n"),
-                ("/project/pkg/sub.py", "LEAF = 'leaf'\n"),
+                (host_path("/project/pkg/__init__.py"), "PARENT = 'parent'\n"),
+                (host_path("/project/pkg/sub.py"), "LEAF = 'leaf'\n"),
             ],
             "import pkg.sub as s\nATTR = s.LEAF\n",
         );
@@ -4885,8 +5025,8 @@ mod tests {
     fn ordinary_dotted_import_source_parent_binds_namespace_leaf_child() {
         let (_, facts, trace) = evaluate_imports(
             &[
-                ("/project/pkg/__init__.py", "PARENT = 'parent'\n"),
-                ("/project/pkg/ns/mod.py", "X = 'x'\n"),
+                (host_path("/project/pkg/__init__.py"), "PARENT = 'parent'\n"),
+                (host_path("/project/pkg/ns/mod.py"), "X = 'x'\n"),
             ],
             "import pkg.ns\nCHILD = pkg.ns\n",
         );
@@ -4899,8 +5039,8 @@ mod tests {
     fn ordinary_dotted_import_namespace_intermediate_reaches_source_leaf() {
         let (_, facts, trace) = evaluate_imports(
             &[
-                ("/project/pkg/__init__.py", ""),
-                ("/project/pkg/ns/leaf.py", "LEAF = 'leaf'\n"),
+                (host_path("/project/pkg/__init__.py"), ""),
+                (host_path("/project/pkg/ns/leaf.py"), "LEAF = 'leaf'\n"),
             ],
             "import pkg.ns.leaf\nCHILD = pkg.ns.leaf\n",
         );
@@ -4916,8 +5056,8 @@ mod tests {
     fn ordinary_import_binds_multiple_clauses_in_source_order() {
         let (_, facts, trace) = evaluate_imports(
             &[
-                ("/project/alpha/__init__.py", ""),
-                ("/project/beta/__init__.py", ""),
+                (host_path("/project/alpha/__init__.py"), ""),
+                (host_path("/project/beta/__init__.py"), ""),
             ],
             "import alpha, beta\n",
         );
@@ -4929,7 +5069,7 @@ mod tests {
     #[test]
     fn ordinary_import_mixed_clauses_preserve_source_order_after_failure() {
         let (_, facts, trace) = evaluate_imports(
-            &[("/project/alpha/__init__.py", "")],
+            &[(host_path("/project/alpha/__init__.py"), "")],
             "import missing, alpha\n",
         );
         assert_eq!(import_names(&trace), ["notfound:missing", "resolved:alpha"]);
@@ -4942,7 +5082,7 @@ mod tests {
     #[test]
     fn ordinary_import_binds_source_module_and_records_edge() {
         let (file, facts, trace) = evaluate_imports(
-            &[("/project/pkg/__init__.py", "VALUE = 'pkg'\n")],
+            &[(host_path("/project/pkg/__init__.py"), "VALUE = 'pkg'\n")],
             "import pkg\n",
         );
         assert_eq!(module_name(&facts, "pkg"), ("pkg", false));
@@ -4954,8 +5094,8 @@ mod tests {
     fn ordinary_import_alias_binds_leaf_and_evaluates_parent() {
         let (_, facts, trace) = evaluate_imports(
             &[
-                ("/project/pkg/__init__.py", "ROOT = 'root'\n"),
-                ("/project/pkg/sub.py", "LEAF = 'leaf'\n"),
+                (host_path("/project/pkg/__init__.py"), "ROOT = 'root'\n"),
+                (host_path("/project/pkg/sub.py"), "LEAF = 'leaf'\n"),
             ],
             "import pkg.sub as s\n",
         );
@@ -4968,8 +5108,8 @@ mod tests {
     fn ordinary_dotted_import_binds_root_and_attaches_loaded_child() {
         let (_, facts, trace) = evaluate_imports(
             &[
-                ("/project/pkg/__init__.py", ""),
-                ("/project/pkg/sub.py", "LEAF = 'leaf'\n"),
+                (host_path("/project/pkg/__init__.py"), ""),
+                (host_path("/project/pkg/sub.py"), "LEAF = 'leaf'\n"),
             ],
             "import pkg.sub\nCHILD = pkg.sub\n",
         );
@@ -4981,7 +5121,7 @@ mod tests {
     #[test]
     fn ordinary_import_of_namespace_parent_binds_namespace_and_loads_child() {
         let (_, facts, trace) = evaluate_imports(
-            &[("/project/nspkg/mod.py", "LEAF = 'leaf'\n")],
+            &[(host_path("/project/nspkg/mod.py"), "LEAF = 'leaf'\n")],
             "import nspkg.mod\nCHILD = nspkg.mod\n",
         );
         assert_eq!(module_name(&facts, "nspkg"), ("nspkg", true));
@@ -4992,7 +5132,7 @@ mod tests {
     #[test]
     fn ordinary_import_preserves_prior_clause_effects_on_later_failure() {
         let (_, facts, trace) = evaluate_imports(
-            &[("/project/good/__init__.py", "")],
+            &[(host_path("/project/good/__init__.py"), "")],
             "import good\nimport bad\n",
         );
         assert_eq!(module_name(&facts, "good"), ("good", false));
@@ -5005,7 +5145,7 @@ mod tests {
     #[test]
     fn ordinary_import_in_false_branch_creates_no_effects() {
         let (_, facts, trace) = evaluate_imports(
-            &[("/project/pkg/__init__.py", "")],
+            &[(host_path("/project/pkg/__init__.py"), "")],
             "if False:\n    import pkg\nMARK = 'kept'\n",
         );
         assert!(!facts.bindings.contains_key("pkg"));
@@ -5016,8 +5156,8 @@ mod tests {
     fn ordinary_dotted_import_of_package_leaf_attaches_package_child() {
         let (_, facts, trace) = evaluate_imports(
             &[
-                ("/project/pkg/__init__.py", ""),
-                ("/project/pkg/sub/__init__.py", "LEAF = 'leaf'\n"),
+                (host_path("/project/pkg/__init__.py"), ""),
+                (host_path("/project/pkg/sub/__init__.py"), "LEAF = 'leaf'\n"),
             ],
             "import pkg.sub\nCHILD = pkg.sub\n",
         );
@@ -5028,8 +5168,10 @@ mod tests {
 
     #[test]
     fn ordinary_import_of_namespace_terminal_binds_namespace_without_edges() {
-        let (_, facts, trace) =
-            evaluate_imports(&[("/project/ns/placeholder.py", "")], "import ns\n");
+        let (_, facts, trace) = evaluate_imports(
+            &[(host_path("/project/ns/placeholder.py"), "")],
+            "import ns\n",
+        );
         assert_eq!(module_name(&facts, "ns"), ("ns", true));
         assert_eq!(trace.imports().len(), 0);
     }
@@ -5037,7 +5179,7 @@ mod tests {
     #[test]
     fn ordinary_dotted_import_missing_leaf_preserves_parent_edge() {
         let (_, facts, trace) = evaluate_imports(
-            &[("/project/pkg/__init__.py", "VALUE = 'pkg'\n")],
+            &[(host_path("/project/pkg/__init__.py"), "VALUE = 'pkg'\n")],
             "import pkg.missing\n",
         );
         assert_eq!(
@@ -5052,7 +5194,7 @@ mod tests {
     #[test]
     fn ordinary_dotted_import_missing_intermediate_preserves_root_edge() {
         let (_, _, trace) = evaluate_imports(
-            &[("/project/pkg/__init__.py", "")],
+            &[(host_path("/project/pkg/__init__.py"), "")],
             "import pkg.missing.leaf\n",
         );
         assert_eq!(
@@ -5065,8 +5207,11 @@ mod tests {
     fn ordinary_dotted_import_recovers_parent_syntax_and_continues() {
         let (_, facts, trace) = evaluate_imports(
             &[
-                ("/project/pkg/__init__.py", "VALUE = 'ok'\nbroken(\n"),
-                ("/project/pkg/sub.py", "LEAF = 'leaf'\n"),
+                (
+                    host_path("/project/pkg/__init__.py"),
+                    "VALUE = 'ok'\nbroken(\n",
+                ),
+                (host_path("/project/pkg/sub.py"), "LEAF = 'leaf'\n"),
             ],
             "import pkg.sub\nCHILD = pkg.sub\n",
         );
@@ -5080,8 +5225,8 @@ mod tests {
     fn member_read_of_unimported_child_is_module_attribute_unknown() {
         let (_, facts, _) = evaluate_imports(
             &[
-                ("/project/pkg/__init__.py", ""),
-                ("/project/pkg/sub.py", "LEAF = 'leaf'\n"),
+                (host_path("/project/pkg/__init__.py"), ""),
+                (host_path("/project/pkg/sub.py"), "LEAF = 'leaf'\n"),
             ],
             "import pkg\nCHILD = pkg.sub\n",
         );
@@ -5095,8 +5240,8 @@ mod tests {
     fn ordinary_dotted_import_records_root_to_leaf_order_under_reverse_registration() {
         let (_, _, trace) = evaluate_imports(
             &[
-                ("/project/pkg/sub.py", "LEAF = 'leaf'\n"),
-                ("/project/pkg/__init__.py", "PARENT = 'parent'\n"),
+                (host_path("/project/pkg/sub.py"), "LEAF = 'leaf'\n"),
+                (host_path("/project/pkg/__init__.py"), "PARENT = 'parent'\n"),
             ],
             "import pkg.sub\n",
         );
@@ -5128,7 +5273,7 @@ mod tests {
     #[test]
     fn ambiguous_dotted_import_preserves_module_and_unbound_alternatives() {
         let (_, facts, trace) = evaluate_imports(
-            &[("/project/pkg/__init__.py", "")],
+            &[(host_path("/project/pkg/__init__.py"), "")],
             "if condition:\n    import pkg\nMARK = 'kept'\n",
         );
         let alternatives = facts.bindings["pkg"].alternatives().collect::<Vec<_>>();
@@ -5144,7 +5289,7 @@ mod tests {
     #[test]
     fn deterministically_true_dotted_import_binds_module_unconditionally() {
         let (_, facts, trace) = evaluate_imports(
-            &[("/project/pkg/__init__.py", "")],
+            &[(host_path("/project/pkg/__init__.py"), "")],
             "if True:\n    import pkg\n",
         );
         assert_eq!(module_name(&facts, "pkg"), ("pkg", false));
@@ -5675,12 +5820,16 @@ mod tests {
     fn python_module_evaluation_canonicalizes_branch_mutation_order() {
         let source = "A_VALUES = []\nZ_VALUES = []\nif FLAG:\n    Z_VALUES.append('z')\nelse:\n    A_VALUES.append('a')\n";
         let db = TestDatabase::new();
-        let project =
-            crate::project::Project::initial(&db, Utf8Path::new("/project"), &Settings::default());
-        db.add_file("/project/settings.py", source)
+        let project = crate::project::Project::initial(
+            &db,
+            Utf8Path::new(host_path("/project")),
+            &Settings::default(),
+        );
+        db.add_file(host_path("/project/settings.py"), source)
             .expect("fixture should be writable");
-        let module = crate::python::file_to_module(&db, project, "/project/settings.py".into())
-            .expect("module should resolve");
+        let module =
+            crate::python::file_to_module(&db, project, host_path("/project/settings.py").into())
+                .expect("module should resolve");
         let facts = crate::python::evaluation::python_module_facts(
             &db,
             project,
@@ -5795,17 +5944,21 @@ opaque(INSTALLED_APPS)
             ),
         ] {
             let db = TestDatabase::new();
-            let project =
-                crate::project::Project::initial(&db, Utf8Path::new("/proj"), &Settings::default());
+            let project = crate::project::Project::initial(
+                &db,
+                Utf8Path::new(host_path("/proj")),
+                &Settings::default(),
+            );
             let source = format!(
                 r"INSTALLED_APPS = ['blog']
 {prefix}TEMPLATES = []
 "
             );
-            db.add_file("/proj/settings.py", &source)
+            db.add_file(host_path("/proj/settings.py"), &source)
                 .expect("fixture should be writable");
-            let module = crate::python::file_to_module(&db, project, "/proj/settings.py".into())
-                .expect("module should resolve");
+            let module =
+                crate::python::file_to_module(&db, project, host_path("/proj/settings.py").into())
+                    .expect("module should resolve");
             let parsed = ruff_python_parser::parse_module(&source)
                 .expect("fixture should parse")
                 .into_syntax();
@@ -5860,8 +6013,11 @@ opaque(INSTALLED_APPS)
     fn settings_slice_avoids_unobserved_dictionary_materialization() {
         for demanded in [false, true] {
             let db = TestDatabase::new();
-            let project =
-                crate::project::Project::initial(&db, Utf8Path::new("/proj"), &Settings::default());
+            let project = crate::project::Project::initial(
+                &db,
+                Utf8Path::new(host_path("/proj")),
+                &Settings::default(),
+            );
             let source = format!(
                 r"import constants as messages
 MESSAGE_TAGS = {{messages.INFO: 'info', messages.ERROR: 'error', messages.WARNING: 'warning', messages.SUCCESS: 'success'}}
@@ -5871,7 +6027,7 @@ TEMPLATES = {}
                 if demanded { "[MESSAGE_TAGS]" } else { "[]" }
             );
             db.add_file(
-                "/proj/constants.py",
+                host_path("/proj/constants.py"),
                 r"if A:
     INFO = 'i'
 else:
@@ -5891,10 +6047,11 @@ else:
 ",
             )
             .expect("fixture should be writable");
-            db.add_file("/proj/settings.py", &source)
+            db.add_file(host_path("/proj/settings.py"), &source)
                 .expect("fixture should be writable");
-            let module = crate::python::file_to_module(&db, project, "/proj/settings.py".into())
-                .expect("module should resolve");
+            let module =
+                crate::python::file_to_module(&db, project, host_path("/proj/settings.py").into())
+                    .expect("module should resolve");
             let parsed = ruff_python_parser::parse_module(&source)
                 .expect("fixture should parse")
                 .into_syntax();
@@ -5938,8 +6095,11 @@ else:
     #[test]
     fn settings_slice_does_not_evaluate_irrelevant_guards_or_values() {
         let db = TestDatabase::new();
-        let project =
-            crate::project::Project::initial(&db, Utf8Path::new("/proj"), &Settings::default());
+        let project = crate::project::Project::initial(
+            &db,
+            Utf8Path::new(host_path("/proj")),
+            &Settings::default(),
+        );
         let mut source = String::new();
         for index in 0..20 {
             writeln!(
@@ -5956,10 +6116,11 @@ else:
 TEMPLATES = []
 ",
         );
-        db.add_file("/proj/settings.py", &source)
+        db.add_file(host_path("/proj/settings.py"), &source)
             .expect("fixture should be writable");
-        let module = crate::python::file_to_module(&db, project, "/proj/settings.py".into())
-            .expect("fixture module should resolve");
+        let module =
+            crate::python::file_to_module(&db, project, host_path("/proj/settings.py").into())
+                .expect("fixture module should resolve");
         let parsed = ruff_python_parser::parse_module(&source)
             .expect("fixture should parse")
             .into_syntax();
@@ -5996,8 +6157,11 @@ TEMPLATES = []
     #[test]
     fn settings_slice_preserves_private_predicate_constraints_and_origins() {
         let db = TestDatabase::new();
-        let project =
-            crate::project::Project::initial(&db, Utf8Path::new("/proj"), &Settings::default());
+        let project = crate::project::Project::initial(
+            &db,
+            Utf8Path::new(host_path("/proj")),
+            &Settings::default(),
+        );
         let source = r"FLAG = unknown_flag
 UNUSED = ['skip']
 APPS = ['initial']
@@ -6012,10 +6176,11 @@ if not FLAG:
 else:
     TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates'}]
 ";
-        db.add_file("/proj/settings.py", source)
+        db.add_file(host_path("/proj/settings.py"), source)
             .expect("fixture should be writable");
-        let module = crate::python::file_to_module(&db, project, "/proj/settings.py".into())
-            .expect("fixture module should resolve");
+        let module =
+            crate::python::file_to_module(&db, project, host_path("/proj/settings.py").into())
+                .expect("fixture module should resolve");
         let parsed = ruff_python_parser::parse_module(source)
             .expect("fixture should parse")
             .into_syntax();

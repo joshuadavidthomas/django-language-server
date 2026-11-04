@@ -827,7 +827,7 @@ mod tests {
         let relatives: Vec<_> = files
             .iter()
             .filter(|entry| entry.kind == WalkEntryKind::File)
-            .map(|entry| entry.relative.as_str())
+            .map(|entry| djls_testing::slash_path(&entry.relative))
             .collect();
 
         assert_eq!(relatives, vec!["app/page.html", "base.html"]);
@@ -849,12 +849,12 @@ mod tests {
         let paths: Vec<_> = files
             .iter()
             .filter(|entry| entry.kind == WalkEntryKind::File)
-            .map(|entry| entry.path.as_str())
+            .map(|entry| djls_testing::slash_path(&entry.path))
             .collect();
         let relatives: Vec<_> = files
             .iter()
             .filter(|entry| entry.kind == WalkEntryKind::File)
-            .map(|entry| entry.relative.as_str())
+            .map(|entry| djls_testing::slash_path(&entry.relative))
             .collect();
 
         assert_eq!(
