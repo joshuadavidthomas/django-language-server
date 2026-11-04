@@ -13,9 +13,23 @@ default:
 cog:
     uv run --no-project --with cogapp --with nox cog -r CONTRIBUTING.md README.md docs/versioning.md pyproject.toml
 
+[positional-arguments]
 [private]
 nox SESSION *ARGS:
-    uv run --no-project --with "nox[uv]" nox --session "{{ SESSION }}" -- "{{ ARGS }}"
+    uv run --no-project --with "nox[uv]" nox --session "$@"
+
+# Build benchmark targets for CodSpeed, e.g. `just bench-build simulation --bench parser`
+[positional-arguments]
+bench-build MODE *BENCHES:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mode="$1"
+    shift
+    cargo codspeed build -m "$mode" -p djls-bench "$@"
+
+# Build the standalone release binary for a target triple, as the build workflow does
+build-release TARGET:
+    cargo {{ if os() == "linux" { if TARGET =~ "^aarch64" { "zigbuild" } else { "build" } } else { "build" } }} --verbose --release --target {{ TARGET }}
 
 bumpver *ARGS:
     uv run --with bumpver bumpver {{ ARGS }}
@@ -37,8 +51,10 @@ corpus *ARGS:
         cargo run -q -p djls-testing --bin corpus -- "$@"
     fi
 
+# Pass `--fix --allow-dirty` to apply suggestions
+[positional-arguments]
 clippy *ARGS:
-    cargo clippy --all-targets --all-features --benches --fix --allow-dirty {{ ARGS }} -- -D warnings
+    cargo clippy --all-targets --all-features --benches "$@" -- -D warnings
 
 # Needs `just corpus sync --source-only`. ARGS go to libFuzzer, such as `-max_total_time=600`.
 # Fuzz the template parser, seeded from corpus templates
@@ -71,45 +87,74 @@ ecosystem BASE="origin/main":
     #!/usr/bin/env bash
     set -euo pipefail
     out="target/ecosystem"
-    rm -rf "$out/base-src" && mkdir -p "$out"
+    rm -rf "$out" && mkdir -p "$out"
+    git worktree prune
     git worktree add --detach "$out/base-src" "{{ BASE }}" >/dev/null
     trap 'git worktree remove --force "$out/base-src"' EXIT
-    cargo build --release -q -p djls --manifest-path "$out/base-src/Cargo.toml" --target-dir "$out/base-target"
+    # Both builds share target/ so the second reuses the first's dependencies.
+    cargo build --release -q -p djls --manifest-path "$out/base-src/Cargo.toml" --target-dir target
+    cp target/release/djls "$out/djls-base"
     cargo build --release -q -p djls
-    uv run tools/ecosystem.py run --djls "$out/base-target/release/djls" --output "$out/base.json"
-    uv run tools/ecosystem.py run --djls target/release/djls --output "$out/head.json"
+    cp target/release/djls "$out/djls-head"
+    uv run tools/ecosystem.py run --djls "$out/djls-base" --output "$out/base.json"
+    uv run tools/ecosystem.py run --djls "$out/djls-head" --output "$out/head.json"
     uv run tools/ecosystem.py diff "$out/base.json" "$out/head.json"
 
+# Run the property tests with many cases, as the nightly deep-tests workflow does
+deep-properties:
+    #!/usr/bin/env bash
+    status=0
+    PROPTEST_CASES=5000 cargo test -p djls-project --lib cpython_differential || status=1
+    PROPTEST_CASES=500 cargo test -p djls-ide --test it incremental || status=1
+    exit "$status"
+
 # Mutation-test a crate or file, e.g. `just mutants -p djls-semantic -f crates/djls-semantic/src/scoping/loads.rs`
+[positional-arguments]
 mutants *ARGS:
-    cargo mutants --in-place {{ ARGS }} -- -- \
-        --skip corpus_environment:: --skip corpus_validation:: --skip corpus_inheritance:: \
-        --skip validation::corpus_ --skip model_extraction_snapshots --skip corpus_registration_census
+    #!/usr/bin/env bash
+    set -euo pipefail
+    skips=()
+    while read -r filter; do skips+=(--skip "$filter"); done < <(grep -v '^#' tools/corpus-sweep-filters.txt)
+    cargo mutants --in-place "$@" -- -- "${skips[@]}"
 
+[positional-arguments]
 e2e *ARGS:
-    @just nox e2e {{ ARGS }}
+    @just nox e2e -- "$@"
 
+[positional-arguments]
 fixtures *ARGS:
-    @just nox fixtures {{ ARGS }}
+    @just nox fixtures -- "$@"
 
 rustfmt_channel := `sed -n 's/^channel = "\([^"]*\)"/\1/p' tools/rustfmt/rust-toolchain.toml`
 
 fmt *ARGS:
     cargo "+{{ rustfmt_channel }}" fmt --manifest-path "{{ justfile_directory() }}/Cargo.toml" --all {{ ARGS }}
 
-# run pre-commit on all files
+# Check Justfile formatting and run pre-commit on all files
+[positional-arguments]
 lint *ARGS:
-    @just --fmt
-    @just nox lint {{ ARGS }}
+    @just --fmt --check
+    @just nox lint -- "$@"
 
 run *ARGS:
     cargo run -p djls -- {{ ARGS }}
 
-test *ARGS:
-    @just nox test {{ ARGS }}
+# Print the CI test matrix as JSON for a comma-separated list of runner OSes
+gha-matrix OS="":
+    @just nox gha_matrix -- "{{ OS }}"
 
+[positional-arguments]
+test *ARGS:
+    @just nox test -- "$@"
+
+# Run one cell of the Python/Django test matrix, e.g. `just test-cell 3.12 6.0`
+[positional-arguments]
+test-cell PYTHON DJANGO *ARGS:
+    @python="$1" django="$2"; shift 2; just nox "tests(python='$python', django='$django')" -- "$@"
+
+[positional-arguments]
 testall *ARGS:
-    @just nox tests {{ ARGS }}
+    @just nox tests -- "$@"
 
 # Build the browser package into OUT: wasm-bindgen `--target web` output plus each vendored Django
 # release re-zipped uncompressed, which compresses better over HTTP and loads without inflating

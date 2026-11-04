@@ -6,6 +6,7 @@ on:
       - main
       - release/*
     paths:
+      - .github/actions/setup/action.yml
       - .github/workflows/build.yml
       - crates/**
       - Cargo.lock
@@ -31,7 +32,7 @@ on:
 
 concurrency:
   group: build-${{ inputs.ref || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -96,38 +97,16 @@ jobs:
           echo "OS=${os:-'unknown'}" >> $GITHUB_ENV
           echo "ARCH=${arch:-'unknown'}" >> $GITHUB_ENV
 
-      - name: Cache rustup toolchain
-        if: ${{ inputs.version == '' && !startsWith(github.ref, 'refs/tags/') }}
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # No Rust cache: these release-profile builds only run on main and release branches,
+      # and five platform caches would not fit the repository's cache budget.
+      - uses: $/.github/actions/setup
         with:
-          path: |
-            ~/.rustup
-          key: ${{ runner.os }}-${{ runner.arch }}-rustup-pinned-${{ hashFiles('rust-toolchain.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-rustup-pinned-
-
-      - name: Cache Homebrew packages (macOS)
-        if: ${{ inputs.version == '' && !startsWith(github.ref, 'refs/tags/') && runner.os == 'macOS' }}
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/Library/Caches/Homebrew
-          key: ${{ runner.os }}-${{ matrix.platform.target }}-homebrew-${{ hashFiles('.github/workflows/build.yml') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ matrix.platform.target }}-homebrew-
-
-      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
-        with:
-          add_shims_to_path: false
+          tools: rust just
           cache: ${{ inputs.version == '' && !startsWith(github.ref, 'refs/tags/') }}
-          install_args: rust
 
       - name: Install Rust target
         shell: bash
         run: rustup target add "$TARGET"
-
-      - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
-        if: ${{ inputs.version == '' && !startsWith(github.ref, 'refs/tags/') }}
 
       - name: Cache Zig toolchain
         if: ${{ inputs.version == '' && !startsWith(github.ref, 'refs/tags/') && runner.os == 'Linux' && matrix.platform.target == 'aarch64' }}
@@ -157,13 +136,7 @@ jobs:
         env:
           RUNNER_OS: ${{ runner.os }}
         run: |
-          if [[ "$RUNNER_OS" == "Linux" && "$TARGET" == aarch64* ]]; then
-            build_command="zigbuild"
-          else
-            build_command="build"
-          fi
-
-          cargo "$build_command" --verbose --release --target "$TARGET"
+          just build-release "$TARGET"
 
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             bin="./target/${TARGET}/release/djls.exe"
@@ -247,7 +220,7 @@ jobs:
           python-version: 3.x
 
       - name: Build wheels
-        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           target: ${{ matrix.platform.target }}
           args: --release --out dist --find-interpreter
@@ -281,7 +254,7 @@ jobs:
           python-version: 3.x
 
       - name: Build wheels
-        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           target: ${{ matrix.platform.target }}
           args: --release --out dist --find-interpreter
@@ -313,30 +286,8 @@ jobs:
           architecture: ${{ matrix.platform.target }}
           python-version: 3.x
 
-      - name: Cache rustup toolchain
-        if: ${{ inputs.version == '' && !startsWith(github.ref, 'refs/tags/') }}
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.rustup
-          key: ${{ runner.os }}-${{ runner.arch }}-rustup-pinned-${{ hashFiles('rust-toolchain.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-rustup-pinned-
-
-      - name: Cache Cargo registry
-        if: ${{ inputs.version == '' && !startsWith(github.ref, 'refs/tags/') }}
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/git
-            ~/.cargo/registry
-          key: ${{ runner.os }}-${{ runner.arch }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-cargo-registry-
-            ${{ runner.os }}-cargo-registry-
-
       - name: Build wheels
-        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           target: ${{ matrix.platform.target }}
           args: --release --out dist --find-interpreter
@@ -368,30 +319,8 @@ jobs:
         with:
           python-version: 3.x
 
-      - name: Cache rustup toolchain
-        if: ${{ inputs.version == '' && !startsWith(github.ref, 'refs/tags/') }}
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.rustup
-          key: ${{ runner.os }}-${{ runner.arch }}-rustup-pinned-${{ hashFiles('rust-toolchain.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-rustup-pinned-
-
-      - name: Cache Cargo registry
-        if: ${{ inputs.version == '' && !startsWith(github.ref, 'refs/tags/') }}
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/git
-            ~/.cargo/registry
-          key: ${{ runner.os }}-${{ runner.arch }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-cargo-registry-
-            ${{ runner.os }}-cargo-registry-
-
       - name: Build wheels
-        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           target: ${{ matrix.platform.target }}
           args: --release --out dist --find-interpreter
@@ -413,7 +342,7 @@ jobs:
           persist-credentials: false
 
       - name: Build sdist
-        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           command: sdist
           args: --out dist
@@ -452,17 +381,13 @@ jobs:
           ref: ${{ inputs.ref }}
           persist-credentials: false
 
-      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+      - uses: $/.github/actions/setup
         with:
-          add_shims_to_path: false
+          tools: rust just github:wasm-bindgen/wasm-bindgen
           cache: ${{ inputs.version == '' && !startsWith(github.ref, 'refs/tags/') }}
-          install_args: rust just github:wasm-bindgen/wasm-bindgen
 
       - name: Install Rust target
         run: rustup target add wasm32-unknown-unknown
-
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        if: ${{ inputs.version == '' && !startsWith(github.ref, 'refs/tags/') }}
 
       - name: Build browser package
         run: just wasm target/wasm/pkg

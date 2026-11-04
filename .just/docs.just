@@ -81,15 +81,10 @@ fmt:
 
 # Build documentation
 [no-cd]
-build LOCATION="site": copy
+build: copy
     uv run --group docs --frozen zensical build --clean --config-file {{ mkdoc_config }}
 
 # Serve documentation locally
 [no-cd]
 serve PORT="8000": copy
-    #!/usr/bin/env sh
-    HOST="localhost"
-    if [ -f "/.dockerenv" ]; then
-        HOST="0.0.0.0"
-    fi
     uv run --group docs --frozen zensical serve --config-file {{ mkdoc_config }} --dev-addr localhost:{{ PORT }}

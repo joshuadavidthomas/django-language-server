@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import shutil
 import tempfile
 from pathlib import Path
 
@@ -64,9 +63,19 @@ def should_skip(python: str, django: str) -> bool:
     return False
 
 
+# Corpus-wide sweeps run once in the corpus session, not in every matrix entry.
+CORPUS_SWEEP_FILTERS = [
+    line
+    for line in Path("tools/corpus-sweep-filters.txt").read_text().splitlines()
+    if line and not line.startswith("#")
+]
+
+
 @nox.session
 def test(session):
-    session.notify(f"tests(python='{PY_DEFAULT}', django='{DJ_DEFAULT}')")
+    session.notify(
+        f"tests(python='{PY_DEFAULT}', django='{DJ_DEFAULT}')", session.posargs
+    )
 
 
 @nox.session
@@ -85,6 +94,7 @@ def tests(session, django):
         "sync",
         "--frozen",
         "--inexact",
+        "--no-install-project",
         "--no-install-package",
         "django",
         "--python",
@@ -99,25 +109,10 @@ def tests(session, django):
     else:
         session.install(f"django=={django}")
 
-    command = ["cargo", "test"]
-
-    if session.posargs:
-        args = []
-        for arg in session.posargs:
-            if arg:
-                args.extend(arg.split(" "))
-        command.extend(args)
-    # Corpus-wide sweeps run once in the corpus job, not in every matrix entry.
+    command = ["cargo", "test", *session.posargs]
     if "--" not in command:
         command.append("--")
-    for test_filter in (
-        "corpus_environment::",
-        "corpus_validation::",
-        "corpus_inheritance::",
-        "validation::corpus_",
-        "model_extraction_snapshots",
-        "corpus_registration_census",
-    ):
+    for test_filter in CORPUS_SWEEP_FILTERS:
         command.extend(["--skip", test_filter])
     session.run(
         "cargo",
@@ -136,7 +131,8 @@ def tests(session, django):
 
 @nox.session(python=False)
 def corpus(session):
-    """Prepare real project environments and run all corpus-wide suites."""
+    """Prepare real project environments, run all corpus-wide suites, and check
+    the benchmark workloads."""
     session.run(
         "cargo", "run", "-q", "-p", "djls-testing", "--bin", "corpus", "--", "sync"
     )
@@ -173,6 +169,17 @@ def corpus(session):
         "validation::corpus_",
         *session.posargs,
     )
+    # Checks the benchmark workloads against their snapshots. The bench workflow
+    # does not build the test profile, and this session already has the corpus.
+    session.run(
+        "cargo",
+        "test",
+        "-p",
+        "djls-bench",
+        "--",
+        "--include-ignored",
+        env={"DJLS_REQUIRE_BENCH_CORPUS": "1"},
+    )
 
 
 @nox.session(python=PY_DEFAULT)
@@ -182,17 +189,13 @@ def e2e(session):
         "sync",
         "--frozen",
         "--inexact",
+        "--no-install-project",
         "--python",
         session.python,
         env={"UV_PROJECT_ENVIRONMENT": session.virtualenv.location},
     )
     session.install(f"django=={DJ_DEFAULT}")
-
-    args = []
-    for arg in session.posargs:
-        if arg:
-            args.extend(arg.split(" "))
-    session.run("pytest", *args)
+    session.run("pytest", *session.posargs)
 
 
 @nox.session(python=PY_DEFAULT)
@@ -203,6 +206,7 @@ def fixtures(session):
         "sync",
         "--frozen",
         "--inexact",
+        "--no-install-project",
         "--python",
         session.python,
         env={"UV_PROJECT_ENVIRONMENT": session.virtualenv.location},
@@ -283,65 +287,6 @@ def lint(session):
 
 
 @nox.session
-@nox.parametrize("django", DJ_VERSIONS)
-def analyze_tags(session, django):
-    """Analyze Django template tags and generate TagSpec suggestions."""
-    if django == DJMAIN:
-        session.install(
-            "django @ https://github.com/django/django/archive/refs/heads/main.zip"
-        )
-    else:
-        session.install(f"django=={django}")
-
-    session.run(
-        "python",
-        "scripts/analyze_django_tags.py",
-        "--version",
-        django,
-        "--output-dir",
-        "analysis",
-    )
-
-
-@nox.session
-def copy_bench_fixtures(session):
-    django_version = (
-        session.posargs[0] if session.posargs and session.posargs[0] else DJ_LTS[-1]
-    )
-
-    if django_version == DJMAIN:
-        session.install(
-            "django @ https://github.com/django/django/archive/refs/heads/main.zip"
-        )
-    else:
-        session.install(f"django=={django_version}")
-
-    django_path = session.run(
-        "python",
-        "-c",
-        "import django, os; print(os.path.dirname(django.__file__))",
-        silent=True,
-    ).strip()
-
-    dest_base = Path("crates/djls-bench/fixtures/django")
-
-    if dest_base.exists():
-        shutil.rmtree(dest_base)
-
-    templates = {
-        "small/forms_widgets_input.html": "forms/templates/django/forms/widgets/input.html",
-        "medium/admin_login.html": "contrib/admin/templates/admin/login.html",
-        "large/views_technical_500.html": "views/templates/technical_500.html",
-    }
-
-    for dest, src in templates.items():
-        dest_path = dest_base / dest
-        dest_path.parent.mkdir(parents=True, exist_ok=True)
-        src_path = Path(django_path) / src
-        shutil.copy2(src_path, dest_path)
-
-
-@nox.session
 def gha_matrix(session):
     os_args = session.posargs[0] if session.posargs else ""
     os_list = [os.strip() for os in os_args.split(",") if os_args.strip()] or [
@@ -371,139 +316,3 @@ def gha_matrix(session):
             print(f"matrix={matrix}", file=fh)
     else:
         print(matrix)
-
-
-@nox.session
-def cog(session):
-    COG_FILES = [
-        "CONTRIBUTING.md",
-        "README.md",
-        "pyproject.toml",
-    ]
-    session.run(
-        "uv",
-        "run",
-        "--with",
-        "bumpver",
-        "--with",
-        "cogapp",
-        "--with",
-        "nox",
-        "cog",
-        "-r",
-        *COG_FILES,
-    )
-
-
-def update_changelog(session, version):
-    with open("CHANGELOG.md", "r") as f:
-        changelog = f.read()
-
-    changelog = changelog.replace("## [Unreleased]", f"## [{version}]", 1)
-    changelog = changelog.replace(
-        f"## [{version}]", f"## [Unreleased]\n\n## [{version}]"
-    )
-
-    repo_url = session.run(
-        "git", "remote", "get-url", "origin", external=True, silent=True
-    ).strip()
-    repo_url = repo_url.replace(".git", "")
-
-    changelog = changelog.rstrip("\n")
-    changelog += f"\n[{version}]: {repo_url}/releases/tag/v{version}\n"
-    changelog = re.sub(
-        r"\[unreleased\]: .+",
-        f"[unreleased]: {repo_url}/compare/v{version}...HEAD",
-        changelog,
-    )
-
-    with open("CHANGELOG.md", "w") as f:
-        f.write(changelog)
-
-    session.run("git", "add", "CHANGELOG.md", external=True)
-    session.run(
-        "git",
-        "commit",
-        "-m",
-        f"update CHANGELOG for version {version}",
-        external=True,
-        silent=True,
-    )
-
-
-def update_uvlock(session, version):
-    session.run("uv", "lock")
-
-    git_status = session.run("git", "status", "--porcelain", external=True, silent=True)
-    if "uv.lock" not in git_status:
-        session.log("No changes to uv.lock, skipping commit")
-        return
-
-    session.run("git", "add", "uv.lock", external=True)
-    session.run(
-        "git",
-        "commit",
-        "-m",
-        f"update uv.lock for version {version}",
-        external=True,
-        silent=True,
-    )
-
-
-@nox.session
-def release(session):
-    version = get_version(session)
-    session.run("git", "checkout", "-b", f"release/v{version}", external=True)
-
-    command = ["uv", "run", "bumpver", "update"]
-    if session.posargs:
-        args = []
-        for arg in session.posargs:
-            if arg:
-                args.extend(arg.split(" "))
-        command.extend(args)
-    session.run(*command)
-
-    session.run("cargo", "check", "-q", external=True)
-
-    cog(session)
-    session.run(
-        "git",
-        "add",
-        "Cargo.lock",
-        "CONTRIBUTING.md",
-        "README.md",
-        "pyproject.toml",
-        external=True,
-    )
-    session.run(
-        "git",
-        "commit",
-        "-m",
-        f"run cog for version {version}",
-        external=True,
-        silent=True,
-    )
-
-    update_changelog(session, version)
-    update_uvlock(session, version)
-
-    session.run(
-        "git", "push", "--set-upstream", "origin", f"release/v{version}", external=True
-    )
-    session.run("gh", "pr", "create", "--fill", external=True)
-
-
-def get_version(session):
-    from bumpver.version import to_pep440
-
-    command = ["uv", "run", "bumpver", "update", "--dry", "--no-fetch"]
-    if session.posargs:
-        args = []
-        for arg in session.posargs:
-            if arg and arg not in ["--dry", "--no-fetch"]:
-                args.extend(arg.split(" "))
-        command.extend(args)
-    output = session.run(*command, silent=True)
-    match = re.search(r"New Version: (.+)", output)
-    return to_pep440(match.group(1)) if match else None

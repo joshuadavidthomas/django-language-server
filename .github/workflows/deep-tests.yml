@@ -31,25 +31,17 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+      # Builds the test profile like the test matrix, so it restores that cache.
+      - uses: $/.github/actions/setup
         with:
-          install_args: rust
+          tools: rust just
+          save: false
+          rust-cache: test
 
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Property tests with many cases
+        run: just deep-properties
 
-      - name: Static Python evaluator against CPython
-        if: ${{ !cancelled() }}
-        env:
-          PROPTEST_CASES: "5000"
-        run: cargo test -p djls-project --lib cpython_differential
-
-      - name: Incremental diagnostics against a fresh database
-        if: ${{ !cancelled() }}
-        env:
-          PROPTEST_CASES: "500"
-        run: cargo test -p djls-ide --test it incremental
-
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
           name: proptest-regressions
@@ -67,26 +59,19 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+      - uses: $/.github/actions/setup
         with:
-          install_args: just rust
-
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          workspaces: |
+          tools: just rust
+          rust-cache: fuzz
+          rust-cache-workspaces: |
             .
             fuzz
+          corpus: true
 
       - name: Install cargo-fuzz and the nightly toolchain
         run: |
           cargo install cargo-fuzz --locked
           rustup toolchain install "$(sed -n 's/^channel = "\([^"]*\)"/\1/p' tools/rustfmt/rust-toolchain.toml)" --profile minimal
-
-      - name: Cache corpus source
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: crates/djls-testing/.corpus/repos
-          key: ${{ runner.os }}-corpus-source-${{ hashFiles('crates/djls-testing/manifest.lock') }}
 
       - name: Sync corpus source
         run: just corpus sync --source-only
@@ -94,7 +79,7 @@ jobs:
       - name: Fuzz the template parser
         run: just fuzz -max_total_time=600
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
           name: fuzz-crashes

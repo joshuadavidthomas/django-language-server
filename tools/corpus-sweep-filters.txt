@@ -1,0 +1,9 @@
+# Cargo test filters for the corpus-wide sweeps. The Python/Django test matrix
+# (`just test`, `just testall`) and `just mutants` skip these; `just corpus`
+# runs them once, in each project's own environment.
+corpus_environment::
+corpus_validation::
+corpus_inheritance::
+validation::corpus_
+model_extraction_snapshots
+corpus_registration_census

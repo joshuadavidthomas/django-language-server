@@ -13,7 +13,8 @@ on:
 
 concurrency:
   group: lint-${{ inputs.ref || github.head_ref || github.ref }}
-  cancel-in-progress: true
+  # Runs on main finish so they can save the caches pull requests restore.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -40,27 +41,20 @@ jobs:
           ref: ${{ inputs.ref }}
           persist-credentials: false
 
-      - name: Install uv
-        uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+      - uses: $/.github/actions/setup
         with:
-          add_shims_to_path: false
-          install_args: uv prek
-
-      - name: Cache uv dependencies
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ env.UV_CACHE_DIR }}
-          key: ${{ runner.os }}-${{ runner.arch }}-uv-lint-${{ hashFiles('uv.lock', 'mise.toml', 'noxfile.py') }}
+          tools: uv prek just
+          uv-cache-key: ${{ runner.os }}-${{ runner.arch }}-uv-lint-${{ hashFiles('uv.lock', 'mise.toml', 'noxfile.py') }}
 
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ~/.cache/pre-commit/
-          key: pre-commit-1|${{ hashFiles('.pre-commit-config.yaml') }}
+          path: ~/.cache/prek/
+          key: prek-1|${{ hashFiles('.pre-commit-config.yaml') }}
 
       - name: Run pre-commit
-        run: |
-          SKIP=no-commit-to-branch,cargo-fmt,cargo-clippy \
-          uv run --no-project --with "nox[uv]" nox --session lint
+        env:
+          SKIP: no-commit-to-branch,cargo-fmt,cargo-clippy
+        run: just lint
 
   release-metadata:
     needs: should-run
@@ -71,11 +65,9 @@ jobs:
           ref: ${{ inputs.ref }}
           persist-credentials: false
 
-      - name: Install uv
-        uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+      - uses: $/.github/actions/setup
         with:
-          add_shims_to_path: false
-          install_args: uv
+          tools: uv
 
       - name: Check release metadata
         run: uv run tools/release.py check
@@ -97,6 +89,7 @@ jobs:
         with:
           filters: |
             rust:
+              - '.github/actions/setup/action.yml'
               - '.github/workflows/lint.yml'
               - '.rustfmt.toml'
               - 'crates/**'
@@ -120,35 +113,13 @@ jobs:
           ref: ${{ inputs.ref }}
           persist-credentials: false
 
-      - name: Cache rustup toolchain
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - uses: $/.github/actions/setup
         with:
-          path: |
-            ~/.rustup
-          key: ${{ runner.os }}-${{ runner.arch }}-rustup-nightly-${{ hashFiles('tools/rustfmt/rust-toolchain.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-rustup-nightly-
-
-      - name: Cache Cargo dependencies
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/git
-            ~/.cargo/registry
-          key: ${{ runner.os }}-${{ runner.arch }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-cargo-registry-
-            ${{ runner.os }}-cargo-registry-
-
-      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
-        with:
-          add_shims_to_path: false
-          working_directory: tools/rustfmt
-          install_args: rust
+          tools: rust just
+          working-directory: tools/rustfmt
 
       - name: Run rustfmt
-        working-directory: tools/rustfmt
-        run: cargo fmt --manifest-path "${{ github.workspace }}/Cargo.toml" --all -- --check
+        run: just fmt --check
 
   clippy:
     runs-on: ubuntu-24.04
@@ -160,35 +131,13 @@ jobs:
           ref: ${{ inputs.ref }}
           persist-credentials: false
 
-      - name: Cache rustup toolchain
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - uses: $/.github/actions/setup
         with:
-          path: |
-            ~/.rustup
-          key: ${{ runner.os }}-${{ runner.arch }}-rustup-pinned-${{ hashFiles('rust-toolchain.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-rustup-pinned-
-
-      - name: Cache Cargo dependencies
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/git
-            ~/.cargo/registry
-          key: ${{ runner.os }}-${{ runner.arch }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-cargo-registry-
-            ${{ runner.os }}-cargo-registry-
-
-      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
-        with:
-          add_shims_to_path: false
-          install_args: rust
-
-      - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+          tools: rust just
+          rust-cache: clippy
 
       - name: Run clippy
-        run: cargo clippy --all-targets --all-features --benches -- -D warnings
+        run: just clippy
 
   hawk:
     runs-on: ubuntu-24.04
@@ -200,74 +149,11 @@ jobs:
           ref: ${{ inputs.ref }}
           persist-credentials: false
 
-      - name: Cache rustup toolchain
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - uses: $/.github/actions/setup
         with:
-          path: |
-            ~/.rustup
-          key: ${{ runner.os }}-${{ runner.arch }}-rustup-hawk-${{ hashFiles('tools/hawk/rust-toolchain.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-rustup-hawk-
-
-      - name: Cache Cargo dependencies
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/git
-            ~/.cargo/registry
-          key: ${{ runner.os }}-${{ runner.arch }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-cargo-registry-
-            ${{ runner.os }}-cargo-registry-
-
-      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
-        with:
-          add_shims_to_path: false
-          working_directory: tools/hawk
-          install_args: rust github:astral-sh/hawk
-
-      - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+          tools: rust just github:astral-sh/hawk
+          working-directory: tools/hawk
+          rust-cache: hawk
 
       - name: Run hawk
-        working-directory: tools/hawk
-        run: cargo hawk check --manifest-path "${{ github.workspace }}/Cargo.toml" --target-dir "${{ github.workspace }}/target/hawk" --exclude-crate djls_wasm -D warnings
-
-  cargo-check:
-    runs-on: ubuntu-24.04
-    needs: rust-changes
-    if: needs.rust-changes.outputs.rust == 'true'
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ inputs.ref }}
-          persist-credentials: false
-
-      - name: Cache rustup toolchain
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.rustup
-          key: ${{ runner.os }}-${{ runner.arch }}-rustup-pinned-${{ hashFiles('rust-toolchain.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-rustup-pinned-
-
-      - name: Cache Cargo registry
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/git
-            ~/.cargo/registry
-          key: ${{ runner.os }}-${{ runner.arch }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-cargo-registry-
-            ${{ runner.os }}-cargo-registry-
-
-      - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
-        with:
-          add_shims_to_path: false
-          install_args: rust
-
-      - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
-
-      - name: Run cargo check
-        run: cargo check --all-targets --all-features
+        run: just hawk

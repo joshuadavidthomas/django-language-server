@@ -4,11 +4,13 @@ on:
   push:
     branches: [main]
     paths:
+      - .github/actions/**
       - .github/workflows/**
       - .github/zizmor.yml
       - mise.toml
   pull_request:
     paths:
+      - .github/actions/**
       - .github/workflows/**
       - .github/zizmor.yml
       - mise.toml
@@ -25,11 +27,9 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install zizmor
-        uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+      - uses: $/.github/actions/setup
         with:
-          add_shims_to_path: false
-          install_args: zizmor
+          tools: zizmor
 
       - name: Run zizmor 🌈
         run: zizmor --format=sarif . > results.sarif

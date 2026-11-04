@@ -1,0 +1,84 @@
+name: Set up a CI job
+description: >-
+  Install mise tools and restore the caches a job needs. Pull requests restore main's caches
+  and never save their own, which keeps the repository under GitHub's 10 GB cache budget.
+
+inputs:
+  tools:
+    description: Tools for `mise install`, such as "rust uv just".
+    required: true
+  working-directory:
+    description: Directory mise runs in. Its rust-toolchain.toml selects the Rust toolchain.
+    default: .
+  cache:
+    description: Set to false to read and write no caches, as release builds must.
+    default: "true"
+  save:
+    description: Whether this job saves its caches when it runs on main.
+    default: "true"
+  rust-cache:
+    description: >-
+      rust-cache key. Jobs that build the same dependencies share one key, and only one of
+      them saves it. Empty disables the Rust cache.
+    default: ""
+  rust-cache-workspaces:
+    description: rust-cache `workspaces` input.
+    default: ". -> target"
+  uv-cache-key:
+    description: Full key for the uv cache in $UV_CACHE_DIR. Empty disables it.
+    default: ""
+  corpus:
+    description: Restore the corpus source checkouts in crates/djls-testing/.corpus/repos.
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - id: policy
+      shell: bash
+      env:
+        CACHE: ${{ inputs.cache }}
+        SAVE: ${{ inputs.save == 'true' && github.ref == 'refs/heads/main' }}
+      run: |
+        echo "cache=$CACHE" >> "$GITHUB_OUTPUT"
+        echo "save=$([[ $CACHE == true && $SAVE == true ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+    - uses: jdx/mise-action@8418fedb1110381a0d3ba51a7a415d7c1b884550 # v5.2.2
+      with:
+        add_shims_to_path: false
+        cache: ${{ steps.policy.outputs.cache }}
+        cache_save: ${{ steps.policy.outputs.save }}
+        install_args: ${{ inputs.tools }}
+        working_directory: ${{ inputs.working-directory }}
+
+    - if: inputs.rust-cache != '' && steps.policy.outputs.cache == 'true'
+      uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      with:
+        shared-key: ${{ inputs.rust-cache }}
+        workspaces: ${{ inputs.rust-cache-workspaces }}
+        save-if: ${{ steps.policy.outputs.save }}
+
+    # actions/cache saves in its post step; actions/cache/restore never saves.
+    - if: inputs.corpus == 'true' && steps.policy.outputs.save == 'true'
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: crates/djls-testing/.corpus/repos
+        key: ${{ runner.os }}-corpus-source-${{ hashFiles('crates/djls-testing/manifest.lock') }}
+        restore-keys: ${{ runner.os }}-corpus-source-
+    - if: inputs.corpus == 'true' && steps.policy.outputs.cache == 'true' && steps.policy.outputs.save != 'true'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: crates/djls-testing/.corpus/repos
+        key: ${{ runner.os }}-corpus-source-${{ hashFiles('crates/djls-testing/manifest.lock') }}
+        restore-keys: ${{ runner.os }}-corpus-source-
+
+    - if: inputs.uv-cache-key != '' && steps.policy.outputs.save == 'true'
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ env.UV_CACHE_DIR }}
+        key: ${{ inputs.uv-cache-key }}
+    - if: inputs.uv-cache-key != '' && steps.policy.outputs.cache == 'true' && steps.policy.outputs.save != 'true'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ env.UV_CACHE_DIR }}
+        key: ${{ inputs.uv-cache-key }}
