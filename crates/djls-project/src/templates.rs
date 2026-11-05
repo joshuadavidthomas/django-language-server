@@ -44,7 +44,6 @@ pub use registrations::UnreadShape;
 pub use registrations::template_library_definition_facts;
 pub use registrations::template_library_filter_facts;
 pub use registrations::template_library_inventory_dependencies;
-pub use registrations::template_library_registration_dependencies;
 pub use registrations::template_library_structure_facts;
 pub use registrations::template_library_tag_facts;
 pub use registrations::template_symbol_doc;

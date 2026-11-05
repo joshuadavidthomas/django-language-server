@@ -142,7 +142,6 @@ pub use templates::template_library_catalog;
 pub use templates::template_library_definition_facts;
 pub use templates::template_library_filter_facts;
 pub use templates::template_library_inventory_dependencies;
-pub use templates::template_library_registration_dependencies;
 pub use templates::template_library_structure_facts;
 pub use templates::template_library_tag_facts;
 pub use templates::template_resolution;
