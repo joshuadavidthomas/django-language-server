@@ -58,7 +58,6 @@ pub use references::template_references_in_file;
 pub use scoping::effective_symbol_candidate_at;
 pub use structure::BlockRole;
 pub use structure::GrammarOpeningDefinition;
-pub use structure::OpaqueRegions;
 pub use structure::OutlineItem;
 pub use structure::OutlineKind;
 pub use structure::RegionId;
@@ -68,10 +67,9 @@ pub use structure::TemplateFoldKind;
 pub use structure::TemplateNode;
 pub use structure::TemplateRegion;
 pub use structure::TemplateTree;
-pub use structure::build_template_folds;
+pub use structure::build_projectless_template_tree;
+pub use structure::build_template_folds_for_file;
 pub use structure::build_template_outline_for_file;
-pub use structure::build_template_tree_for_file;
-pub use structure::compute_opaque_regions;
 pub use structure::semantic_grammar_vocabulary;
 pub use tags::BodyAnalysis;
 pub use tags::EndTag;
@@ -106,7 +104,7 @@ pub fn validate_template_file(db: &dyn Db, file: File) {
     for error in validate_template_layout(db, file, layout) {
         use salsa::Accumulator;
 
-        ValidationErrorAccumulator(positions.error(error.clone())).accumulate(db);
+        ValidationErrorAccumulator(positions.resolve(error.clone())).accumulate(db);
     }
 }
 

@@ -7,6 +7,7 @@ use djls_templates::TemplateString;
 
 use crate::TagSpec;
 use crate::db::Db;
+use crate::layout::MapSpans;
 use crate::scoping::LoadKind;
 use crate::scoping::ScopedTagFacts;
 use crate::scoping::template_analysis_projection_for_file;
@@ -65,12 +66,21 @@ pub fn build_template_outline_for_file(
     file: File,
     nodelist: NodeList<'_>,
 ) -> Vec<OutlineItem> {
-    let projection = template_analysis_projection_for_file(db, file, nodelist);
-    let tree = projection.tree(db);
-    let roles = OutlineTagRoles {
-        facts: projection.scoped_tag_facts(db),
-    };
-    outline_items_for_region(tree.regions(db), &roles, tree.root(db))
+    template_analysis_projection_for_file(db, file, nodelist).read(|analysis| {
+        let tree = analysis.tree(db);
+        let roles = OutlineTagRoles {
+            facts: analysis.scoped_tag_facts(db),
+        };
+        outline_items_for_region(tree.regions(db), &roles, tree.root(db))
+    })
+}
+
+impl MapSpans for OutlineItem {
+    fn map_spans(&mut self, map: &mut impl FnMut(Span) -> Span) {
+        self.span.map_spans(map);
+        self.selection_span.map_spans(map);
+        self.children.map_spans(map);
+    }
 }
 
 struct OutlineTagRoles<'a> {

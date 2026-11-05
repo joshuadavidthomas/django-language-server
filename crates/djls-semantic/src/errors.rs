@@ -5,6 +5,8 @@ use djls_source::Span;
 use serde::Serialize;
 use thiserror::Error;
 
+use crate::layout::MapSpans;
+
 #[derive(Clone, Debug, Error, PartialEq, Eq, Serialize)]
 pub enum ValidationError {
     #[error("Unclosed '{tag}' tag")]
@@ -194,18 +196,16 @@ fn unreadable_library_message(
     }
 }
 
-impl ValidationError {
-    pub(crate) fn map_spans(&mut self, mut map: impl FnMut(Span) -> Span) {
+impl MapSpans for ValidationError {
+    fn map_spans(&mut self, map: &mut impl FnMut(Span) -> Span) {
         match self {
             Self::UnbalancedStructure {
                 opening_span,
                 closing_span,
                 ..
             } => {
-                *opening_span = map(*opening_span);
-                if let Some(span) = closing_span {
-                    *span = map(*span);
-                }
+                opening_span.map_spans(map);
+                closing_span.map_spans(map);
             }
             Self::UnmatchedBlockName {
                 got_span,
@@ -213,9 +213,9 @@ impl ValidationError {
                 opener_span,
                 ..
             } => {
-                *got_span = map(*got_span);
-                *span = map(*span);
-                *opener_span = map(*opener_span);
+                got_span.map_spans(map);
+                span.map_spans(map);
+                opener_span.map_spans(map);
             }
             Self::UnclosedTag { span, .. }
             | Self::OrphanedTag { span, .. }
@@ -236,10 +236,12 @@ impl ValidationError {
             | Self::LibraryNotInInstalledApps { span, .. }
             | Self::UnreadableLibrary { span, .. }
             | Self::ExtendsMustBeFirst { span }
-            | Self::MultipleExtends { span } => *span = map(*span),
+            | Self::MultipleExtends { span } => span.map_spans(map),
         }
     }
+}
 
+impl ValidationError {
     #[must_use]
     pub fn code(&self) -> &'static str {
         match self {

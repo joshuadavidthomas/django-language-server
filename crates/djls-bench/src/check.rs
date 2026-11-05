@@ -75,9 +75,10 @@ mod tests {
     use djls_ide::prepare_project_template_analysis;
     use djls_ide::prime_template_library_products;
     use djls_semantic::TemplateDiagnostics;
-    use djls_semantic::build_template_tree_for_file;
+    use djls_semantic::TemplateNode;
+    use djls_semantic::TemplateRegion;
+    use djls_semantic::build_projectless_template_tree;
     use djls_semantic::collect_template_diagnostics;
-    use djls_semantic::compute_opaque_regions;
     use djls_semantic::validate_template_file;
     use djls_source::DiagnosticRenderer;
     use djls_source::File;
@@ -775,14 +776,14 @@ mod tests {
     struct SemanticFileSnapshot {
         path: String,
         template_tree_regions: usize,
-        has_opaque_regions: bool,
+        has_opaque_nodes: bool,
     }
 
     #[derive(Serialize)]
     struct SemanticWorkloadSnapshot {
         files: Vec<SemanticFileSnapshot>,
         total_template_tree_regions: usize,
-        opaque_region_paths: Vec<String>,
+        opaque_node_paths: Vec<String>,
     }
 
     #[test]
@@ -799,11 +800,15 @@ mod tests {
         for file in files {
             let nodelist = parse_template(&db, file)
                 .expect("semantic benchmark fixture should be a readable Template");
-            let tree = build_template_tree_for_file(&db, file, nodelist);
+            let tree = build_projectless_template_tree(&db, nodelist);
             snapshots.push(SemanticFileSnapshot {
                 path: file.path(&db).to_string(),
                 template_tree_regions: tree.regions(&db).iter().count(),
-                has_opaque_regions: !compute_opaque_regions(&db, file, nodelist).is_empty(),
+                has_opaque_nodes: tree
+                    .regions(&db)
+                    .iter()
+                    .flat_map(TemplateRegion::nodes)
+                    .any(|node| matches!(node, TemplateNode::Opaque { .. })),
             });
         }
         snapshots.sort_by(|left, right| left.path.cmp(&right.path));
@@ -811,9 +816,9 @@ mod tests {
             .iter()
             .map(|snapshot| snapshot.template_tree_regions)
             .sum();
-        let opaque_region_paths = snapshots
+        let opaque_node_paths = snapshots
             .iter()
-            .filter(|snapshot| snapshot.has_opaque_regions)
+            .filter(|snapshot| snapshot.has_opaque_nodes)
             .map(|snapshot| snapshot.path.clone())
             .collect();
 
@@ -822,7 +827,7 @@ mod tests {
             SemanticWorkloadSnapshot {
                 files: snapshots,
                 total_template_tree_regions,
-                opaque_region_paths,
+                opaque_node_paths,
             }
         );
     }

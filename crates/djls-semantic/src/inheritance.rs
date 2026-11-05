@@ -22,6 +22,7 @@ use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 
 use crate::db::Db;
+use crate::layout::MapSpans;
 use crate::scoping::ScopedTagFacts;
 use crate::scoping::template_analysis_projection_for_file_in_scope;
 use crate::structure::BlockRole;
@@ -419,19 +420,19 @@ fn template_symbols_in_scope<'db>(
     scope_file: File,
 ) -> TemplateSymbols {
     let projection = template_analysis_projection_for_file_in_scope(db, file, nodelist, scope_file);
-    let tree = projection.tree(db);
-    let regions = tree.regions(db);
-    let mut builder = SymbolBuilder {
-        tag_facts: projection.scoped_tag_facts(db),
-        regions,
-        blocks: Vec::new(),
-        uncertain_block_names: FxHashSet::default(),
-        partials: Vec::new(),
-        extends: None,
-    };
-
-    builder.collect_region(tree.root(db));
-    builder.finish()
+    projection.read(|analysis| {
+        let tree = analysis.tree(db);
+        let mut builder = SymbolBuilder {
+            tag_facts: analysis.scoped_tag_facts(db),
+            regions: tree.regions(db),
+            blocks: Vec::new(),
+            uncertain_block_names: FxHashSet::default(),
+            partials: Vec::new(),
+            extends: None,
+        };
+        builder.collect_region(tree.root(db));
+        builder.finish()
+    })
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -440,6 +441,24 @@ pub struct TemplateSymbols {
     uncertain_block_names: FxHashSet<String>,
     partials: Vec<PartialDef>,
     extends: Option<ExtendsTarget>,
+}
+
+impl MapSpans for TemplateSymbols {
+    fn map_spans(&mut self, map: &mut impl FnMut(Span) -> Span) {
+        for block in &mut self.blocks {
+            block.name_span.map_spans(map);
+            block.full_span.map_spans(map);
+        }
+        for partial in &mut self.partials {
+            partial.name_span.map_spans(map);
+            partial.full_span.map_spans(map);
+        }
+        if let Some(ExtendsTarget::Literal { span, .. } | ExtendsTarget::Dynamic { span }) =
+            &mut self.extends
+        {
+            span.map_spans(map);
+        }
+    }
 }
 
 impl TemplateSymbols {

@@ -9,6 +9,7 @@ use djls_templates::parse_template;
 
 use crate::TagSpec;
 use crate::db::Db as SemanticDb;
+use crate::layout::MapSpans;
 use crate::references::LiteralTemplateReference;
 use crate::scoping::LoadKind;
 use crate::scoping::LoadedLibraries;
@@ -57,6 +58,21 @@ pub enum SemanticOffsetContext<'db> {
     None,
 }
 
+impl MapSpans for SemanticOffsetContext<'_> {
+    fn map_spans(&mut self, map: &mut impl FnMut(Span) -> Span) {
+        match self {
+            Self::TemplateReference { span, .. }
+            | Self::LoadLibrary { span, .. }
+            | Self::LoadSymbol { span, .. }
+            | Self::TemplateBlock { span, .. }
+            | Self::Tag { span, .. }
+            | Self::Filter { span, .. }
+            | Self::Variable { span, .. } => span.map_spans(map),
+            Self::None => {}
+        }
+    }
+}
+
 impl<'db> SemanticOffsetContext<'db> {
     pub fn from_offset(db: &'db dyn SemanticDb, file: File, offset: Offset) -> Self {
         let TemplateParseResult::Parsed(nodelist) = parse_template(db, file) else {
@@ -64,27 +80,23 @@ impl<'db> SemanticOffsetContext<'db> {
         };
 
         let projection = template_analysis_projection_for_file(db, file, nodelist);
-        let tree = projection.tree(db);
-        let loaded = projection.loaded_libraries(db);
-        let tag_facts = projection.scoped_tag_facts(db);
-
-        for node in active_template_nodes(tree.regions(db), tree.root(db)) {
-            let context = match node {
-                ActiveTemplateNode::Tag(tag) if tag.full_span.contains(offset) => {
-                    Self::from_tag(db, loaded, tag_facts, tag, offset)
-                }
-                ActiveTemplateNode::Variable(variable) if variable.span.contains(offset) => {
-                    Self::from_variable(loaded, variable, offset)
-                }
-                ActiveTemplateNode::Tag(_) | ActiveTemplateNode::Variable(_) => Self::None,
-            };
-
-            if context != Self::None {
-                return context;
-            }
-        }
-
-        Self::None
+        projection.read_at(offset.get(), |analysis, offset| {
+            let tree = analysis.tree(db);
+            let loaded = analysis.loaded_libraries(db);
+            let tag_facts = analysis.scoped_tag_facts(db);
+            active_template_nodes(tree.regions(db), tree.root(db))
+                .map(|node| match node {
+                    ActiveTemplateNode::Tag(tag) if tag.full_span.contains(offset) => {
+                        Self::from_tag(db, loaded, tag_facts, tag, offset)
+                    }
+                    ActiveTemplateNode::Variable(variable) if variable.span.contains(offset) => {
+                        Self::from_variable(loaded, variable, offset)
+                    }
+                    ActiveTemplateNode::Tag(_) | ActiveTemplateNode::Variable(_) => Self::None,
+                })
+                .find(|context| *context != Self::None)
+                .unwrap_or(Self::None)
+        })
     }
 
     fn from_variable(

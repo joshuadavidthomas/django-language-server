@@ -228,7 +228,7 @@ mod invalidation_tests {
     use djls_project::template_library_filter_facts;
     use djls_semantic::SemanticOffsetContext;
     use djls_semantic::ValidationErrorAccumulator;
-    use djls_semantic::build_template_tree_for_file;
+    use djls_semantic::build_template_folds_for_file;
     use djls_semantic::library_filter_specs;
     use djls_semantic::library_tag_specs;
     use djls_semantic::scoped_template_libraries_for_file;
@@ -713,15 +713,15 @@ mod invalidation_tests {
 
         let nodelist = parse_template(&db, child_file).expect("child fixture should parse");
         event_log.take();
-        let tree = build_template_tree_for_file(&db, child_file, nodelist);
-        assert!(tree.regions(&db).iter().next().is_some());
+        let folds = build_template_folds_for_file(&db, child_file, nodelist);
+        assert!(!folds.is_empty());
         let events = event_log.take();
         assert_eq!(
             will_execute_count(&db, &events, "analyze_template_layout_in_scope",),
             1
         );
         assert_eq!(
-            will_execute_count(&db, &events, "build_template_tree_for_file"),
+            will_execute_count(&db, &events, "build_template_folds_for_file"),
             1
         );
 
@@ -900,10 +900,10 @@ mod invalidation_tests {
         } = template_inheritance_fixture();
 
         let nodelist = parse_template(&db, child_file).expect("child fixture should parse");
-        build_template_tree_for_file(&db, child_file, nodelist);
+        build_template_folds_for_file(&db, child_file, nodelist);
         event_log.take();
 
-        build_template_tree_for_file(&db, child_file, nodelist);
+        build_template_folds_for_file(&db, child_file, nodelist);
         let events = event_log.take();
         assert_eq!(
             will_execute_count(&db, &events, "analyze_template_layout_in_scope",),
@@ -917,7 +917,7 @@ mod invalidation_tests {
         SourceChanges::new([ChangeEvent::ContentChanged(other_file.path(&db).clone())])
             .apply(&mut db);
         let nodelist = parse_template(&db, child_file).expect("child fixture should still parse");
-        build_template_tree_for_file(&db, child_file, nodelist);
+        build_template_folds_for_file(&db, child_file, nodelist);
         let events = event_log.take();
         assert_eq!(
             will_execute_count(&db, &events, "analyze_template_layout_in_scope",),
@@ -940,7 +940,7 @@ mod invalidation_tests {
         )])
         .apply(&mut db);
         let nodelist = parse_template(&db, child_file).expect("child fixture should still parse");
-        build_template_tree_for_file(&db, child_file, nodelist);
+        build_template_folds_for_file(&db, child_file, nodelist);
         let events = event_log.take();
         assert_eq!(
             will_execute_count(&db, &events, "analyze_template_layout_in_scope",),
@@ -960,7 +960,7 @@ mod invalidation_tests {
         SourceChanges::new([ChangeEvent::ContentChanged(child_file.path(&db).clone())])
             .apply(&mut db);
         let nodelist = parse_template(&db, child_file).expect("edited child should parse");
-        build_template_tree_for_file(&db, child_file, nodelist);
+        build_template_folds_for_file(&db, child_file, nodelist);
         let events = event_log.take();
         assert_eq!(
             will_execute_count(&db, &events, "analyze_template_layout_in_scope",),
@@ -976,7 +976,7 @@ mod invalidation_tests {
         );
         SourceChanges::new([ChangeEvent::ContentChanged(loader_tags_path)]).apply(&mut db);
         let nodelist = parse_template(&db, child_file).expect("child fixture should still parse");
-        let _ = build_template_tree_for_file(&db, child_file, nodelist);
+        let _ = build_template_folds_for_file(&db, child_file, nodelist);
         let events = event_log.take();
         assert_eq!(
             will_execute_count(&db, &events, "analyze_template_layout_in_scope",),
@@ -997,7 +997,7 @@ mod invalidation_tests {
         } = template_inheritance_fixture();
 
         let nodelist = parse_template(&db, parent_file).expect("parent fixture should parse");
-        build_template_tree_for_file(&db, parent_file, nodelist);
+        build_template_folds_for_file(&db, parent_file, nodelist);
         event_log.take();
 
         // Template text nodes carry source positions, not their presentation text.
@@ -1011,7 +1011,7 @@ mod invalidation_tests {
         SourceChanges::new([ChangeEvent::ContentChanged(parent_file.path(&db).clone())])
             .apply(&mut db);
         let nodelist = parse_template(&db, parent_file).expect("edited parent should parse");
-        build_template_tree_for_file(&db, parent_file, nodelist);
+        build_template_folds_for_file(&db, parent_file, nodelist);
         let events = event_log.take();
 
         assert_eq!(
@@ -1849,7 +1849,7 @@ env_file = ".env.local"
         let _ = library_tag_specs(&db, project, loader_tags);
         {
             let nodelist = parse_template(&db, child_file).expect("child fixture should parse");
-            let _ = build_template_tree_for_file(&db, child_file, nodelist);
+            let _ = build_template_folds_for_file(&db, child_file, nodelist);
         }
         event_log.take();
 
@@ -1895,7 +1895,7 @@ env_file = ".env.local"
         assert_eq!(will_execute_count(&db, &events, "library_filter_specs"), 0);
 
         let nodelist = parse_template(&db, child_file).expect("child fixture should still parse");
-        let _ = build_template_tree_for_file(&db, child_file, nodelist);
+        let _ = build_template_folds_for_file(&db, child_file, nodelist);
         let events = event_log.take();
         assert_eq!(
             will_execute_count(&db, &events, "analyze_template_layout_in_scope",),

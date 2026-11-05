@@ -1,6 +1,5 @@
 use djls_semantic::TemplateFold;
 use djls_semantic::TemplateFoldKind;
-use djls_semantic::build_template_tree_for_file;
 use djls_source::File;
 use djls_source::Span;
 use djls_templates::Node;
@@ -23,8 +22,7 @@ pub fn collect_folding_ranges(
     let Ok(source) = file.try_source(db) else {
         return Vec::new();
     };
-    let template_tree = build_template_tree_for_file(db, file, nodelist);
-    let semantic_folds = djls_semantic::build_template_folds(db, template_tree);
+    let semantic_folds = djls_semantic::build_template_folds_for_file(db, file, nodelist);
     let role_at = |node: &Node| imports::tag_role_at(db, file, nodelist, node);
     let folds = FoldSpans::collect(
         semantic_folds,

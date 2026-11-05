@@ -9,7 +9,6 @@ use djls_templates::NodeList;
 use djls_templates::TagBit;
 
 use crate::db::Db;
-use crate::errors::ValidationError;
 
 #[salsa::tracked]
 pub(crate) struct TemplateLayout<'db> {
@@ -36,7 +35,7 @@ impl SourcePositions {
         }
     }
 
-    pub(crate) fn offset(&self, position: u32) -> u32 {
+    fn offset(&self, position: u32) -> u32 {
         let index = self
             .0
             .partition_point(|&(semantic, _)| semantic <= position);
@@ -44,15 +43,56 @@ impl SourcePositions {
         source + (position - semantic)
     }
 
-    pub(crate) fn span(&self, span: Span) -> Span {
+    /// The inverse of `offset`. A source position inside a text run or comment body maps
+    /// into that run's single semantic byte, so it never lands on a neighbouring node.
+    pub(crate) fn semantic_offset(&self, source: u32) -> u32 {
+        let index = self.0.partition_point(|&(_, anchor)| anchor <= source);
+        let (semantic, anchor) = self.0[index.saturating_sub(1)];
+        let position = semantic + (source - anchor);
+        match self.0.get(index) {
+            Some(&(next, _)) if position >= next => next.saturating_sub(1).max(semantic),
+            _ => position,
+        }
+    }
+
+    fn span(&self, span: Span) -> Span {
         let start = self.offset(span.start());
         let end = self.offset(span.end());
         Span::new(start, end - start)
     }
 
-    pub(crate) fn error(&self, mut error: ValidationError) -> ValidationError {
-        error.map_spans(|span| self.span(span));
-        error
+    /// Converts every layout position `value` holds into a source position.
+    pub(crate) fn resolve<T: MapSpans>(&self, mut value: T) -> T {
+        value.map_spans(&mut |span| self.span(span));
+        value
+    }
+}
+
+/// A value that holds template positions. Implementing it is how a type becomes
+/// convertible by `SourcePositions::resolve`; nothing else rewrites positions.
+pub(crate) trait MapSpans {
+    fn map_spans(&mut self, map: &mut impl FnMut(Span) -> Span);
+}
+
+impl MapSpans for Span {
+    fn map_spans(&mut self, map: &mut impl FnMut(Span) -> Span) {
+        *self = map(*self);
+    }
+}
+
+impl<T: MapSpans> MapSpans for Option<T> {
+    fn map_spans(&mut self, map: &mut impl FnMut(Span) -> Span) {
+        if let Some(value) = self {
+            value.map_spans(map);
+        }
+    }
+}
+
+impl<T: MapSpans> MapSpans for Vec<T> {
+    fn map_spans(&mut self, map: &mut impl FnMut(Span) -> Span) {
+        for value in self {
+            value.map_spans(map);
+        }
     }
 }
 
@@ -108,13 +148,13 @@ pub(crate) fn template_layout<'db>(db: &'db dyn Db, source: NodeList<'db>) -> Te
     TemplateLayout::new(db, NodeList::new(db, nodes), positions)
 }
 
-pub(crate) fn map_bits(bits: &mut [TagBit], mut map: impl FnMut(Span) -> Span) {
+fn map_bits(bits: &mut [TagBit], mut map: impl FnMut(Span) -> Span) {
     for bit in bits {
         bit.span = map(bit.span);
     }
 }
 
-pub(crate) fn map_filters(filters: &mut [Filter], mut map: impl FnMut(Span) -> Span) {
+fn map_filters(filters: &mut [Filter], mut map: impl FnMut(Span) -> Span) {
     for filter in filters {
         filter.span = map(filter.span);
         if let Some(argument) = &mut filter.arg {

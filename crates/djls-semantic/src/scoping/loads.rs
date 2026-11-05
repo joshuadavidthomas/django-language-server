@@ -7,6 +7,8 @@ use djls_project::TemplateSymbolKind;
 use djls_source::Span;
 use djls_templates::TagBit;
 
+use crate::layout::MapSpans;
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct LoadArgument {
     name: String,
@@ -28,9 +30,11 @@ impl LoadArgument {
     pub fn span(&self) -> Span {
         self.span
     }
+}
 
-    pub(crate) fn map_span(&mut self, map: impl FnOnce(Span) -> Span) {
-        self.span = map(self.span);
+impl MapSpans for LoadArgument {
+    fn map_spans(&mut self, map: &mut impl FnMut(Span) -> Span) {
+        self.span.map_spans(map);
     }
 }
 
@@ -368,28 +372,22 @@ pub(crate) struct LoadedLibraries {
     index: LoadIndex,
 }
 
-impl LoadedLibraries {
-    pub(crate) fn map_spans(&self, mut map: impl FnMut(Span) -> Span) -> Self {
-        let mut loaded = self.clone();
-        for statement in &mut loaded.statements {
-            statement.span = map(statement.span);
+impl MapSpans for LoadedLibraries {
+    fn map_spans(&mut self, map: &mut impl FnMut(Span) -> Span) {
+        for statement in &mut self.statements {
+            statement.span.map_spans(map);
             match &mut statement.kind {
-                LoadKind::FullLoad { libraries } => {
-                    for library in libraries {
-                        library.map_span(&mut map);
-                    }
-                }
+                LoadKind::FullLoad { libraries } => libraries.map_spans(map),
                 LoadKind::SelectiveImport { symbols, library } => {
-                    for symbol in symbols {
-                        symbol.map_span(&mut map);
-                    }
-                    library.map_span(&mut map);
+                    symbols.map_spans(map);
+                    library.map_spans(map);
                 }
             }
         }
-        loaded
     }
+}
 
+impl LoadedLibraries {
     #[must_use]
     pub(crate) fn new(statements: Vec<LoadStatement>) -> Self {
         debug_assert!(

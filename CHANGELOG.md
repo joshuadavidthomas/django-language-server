@@ -44,6 +44,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Changed language server startup to skip hashing the bundled Django archives and to index their entries by name.
 - Changed template edits to skip re-checking cached facts about project Python modules, settings, and file sets. Project templates now get their own Salsa durability, which cuts the instructions per template edit by about 15%.
 - Reduced allocations when parsing and rechecking templates by storing short tag names, arguments, and variables inline.
+- Reduced memory used by folding, outline, symbols, and references by keeping one copy of each template's structure instead of two.
 - **Internal**: Resolved model import prefixes by walking parent module names instead of re-parsing each prefix.
 - **Internal**: Shared name strings between model, class, and field identities instead of copying them.
 - **Internal**: Stored each model's app label in the model graph's name index for exact lookups.
@@ -72,6 +73,8 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - **Internal**: Added `real_project` benchmarks that open `djangoproject.com` and `netbox` with their own Python environments through the server's `AnalysisHost`. `cold_start_check_templates` runs the server's reload sequence from a fresh database and computes diagnostics for every project template; `keystroke_diagnostics` types one character into an open template and recomputes its diagnostics. The bench workflow builds the two environments, and the corpus manifest now selects `djangoproject.settings.dev` for `djangoproject.com`.
 - **Internal**: Added a CodSpeed memory-mode benchmark job alongside the simulation job. `check.rs::corpus_all` (about 5.6M allocations) skips itself in memory mode.
 - **Internal**: Split the bench workflow into `core`, `corpus`, and `real-project` shards that each build only their own bench targets. The `real-project` shard runs on `main`, on manual runs, and on PRs labeled `bench 🏋️`, in simulation mode only. The `djls-bench` workload snapshot tests moved to the Project-backed corpus job in the test workflow.
+- **Internal**: Converted layout positions to source positions through one `MapSpans` trait in `djls-semantic`. IDE readers reach template analysis only through `SourceAnalysis::read` and `read_at`, which convert what they return.
+- **Internal**: Removed the unused opaque-region projection and its benchmark; opaque-body tests now exercise template structure and validation.
 
 ### Fixed
 

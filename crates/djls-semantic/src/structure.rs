@@ -3,7 +3,7 @@
 //! `TemplateTree` is a structural semantic projection over
 //! `djls_templates::NodeList`. It preserves source spans, parsed tag bits,
 //! block hierarchy, standalone tags, variables, and non-tag regions needed by
-//! semantic features such as opaque-region detection and document outlines.
+//! semantic features such as validation and document outlines.
 //!
 //! It is not intended to be a lossless syntax tree. Parser-owned details that do
 //! not affect structure, such as exact parse errors, remain available from the
@@ -16,18 +16,14 @@ pub(crate) mod grammar;
 pub use grammar::GrammarOpeningDefinition;
 pub use grammar::SemanticGrammarVocabulary;
 pub use grammar::semantic_grammar_vocabulary;
-pub(crate) mod opaque;
 pub(crate) mod outline;
 pub(crate) mod tree;
 
-use djls_source::File;
 use djls_templates::NodeList;
 use salsa::Accumulator;
 
 use crate::ValidationErrorAccumulator;
 use crate::db::Db;
-use crate::scoping::template_analysis_projection_for_file;
-use crate::scoping::template_analysis_projection_for_file_in_scope;
 pub(crate) use crate::structure::active::ActiveTemplateNode;
 pub(crate) use crate::structure::active::ActiveTemplateTag;
 pub(crate) use crate::structure::active::ActiveTemplateVariable;
@@ -38,10 +34,8 @@ pub(crate) use crate::structure::active::active_template_tags;
 pub(crate) use crate::structure::builder::TemplateTreeBuilder;
 pub use crate::structure::folding::TemplateFold;
 pub use crate::structure::folding::TemplateFoldKind;
-pub use crate::structure::folding::build_template_folds;
+pub use crate::structure::folding::build_template_folds_for_file;
 pub(crate) use crate::structure::grammar::TagClassification;
-pub use crate::structure::opaque::OpaqueRegions;
-pub use crate::structure::opaque::compute_opaque_regions;
 pub use crate::structure::outline::OutlineItem;
 pub use crate::structure::outline::OutlineKind;
 pub use crate::structure::outline::build_template_outline_for_file;
@@ -52,29 +46,12 @@ pub use crate::structure::tree::TemplateNode;
 pub use crate::structure::tree::TemplateRegion;
 pub use crate::structure::tree::TemplateTree;
 
+/// Builds the tree in source positions from the projectless tag grammar.
+///
+/// With a Project, structure comes from template analysis instead; read it through the
+/// IDE queries (folds, outline, symbols), which convert its positions.
 #[salsa::tracked(returns(copy))]
-pub(crate) fn build_template_tree_for_file_in_scope<'db>(
-    db: &'db dyn Db,
-    file: File,
-    nodelist: NodeList<'db>,
-    scope_file: File,
-) -> TemplateTree<'db> {
-    template_analysis_projection_for_file_in_scope(db, file, nodelist, scope_file).tree(db)
-}
-
-#[salsa::tracked(returns(copy))]
-pub fn build_template_tree_for_file<'db>(
-    db: &'db dyn Db,
-    file: File,
-    nodelist: NodeList<'db>,
-) -> TemplateTree<'db> {
-    if db.project().is_none() {
-        return build_projectless_template_tree(db, nodelist);
-    }
-    template_analysis_projection_for_file(db, file, nodelist).tree(db)
-}
-
-fn build_projectless_template_tree<'db>(
+pub fn build_projectless_template_tree<'db>(
     db: &'db dyn Db,
     nodelist: NodeList<'db>,
 ) -> TemplateTree<'db> {
