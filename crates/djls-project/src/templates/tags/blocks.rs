@@ -192,7 +192,7 @@ pub(super) fn is_parser_receiver(expr: &Expr, parser_var: &str) -> bool {
 pub(super) fn extract_string_sequence(
     expr: &Expr,
     constants: &VisibleConstants<'_>,
-) -> Vec<String> {
+) -> Option<Vec<String>> {
     let constant_word = |value: &AbstractValue| {
         let AbstractValue::Str(value) = value else {
             return None;
@@ -206,14 +206,14 @@ pub(super) fn extract_string_sequence(
         stop_token_first_word(expr)
     };
     let words: Vec<String> = match expr {
-        Expr::Tuple(t) => t.elts.iter().filter_map(element).collect(),
-        Expr::List(l) => l.elts.iter().filter_map(element).collect(),
-        Expr::Set(s) => s.elts.iter().filter_map(element).collect(),
+        Expr::Tuple(t) => t.elts.iter().map(element).collect::<Option<_>>()?,
+        Expr::List(l) => l.elts.iter().map(element).collect::<Option<_>>()?,
+        Expr::Set(s) => s.elts.iter().map(element).collect::<Option<_>>()?,
         Expr::Name(name) => {
             let Some(AbstractValue::Tuple(values)) = constants.get(name.id.as_str()) else {
-                return Vec::new();
+                return None;
             };
-            values.iter().filter_map(constant_word).collect()
+            values.iter().map(constant_word).collect::<Option<_>>()?
         }
         Expr::BoolOp(_)
         | Expr::Named(_)
@@ -243,7 +243,7 @@ pub(super) fn extract_string_sequence(
         | Expr::Subscript(_)
         | Expr::Starred(_)
         | Expr::Slice(_)
-        | Expr::IpyEscapeCommand(_) => return Vec::new(),
+        | Expr::IpyEscapeCommand(_) => return None,
     };
     let mut tokens = Vec::new();
     for word in words {
@@ -251,7 +251,7 @@ pub(super) fn extract_string_sequence(
             tokens.push(word);
         }
     }
-    tokens
+    Some(tokens)
 }
 
 /// The command word Django's `Parser.parse()` compares against a stop token.
@@ -266,6 +266,7 @@ fn stop_token_first_word(expr: &Expr) -> Option<String> {
         return None;
     };
     let mut prefix = String::new();
+    let mut complete = true;
     'parts: for part in &fstring.value {
         match part {
             FStringPart::Literal(literal) => prefix.push_str(literal),
@@ -273,7 +274,17 @@ fn stop_token_first_word(expr: &Expr) -> Option<String> {
                 for element in &fstring.elements {
                     match element {
                         InterpolatedStringElement::Literal(literal) => prefix.push_str(literal),
-                        InterpolatedStringElement::Interpolation(_) => break 'parts,
+                        InterpolatedStringElement::Interpolation(interpolation) => {
+                            if let Some(literal) = interpolation.expression.string_literal()
+                                && interpolation.format_spec.is_none()
+                                && interpolation.conversion == ruff_python_ast::ConversionFlag::None
+                            {
+                                prefix.push_str(literal);
+                            } else {
+                                complete = false;
+                                break 'parts;
+                            }
+                        }
                     }
                 }
             }
@@ -281,7 +292,7 @@ fn stop_token_first_word(expr: &Expr) -> Option<String> {
     }
     let trimmed = prefix.trim_start();
     let word = trimmed.split_whitespace().next()?;
-    (trimmed.len() > word.len()).then(|| word.to_string())
+    (complete || trimmed.len() > word.len()).then(|| word.to_string())
 }
 
 /// Check if an expression accesses token contents.

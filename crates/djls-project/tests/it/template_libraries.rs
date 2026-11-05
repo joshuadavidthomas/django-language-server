@@ -495,6 +495,34 @@ fn source_less_configured_library_keeps_keyed_structural_facts_without_origin() 
 }
 
 #[test]
+fn installed_app_discovers_namespace_templatetags() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .settings(&ProjectSettings {
+            installed_apps: vec!["example".to_string()],
+            ..ProjectSettings::default()
+        })
+        .file("/project/example/__init__.py", "")
+        .file(
+            "/project/example/templatetags/tools.py",
+            "from django import template\nregister = template.Library()\n@register.filter\ndef double(value): return value * 2\n",
+        )
+        .build(&db)
+        .expect("namespace templatetags fixture should build");
+
+    let libraries = template_library_catalog(&db, project);
+    let library = project_inventory(libraries)
+        .loadable_library_str("tools")
+        .found()
+        .expect("Django accepts templatetags without __init__.py");
+    assert!(
+        library
+            .symbol(TemplateSymbolKind::Filter, "double")
+            .is_some()
+    );
+}
+
+#[test]
 fn source_less_alias_keeps_missing_same_named_available_in_app_symbols_inconclusive() {
     let db = TestDatabase::new();
     let project = ProjectFixture::new("/project")

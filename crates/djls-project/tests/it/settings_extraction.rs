@@ -299,6 +299,41 @@ fn closed_unsupported_literals_are_malformed_but_unknown_unpacks_stay_dynamic() 
 }
 
 #[test]
+fn namespace_exposed_to_unknown_call_is_dynamic_not_unset() {
+    for source in [
+        "Settings.load_settings(__name__)",
+        "configure(module=__name__)",
+        "configure(globals())",
+        "import sys\nconfigure(sys.modules[__name__])",
+        "INSTALLED_APPS = ['known']\nconfigure(__name__)",
+    ] {
+        let settings = extract(source).expect("settings extraction should succeed");
+        for pointer in ["/installed_apps/cases", "/templates/cases"] {
+            let setting_cases = cases(&settings, pointer).expect("setting cases exist");
+            assert!(
+                setting_cases
+                    .iter()
+                    .any(|case| case.get("dynamic").is_some()),
+                "{source}: {settings:#}"
+            );
+        }
+    }
+
+    for source in [
+        "configure('other_module')",
+        "__name__ = 'other'\nconfigure(__name__)",
+        "globals = other_function\nconfigure(globals())",
+        "if False:\n    configure(__name__)",
+    ] {
+        let settings = extract(source).expect("settings extraction should succeed");
+        assert_eq!(
+            cases(&settings, "/installed_apps/cases").expect("setting cases exist"),
+            [json!("unset")]
+        );
+    }
+}
+
+#[test]
 fn missing_resolved_named_import_member_is_typed_dynamic_and_replaces_stale_binding() {
     let source = "INSTALLED_APPS = ['stale']\nfrom plugin import MISSING as INSTALLED_APPS\n";
     let (_, _, settings) = extract_project(source, &[("plugin", "PRESENT = 'known'\n")])

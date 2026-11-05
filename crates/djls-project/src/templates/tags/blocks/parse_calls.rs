@@ -230,7 +230,7 @@ fn extract_parse_call_info(
         single_local_assignment(body, name).unwrap_or(argument)
     });
 
-    let stop_tokens = extract_string_sequence(argument, constants);
+    let stop_tokens = extract_string_sequence(argument, constants)?;
     if stop_tokens.is_empty() {
         return None;
     }

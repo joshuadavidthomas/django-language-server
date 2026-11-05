@@ -455,6 +455,49 @@ fn configured_same_name_specs_remain_keyed_by_library() {
 }
 
 #[test]
+fn star_import_may_reexport_a_template_register() {
+    let mut db = TestDatabase::new();
+    ProjectFixture::new("/proj")
+        .settings(&ProjectSettings {
+            dirs: vec!["/proj/templates".to_string()],
+            libraries: BTreeMap::from([
+                ("combined".to_string(), "combined".to_string()),
+                ("filters".to_string(), "filters".to_string()),
+            ]),
+            ..ProjectSettings::default()
+        })
+        .file("/proj/combined.py", "from django import template\nregister = template.Library()\nfrom filters import *\n")
+        .file("/proj/filters.py", "from django import template\nregister = template.Library()\n@register.filter\ndef twice(value): return value * 2\n")
+        .file("/proj/templates/page.html", "{% load combined %}{{ value|twice }}")
+        .install(&mut db)
+        .expect("register re-export fixture should install");
+
+    let errors =
+        collect_file_errors(&db, "/proj/templates/page.html").expect("template should validate");
+    assert!(
+        !errors.iter().any(|error| matches!(
+            error,
+            ValidationError::UnloadedFilter { .. } | ValidationError::UnknownFilter { .. }
+        )),
+        "star-imported register may supply the filter: {errors:?}"
+    );
+
+    db.add_file(
+        "/proj/combined.py",
+        "from filters import *\nfrom django import template\nregister = template.Library()\n",
+    )
+    .expect("replace re-export with a fresh register");
+    SourceChanges::new([ChangeEvent::ContentChanged("/proj/combined.py".into())]).apply(&mut db);
+    let errors = collect_file_errors(&db, "/proj/templates/page.html")
+        .expect("template should validate after register replacement");
+    assert!(
+        matches!(errors.as_slice(), [ValidationError::UnloadedFilter { filter, library, .. }]
+        if filter == "twice" && library == "filters"),
+        "{errors:?}"
+    );
+}
+
+#[test]
 fn configured_source_registration_is_available_through_its_library_catalog() {
     let mut db = TestDatabase::new();
     let project = ProjectFixture::new("/proj")

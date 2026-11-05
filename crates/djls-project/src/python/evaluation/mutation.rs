@@ -15,6 +15,7 @@ use super::ReachableAllocationSites;
 use super::StructuralOrd;
 use super::evaluator::PythonEvaluationState;
 use super::evaluator::PythonModuleEvaluator;
+use super::name_analysis::reachable_expr_calls;
 use super::name_analysis::reachable_expr_read_names;
 use super::truthiness::Truthiness;
 use crate::ast::ExprExt;
@@ -539,6 +540,11 @@ impl PythonEvaluationState {
 
 impl PythonModuleEvaluator<'_> {
     pub(super) fn evaluate_expression_statement(&mut self, expression: &ast::Expr) {
+        for call in reachable_expr_calls(expression, &|value| {
+            Truthiness::of_expr(value, &|name| self.state.known_truthiness(name))
+        }) {
+            self.invalidate_module_namespace_for_call(&call);
+        }
         let ast::Expr::Call(call) = expression else {
             self.invalidate_intrinsics_for_calls(expression);
             self.state.degrade_names(

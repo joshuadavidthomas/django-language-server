@@ -851,13 +851,13 @@ def compile_tag(parser, token):
 register.tag("checked", compile_tag)
 "#,
         r#"
+from external import *
 def compile_tag(parser, token):
     try:
         tag_name, value = token.split_contents()
     except ValueError:
         raise SyntaxError("possibly shadowed handler")
 register.tag("checked", compile_tag)
-from external import *
 "#,
     ];
     for declarations in cases {
@@ -5149,6 +5149,46 @@ fn corpus_literal_end_tag() {
     assert!(result.block_specs.as_map().contains_key(&key));
     let spec = &result.block_specs.as_map()[&key];
     assert_eq!(spec.end_tag.as_deref(), Some("endspaceless"));
+}
+
+#[test]
+fn fstring_stop_tokens_require_complete_command_words() {
+    let source = r#"
+from django import template
+register = template.Library()
+@register.tag
+def feature(parser, token):
+    body = parser.parse(('else', f"end{'feature'}"))
+    if parser.next_token().contents == 'else':
+        alternate = parser.parse((f"end{'feature'}",))
+        parser.delete_first_token()
+    return Node(body, alternate)
+"#;
+    let result =
+        extract_source(source, "app.templatetags.custom").expect("literal closer should extract");
+    let key = SymbolKey::tag("app.templatetags.custom", "feature");
+    let spec = result
+        .block_specs
+        .as_map()
+        .get(&key)
+        .expect("literal parser structure");
+    assert_eq!(spec.end_tag.as_deref(), Some("endfeature"));
+    assert_eq!(spec.intermediates, ["else"]);
+
+    for uncertain in [
+        source.replace("{'feature'}", "{unknown_kind}"),
+        source.replace("{'feature'}", "{'feature':>20}"),
+    ] {
+        let result = extract_source(&uncertain, "app.templatetags.custom")
+            .expect("uncertain closer should extract conservatively");
+        assert!(
+            result
+                .block_specs
+                .as_map()
+                .get(&key)
+                .is_none_or(|spec| spec.end_tag.is_none())
+        );
+    }
 }
 
 // Edge case — genuinely unknowable dynamic f-string end tag through the full

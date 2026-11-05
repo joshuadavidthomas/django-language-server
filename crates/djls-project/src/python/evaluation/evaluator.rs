@@ -40,6 +40,7 @@ use super::ReachableAllocationSites;
 use super::UniqueVec;
 use super::module_object::IntrinsicContamination;
 use super::name_analysis::reachable_expr_calls;
+use super::name_analysis::reachable_expr_read_names;
 use super::truthiness::Truthiness;
 use crate::ast::ExprExt;
 use crate::ast::RangedExt;
@@ -296,6 +297,7 @@ impl<'db> PythonModuleEvaluator<'db> {
                 UnsupportedCallEffect::Arguments => false,
                 UnsupportedCallEffect::ReceiverAndArguments => true,
             };
+            self.invalidate_module_namespace_for_call(&call);
             let mut mutation_candidates = Vec::new();
             if include_receiver && let ast::Expr::Attribute(attribute) = call.func.as_ref() {
                 mutation_candidates.push(self.evaluate_binding(&attribute.value));
@@ -315,6 +317,51 @@ impl<'db> PythonModuleEvaluator<'db> {
             self.state
                 .degrade_intrinsic_values(&mutation_candidates, self.origin(&call));
         }
+    }
+
+    pub(super) fn invalidate_module_namespace_for_call(&mut self, call: &ast::ExprCall) {
+        if !call
+            .arguments
+            .args
+            .iter()
+            .chain(call.arguments.keywords.iter().map(|keyword| &keyword.value))
+            .any(|argument| self.exposes_module_namespace(argument))
+            || matches!(
+                self.unsupported_call_effect(call),
+                UnsupportedCallEffect::None
+            )
+        {
+            return;
+        }
+        let origin = self.origin(call);
+        self.state.degrade_all_bindings(
+            &PythonUnknownCause::UnsupportedMutation,
+            origin,
+            &self.active_constraints,
+        );
+        self.state
+            .namespace_causes
+            .push(PythonNamespaceCause::constrained(
+                PythonUnknown::new(PythonUnknownCause::UnsupportedMutation, [origin]),
+                self.active_constraints.clone(),
+            ));
+    }
+
+    fn exposes_module_namespace(&self, expression: &ast::Expr) -> bool {
+        let truthiness = |value: &ast::Expr| {
+            Truthiness::of_expr(value, &|name| self.state.known_truthiness(name))
+        };
+        // A module name lets unmodelled code reach this namespace through sys.modules.
+        (self.state.binding("__name__").is_none()
+            && reachable_expr_read_names(expression, &truthiness).contains("__name__"))
+            || (self.state.binding("globals").is_none()
+                && reachable_expr_calls(expression, &truthiness)
+                    .iter()
+                    .any(|call| {
+                        call.func.name_target() == Some("globals")
+                            && call.arguments.args.is_empty()
+                            && call.arguments.keywords.is_empty()
+                    }))
     }
 
     pub(super) fn call_is_known_env_read(&self, call: &ast::ExprCall) -> bool {

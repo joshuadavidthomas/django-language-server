@@ -209,9 +209,6 @@ pub(crate) fn templatetag_candidates_in_package(
 
     for package_dir in package_dirs.dirs {
         let templatetags_dir = package_dir.join("templatetags");
-        if !db.path_is_file(&templatetags_dir.join("__init__.py")) {
-            continue;
-        }
 
         scan.extend(scan_templatetag_root(
             db,
@@ -392,9 +389,6 @@ fn recognize_candidate_source(
     if templatetags_dir.file_name() != Some("templatetags") {
         return CandidateSourceRecognition::NotCandidate;
     }
-    if !fs.exists(&templatetags_dir.join("__init__.py")) {
-        return CandidateSourceRecognition::NotCandidate;
-    }
 
     let app = if let Some(package_module) = active_package {
         package_module.clone()
@@ -471,11 +465,15 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        assert_eq!(discovered.len(), 1);
+        assert_eq!(discovered.len(), 2);
         let (app, name, path) = &discovered[0];
         assert_eq!(app.as_str(), "pkg_a");
         assert_eq!(name.as_str(), "foo");
         assert_eq!(path.as_str(), "/root/pkg_a/templatetags/foo.py");
+        let (app, name, path) = &discovered[1];
+        assert_eq!(app.as_str(), "pkg_b");
+        assert_eq!(name.as_str(), "bar");
+        assert_eq!(path.as_str(), "/root/pkg_b/templatetags/bar.py");
     }
 
     #[test]
