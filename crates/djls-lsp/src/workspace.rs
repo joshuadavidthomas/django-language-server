@@ -106,11 +106,6 @@ impl Workspace {
     }
 
     #[must_use]
-    pub fn get_document(&self, path: &Utf8Path) -> Option<Arc<TextDocument>> {
-        self.buffers.get(path)
-    }
-
-    #[must_use]
     pub fn contains_document(&self, path: &Utf8Path) -> bool {
         self.buffers.contains(path)
     }

@@ -40,14 +40,6 @@ impl PrimedTemplateLibraries {
         &self.full_reload_files
     }
 
-    /// Published eager source coverage for this priming pass.
-    pub fn covered_files(&self) -> impl Iterator<Item = File> + '_ {
-        self.full_reload_files
-            .iter()
-            .chain(self.reprime_files.iter())
-            .copied()
-    }
-
     #[must_use]
     pub const fn library_count(&self) -> usize {
         self.library_count
