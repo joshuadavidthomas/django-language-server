@@ -30,7 +30,7 @@ use rustc_hash::FxHashMap;
 
 #[derive(serde::Serialize)]
 struct TemplateTreeSnapshot {
-    root: usize,
+    root: RegionId,
     regions: Vec<RegionSnapshot>,
 }
 
@@ -43,22 +43,17 @@ impl TemplateTreeSnapshot {
             .iter()
             .map(|region| RegionSnapshot {
                 span: *region.span(),
-                parent: region.parent().map(RegionId::id),
                 nodes: region.nodes().iter().map(NodeSnapshot::from).collect(),
             })
             .collect();
 
-        Self {
-            root: root.id(),
-            regions,
-        }
+        Self { root, regions }
     }
 }
 
 #[derive(serde::Serialize)]
 struct RegionSnapshot {
     span: Span,
-    parent: Option<usize>,
     nodes: Vec<NodeSnapshot>,
 }
 
@@ -70,7 +65,7 @@ enum NodeSnapshot {
         name_span: Span,
         bits: Vec<TagBit>,
         full_span: Span,
-        body: usize,
+        body: RegionId,
         role: String,
     },
     Opaque {
@@ -117,7 +112,7 @@ impl From<&TemplateNode> for NodeSnapshot {
                 name_span: *name_span,
                 bits: bits.to_vec(),
                 full_span: *full_span,
-                body: body.id(),
+                body: *body,
                 role: format!("{role:?}"),
             },
             TemplateNode::Opaque {
