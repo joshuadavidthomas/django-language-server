@@ -561,14 +561,6 @@ impl TagSpec {
             .as_deref()
             .map_or(&TagArgumentSyntax::Unknown, |rules| &rules.argument_syntax)
     }
-
-    #[must_use]
-    pub fn with_argument_syntax(mut self, argument_syntax: TagArgumentSyntax) -> Self {
-        let mut rules = self.extracted_rules.as_deref().cloned().unwrap_or_default();
-        rules.argument_syntax = argument_syntax;
-        self.extracted_rules = Some(rules.into());
-        self
-    }
 }
 
 /// Specification for a closing tag (e.g., `{% endfor %}`, `{% endblock %}`).

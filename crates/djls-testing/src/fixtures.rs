@@ -27,10 +27,12 @@ use djls_project::file_to_module;
 use djls_project::testing;
 use djls_project::testing::TemplateLibraryInput;
 use djls_semantic::FilterAritySpecs;
+use djls_semantic::TagSpec;
 use djls_semantic::TagSpecs;
 use djls_semantic::ValidationError;
 use djls_semantic::ValidationErrorAccumulator;
 use djls_semantic::bundled_django_tag_specs;
+use djls_semantic::tag_specs_for_file;
 use djls_semantic::validate_template_file;
 use djls_source::Diagnostic;
 use djls_source::DiagnosticRenderer;
@@ -662,6 +664,30 @@ pub fn bundled_django_database(version: DjangoVersion) -> anyhow::Result<OsTestD
         version.as_str()
     );
     Ok(db)
+}
+
+/// Returns the effective spec for `tag` after discovery of a project whose builtin
+/// `custom_tags` module has `source`, with `tag_specs` as its configured specs.
+pub fn project_tag_spec(source: &str, tag: &str, tag_specs: TagSpecDef) -> anyhow::Result<TagSpec> {
+    let mut db = TestDatabase::new();
+    ProjectFixture::new("/project")
+        .tag_specs(tag_specs)
+        .settings(&ProjectSettings {
+            dirs: vec!["/project/templates".into()],
+            builtins: vec!["custom_tags".into()],
+            ..ProjectSettings::default()
+        })
+        .file("/project/custom_tags.py", source)
+        .file("/project/templates/page.html", "")
+        .install(&mut db)?;
+    djls_project::run_django_discovery(&mut db)?;
+    let file = db
+        .file(Utf8Path::new("/project/templates/page.html"))
+        .context("custom tag template")?;
+    tag_specs_for_file(&db, file)
+        .get(tag)
+        .cloned()
+        .with_context(|| format!("effective spec for {tag}"))
 }
 
 pub fn validation_db(settings_py: &str) -> anyhow::Result<OsTestDatabase> {

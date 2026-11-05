@@ -990,6 +990,7 @@ dependencies = [
  "djls-testing",
  "percent-encoding",
  "proptest",
+ "serde_json",
  "tempfile",
  "tower-lsp-server",
  "tracing",
