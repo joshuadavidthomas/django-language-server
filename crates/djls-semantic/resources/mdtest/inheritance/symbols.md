@@ -21,8 +21,6 @@ block queries:
   parent blocks:
     - title -> none
     - content -> none
-  inherited blocks:
-    none
   overrides:
     - title: none
     - content: none
@@ -50,8 +48,6 @@ block queries:
   parent blocks:
     - content -> none
     - title -> none
-  inherited blocks:
-    none
   overrides:
     - content: none
     - title: none
@@ -78,8 +74,6 @@ block queries:
   parent blocks:
     - content -> none
     - content -> none
-  inherited blocks:
-    none
   overrides:
     - content: none
     - content: none
@@ -117,8 +111,6 @@ chain:
 block queries:
   parent blocks:
     - content -> none
-  inherited blocks:
-    none
   overrides:
     - content:
       - child.html name@63..70 full@54..92
@@ -156,8 +148,6 @@ chain:
 block queries:
   parent blocks:
     - content -> none
-  inherited blocks:
-    none
   overrides:
     - content: none
 ```
@@ -179,8 +169,6 @@ chain:
   end: root
 block queries:
   parent blocks:
-    none
-  inherited blocks:
     none
   overrides:
     none
@@ -205,8 +193,6 @@ chain:
 block queries:
   parent blocks:
     - content -> none
-  inherited blocks:
-    none
   overrides:
     - content: none
 ```
@@ -230,8 +216,6 @@ chain:
   end: unresolved "first.html"
 block queries:
   parent blocks:
-    none
-  inherited blocks:
     none
   overrides:
     none
@@ -264,8 +248,6 @@ chain:
   end: root
 block queries:
   parent blocks:
-    - content -> base.html name@9..16 full@0..37
-  inherited blocks:
     - content -> base.html name@9..16 full@0..37
   overrides:
     - content: none
@@ -305,8 +287,6 @@ chain:
 block queries:
   parent blocks:
     - content -> layout.html name@35..42 full@26..65
-  inherited blocks:
-    - content -> layout.html name@35..42 full@26..65
   overrides:
     - content: none
 ```
@@ -330,8 +310,6 @@ chain:
 block queries:
   parent blocks:
     - content -> none
-  inherited blocks:
-    none
   overrides:
     - content: none
 ```
@@ -363,8 +341,6 @@ chain:
 block queries:
   parent blocks:
     - content -> b.html name@35..42 full@26..60
-  inherited blocks:
-    - content -> b.html name@35..42 full@26..60
   overrides:
     - content:
       - b.html name@35..42 full@26..60
@@ -389,8 +365,6 @@ chain:
 block queries:
   parent blocks:
     - content -> none
-  inherited blocks:
-    none
   overrides:
     - content: none
 ```
@@ -427,8 +401,6 @@ chain:
   end: root
 block queries:
   parent blocks:
-    - content -> first.html name@9..16 full@0..38
-  inherited blocks:
     - content -> first.html name@9..16 full@0..38
   overrides:
     - content: none
@@ -470,8 +442,6 @@ chain:
 block queries:
   parent blocks:
     - content -> layout.html name@35..42 full@26..65
-  inherited blocks:
-    - content -> layout.html name@35..42 full@26..65
   overrides:
     - content: none
 ```
@@ -506,9 +476,6 @@ chain:
   end: root
 block queries:
   parent blocks:
-    - outer -> base.html name@9..14 full@0..70
-    - inner -> base.html name@29..34 full@20..55
-  inherited blocks:
     - outer -> base.html name@9..14 full@0..70
     - inner -> base.html name@29..34 full@20..55
   overrides:
@@ -550,9 +517,6 @@ chain:
 block queries:
   parent blocks:
     - footer -> base.html name@9..15 full@0..36
-  inherited blocks:
-    - content -> layout.html name@35..42 full@26..65
-    - footer -> base.html name@9..15 full@0..36
   overrides:
     - footer: none
 ```
@@ -583,8 +547,6 @@ chain:
 block queries:
   parent blocks:
     - missing -> none
-  inherited blocks:
-    - content -> base.html name@9..16 full@0..37
   overrides:
     - missing: none
 ```
@@ -621,8 +583,6 @@ chain:
   end: root
 block queries:
   parent blocks:
-    - content -> base.html name@9..16 full@0..37
-  inherited blocks:
     - content -> base.html name@9..16 full@0..37
   overrides:
     - content: none

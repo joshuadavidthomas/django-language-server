@@ -298,37 +298,6 @@ pub fn parent_block(db: &dyn Db, project: Project, file: File, name: &str) -> Op
     ancestor_blocks(db, project, file, name).into_iter().next()
 }
 
-/// Block names visible from ancestors, using the nearest definition site per name.
-pub fn inherited_blocks(db: &dyn Db, project: Project, file: File) -> Vec<(String, BlockSite)> {
-    let mut seen: FxHashSet<&str> = FxHashSet::default();
-    let mut inherited = Vec::new();
-
-    for origin in template_inheritance(db, project, file).ancestors(db) {
-        let ancestor_file = origin.file(db);
-        let TemplateParseResult::Parsed(nodelist) = parse_template(db, ancestor_file) else {
-            continue;
-        };
-        let symbols = template_symbols_in_scope(db, ancestor_file, nodelist, file);
-        for name in &symbols.uncertain_block_names {
-            seen.insert(name.as_str());
-        }
-        for block in symbols.blocks() {
-            if seen.insert(block.name.as_str()) {
-                inherited.push((
-                    block.name.clone(),
-                    BlockSite {
-                        file: ancestor_file,
-                        name_span: block.name_span,
-                        full_span: block.full_span,
-                    },
-                ));
-            }
-        }
-    }
-
-    inherited
-}
-
 /// Descendant templates that define `name`, discovered through definite reverse extends edges.
 ///
 /// A physical descendant contributes an edge only when its feasible origins agree on the same
