@@ -448,17 +448,6 @@ pub enum TemplateLibraryChainStep<'a, 'db> {
     Unknown,
 }
 
-/// Builtins followed by loaded libraries for one feasible backend.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TemplateLibraryChain<'a, 'db>(Vec<TemplateLibraryChainStep<'a, 'db>>);
-
-impl<'a, 'db> TemplateLibraryChain<'a, 'db> {
-    #[must_use]
-    pub fn steps(&self) -> &[TemplateLibraryChainStep<'a, 'db>] {
-        &self.0
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TemplateLibraryAppCandidates {
     primary: PythonModuleName,
@@ -1561,18 +1550,6 @@ impl<'db> TemplateLibraryCatalog<'db> {
         }
     }
 
-    pub(crate) fn library_chains_in_scope<'a>(
-        &'a self,
-        scope: &'a TemplateBackendScope,
-        loaded_names: &[&str],
-    ) -> Vec<TemplateLibraryChain<'a, 'db>> {
-        let mut chains = Vec::new();
-        self.fold_library_chains_in_scope(scope, loaded_names, Vec::new, Vec::push, |steps| {
-            chains.push(TemplateLibraryChain(steps));
-        });
-        chains
-    }
-
     pub(crate) fn fold_library_chains_in_scope<'a, State>(
         &'a self,
         scope: &'a TemplateBackendScope,
@@ -2606,68 +2583,6 @@ mod tests {
         assert_eq!(
             catalog.set_testing_settings_cases(vec![vec![(Vec::new(), vec![module.clone()])]]),
             Err(TemplateLibraryFixtureError::MissingBuiltin { module })
-        );
-    }
-
-    #[test]
-    fn scoped_lookup_ignores_unselected_settings_case_omissions() {
-        let settings_cases = TemplateSettingsCases::for_testing(&[1], false);
-        let settings_case = &settings_cases.settings_cases()[0];
-        let backend = settings_case
-            .backends()
-            .next()
-            .expect("testing settings case should contain one backend")
-            .id();
-        let libraries = TemplateLibraryCatalog {
-            settings_cases: TemplateLibrarySettingsCases::WithOmissions {
-                known: vec![TemplateLibrarySettingsCase {
-                    id: settings_case.id(),
-                    slots: vec![TemplateLibrarySlot::Backend(
-                        backend,
-                        TemplateBackendLibraries::default(),
-                    )],
-                    guidance: TemplateEvidenceCompleteness::Complete,
-                }],
-                omissions: vec![TemplateSettingsOmission::Settings],
-            },
-            ..TemplateLibraryCatalog::default()
-        };
-        let name = LibraryName::parse("missing").expect("test library name should be valid");
-        let scoped =
-            TemplateBackendScope::selected(vec![TemplateBackendSelection::Backend(backend)])
-                .expect("test backend selection should produce a scope");
-
-        assert_eq!(
-            libraries.loadable_library_in_scope(&scoped, &name),
-            LoadableLibraryLookup::Absent
-        );
-        assert_eq!(
-            libraries.scoped_symbol_lookup_in_scope(&scoped, "missing", TemplateSymbolKind::Tag,),
-            ScopedTemplateSymbolLookup::Absent
-        );
-        assert_eq!(
-            libraries.template_symbol_lookup_in_scope(&scoped, "missing", TemplateSymbolKind::Tag,),
-            AppTemplateSymbolLookup::Absent
-        );
-        assert_eq!(
-            libraries.missing_library_lookup_in_scope(&scoped, &name),
-            MissingTemplateLibraryLookup::Absent
-        );
-        assert_eq!(
-            libraries.effective_definition_libraries_in_scope(
-                &scoped,
-                "missing",
-                TemplateSymbolKind::Tag,
-                &[],
-            ),
-            [EffectiveDefinitionLibrary::Known(None)]
-        );
-        let chains = libraries.library_chains_in_scope(&scoped, &[]);
-        assert_eq!(chains.len(), 1);
-        assert!(chains[0].steps().is_empty());
-        assert_eq!(
-            libraries.loadable_library_in_scope(&TemplateBackendScope::project_inventory(), &name,),
-            LoadableLibraryLookup::Inconclusive(Vec::new())
         );
     }
 }
