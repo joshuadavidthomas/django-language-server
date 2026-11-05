@@ -575,12 +575,6 @@ impl Session {
         DocumentMutation::Applied { project_work }
     }
 
-    /// Get a document from the buffer if it's open.
-    #[cfg(test)]
-    fn get_document(&self, path: &Utf8Path) -> Option<Arc<TextDocument>> {
-        self.host.workspace().get_document(path)
-    }
-
     fn queue_document_diagnostics(&mut self, document: &TextDocument) {
         // Diagnostic eligibility belongs to the IDE's path-derived source kind,
         // not the client language kind used for Project invalidation.
@@ -784,7 +778,7 @@ mod tests {
             DocumentMutation::Ignored => None,
         }
         .expect("template test document should open");
-        assert!(session.get_document(&template_path).is_some());
+        assert!(session.host.workspace().contains_document(&template_path));
         assert_eq!(project_work, None);
 
         let (path, uri) = test_file_uri("test.py");
@@ -800,7 +794,7 @@ mod tests {
         }
         .expect("Python test document should open");
 
-        assert!(session.get_document(&path).is_some());
+        assert!(session.host.workspace().contains_document(&path));
 
         let db = session.db();
         let file = path_to_file(db, &path).expect("open buffer should be visible to the overlay");
@@ -816,7 +810,7 @@ mod tests {
             DocumentMutation::Ignored => None,
         }
         .expect("open Python test document should close");
-        assert!(session.get_document(&path).is_none());
+        assert!(!session.host.workspace().contains_document(&path));
     }
 
     #[test]
@@ -848,11 +842,11 @@ mod tests {
         }
         .expect("open Python test document should update");
 
-        let doc = session
-            .get_document(&path)
-            .expect("updated document should remain open");
-        assert_eq!(doc.content(), "updated");
-        assert_eq!(doc.version(), 2);
+        let documents = session.host.workspace().open_documents();
+        assert_eq!(documents.len(), 1);
+        assert_eq!(documents[0].path(), path);
+        assert_eq!(documents[0].content(), "updated");
+        assert_eq!(documents[0].version(), 2);
 
         let db = session.db();
         let file = path_to_file(db, &path).expect("open buffer should be visible to the overlay");
