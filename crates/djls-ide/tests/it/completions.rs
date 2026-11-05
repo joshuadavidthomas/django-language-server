@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::fs;
 use std::io;
@@ -10,13 +9,7 @@ use djls_conf::TagSpecDef;
 use djls_conf::TagTypeDef;
 use djls_ide::completion;
 use djls_ide::prime_template_library_products;
-use djls_project::ArgumentConsumption;
-use djls_semantic::ParameterRequirement;
-use djls_semantic::TagArgument;
-use djls_semantic::TagArgumentKind;
-use djls_semantic::TagArgumentSyntax;
-use djls_semantic::TagSpec;
-use djls_semantic::bundled_django_tag_specs;
+use djls_project::run_django_discovery;
 use djls_source::Offset;
 use djls_source::PositionEncoding;
 use djls_testing::Corpus;
@@ -219,32 +212,55 @@ fn completion_prefixes_demand_only_relevant_library_details() {
 
 #[test]
 fn captured_closer_does_not_offer_colliding_standalone_arguments() {
-    let mut specs = bundled_django_tag_specs().clone();
-    specs.insert(
-        "endif".to_string(),
-        TagSpec::new(
-            "test.tags".into(),
-            None,
-            Cow::Borrowed(&[]),
-            djls_semantic::BodyAnalysis::Analyze,
-        )
-        .with_argument_syntax(TagArgumentSyntax::Parameters(vec![TagArgument {
-            name: "collision".to_string(),
-            kind: TagArgumentKind::Choice(vec!["standalone-choice".to_string()]),
-            requirement: ParameterRequirement::Required,
-            consumption: ArgumentConsumption::Unknown,
-        }])),
-    );
-    let db = TestDatabase::new().with_projectless_tag_specs(specs);
-
     let (captured_source, captured_offset) = source_and_offset("{% if condition %}{% endif § %}")
         .expect("captured closer fixture should contain a valid cursor marker");
-    db.add_file("/captured.html", &captured_source)
-        .expect("captured closer fixture should be added");
+    let (standalone_source, standalone_offset) = source_and_offset("{% endif § %}")
+        .expect("standalone closer fixture should contain a valid cursor marker");
+    let tag_specs: TagSpecDef = serde_json::from_value(serde_json::json!({
+        "libraries": [{
+            "module": "custom_tags",
+            "tags": [{
+                "name": "endif",
+                "type": "standalone",
+                "args": [{
+                    "name": "collision",
+                    "kind": "choice",
+                    "extra": {"choices": ["standalone-choice"]}
+                }]
+            }]
+        }]
+    }))
+    .expect("colliding tag configuration should deserialize");
+    let mut db = TestDatabase::new();
+    ProjectFixture::new("/project")
+        .tag_specs(tag_specs)
+        .settings(&ProjectSettings {
+            dirs: vec!["/project/templates".into()],
+            builtins: vec!["custom_tags".into()],
+            ..ProjectSettings::default()
+        })
+        .file(
+            "/project/custom_tags.py",
+            r"from django import template
+register = template.Library()
+class EmptyNode(template.Node):
+    def render(self, context): return ''
+@register.tag(name='endif')
+def standalone_endif(parser, token):
+    if token.contents != 'endif standalone-choice':
+        raise template.TemplateSyntaxError('unknown choice')
+    return EmptyNode()
+",
+        )
+        .file("/project/templates/captured.html", &captured_source)
+        .file("/project/templates/standalone.html", &standalone_source)
+        .install(&mut db)
+        .expect("colliding tag project should install");
+    run_django_discovery(&mut db).expect("colliding tag discovery should succeed");
     assert!(
         completion(
             &db,
-            db.file(Utf8Path::new("/captured.html"))
+            db.file(Utf8Path::new("/project/templates/captured.html"))
                 .expect("captured closer fixture file should exist"),
             captured_offset,
             PositionEncoding::Utf16,
@@ -254,13 +270,9 @@ fn captured_closer_does_not_offer_colliding_standalone_arguments() {
         "a captured endif must not offer arguments from the colliding standalone definition"
     );
 
-    let (standalone_source, standalone_offset) = source_and_offset("{% endif § %}")
-        .expect("standalone closer fixture should contain a valid cursor marker");
-    db.add_file("/standalone.html", &standalone_source)
-        .expect("standalone closer fixture should be added");
     let response = completion(
         &db,
-        db.file(Utf8Path::new("/standalone.html"))
+        db.file(Utf8Path::new("/project/templates/standalone.html"))
             .expect("standalone closer fixture file should exist"),
         standalone_offset,
         PositionEncoding::Utf16,

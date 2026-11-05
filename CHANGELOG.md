@@ -43,6 +43,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Changed settings evaluation to share unchanged names between `if` branches and loop passes instead of copying them, which roughly halves cold settings analysis for large settings modules such as NetBox's and pretix's.
 - Changed language server startup to skip hashing the bundled Django archives and to index their entries by name.
 - Changed template edits to skip re-checking cached facts about project Python modules, settings, and file sets. Project templates now get their own Salsa durability, which cuts the instructions per template edit by about 15%.
+- **Internal**: Removed `TagSpec::with_argument_syntax` and moved its test fixtures onto production tag-spec construction.
 - **Internal**: Resolved model import prefixes by walking parent module names instead of re-parsing each prefix.
 - **Internal**: Shared name strings between model, class, and field identities instead of copying them.
 - **Internal**: Stored each model's app label in the model graph's name index for exact lookups.

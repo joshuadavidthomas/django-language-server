@@ -1013,15 +1013,12 @@ mod tests {
     use std::collections::HashMap;
 
     use camino::Utf8Path;
-    use djls_project::ArgumentConsumption;
+    use djls_conf::TagSpecDef;
     use djls_project::TemplateLibraryCatalog;
-    use djls_semantic::ParameterRequirement;
-    use djls_semantic::TagArgument;
-    use djls_semantic::TagArgumentKind;
-    use djls_semantic::TagArgumentSyntax;
     use djls_semantic::TagSpec;
     use djls_source::Span;
     use djls_testing::TestDatabase;
+    use djls_testing::project_tag_spec;
 
     use super::*;
 
@@ -1114,27 +1111,37 @@ mod tests {
         }
     }
 
-    fn choice_tag_specs() -> TagSpecs {
-        let mut specs = TagSpecs::default();
-        specs.insert(
-            "cache".to_string(),
-            TagSpec::new(
-                Cow::Borrowed("test.tags"),
-                None,
-                Cow::Borrowed(&[]),
-                djls_semantic::BodyAnalysis::Analyze,
-            )
-            .with_argument_syntax(TagArgumentSyntax::Parameters(vec![TagArgument {
-                name: "fragment_name".to_string(),
-                requirement: ParameterRequirement::Required,
-                kind: TagArgumentKind::Choice(vec![
-                    "sidebar".to_string(),
-                    "site_header".to_string(),
-                ]),
-                consumption: ArgumentConsumption::Unknown,
-            }])),
-        );
-        specs
+    fn configured_cache_spec() -> TagSpec {
+        let tag_specs: TagSpecDef = serde_json::from_value(serde_json::json!({
+            "libraries": [{
+                "module": "custom_tags",
+                "tags": [{
+                    "name": "cache",
+                    "type": "standalone",
+                    "args": [{
+                        "name": "fragment_name",
+                        "kind": "choice",
+                        "extra": {"choices": ["sidebar", "site_header"]}
+                    }]
+                }]
+            }]
+        }))
+        .expect("cache tag configuration should deserialize");
+        project_tag_spec(
+            r"from django import template
+register = template.Library()
+class EmptyNode(template.Node):
+    def render(self, context): return ''
+@register.tag
+def cache(parser, token):
+    if token.contents not in ('cache sidebar', 'cache site_header'):
+        raise template.TemplateSyntaxError('unknown fragment')
+    return EmptyNode()
+",
+            "cache",
+            tag_specs,
+        )
+        .expect("custom cache tag should have an effective spec")
     }
 
     fn block_tag_spec() -> TagSpec {
@@ -1244,14 +1251,14 @@ mod tests {
 
     #[test]
     fn generates_tag_argument_choice_candidates() {
-        let specs = choice_tag_specs();
+        let spec = configured_cache_spec();
         let candidates = generate_tag_argument_candidates(
             "cache",
             &[],
             0,
             &prefix("si"),
             full_close(),
-            specs.get("cache"),
+            Some(&spec),
             false,
         );
 
@@ -1271,14 +1278,14 @@ mod tests {
 
     #[test]
     fn generates_remaining_argument_snippet_candidates() {
-        let specs = choice_tag_specs();
+        let spec = configured_cache_spec();
         let candidates = generate_tag_argument_candidates(
             "cache",
             &[],
             0,
             &prefix(""),
             full_close(),
-            specs.get("cache"),
+            Some(&spec),
             true,
         );
 
