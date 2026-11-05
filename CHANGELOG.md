@@ -76,6 +76,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - **Internal**: Converted layout positions to source positions through one `MapSpans` trait in `djls-semantic`. IDE readers reach template analysis only through `SourceAnalysis::read` and `read_at`, which convert what they return.
 - **Internal**: Removed the unused opaque-region projection and its benchmark; opaque-body tests now exercise template structure and validation.
 - **Internal**: Removed the unused parent link from template structure regions and the test-only `RegionId::id` accessor.
+- **Internal**: Removed the test-only `template_library_registration_dependencies` query and its dependency bookkeeping.
 
 ### Fixed
 
