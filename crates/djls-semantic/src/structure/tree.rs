@@ -24,11 +24,6 @@ impl RegionId {
     }
 
     #[must_use]
-    pub fn id(self) -> usize {
-        self.0
-    }
-
-    #[must_use]
     fn index(self) -> usize {
         self.0
     }
@@ -47,9 +42,9 @@ impl Regions {
         self.0.iter()
     }
 
-    pub(crate) fn alloc(&mut self, span: Span, parent: Option<RegionId>) -> RegionId {
+    pub(crate) fn alloc(&mut self, span: Span) -> RegionId {
         let id = RegionId::new(self.0.len());
-        self.0.push(TemplateRegion::new(span, parent));
+        self.0.push(TemplateRegion::new(span));
         id
     }
 
@@ -107,15 +102,13 @@ impl<'a> IntoIterator for &'a Regions {
 pub struct TemplateRegion {
     span: Span,
     nodes: Vec<TemplateNode>,
-    parent: Option<RegionId>,
 }
 
 impl TemplateRegion {
-    fn new(span: Span, parent: Option<RegionId>) -> Self {
+    fn new(span: Span) -> Self {
         Self {
             span,
             nodes: Vec::new(),
-            parent,
         }
     }
 
@@ -127,11 +120,6 @@ impl TemplateRegion {
     #[must_use]
     pub fn nodes(&self) -> &[TemplateNode] {
         &self.nodes
-    }
-
-    #[must_use]
-    pub fn parent(&self) -> Option<RegionId> {
-        self.parent
     }
 
     fn set_span(&mut self, span: Span) {
@@ -224,7 +212,7 @@ mod tests {
     fn region_id_preserves_the_platform_index_range() {
         let id = RegionId::new(usize::MAX);
 
-        assert_eq!(id.id(), usize::MAX);
+        assert_eq!(id.index(), usize::MAX);
         assert_eq!(size_of::<RegionId>(), size_of::<usize>());
     }
 }

@@ -47,7 +47,7 @@ pub(crate) struct TemplateTreeBuilder<'grammar, 'n> {
 impl<'grammar, 'n> TemplateTreeBuilder<'grammar, 'n> {
     pub(crate) fn new(grammar: &'grammar SparseTagGrammar) -> Self {
         let mut regions = Regions::default();
-        let root = regions.alloc(Span::new(0, 0), None);
+        let root = regions.alloc(Span::new(0, 0));
         Self {
             grammar,
             root,
@@ -110,18 +110,13 @@ impl<'grammar, 'n> TemplateTreeBuilder<'grammar, 'n> {
         self.regions.push_node(self.active_region(), node);
     }
 
-    fn alloc_region(&mut self, span: Span, parent: RegionId) -> RegionId {
-        self.regions.alloc(span, Some(parent))
-    }
-
     fn alloc_block_regions(
         &mut self,
         container_span: Span,
         segment_span: Span,
-        parent: RegionId,
     ) -> (RegionId, RegionId) {
-        let container_id = self.alloc_region(container_span, parent);
-        let segment_id = self.alloc_region(segment_span, container_id);
+        let container_id = self.regions.alloc(container_span);
+        let segment_id = self.regions.alloc(segment_span);
         (container_id, segment_id)
     }
 
@@ -175,7 +170,7 @@ impl<'grammar, 'n> TemplateTreeBuilder<'grammar, 'n> {
 
                 let segment_span =
                     Span::new(span.end().saturating_add(TagDelimiter::LENGTH_U32), 0);
-                let (container, segment) = self.alloc_block_regions(span, segment_span, parent);
+                let (container, segment) = self.alloc_block_regions(span, segment_span);
 
                 self.regions.push_node(
                     parent,
@@ -434,7 +429,7 @@ impl<'grammar, 'n> TemplateTreeBuilder<'grammar, 'n> {
             let container = frame.container_body;
 
             let body_start = span.end().saturating_add(TagDelimiter::LENGTH_U32);
-            let new_segment_id = self.alloc_region(Span::new(body_start, 0), container);
+            let new_segment_id = self.regions.alloc(Span::new(body_start, 0));
 
             self.regions
                 .finalize_region_span(segment_to_finalize, content_end);

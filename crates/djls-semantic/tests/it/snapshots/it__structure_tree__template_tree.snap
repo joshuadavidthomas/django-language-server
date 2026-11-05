@@ -7,7 +7,6 @@ regions:
   - span:
       start: 0
       length: 467
-    parent: ~
     nodes:
       - node: StandaloneTag
         tag: extends
@@ -95,7 +94,6 @@ regions:
   - span:
       start: 50
       length: 59
-    parent: 0
     nodes:
       - node: BlockTag
         tag: block
@@ -115,12 +113,10 @@ regions:
   - span:
       start: 68
       length: 20
-    parent: 1
     nodes: []
   - span:
       start: 111
       length: 294
-    parent: 0
     nodes:
       - node: BlockTag
         tag: if
@@ -151,7 +147,6 @@ regions:
   - span:
       start: 141
       length: 217
-    parent: 3
     nodes:
       - node: Variable
         var: user.name
@@ -180,7 +175,6 @@ regions:
   - span:
       start: 181
       length: 176
-    parent: 4
     nodes:
       - node: BlockTag
         tag: if
@@ -226,27 +220,22 @@ regions:
   - span:
       start: 207
       length: 32
-    parent: 5
     nodes: []
   - span:
       start: 263
       length: 34
-    parent: 5
     nodes: []
   - span:
       start: 307
       length: 39
-    parent: 5
     nodes: []
   - span:
       start: 368
       length: 26
-    parent: 3
     nodes: []
   - span:
       start: 407
       length: 60
-    parent: 0
     nodes:
       - node: BlockTag
         tag: for
@@ -274,7 +263,6 @@ regions:
   - span:
       start: 430
       length: 25
-    parent: 10
     nodes:
       - node: Variable
         var: item
