@@ -53,7 +53,7 @@ jobs:
         mode: [simulation, memory]
         include:
           - shard: core
-            benches: --bench parser --bench semantic --bench diagnostics --bench extraction --bench check --bench models
+            benches: --bench parser --bench semantic --bench diagnostics --bench extraction --bench check --bench models --bench lsp
             filter: ""
             run_env: ""
           - shard: corpus

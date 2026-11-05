@@ -11,6 +11,7 @@ use djls_bench::realistic_db;
 use djls_bench::require;
 use djls_bench::structure_db;
 use djls_bench::template_fixtures;
+use djls_ide::collect_diagnostics;
 use djls_project::Db as _;
 use djls_semantic::block_overrides;
 use djls_semantic::build_template_tree_for_file;
@@ -18,6 +19,7 @@ use djls_semantic::compute_opaque_regions;
 use djls_semantic::validate_template_file;
 use djls_source::File;
 use djls_source::FileError;
+use djls_source::PositionEncoding;
 use djls_templates::TemplateParseResult;
 use djls_templates::parse_template;
 
@@ -246,6 +248,136 @@ fn validate_incremental(bencher: Bencher) {
         }
         black_box(validated);
     });
+}
+
+const EDIT_FIXTURES: &[&str] = &["medium/admin_login.html", "large/views_technical_500.html"];
+
+#[derive(Clone, Copy)]
+enum Edit {
+    TextInsertion,
+    TextReplacement,
+    TagBits,
+}
+
+fn edit_source(label: &str, source: &str, edit: Edit) -> String {
+    let (before, after) = match (label, edit) {
+        ("medium/admin_login.html", Edit::TextInsertion) => {
+            ("<p class=\"errornote\">", "<p class=\"errornotex\">")
+        }
+        ("medium/admin_login.html", Edit::TextReplacement) => {
+            ("<p class=\"errornote\">", "<p class=\"errornotx\">")
+        }
+        ("medium/admin_login.html", Edit::TagBits) => {
+            ("{% if form.errors and not", "{% if form.errorsx and not")
+        }
+        ("large/views_technical_500.html", Edit::TextInsertion) => {
+            ("Django Version:</th>", "Django Versionx:</th>")
+        }
+        ("large/views_technical_500.html", Edit::TextReplacement) => {
+            ("Django Version:</th>", "Django Versioz:</th>")
+        }
+        ("large/views_technical_500.html", Edit::TagBits) => {
+            ("{% if raising_view_name %}", "{% if raising_view_namex %}")
+        }
+        _ => fail("unknown semantic edit fixture"),
+    };
+    assert!(source.contains(before), "semantic edit anchor disappeared");
+    source.replacen(before, after, 1)
+}
+
+fn bench_edit(bencher: Bencher, label: &str, edit: Edit) {
+    let fixture = require("load semantic edit fixtures", template_fixtures())
+        .iter()
+        .find(|fixture| fixture.label == label)
+        .unwrap_or_else(|| fail("semantic edit fixture disappeared"));
+    let mut db = require("prepare semantic edit database", primed_realistic_db());
+    let file = require(
+        "register semantic edit fixture",
+        db.file_with_contents(fixture.path.clone(), &fixture.source),
+    );
+    let modified = edit_source(label, &fixture.source, edit);
+
+    // These edits change source/arguments, but not the diagnostic codes. Check both
+    // directions outside timing, and enter measurement with both versions warm.
+    let codes = |db: &Db| {
+        collect_diagnostics(db, file, PositionEncoding::Utf8)
+            .unwrap_or_else(|| fail("semantic edit fixture must support diagnostics"))
+            .into_iter()
+            .map(|diagnostic| diagnostic.code)
+            .collect::<Vec<_>>()
+    };
+    let expected = codes(&db);
+    db.set_file_contents(file, &modified);
+    assert_eq!(codes(&db), expected);
+    db.set_file_contents(file, &fixture.source);
+    assert_eq!(codes(&db), expected);
+
+    let mut use_modified = true;
+    bencher.bench_local(move || {
+        for _ in 0..BATCH_INNER_ITERS {
+            db.set_file_contents(
+                file,
+                if use_modified {
+                    &modified
+                } else {
+                    &fixture.source
+                },
+            );
+            use_modified = !use_modified;
+            validate_template_file(&db, file);
+        }
+        black_box(file);
+    });
+}
+
+#[divan::bench(args = EDIT_FIXTURES)]
+fn validate_incremental_text_edit(bencher: Bencher, label: &str) {
+    bench_edit(bencher, label, Edit::TextInsertion);
+}
+
+#[divan::bench(args = EDIT_FIXTURES)]
+fn validate_incremental_same_length_text_edit(bencher: Bencher, label: &str) {
+    bench_edit(bencher, label, Edit::TextReplacement);
+}
+
+#[divan::bench(args = EDIT_FIXTURES)]
+fn validate_incremental_semantic_edit(bencher: Bencher, label: &str) {
+    bench_edit(bencher, label, Edit::TagBits);
+}
+
+#[divan::bench(args = EDIT_FIXTURES)]
+fn validate_new_template_warm_project(bencher: Bencher, label: &str) {
+    let fixture = require("load new-template fixtures", template_fixtures())
+        .iter()
+        .find(|fixture| fixture.label == label)
+        .unwrap_or_else(|| fail("new-template fixture disappeared"));
+    bencher
+        .with_inputs(|| {
+            let mut db = require("prepare warm new-template project", primed_realistic_db());
+            let files: Vec<_> = (0..BATCH_INNER_ITERS)
+                .map(|index| {
+                    require(
+                        "register never-validated template",
+                        db.file_with_contents(
+                            format!("/templates/new-{index}.html"),
+                            &fixture.source,
+                        ),
+                    )
+                })
+                .collect();
+            let warm_file = require(
+                "register warm-project template",
+                db.file_with_contents(fixture.path.clone(), &fixture.source),
+            );
+            validate_template_file(&db, warm_file);
+            (db, files)
+        })
+        .bench_local_refs(|(db, files)| {
+            for &file in files.iter() {
+                validate_template_file(db, file);
+            }
+            black_box(files.len());
+        });
 }
 
 #[divan::bench]
