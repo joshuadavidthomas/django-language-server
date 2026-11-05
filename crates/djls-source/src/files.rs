@@ -424,45 +424,6 @@ impl SourceFiles {
             .copied()
     }
 
-    /// Return the registered source root that contains `path`.
-    ///
-    /// # Panics
-    ///
-    /// Panics when no registered source root contains `path`.
-    #[must_use]
-    pub fn expect_root<SalsaDb>(&self, db: &SalsaDb, path: &Utf8Path) -> FileRoot
-    where
-        SalsaDb: salsa::Database + ?Sized,
-    {
-        match self.root(db, path) {
-            Some(root) => root,
-            None => panic!("expected registered source root for {path}"),
-        }
-    }
-
-    /// Register a root for future file creation.
-    ///
-    /// If the same root already exists, its original kind is preserved.
-    /// Existing files keep the durability assigned when they were created.
-    pub fn try_add_root<SalsaDb>(
-        &self,
-        db: &SalsaDb,
-        path: Utf8PathBuf,
-        kind: FileRootKind,
-    ) -> FileRoot
-    where
-        SalsaDb: salsa::Database + ?Sized,
-    {
-        let mut roots = self.roots_mut();
-        if let Some(root) = roots.iter().find(|root| root.path(db) == &path) {
-            return *root;
-        }
-
-        let root = Self::new_root(db, path, kind);
-        roots.push(root);
-        root
-    }
-
     /// Replace the active source roots with the supplied root set.
     ///
     /// Existing exact roots with the same kind are retained; obsolete roots stop

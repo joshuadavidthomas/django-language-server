@@ -3660,7 +3660,8 @@ fn template_library_catalog_available_candidates_rerun_after_search_root_revisio
     ).expect("settings test file should be added");
     let root = db
         .files()
-        .expect_root(&db, Utf8Path::new("/proj/crispy/templatetags/crispy.py"));
+        .root(&db, Utf8Path::new("/proj/crispy/templatetags/crispy.py"))
+        .expect("crispy source should have a registered root");
     db.bump_file_root_revision(root);
 
     let libraries = template_library_catalog(&db, project);
@@ -4285,7 +4286,7 @@ fn django_facts_golden_template_dirs_match() {
         .into_iter()
         // APP_DIRS now retains missing candidate roots so detailed walking can distinguish
         // absence from metadata failure; the golden records concrete directories only.
-        .filter(|path| db.path_is_dir(path))
+        .filter(|path| db.file_system().is_dir(path))
         .map(slash_path)
         .collect();
 
