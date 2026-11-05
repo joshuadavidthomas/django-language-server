@@ -494,7 +494,8 @@ fn registering_search_paths_removes_obsolete_external_roots() {
     search_paths.register_roots(&db);
     let external_root = db
         .files()
-        .expect_root(&db, Utf8Path::new("/external/pkg/models.py"));
+        .root(&db, Utf8Path::new("/external/pkg/models.py"))
+        .expect("external search path should have a registered root");
     assert_eq!(external_root.kind(&db), FileRootKind::Project);
 
     let search_paths = SearchPaths::from_project_settings(
@@ -618,13 +619,16 @@ fn template_library_source_resolution_uses_project_venv_site_packages_root() {
 
     assert_eq!(active.len(), 1);
     assert_eq!(active[0].module_name().as_str(), "django.templatetags.i18n");
-    let root = db.files().expect_root(
-        &db,
-        active[0]
-            .source_file()
-            .expect("resolved fixture library should have source")
-            .path(&db),
-    );
+    let root = db
+        .files()
+        .root(
+            &db,
+            active[0]
+                .source_file()
+                .expect("resolved fixture library should have source")
+                .path(&db),
+        )
+        .expect("resolved library should have a registered root");
     assert_eq!(root.kind(&db), FileRootKind::SearchPath);
 }
 

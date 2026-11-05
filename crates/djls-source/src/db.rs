@@ -22,10 +22,6 @@ pub trait Db: salsa::Database {
         self.file_system().is_file(path)
     }
 
-    fn path_is_dir(&self, path: &Utf8Path) -> bool {
-        self.file_system().is_dir(path)
-    }
-
     fn walk_root(&self, root: &Utf8Path, options: &WalkOptions) -> RootWalk {
         self.file_system().walk_root(root, options)
     }
