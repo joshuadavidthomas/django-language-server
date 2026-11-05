@@ -309,6 +309,13 @@ just dev profile diagnostics collect_diagnostics_realistic
 just dev profile parser parse_template
 ```
 
+#### Nightly wall-time statistics
+
+The [nightly performance workflow](docs/performance.md) times main and the latest
+release on real corpus projects and publishes charts over time. These wall-time
+trends are separate from CodSpeed's instruction-count regression gate. The guide
+describes what each chart measures, the raw JSON, local commands, and Pages setup.
+
 ## Changelog
 
 The project maintains a [`CHANGELOG.md`](CHANGELOG.md) following [Keep a Changelog](https://keepachangelog.com/en/1.0.0/). All notable changes should be documented under the `[Unreleased]` heading in the appropriate section.
