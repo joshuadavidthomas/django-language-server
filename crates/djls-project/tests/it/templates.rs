@@ -141,7 +141,7 @@ fn project_inventory_preserves_backend_remainder_slot_order() {
 
 #[test]
 fn partial_known_backend_field_uncertainty_keeps_one_correlated_backend_alternative() {
-    let db = TestDatabase::new();
+    let mut db = TestDatabase::new();
     let project = ProjectFixture::new("/test/project")
         .django_settings_module("settings")
         .file(
@@ -153,8 +153,11 @@ fn partial_known_backend_field_uncertainty_keeps_one_correlated_backend_alternat
             "from django import template\nregister = template.Library()\n",
         )
         .file("/test/project/templates/page.html", "{% load shared %}")
-        .build(&db)
-        .expect("partial-backend project fixture should build");
+        .install(&mut db)
+        .expect("partial-backend project fixture should install");
+    run_django_discovery(&mut db)
+        .expect("Django discovery should succeed")
+        .expect("project should be installed");
     let file = db
         .file(Utf8Path::new("/test/project/templates/page.html"))
         .expect("partial-backend template fixture should exist in the test database");
@@ -165,9 +168,10 @@ fn partial_known_backend_field_uncertainty_keeps_one_correlated_backend_alternat
         LoadableLibraryLookup::Inconclusive(candidates)
             if candidates.len() == 1 && candidates[0].module_name_str() == "alpha_tags"
     ));
+    let mut alternatives = 0;
+    scoped_libraries.fold_library_chains(&["shared"], || (), |(), _| {}, |()| alternatives += 1);
     assert_eq!(
-        scoped_libraries.library_chains(&["shared"]).len(),
-        1,
+        alternatives, 1,
         "backend-field uncertainty must not fabricate a settings-case remainder alternative"
     );
 }

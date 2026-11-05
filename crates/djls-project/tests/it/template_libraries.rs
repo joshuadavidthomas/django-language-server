@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::io;
 
+use camino::Utf8Path;
 use camino::Utf8PathBuf;
 use djls_conf::TagDef;
 use djls_conf::TagLibraryDef;
@@ -17,12 +18,15 @@ use djls_project::ScopedTemplateSymbolLookup;
 use djls_project::SymbolDefinition;
 use djls_project::TemplateLibraryAppCandidates;
 use djls_project::TemplateLibraryCatalog;
+use djls_project::TemplateLibraryChainStep;
 use djls_project::TemplateSymbol;
 use djls_project::TemplateSymbolAvailability;
 use djls_project::TemplateSymbolKind;
 use djls_project::TemplateSymbolName;
 use djls_project::UnreadRegistration;
 use djls_project::UnreadShape;
+use djls_project::run_django_discovery;
+use djls_project::scoped_template_libraries;
 use djls_project::template_library_catalog;
 use djls_project::template_library_definition_facts;
 use djls_project::testing;
@@ -377,78 +381,80 @@ fn unreadable_registration_statements_keep_source_order_spans_and_shapes() {
 
 #[test]
 fn effective_definition_preserves_absence_and_load_precedence_per_backend() {
-    let db = TestDatabase::new();
-    let inventory = configured_libraries(
-        &db,
-        false,
-        vec![
-            builtin(
-                "django.template.defaulttags",
-                vec![symbol(TemplateSymbolKind::Tag, "if")],
-            )
-            .expect("builtin library fixture should be valid"),
-            loadable(
-                "alpha",
-                "project.alpha",
-                vec![symbol(TemplateSymbolKind::Tag, "if")],
-            )
-            .expect("loadable library fixture should be valid"),
-            loadable(
-                "beta",
-                "project.beta",
-                vec![symbol(TemplateSymbolKind::Tag, "if")],
-            )
-            .expect("loadable library fixture should be valid"),
-        ],
-        vec![vec![
-            backend(
-                vec![("alpha", "project.alpha"), ("beta", "project.beta")],
-                vec!["django.template.defaulttags"],
-            )
-            .expect("template backend fixture should be valid"),
-            backend(
-                vec![("alpha", "project.alpha"), ("beta", "project.beta")],
-                vec![],
-            )
-            .expect("template backend fixture should be valid"),
-        ]],
-    )
-    .expect("template library settings fixture should be valid");
-    let scoped_libraries = ScopedTemplateLibraries::from_project_inventory(&inventory);
+    let mut db = TestDatabase::new();
+    let project = ProjectFixture::new("/project")
+        .django_settings_module("settings")
+        .file(
+            "/project/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'builtins': ['builtin_tags'], 'libraries': {'override': 'loaded_tags'}}},\n    {'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/project/templates'], 'APP_DIRS': False, 'OPTIONS': {'libraries': {'override': 'loaded_tags'}}},\n]\n",
+        )
+        .file(
+            "/project/builtin_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef fixture_marker(): pass\n",
+        )
+        .file(
+            "/project/loaded_tags.py",
+            "from django import template\nregister = template.Library()\n@register.simple_tag\ndef fixture_marker(): pass\n",
+        )
+        .file("/project/templates/page.html", "{% load override %}")
+        .install(&mut db)
+        .expect("two-backend project fixture should install");
+    run_django_discovery(&mut db)
+        .expect("Django discovery should succeed")
+        .expect("project should be installed");
+    let file = db
+        .file(Utf8Path::new("/project/templates/page.html"))
+        .expect("template fixture should exist");
+    let scoped_libraries = scoped_template_libraries(&db, project, file);
 
-    let unloaded =
-        scoped_libraries.effective_definition_libraries("if", TemplateSymbolKind::Tag, &[]);
+    let unloaded = scoped_libraries.effective_definition_libraries(
+        "fixture_marker",
+        TemplateSymbolKind::Tag,
+        &[],
+    );
     assert!(matches!(unloaded.as_slice(), [
         EffectiveDefinitionLibrary::Known(Some(library)),
         EffectiveDefinitionLibrary::Known(None),
-    ] if library.module_name_str() == "django.template.defaulttags"));
-    let mut streamed_unloaded = Vec::new();
-    scoped_libraries.for_each_effective_definition_library(
-        "if",
+    ] if library.module_name_str() == "builtin_tags"));
+    let loaded = scoped_libraries.effective_definition_libraries(
+        "fixture_marker",
         TemplateSymbolKind::Tag,
-        &[],
-        |definition| streamed_unloaded.push(definition),
+        &["override"],
     );
-    assert_eq!(streamed_unloaded, unloaded);
+    assert!(matches!(loaded.as_slice(), [
+        EffectiveDefinitionLibrary::Known(Some(first)),
+        EffectiveDefinitionLibrary::Known(Some(second)),
+    ] if first.module_name_str() == "loaded_tags" && second.module_name_str() == "loaded_tags"));
 
-    let loaded =
-        scoped_libraries.effective_definition_libraries("if", TemplateSymbolKind::Tag, &["alpha"]);
-    assert!(loaded.iter().all(|alternative| matches!(
-        alternative,
-        EffectiveDefinitionLibrary::Known(Some(library))
-            if library.module_name_str() == "project.alpha"
-    )));
-    let materialized_chains = scoped_libraries.library_chains(&["alpha"]);
-    let mut folded_chains = Vec::new();
-    scoped_libraries.fold_library_chains(&["alpha"], Vec::new, Vec::push, |chain| {
-        folded_chains.push(chain);
-    });
+    let mut chains = Vec::new();
+    scoped_libraries.fold_library_chains(
+        &["override"],
+        Vec::new,
+        |chain, step| {
+            chain.push(match step {
+                TemplateLibraryChainStep::Library(library) => library.module_name_str(),
+                TemplateLibraryChainStep::Unknown => "<unknown>",
+            });
+        },
+        |chain| chains.push(chain),
+    );
     assert_eq!(
-        folded_chains,
-        materialized_chains
-            .iter()
-            .map(|chain| chain.steps().to_vec())
-            .collect::<Vec<_>>()
+        chains,
+        [
+            vec![
+                "django.template.defaulttags",
+                "django.template.defaultfilters",
+                "django.template.loader_tags",
+                "builtin_tags",
+                "loaded_tags",
+            ],
+            vec![
+                "django.template.defaulttags",
+                "django.template.defaultfilters",
+                "django.template.loader_tags",
+                "loaded_tags",
+            ],
+        ]
     );
 }
 

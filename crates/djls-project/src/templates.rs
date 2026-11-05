@@ -22,7 +22,6 @@ pub use libraries::ScopedTemplateSymbolLookup;
 pub use libraries::TemplateLibrary;
 pub use libraries::TemplateLibraryAppCandidates;
 pub use libraries::TemplateLibraryCatalog;
-pub use libraries::TemplateLibraryChain;
 pub use libraries::TemplateLibraryChainStep;
 #[doc(hidden)]
 pub use libraries::TemplateLibraryFixtureError;

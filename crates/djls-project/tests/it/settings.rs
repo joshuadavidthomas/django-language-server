@@ -2295,6 +2295,10 @@ fn template_settings_projection_merges_branches_differing_only_in_context_proces
         ],
     ).expect("settings project fixture should build");
 
+    run_django_discovery(&mut db)
+        .expect("Django discovery should succeed")
+        .expect("project should be installed");
+
     let settings = serde_json::to_value(django_settings(&db, project))
         .expect("test value should serialize to JSON");
     assert_eq!(
@@ -2320,9 +2324,10 @@ fn template_settings_projection_merges_branches_differing_only_in_context_proces
         .file(Utf8Path::new("/proj/templates/index.html"))
         .expect("template fixture should exist in the test database");
     let libraries = scoped_template_libraries(&db, project, file);
+    let mut alternatives = 0;
+    libraries.fold_library_chains(&["shared"], || (), |(), _| {}, |()| alternatives += 1);
     assert_eq!(
-        libraries.library_chains(&["shared"]).len(),
-        1,
+        alternatives, 1,
         "context processors must not duplicate the consumed library alternative"
     );
     assert_eq!(
