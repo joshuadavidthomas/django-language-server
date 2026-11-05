@@ -10,7 +10,6 @@ use djls_project::BundledFileSystem;
 use djls_project::Db as ProjectDb;
 use djls_project::Project;
 use djls_semantic::Db as SemanticDb;
-use djls_semantic::FilterAritySpecs;
 use djls_semantic::TagSpecs;
 use djls_semantic::bundled_django_tag_specs;
 use djls_source::CaseSensitivity;
@@ -115,7 +114,6 @@ pub struct TestDatabase {
     file_system: Arc<dyn FileSystem>,
     files: SourceFiles,
     projectless_tag_specs: TagSpecs,
-    projectless_filter_arity_specs: FilterAritySpecs,
     diagnostics_config: djls_conf::DiagnosticsConfig,
     project: Option<Project>,
     storage: salsa::Storage<Self>,
@@ -164,7 +162,6 @@ impl TestDatabase {
             fs,
             files: SourceFiles::default(),
             projectless_tag_specs: bundled_django_tag_specs().clone(),
-            projectless_filter_arity_specs: FilterAritySpecs::new(),
             diagnostics_config: djls_conf::DiagnosticsConfig::default(),
             project: None,
             storage,
@@ -174,12 +171,6 @@ impl TestDatabase {
     #[must_use]
     pub fn with_projectless_tag_specs(mut self, specs: TagSpecs) -> Self {
         self.projectless_tag_specs = specs;
-        self
-    }
-
-    #[must_use]
-    pub fn with_projectless_filter_arity_specs(mut self, specs: FilterAritySpecs) -> Self {
-        self.projectless_filter_arity_specs = specs;
         self
     }
 
@@ -556,10 +547,6 @@ impl SemanticDb for OsTestDatabase {
     fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {
         self.diagnostics_config.clone()
     }
-
-    fn projectless_filter_arity_specs(&self) -> &FilterAritySpecs {
-        FilterAritySpecs::empty_ref()
-    }
 }
 
 #[salsa::db]
@@ -580,10 +567,6 @@ impl SemanticDb for TestDatabase {
 
     fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {
         self.diagnostics_config.clone()
-    }
-
-    fn projectless_filter_arity_specs(&self) -> &FilterAritySpecs {
-        &self.projectless_filter_arity_specs
     }
 }
 

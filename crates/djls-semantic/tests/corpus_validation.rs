@@ -35,11 +35,8 @@ fn format_failures(failures: &[FailureEntry]) -> Result<String, std::fmt::Error>
     reason = "corpus fixture failures should fail their named trial"
 )]
 fn validate_repo(corpus: &Corpus, entry_dir: &Utf8Path, templates: Vec<Utf8PathBuf>) {
-    let (specs, arities) = build_entry_specs(corpus, entry_dir)
-        .expect("corpus entry tag and filter specs should build");
-    let db = TestDatabase::new()
-        .with_projectless_tag_specs(specs)
-        .with_projectless_filter_arity_specs(arities);
+    let specs = build_entry_specs(corpus, entry_dir).expect("corpus entry tag specs should build");
+    let db = TestDatabase::new().with_projectless_tag_specs(specs);
     let mut failures = Vec::new();
 
     for (i, template_path) in templates.into_iter().enumerate() {
