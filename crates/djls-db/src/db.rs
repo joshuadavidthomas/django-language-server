@@ -14,7 +14,6 @@ use djls_conf::Settings;
 use djls_project::Db as ProjectDb;
 use djls_project::Project;
 use djls_semantic::Db as SemanticDb;
-use djls_semantic::FilterAritySpecs;
 use djls_semantic::TagSpecs;
 use djls_semantic::bundled_django_tag_specs;
 use djls_source::Db as SourceDb;
@@ -152,14 +151,6 @@ impl SemanticDb for DjangoDatabase {
 
     fn diagnostics_config(&self) -> DiagnosticsConfig {
         self.settings.diagnostics().clone()
-    }
-
-    fn projectless_filter_arity_specs(&self) -> &FilterAritySpecs {
-        assert!(
-            self.project.is_none(),
-            "project-backed analysis must derive filter specs from keyed Template Libraries"
-        );
-        FilterAritySpecs::empty_ref()
     }
 }
 

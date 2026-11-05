@@ -1,5 +1,3 @@
-use std::sync::LazyLock;
-
 use djls_project::EffectiveDefinitionLibrary;
 use djls_project::FilterArity;
 use djls_project::FilterArityMap;
@@ -19,7 +17,7 @@ use crate::scoping::LoadState;
 /// modules, the last one wins (matching Django's `engine.template_builtins`
 /// iteration order where later entries override earlier ones).
 #[derive(Clone, Debug, Default, PartialEq)]
-pub struct FilterAritySpecs {
+struct FilterAritySpecs {
     /// Maps filter name → (`SymbolKey`, `FilterArity`).
     /// The `SymbolKey` is retained for diagnostics / provenance tracking.
     specs: FxHashMap<String, (SymbolKey, FilterArity)>,
@@ -27,13 +25,7 @@ pub struct FilterAritySpecs {
 
 impl FilterAritySpecs {
     #[must_use]
-    pub fn empty_ref() -> &'static Self {
-        static EMPTY: LazyLock<FilterAritySpecs> = LazyLock::new(FilterAritySpecs::new);
-        &EMPTY
-    }
-
-    #[must_use]
-    pub fn new() -> Self {
+    fn new() -> Self {
         Self::default()
     }
 
@@ -45,13 +37,13 @@ impl FilterAritySpecs {
 
     /// Look up the arity for a filter by name.
     #[must_use]
-    pub(crate) fn get(&self, filter_name: &str) -> Option<&FilterArity> {
+    fn get(&self, filter_name: &str) -> Option<&FilterArity> {
         self.specs.get(filter_name).map(|(_, arity)| arity)
     }
 
     /// Merge extracted filter arities into this map.
     /// Later entries overwrite earlier ones (last-wins).
-    pub fn merge_filter_arities(&mut self, filter_arities: &FilterArityMap) {
+    fn merge_filter_arities(&mut self, filter_arities: &FilterArityMap) {
         for (key, arity) in filter_arities {
             self.insert(key.clone(), *arity);
         }
