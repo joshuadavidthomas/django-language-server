@@ -19,24 +19,26 @@ use crate::completions::CompletionInsertFormat;
 use crate::folding::FoldKind;
 use crate::folding::FoldSpan;
 use crate::navigation::DefinitionTarget;
+use crate::outline::OutlineKind;
 
 pub(crate) trait OutlineKindExt {
     fn to_lsp_symbol_kind(self) -> ls_types::SymbolKind;
 }
 
-impl OutlineKindExt for djls_semantic::OutlineKind {
+impl OutlineKindExt for OutlineKind {
     fn to_lsp_symbol_kind(self) -> ls_types::SymbolKind {
         match self {
-            djls_semantic::OutlineKind::TemplateBlock => ls_types::SymbolKind::NAMESPACE,
-            djls_semantic::OutlineKind::BlockTag => ls_types::SymbolKind::OPERATOR,
-            djls_semantic::OutlineKind::TemplateReference
-            | djls_semantic::OutlineKind::StaticAssetReference => ls_types::SymbolKind::FILE,
-            djls_semantic::OutlineKind::TemplateLibrary => ls_types::SymbolKind::MODULE,
-            djls_semantic::OutlineKind::TemplateLibrarySymbol
-            | djls_semantic::OutlineKind::TemplateTag
-            | djls_semantic::OutlineKind::RouteReference
-            | djls_semantic::OutlineKind::Filter => ls_types::SymbolKind::FUNCTION,
-            djls_semantic::OutlineKind::Variable => ls_types::SymbolKind::VARIABLE,
+            OutlineKind::TemplateBlock => ls_types::SymbolKind::NAMESPACE,
+            OutlineKind::BlockTag => ls_types::SymbolKind::OPERATOR,
+            OutlineKind::TemplateReference | OutlineKind::StaticAssetReference => {
+                ls_types::SymbolKind::FILE
+            }
+            OutlineKind::TemplateLibrary => ls_types::SymbolKind::MODULE,
+            OutlineKind::TemplateLibrarySymbol
+            | OutlineKind::TemplateTag
+            | OutlineKind::RouteReference
+            | OutlineKind::Filter => ls_types::SymbolKind::FUNCTION,
+            OutlineKind::Variable => ls_types::SymbolKind::VARIABLE,
         }
     }
 }

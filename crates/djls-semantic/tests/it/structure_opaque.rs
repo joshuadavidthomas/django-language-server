@@ -2,13 +2,10 @@ use camino::Utf8Path;
 use djls_semantic::EndTag;
 use djls_semantic::IntermediateTag;
 use djls_semantic::TagSpec;
-use djls_semantic::TemplateFold;
-use djls_semantic::TemplateFoldKind;
 use djls_semantic::TemplateNode;
 use djls_semantic::TemplateTree;
 use djls_semantic::ValidationError;
 use djls_semantic::build_projectless_template_tree;
-use djls_semantic::build_template_folds_for_file;
 use djls_semantic::bundled_django_tag_specs;
 use djls_semantic::collect_template_diagnostics;
 use djls_source::Span;
@@ -55,18 +52,6 @@ fn opaque_opener_treats_intermediate_as_raw_content() {
     assert!(
         matches!(nodes, [TemplateNode::Opaque { tag, body_span, .. }]
         if tag == "opaque_if" && *body_span == Span::saturating_from_bounds_usize(15, 43))
-    );
-
-    let file = db
-        .file(Utf8Path::new("test.html"))
-        .expect("fixture should exist");
-    let nodelist = parse_template(&db, file).expect("fixture should parse");
-    assert_eq!(
-        build_template_folds_for_file(&db, file, nodelist),
-        &[TemplateFold {
-            span: Span::saturating_from_bounds_usize(0, 61),
-            kind: TemplateFoldKind::Comment,
-        }]
     );
 }
 

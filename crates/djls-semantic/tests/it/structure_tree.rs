@@ -8,23 +8,17 @@ use djls_semantic::IntermediateTag;
 use djls_semantic::RegionId;
 use djls_semantic::TagSpec;
 use djls_semantic::TagSpecs;
-use djls_semantic::TemplateFold;
-use djls_semantic::TemplateFoldKind;
 use djls_semantic::TemplateNode;
 use djls_semantic::TemplateRegion;
 use djls_semantic::TemplateTree;
 use djls_semantic::ValidationError;
 use djls_semantic::ValidationErrorAccumulator;
 use djls_semantic::build_projectless_template_tree;
-use djls_semantic::build_template_folds_for_file;
 use djls_semantic::bundled_django_tag_specs;
 use djls_source::Span;
 use djls_templates::Filter;
 use djls_templates::TagBit;
 use djls_templates::parse_template;
-use djls_testing::ProjectFixture;
-use djls_testing::ProjectSettings;
-use djls_testing::SalsaEventLog;
 use djls_testing::TestDatabase;
 use rustc_hash::FxHashMap;
 
@@ -201,131 +195,6 @@ fn test_template_tree_building() {
     insta::assert_yaml_snapshot!(
         "template_tree",
         TemplateTreeSnapshot::from_tree(template_tree, &db)
-    );
-}
-
-#[test]
-#[expect(clippy::too_many_lines, reason = "compare both query routing modes")]
-fn structure_queries_use_correlated_analysis_only_with_a_project() {
-    let event_log = SalsaEventLog::default();
-    let db = TestDatabase::with_event_log(event_log.clone());
-    db.add_file("/tree.html", "{% if value %}body{% endif %}")
-        .expect("fixture file should be added to the test database");
-    db.add_file(
-        "/opaque.html",
-        "{% verbatim %}{% if ignored %}{% endverbatim %}",
-    )
-    .expect("opaque template fixture should be added to the test database");
-    let tree_file = db
-        .file(Utf8Path::new("/tree.html"))
-        .expect("fixture file should exist in the test database");
-    let opaque_file = db
-        .file(Utf8Path::new("/opaque.html"))
-        .expect("fixture file should exist in the test database");
-    let tree_nodes = parse_template(&db, tree_file).expect("tree fixture should parse");
-    let opaque_nodes = parse_template(&db, opaque_file).expect("opaque fixture should parse");
-
-    event_log
-        .take()
-        .expect("Salsa event log should be readable before the projectless query");
-    let folds = build_template_folds_for_file(&db, tree_file, tree_nodes);
-    assert_eq!(folds.len(), 1);
-    let executed = event_log
-        .take_will_execute_names(&db)
-        .expect("projectless folding query events should be readable");
-    assert!(
-        executed
-            .iter()
-            .any(|name| name.ends_with("build_projectless_template_tree")),
-        "projectless folding should build the tree directly: {executed:?}"
-    );
-    assert!(
-        executed
-            .iter()
-            .all(|name| !name.ends_with("analyze_template_layout_in_scope")),
-        "projectless folding must bypass correlated analysis: {executed:?}"
-    );
-
-    let folds = build_template_folds_for_file(&db, opaque_file, opaque_nodes);
-    assert_eq!(
-        folds,
-        &[TemplateFold {
-            span: Span::saturating_from_bounds_usize(0, 47),
-            kind: TemplateFoldKind::Region,
-        }]
-    );
-    let executed = event_log
-        .take_will_execute_names(&db)
-        .expect("projectless opaque folding events should be readable");
-    assert!(
-        executed
-            .iter()
-            .any(|name| name.ends_with("build_projectless_template_tree")),
-        "projectless opaque folding should build one direct tree: {executed:?}"
-    );
-    assert!(
-        executed
-            .iter()
-            .all(|name| !name.ends_with("analyze_template_layout_in_scope")),
-        "projectless opaque folding must bypass correlated analysis: {executed:?}"
-    );
-    let event_log = SalsaEventLog::default();
-    let mut db = TestDatabase::with_event_log(event_log.clone());
-    ProjectFixture::new("/project")
-        .settings(&ProjectSettings {
-            dirs: vec!["/project/templates".to_string()],
-            ..ProjectSettings::default()
-        })
-        .file(
-            "/project/templates/tree.html",
-            "{% if value %}body{% endif %}",
-        )
-        .file(
-            "/project/templates/opaque.html",
-            "{% verbatim %}{% if ignored %}{% endverbatim %}",
-        )
-        .install(&mut db)
-        .expect("project fixture should install into the test database");
-    let tree_file = db
-        .file(Utf8Path::new("/project/templates/tree.html"))
-        .expect("fixture file should exist in the test database");
-    let opaque_file = db
-        .file(Utf8Path::new("/project/templates/opaque.html"))
-        .expect("fixture file should exist in the test database");
-    let tree_nodes = parse_template(&db, tree_file).expect("tree fixture should parse");
-    let opaque_nodes = parse_template(&db, opaque_file).expect("opaque fixture should parse");
-
-    event_log
-        .take()
-        .expect("Salsa event log should be readable before the project-backed query");
-    let folds = build_template_folds_for_file(&db, tree_file, tree_nodes);
-    assert_eq!(folds.len(), 1);
-    let executed = event_log
-        .take_will_execute_names(&db)
-        .expect("project-backed folding query events should be readable");
-    assert!(
-        executed
-            .iter()
-            .any(|name| name.ends_with("analyze_template_layout_in_scope")),
-        "project-backed folding must use correlated analysis: {executed:?}"
-    );
-
-    let folds = build_template_folds_for_file(&db, opaque_file, opaque_nodes);
-    assert_eq!(
-        folds,
-        &[TemplateFold {
-            span: Span::saturating_from_bounds_usize(0, 47),
-            kind: TemplateFoldKind::Region,
-        }]
-    );
-    let executed = event_log
-        .take_will_execute_names(&db)
-        .expect("project-backed opaque folding events should be readable");
-    assert!(
-        executed
-            .iter()
-            .any(|name| name.ends_with("analyze_template_layout_in_scope")),
-        "project-backed opaque folding must use correlated analysis: {executed:?}"
     );
 }
 
