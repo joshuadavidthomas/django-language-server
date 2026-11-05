@@ -41,6 +41,7 @@ zip = { workspace = true }
 sha2 = { workspace = true }
 
 [dev-dependencies]
+djls-semantic = { workspace = true }
 djls-testing = { workspace = true }
 insta = { workspace = true }
 proptest = { workspace = true }

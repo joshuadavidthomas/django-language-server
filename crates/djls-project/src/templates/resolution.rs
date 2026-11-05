@@ -332,15 +332,6 @@ impl<'db> TemplateResolution<'db> {
             .copied()
     }
 
-    /// Returns template names with a concrete match in the backends that can render `file`.
-    pub fn template_names_for_backend_scope(
-        self,
-        db: &'db dyn ProjectDb,
-        file: File,
-    ) -> Vec<TemplateName<'db>> {
-        self.template_names_for_backend_scope_with_prefix(db, file, "")
-    }
-
     /// Narrow names before resolving backend scope, which can scan loader evidence.
     pub fn template_names_for_backend_scope_with_prefix(
         self,
@@ -361,17 +352,6 @@ impl<'db> TemplateResolution<'db> {
                 },
             )
             .collect()
-    }
-
-    pub fn origins_for_name(
-        self,
-        db: &'db dyn ProjectDb,
-        template_name: TemplateName<'db>,
-    ) -> &'db [TemplateOrigin<'db>] {
-        template_directory_index(db, self)
-            .by_template_name(db)
-            .get(&template_name)
-            .map_or(&[], Vec::as_slice)
     }
 
     pub fn origins_for_file(
@@ -419,16 +399,6 @@ impl<'db> TemplateResolution<'db> {
             .and_then(|by_name| by_name.get(origin.template_name(db).name(db)))
             .cloned()
             .unwrap_or_else(TemplateBackendScope::project_inventory)
-    }
-
-    #[must_use]
-    pub fn resolve_for_file(
-        self,
-        db: &'db dyn ProjectDb,
-        name: TemplateName<'db>,
-        file: File,
-    ) -> TemplateResolutionResult<'db> {
-        self.resolve_excluding_in_scope(db, name, &[], &self.backend_scope_for_file(db, file))
     }
 
     /// Normalize and resolve a raw reference from one concrete source origin.
@@ -487,12 +457,8 @@ impl<'db> TemplateResolution<'db> {
         })
     }
 
-    /// Finds the first non-excluded origin in Django loader order.
-    ///
-    /// Exclusions model Django's inheritance `skip` set: a shadowing template that has already
-    /// participated in the inheritance chain is ignored and lookup continues at the next origin.
     #[must_use]
-    pub fn resolve_excluding(
+    fn resolve_excluding(
         self,
         db: &'db dyn ProjectDb,
         name: TemplateName<'db>,

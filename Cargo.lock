@@ -1024,6 +1024,7 @@ dependencies = [
  "configparser",
  "directories",
  "djls-conf",
+ "djls-semantic",
  "djls-source",
  "djls-templates",
  "djls-testing",
