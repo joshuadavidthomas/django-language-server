@@ -40,23 +40,20 @@ fn repeated_prime_reuses_library_products_without_template_work() {
         .expect("initial warmup Salsa events should be cleared");
 
     let primed = prime_template_library_products(&db).expect("fixture has a Project");
-    let covered_paths: Vec<_> = primed
-        .covered_files()
-        .map(|file| file.path(&db).as_str())
-        .collect();
-    assert!(covered_paths.contains(&host_path("/project/tags.py")));
-    assert!(covered_paths.contains(&host_path("/project/settings.py")));
-    assert_eq!(
-        covered_paths.len(),
-        primed.reprime_files().len() + primed.full_reload_files().len()
-    );
     assert!(
         primed
             .reprime_files()
             .iter()
             .any(|file| file.path(&db) == Utf8Path::new(host_path("/project/tags.py")))
     );
-    assert_eq!(primed.full_reload_files().len(), 1);
+    assert_eq!(
+        primed
+            .full_reload_files()
+            .iter()
+            .map(|file| file.path(&db).as_str())
+            .collect::<Vec<_>>(),
+        vec![host_path("/project/settings.py")]
+    );
 
     let names = events
         .take_will_execute_names(&db)
@@ -172,12 +169,14 @@ def gamma_filter(value): pass
     let primed = prime_template_library_products(&db).expect("fixture has a Project");
     // Three custom libraries, Django's three default builtins, and its five standard loadables.
     assert_eq!(primed.library_count(), 11);
-    assert!(
-        primed
-            .covered_files()
-            .all(|file| file.path(&db) != Utf8Path::new(host_path("/project/helper.py"))),
-        "a dependency used only for Tag Rule inference must not be eager coverage"
-    );
+    for files in [primed.reprime_files(), primed.full_reload_files()] {
+        assert!(
+            files
+                .iter()
+                .all(|file| file.path(&db) != Utf8Path::new(host_path("/project/helper.py"))),
+            "a dependency used only for Tag Rule inference must not be eager coverage"
+        );
+    }
     let names = events
         .take_will_execute_names(&db)
         .expect("first prime events should be readable");
