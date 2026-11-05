@@ -9,7 +9,6 @@ use djls_project::BundledFileSystem;
 use djls_project::Db as ProjectDb;
 use djls_project::Project;
 use djls_semantic::Db as SemanticDb;
-use djls_semantic::FilterAritySpecs;
 use djls_semantic::TagSpecs;
 use djls_source::CaseSensitivity;
 use djls_source::ChangeEvent;
@@ -242,10 +241,6 @@ impl SemanticDb for Db {
 
     fn diagnostics_config(&self) -> djls_conf::DiagnosticsConfig {
         djls_conf::DiagnosticsConfig::default()
-    }
-
-    fn projectless_filter_arity_specs(&self) -> &FilterAritySpecs {
-        FilterAritySpecs::empty_ref()
     }
 }
 

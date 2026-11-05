@@ -422,16 +422,7 @@ impl<'db> ScopedFilterFactResolver<'db> {
         let argument_libraries = &self.argument_libraries;
         self.cache.resolve(load_state, &filter.name, || {
             let (availability, arity) = if project.is_none() {
-                let arity = db
-                    .projectless_filter_arity_specs()
-                    .get(&filter.name)
-                    .copied();
-                let availability = if arity.is_some() {
-                    SymbolAvailability::Available
-                } else {
-                    SymbolAvailability::Unknown
-                };
-                (availability, arity)
+                (SymbolAvailability::Unknown, None)
             } else {
                 (
                     resolve_occurrence_availability(

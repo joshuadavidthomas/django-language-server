@@ -26,7 +26,6 @@ use djls_source::File;
 use djls_templates::TemplateParseResult;
 use djls_templates::parse_template;
 pub use errors::ValidationError;
-pub use filters::FilterAritySpecs;
 pub use filters::LibraryFilterSpecs;
 pub use filters::library_filter_specs;
 pub use inheritance::BlockDef;

@@ -18,6 +18,7 @@ use djls_project::TagRule;
 use djls_project::TemplateSymbolKind;
 use djls_project::UnreadRegistration;
 use djls_project::UnreadShape;
+use djls_project::run_django_discovery;
 use djls_project::template_library_catalog;
 use djls_project::template_library_structure_facts;
 use djls_project::template_symbol_source;
@@ -37,6 +38,7 @@ use djls_semantic::tag_specs_for_file;
 use djls_semantic::validate_template_file;
 use djls_source::ChangeEvent;
 use djls_source::SourceChanges;
+use djls_source::Span;
 use djls_templates::parse_template;
 use djls_testing::OsTestDatabase;
 use djls_testing::ProjectFixture;
@@ -1363,15 +1365,14 @@ fn deeply_nested_unclosed_blocks_validate_without_overflowing_the_stack() {
 // Corpus / template validation tests
 //
 // These tests extract rules from real Django source files and validate
-// real templates against those rules, proving zero false positives for
-// argument validation (S114, S115, S116, S117) at scale.
+// real templates against those rules, checking for false positives in
+// projectless argument validation (S114, S117) at scale.
 //
 // Run `cargo run -p djls-testing --bin corpus -- sync` to populate it.
 // The matrix skips the corpus_ tests; the corpus job runs them once.
 
 use djls_testing::Corpus;
 use djls_testing::build_specs_from_extraction;
-use djls_testing::collect_argument_validation_errors_with_revision;
 
 #[test]
 fn unreadable_library_reports_registration_file_and_span() {
@@ -1444,61 +1445,84 @@ fn unreadable_library_reports_registration_file_and_span() {
 }
 
 #[test]
-fn corpus_known_invalid_templates_produce_errors() {
-    let corpus = Corpus::require().expect("synced corpus should be available for corpus tests");
+fn project_backed_invalid_templates_produce_errors() {
+    let mut db = TestDatabase::new();
+    ProjectFixture::new("/proj")
+        .settings(&ProjectSettings {
+            dirs: vec!["/proj/templates".to_string()],
+            libraries: BTreeMap::from([("extras".to_string(), "custom_filters".to_string())]),
+            ..ProjectSettings::default()
+        })
+        .file(
+            "/proj/custom_filters.py",
+            "from django import template\nregister = template.Library()\n@register.filter\ndef needs_arg(value, arg):\n    return value\n@register.filter\ndef no_arg(value):\n    return value\n",
+        )
+        .file(
+            "/proj/templates/invalid_for.html",
+            "{% for %}content{% endfor %}",
+        )
+        .file(
+            "/proj/templates/invalid_if.html",
+            "{% if and x %}content{% endif %}",
+        )
+        .file(
+            "/proj/templates/invalid_filters.html",
+            "{% load extras %}{{ text|needs_arg }} {{ name|no_arg:'arg' }}",
+        )
+        .file(
+            "/proj/templates/valid_filters.html",
+            "{% load extras %}{{ text|needs_arg:'x' }} {{ name|no_arg }}",
+        )
+        .install(&mut db)
+        .expect("project fixture should install");
+    run_django_discovery(&mut db)
+        .expect("Django discovery should succeed")
+        .expect("project should be present");
 
-    let Some(django_dir) = corpus.latest_package("django") else {
-        eprintln!("No Django in corpus.");
-        return;
-    };
-
-    let (specs, arities) = build_specs_from_extraction(&corpus, &django_dir)
-        .expect("Django tag and filter specs should build from corpus extraction");
-
-    let db = TestDatabase::new()
-        .with_projectless_tag_specs(specs)
-        .with_projectless_filter_arity_specs(arities);
-
-    // for tag with wrong number of args
-    let errors = collect_argument_validation_errors_with_revision(
-        &db,
-        "corpus_test.html",
-        0,
-        "{% for %}content{% endfor %}",
-    )
-    .expect("invalid for-tag errors should be collected");
-    assert!(
-        matches!(errors.as_slice(),
-            [ValidationError::ExtractedRuleViolation { tag, message, .. }]
-                if tag == "for" && message.contains("at least four words")
-        ),
-        "{errors:?}"
+    assert_eq!(
+        collect_file_errors(&db, "/proj/templates/invalid_for.html")
+            .expect("for-tag validation should run"),
+        [ValidationError::ExtractedRuleViolation {
+            tag: "for".to_string(),
+            message: "'for' statements should have at least four words: for".to_string(),
+            span: Span::new(0, 9),
+        }]
     );
-
-    // if expression syntax error
-    let errors = collect_argument_validation_errors_with_revision(
-        &db,
-        "corpus_test.html",
-        1,
-        "{% if and x %}content{% endif %}",
-    )
-    .expect("invalid if-expression errors should be collected");
-    let expr_errors: Vec<_> = errors
-        .iter()
-        .filter(|e| matches!(e, ValidationError::ExpressionSyntaxError { .. }))
-        .collect();
-    assert!(
-        !expr_errors.is_empty(),
-        "Expected expression syntax error for {{% if and x %}}"
+    assert_eq!(
+        collect_file_errors(&db, "/proj/templates/invalid_if.html")
+            .expect("if-expression validation should run"),
+        [ValidationError::ExpressionSyntaxError {
+            tag: "if".to_string(),
+            message: "Not expecting 'and' in this position in if tag.".to_string(),
+            span: Span::new(0, 14),
+        }]
+    );
+    assert_eq!(
+        collect_file_errors(&db, "/proj/templates/invalid_filters.html")
+            .expect("filter validation should run"),
+        [
+            ValidationError::FilterMissingArgument {
+                filter: "needs_arg".to_string(),
+                span: Span::new(25, 9),
+            },
+            ValidationError::FilterUnexpectedArgument {
+                filter: "no_arg".to_string(),
+                span: Span::new(46, 12),
+            },
+        ]
+    );
+    assert_eq!(
+        collect_file_errors(&db, "/proj/templates/valid_filters.html")
+            .expect("valid filter validation should run"),
+        []
     );
 }
 
 #[test]
 fn corpus_stylesheet_requires_one_argument() {
     let corpus = Corpus::require().expect("synced corpus should be available");
-    let (specs, _) =
-        build_specs_from_extraction(&corpus, &corpus.root().join("repos/django-pipeline"))
-            .expect("corpus specs should build");
+    let specs = build_specs_from_extraction(&corpus.root().join("repos/django-pipeline"))
+        .expect("corpus specs should build");
     let db = TestDatabase::new().with_projectless_tag_specs(specs);
     assert_eq!(
         collect_errors(&db, "/control.html", "{% stylesheet 'main' %}")
@@ -1520,9 +1544,8 @@ fn corpus_stylesheet_requires_one_argument() {
 #[test]
 fn corpus_javascript_requires_one_argument() {
     let corpus = Corpus::require().expect("synced corpus should be available");
-    let (specs, _) =
-        build_specs_from_extraction(&corpus, &corpus.root().join("repos/django-pipeline"))
-            .expect("corpus specs should build");
+    let specs = build_specs_from_extraction(&corpus.root().join("repos/django-pipeline"))
+        .expect("corpus specs should build");
     let db = TestDatabase::new().with_projectless_tag_specs(specs);
     let errors = collect_errors(&db, "/valid.html", "{% javascript 'main' %}")
         .expect("template validation should run");
@@ -1544,9 +1567,8 @@ fn corpus_javascript_requires_one_argument() {
 #[test]
 fn corpus_compress_requires_a_known_output_mode() {
     let corpus = Corpus::require().expect("synced corpus should be available");
-    let (specs, _) =
-        build_specs_from_extraction(&corpus, &corpus.root().join("repos/django-compressor"))
-            .expect("corpus specs should build");
+    let specs = build_specs_from_extraction(&corpus.root().join("repos/django-compressor"))
+        .expect("corpus specs should build");
     let db = TestDatabase::new().with_projectless_tag_specs(specs);
     assert_eq!(
         collect_errors(
@@ -1576,7 +1598,7 @@ fn corpus_compress_requires_a_known_output_mode() {
 #[test]
 fn corpus_show_placeholder_gets_context_from_django() {
     let corpus = Corpus::require().expect("synced corpus should be available");
-    let (specs, _) = build_specs_from_extraction(&corpus, &corpus.root().join("repos/django-cms"))
+    let specs = build_specs_from_extraction(&corpus.root().join("repos/django-cms"))
         .expect("corpus specs should build");
     let db = TestDatabase::new().with_projectless_tag_specs(specs);
     assert_eq!(
@@ -1606,7 +1628,7 @@ fn corpus_show_placeholder_gets_context_from_django() {
 #[test]
 fn corpus_eventsignal_rejects_extra_positional_arguments() {
     let corpus = Corpus::require().expect("synced corpus should be available");
-    let (specs, _) = build_specs_from_extraction(&corpus, &corpus.root().join("repos/pretix"))
+    let specs = build_specs_from_extraction(&corpus.root().join("repos/pretix"))
         .expect("corpus specs should build");
     let db = TestDatabase::new().with_projectless_tag_specs(specs);
     assert_eq!(
@@ -1655,8 +1677,7 @@ fn corpus_activity_stream_curried_registration() {
             .symbol(TemplateSymbolKind::Tag, "activity_stream")
             .is_some()
     );
-    let (specs, _) =
-        build_specs_from_extraction(&corpus, &root).expect("corpus specs should build");
+    let specs = build_specs_from_extraction(&root).expect("corpus specs should build");
     let db = TestDatabase::new().with_projectless_tag_specs(specs);
     let errors = collect_errors(&db, "/valid.html", "{% activity_stream 'actor' %}")
         .expect("template validation should run");
@@ -1677,9 +1698,8 @@ fn corpus_activity_stream_curried_registration() {
 #[test]
 fn corpus_known_gap_element_missing_argument_is_not_reported() {
     let corpus = Corpus::require().expect("synced corpus should be available");
-    let (specs, _) =
-        build_specs_from_extraction(&corpus, &corpus.root().join("repos/django-allauth"))
-            .expect("corpus specs should build");
+    let specs = build_specs_from_extraction(&corpus.root().join("repos/django-allauth"))
+        .expect("corpus specs should build");
     let db = TestDatabase::new().with_projectless_tag_specs(specs);
     assert_eq!(
         collect_errors(
@@ -1703,9 +1723,8 @@ fn corpus_known_gap_element_missing_argument_is_not_reported() {
 #[test]
 fn corpus_known_gap_with_data_class_parser_is_unknown() {
     let corpus = Corpus::require().expect("synced corpus should be available");
-    let (specs, _) =
-        build_specs_from_extraction(&corpus, &corpus.root().join("repos/django-sekizai"))
-            .expect("corpus specs should build");
+    let specs = build_specs_from_extraction(&corpus.root().join("repos/django-sekizai"))
+        .expect("corpus specs should build");
     let db = TestDatabase::new().with_projectless_tag_specs(specs);
     // False positives: the class parser has no tag or closing-tag spec.
     // WithData.options requires the literal 'as'; classytags supplies the
