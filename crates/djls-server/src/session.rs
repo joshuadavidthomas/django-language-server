@@ -692,6 +692,7 @@ mod tests {
     use djls_project::PythonEnvironment;
     use djls_source::ChangeEvent;
     use djls_source::FileKind;
+    use djls_source::FileRootKind;
     use djls_source::FileStatus;
     use djls_source::path_to_file;
     use djls_testing::host_path;
@@ -714,6 +715,22 @@ mod tests {
         let uri =
             ls_types::Uri::from_file_path(path.as_std_path()).expect("Failed to create file URI");
         (path, uri)
+    }
+
+    fn discovered_session(root: &Utf8Path, options: Option<serde_json::Value>) -> Session {
+        let params = ls_types::InitializeParams {
+            workspace_folders: Some(vec![ls_types::WorkspaceFolder {
+                uri: ls_types::Uri::from_file_path(root.as_std_path()).expect("project URI"),
+                name: "project".to_string(),
+            }]),
+            initialization_options: options,
+            ..Default::default()
+        };
+        let mut session = Session::new(&params);
+        djls_project::run_django_discovery(session.db_mut())
+            .expect("project discovery should succeed")
+            .expect("session should have a project");
+        session
     }
 
     #[test]
@@ -1144,46 +1161,49 @@ mod tests {
 
     #[test]
     fn uncovered_content_edits_reprime_only_within_registered_python_roots() {
+        let temp = tempdir().expect("temporary workspace should be created");
+        let base = Utf8Path::from_path(temp.path()).expect("workspace path should be UTF-8");
+        let project = base.join("project");
+        let extra = base.join("lazy-project");
+        let site_packages = base.join("site-packages");
+        let missing_venv = base.join("missing-venv");
+        for path in [&project, &extra, &site_packages] {
+            std::fs::create_dir_all(path).expect("search root directory should be created");
+        }
+
         for (path, kind, expected) in [
             (
-                host_path("/tmp/lazy-project/helper.py"),
+                extra.join("helper.py"),
                 FileKind::Python,
                 Some(ProjectWork::Reprime),
             ),
             (
-                host_path("/tmp/lazy-search/helper.py"),
+                site_packages.join("helper.py"),
                 FileKind::Python,
                 Some(ProjectWork::Reprime),
             ),
             (
-                host_path("/tmp/lazy-project-sibling/helper.py"),
+                base.join("lazy-project-sibling/helper.py"),
                 FileKind::Python,
                 None,
             ),
-            (host_path("/tmp/outside/helper.py"), FileKind::Python, None),
-            (
-                host_path("/tmp/lazy-project/page.html"),
-                FileKind::Template,
-                None,
-            ),
+            (base.join("outside/helper.py"), FileKind::Python, None),
+            (extra.join("page.html"), FileKind::Template, None),
         ] {
-            let mut session = Session::default();
-            for (root, kind) in [
-                (
-                    host_path("/tmp/lazy-project"),
-                    djls_source::FileRootKind::Project,
-                ),
-                (
-                    host_path("/tmp/lazy-search"),
-                    djls_source::FileRootKind::SearchPath,
-                ),
-            ] {
-                session
-                    .db()
-                    .files()
-                    .try_add_root(session.db(), root.into(), kind);
-            }
-            let uri = ls_types::Uri::from_file_path(path).expect("fixture URI");
+            let mut session = discovered_session(
+                &project,
+                Some(serde_json::json!({
+                    "pythonpath": [extra.as_str(), site_packages.as_str()],
+                    "venv_path": missing_venv.as_str(),
+                })),
+            );
+            let db = session.db();
+            let site_root = db.files().root(db, &site_packages);
+            assert_eq!(
+                site_root.map(|root| root.kind(db)),
+                Some(FileRootKind::SearchPath)
+            );
+            let uri = ls_types::Uri::from_file_path(path.as_std_path()).expect("fixture URI");
             assert!(matches!(
                 session.open_document(&ls_types::TextDocumentItem {
                     uri: uri.clone(),
@@ -1201,11 +1221,12 @@ mod tests {
             if expected.is_some() {
                 // A rooted file still requires full discovery until coverage has published.
                 assert_eq!(
-                    session.mark_intrinsic_change(&ChangeEvent::ContentChanged(path.into()), kind),
+                    session.mark_intrinsic_change(&ChangeEvent::ContentChanged(path.clone()), kind),
                     Some(ProjectWork::FullReload)
                 );
             }
-            session.install_ready_coverage_for_test(Vec::new(), Vec::new());
+            let primed = prime_template_library_products(session.db()).expect("fixture project");
+            assert!(session.publish_intrinsic_readiness(session.desired_generation(), &primed));
             let generation = session.desired_generation();
             let mutation = session.update_document(
                 &ls_types::VersionedTextDocumentIdentifier { uri, version: 2 },
@@ -1226,10 +1247,19 @@ mod tests {
             );
             if expected.is_some() {
                 // Obsolete registered roots must not remain fallback dependency coverage.
-                session.db().files().replace_roots(session.db(), Vec::new());
-                session.install_ready_coverage_for_test(Vec::new(), Vec::new());
+                let settings: djls_conf::Settings = serde_json::from_value(serde_json::json!({
+                    "venv_path": missing_venv.as_str(),
+                }))
+                .expect("settings without extra search roots should parse");
+                session.db_mut().apply_project_settings(settings);
+                djls_project::run_django_discovery(session.db_mut())
+                    .expect("project rediscovery should succeed")
+                    .expect("session should have a project");
+                let primed =
+                    prime_template_library_products(session.db()).expect("fixture project");
+                assert!(session.publish_intrinsic_readiness(session.desired_generation(), &primed));
                 assert_eq!(
-                    session.mark_intrinsic_change(&ChangeEvent::ContentChanged(path.into()), kind),
+                    session.mark_intrinsic_change(&ChangeEvent::ContentChanged(path), kind),
                     None
                 );
             }
@@ -1237,14 +1267,15 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn uncovered_helper_reprime_failure_tracks_revisions_and_gates_publication() {
-        let mut session = Session::default();
-        let path = Utf8Path::new(host_path("/tmp/lazy-retry/helper.py"));
-        session.db().files().try_add_root(
-            session.db(),
-            host_path("/tmp/lazy-retry").into(),
-            djls_source::FileRootKind::Project,
+        let temp = tempdir().expect("temporary project should be created");
+        let root = Utf8Path::from_path(temp.path()).expect("project path should be UTF-8");
+        let mut session = discovered_session(
+            root,
+            Some(serde_json::json!({ "venv_path": root.join(".venv") })),
         );
+        let path = root.join("helper.py");
         let uri = ls_types::Uri::from_file_path(path.as_std_path()).expect("fixture URI");
         assert!(matches!(
             session.open_document(&ls_types::TextDocumentItem {
@@ -1255,8 +1286,16 @@ mod tests {
             }),
             DocumentMutation::Applied { .. }
         ));
-        let file = path_to_file(session.db(), path).expect("fixture file");
-        session.install_ready_coverage_for_test(Vec::new(), Vec::new());
+        let file = path_to_file(session.db(), &path).expect("fixture file");
+        let primed = prime_template_library_products(session.db()).expect("fixture project");
+        assert!(session.publish_intrinsic_readiness(session.desired_generation(), &primed));
+        let primed_files = session
+            .intrinsic_readiness
+            .coverage()
+            .expect("published coverage")
+            .reprime_files()
+            .to_vec();
+        assert!(!primed_files.is_empty() && !primed_files.contains(&file));
         let ready_generation = session.desired_generation();
         for (version, text) in [(2, "changed"), (3, "newer")] {
             let mutation = session.update_document(
@@ -1300,10 +1339,12 @@ mod tests {
                     session.readiness_state(),
                     IntrinsicReadinessState::Failed(generation)
                 );
-                assert_eq!(
-                    session.intrinsic_readiness.admitted_revisions(),
-                    Some([(file, file.revision(session.db()))].as_slice())
-                );
+                let admitted = session
+                    .intrinsic_readiness
+                    .admitted_revisions()
+                    .expect("failed admission");
+                assert_eq!(admitted.len(), primed_files.len() + 1);
+                assert!(admitted.contains(&(file, file.revision(session.db()))));
                 assert_eq!(
                     session.mark_intrinsic_change(
                         &ChangeEvent::ContentChanged(path.to_path_buf()),
@@ -1338,14 +1379,14 @@ mod tests {
 
     #[test]
     fn failed_and_retry_reprime_admit_previously_uncovered_helpers() {
-        let mut session = Session::default();
-        session.db().files().try_add_root(
-            session.db(),
-            host_path("/tmp/lazy-admission").into(),
-            djls_source::FileRootKind::Project,
+        let temp = tempdir().expect("temporary project should be created");
+        let root = Utf8Path::from_path(temp.path()).expect("project path should be UTF-8");
+        let mut session = discovered_session(
+            root,
+            Some(serde_json::json!({ "venv_path": root.join(".venv") })),
         );
         for name in ["first", "second", "third"] {
-            let path = Utf8Path::new(host_path("/tmp/lazy-admission")).join(format!("{name}.py"));
+            let path = root.join(format!("{name}.py"));
             assert!(matches!(
                 session.open_document(&ls_types::TextDocumentItem {
                     uri: ls_types::Uri::from_file_path(path.as_std_path()).expect("fixture URI"),
@@ -1356,9 +1397,17 @@ mod tests {
                 DocumentMutation::Applied { .. }
             ));
         }
-        session.install_ready_coverage_for_test(Vec::new(), Vec::new());
+        let primed = prime_template_library_products(session.db()).expect("fixture project");
+        assert!(session.publish_intrinsic_readiness(session.desired_generation(), &primed));
+        let primed_count = session
+            .intrinsic_readiness
+            .coverage()
+            .expect("published coverage")
+            .reprime_files()
+            .len();
+        assert!(primed_count > 0);
         for (index, name) in ["first", "second", "third"].into_iter().enumerate() {
-            let path = Utf8Path::new(host_path("/tmp/lazy-admission")).join(format!("{name}.py"));
+            let path = root.join(format!("{name}.py"));
             let generation = session.desired_generation();
             assert!(matches!(
                 session.update_document(
@@ -1387,7 +1436,7 @@ mod tests {
                 .intrinsic_readiness
                 .admitted_revisions()
                 .expect("failed/retry admission");
-            assert_eq!(revisions.len(), index + 1);
+            assert_eq!(revisions.len(), primed_count + index + 1);
             assert!(revisions.contains(&(file, file.revision(session.db()))));
             assert_eq!(
                 session.mark_intrinsic_change(&ChangeEvent::ContentChanged(path), FileKind::Python),
@@ -1403,7 +1452,7 @@ mod tests {
                 .admitted_revisions()
                 .expect("retained admission")
                 .len(),
-            3
+            primed_count + 3
         );
     }
 

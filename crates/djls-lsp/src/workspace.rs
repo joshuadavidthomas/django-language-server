@@ -427,7 +427,6 @@ mod tests {
     use djls_conf::Settings;
     use djls_db::DjangoDatabase;
     use djls_source::ChangeEvent;
-    use djls_source::FileRootKind;
     use djls_source::InMemoryFileSystem;
     use djls_source::SourceChanges;
     use djls_source::path_to_file;
@@ -748,10 +747,12 @@ mod tests {
             .expect("disk template fixture should be written");
 
         let mut workspace = Workspace::new();
-        let mut db = DjangoDatabase::new(workspace.file_system(), &Settings::default(), None);
+        let mut db =
+            DjangoDatabase::new(workspace.file_system(), &Settings::default(), Some(&root));
         let root = db
             .files()
-            .try_add_root(&db, root.to_path_buf(), FileRootKind::Project);
+            .root(&db, &file_path)
+            .expect("workspace project should register its root");
         let _ = path_to_file(&db, &file_path).expect("disk-backed fixture should exist");
 
         workspace.open_document(&file_path, "buffer template", 1, FileKind::Template);
@@ -775,10 +776,12 @@ mod tests {
             .expect("disk template fixture should be written");
 
         let mut workspace = Workspace::new();
-        let mut db = DjangoDatabase::new(workspace.file_system(), &Settings::default(), None);
+        let mut db =
+            DjangoDatabase::new(workspace.file_system(), &Settings::default(), Some(&root));
         let root = db
             .files()
-            .try_add_root(&db, root.to_path_buf(), FileRootKind::Project);
+            .root(&db, &file_path)
+            .expect("workspace project should register its root");
 
         workspace.open_document(&file_path, "buffer template", 1, FileKind::Template);
         SourceChanges::new([ChangeEvent::BecameVisible(file_path.clone())]).apply(&mut db);
@@ -799,10 +802,15 @@ mod tests {
         let file_path = root_path.join("template.html");
 
         let mut workspace = Workspace::new();
-        let mut db = DjangoDatabase::new(workspace.file_system(), &Settings::default(), None);
+        let mut db = DjangoDatabase::new(
+            workspace.file_system(),
+            &Settings::default(),
+            Some(&root_path),
+        );
         let root = db
             .files()
-            .try_add_root(&db, root_path.to_path_buf(), FileRootKind::Project);
+            .root(&db, &file_path)
+            .expect("workspace project should register its root");
 
         workspace.open_document(&file_path, "buffer template", 1, FileKind::Template);
         SourceChanges::new([ChangeEvent::BecameVisible(file_path.clone())]).apply(&mut db);
