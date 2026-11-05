@@ -1349,12 +1349,14 @@ mod invalidation_tests {
         };
         let project = Project::bootstrap(&db, root.as_path(), &settings);
         db.project = Some(project);
+        let file = path_to_file(&db, templates_dir.join("base.html").as_path())
+            .expect("the base template should exist");
         {
             let resolution = djls_project::template_resolution(&db, project);
             let name = djls_project::TemplateName::new(&db, "base.html".to_string());
             assert_eq!(resolution.origins(&db).count(), 1);
             assert_eq!(resolution.template_names(&db).count(), 1);
-            assert_eq!(resolution.origins_for_name(&db, name).len(), 1);
+            assert_eq!(resolution.origins_for_file(&db, file).len(), 1);
             assert!(matches!(
                 resolution.resolve(&db, name),
                 djls_project::TemplateResolutionResult::Found(_)
@@ -1374,7 +1376,7 @@ mod invalidation_tests {
             let name = djls_project::TemplateName::new(&db, "base.html".to_string());
             assert_eq!(resolution.origins(&db).count(), 1);
             assert_eq!(resolution.template_names(&db).count(), 1);
-            assert_eq!(resolution.origins_for_name(&db, name).len(), 1);
+            assert_eq!(resolution.origins_for_file(&db, file).len(), 1);
             assert!(matches!(
                 resolution.resolve(&db, name),
                 djls_project::TemplateResolutionResult::Found(_)

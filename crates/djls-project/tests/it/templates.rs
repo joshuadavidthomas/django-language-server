@@ -4,6 +4,7 @@ use std::ptr;
 
 use camino::Utf8Path;
 use djls_project::*;
+use djls_semantic::resolve_reference_for_file;
 use djls_source::ChangeEvent;
 use djls_source::SourceChanges;
 use djls_testing::ProjectFixture;
@@ -506,7 +507,7 @@ fn template_names_returns_unique_resolvable_names() {
 }
 
 #[test]
-fn origins_for_name_returns_origins_in_django_search_order() {
+fn resolution_follows_django_search_order() {
     let mut db = TestDatabase::new();
     let project = project_with_templates(
         &mut db,
@@ -520,21 +521,31 @@ fn origins_for_name_returns_origins_in_django_search_order() {
             (
                 "shared.html",
                 "/test/project/templates/shared.html",
-                "project shared",
+                "{% extends 'shared.html' %}",
             ),
         ],
     )
     .expect("origin-order project fixture should build");
 
     let name = TemplateName::new(&db, "shared.html".to_string());
-    let paths: Vec<_> = template_resolution(&db, project)
-        .origins_for_name(&db, name)
-        .iter()
-        .map(|origin| slash_path(origin.file(&db).path(&db)))
-        .collect();
-
+    let resolution = template_resolution(&db, project);
+    let TemplateResolutionResult::Found(first) = resolution.resolve(&db, name) else {
+        panic!("the first shared template should resolve");
+    };
+    let Some(TemplateResolutionResult::Found(second)) = resolve_reference_for_file(
+        &db,
+        resolution,
+        first.file(&db),
+        name,
+        TemplateReferenceKind::Extends,
+    ) else {
+        panic!("extending the first shared template should resolve the next origin");
+    };
     assert_eq!(
-        paths,
+        [
+            slash_path(first.file(&db).path(&db)),
+            slash_path(second.file(&db).path(&db)),
+        ],
         [
             "/test/project/templates/shared.html",
             "/test/project/app/templates/shared.html",
@@ -543,7 +554,7 @@ fn origins_for_name_returns_origins_in_django_search_order() {
 }
 
 #[test]
-fn origins_for_name_returns_empty_slice_for_unknown_template_name() {
+fn unknown_template_name_does_not_resolve() {
     let mut db = TestDatabase::new();
     let project = project_with_templates(
         &mut db,
@@ -553,9 +564,10 @@ fn origins_for_name_returns_empty_slice_for_unknown_template_name() {
     .expect("unknown-template project fixture should build");
 
     let name = TemplateName::new(&db, "missing.html".to_string());
-    let origins = template_resolution(&db, project).origins_for_name(&db, name);
-
-    assert!(origins.is_empty());
+    assert!(matches!(
+        template_resolution(&db, project).resolve(&db, name),
+        TemplateResolutionResult::DoesNotExist(_)
+    ));
 }
 
 #[test]
@@ -1269,7 +1281,7 @@ fn scoped_resolution_and_names_exclude_other_backends() {
     let project = ProjectFixture::new("/test/project")
         .django_settings_module("testproject.settings")
         .file("/test/project/testproject/settings.py", settings)
-        .file("/test/project/a/page.html", "a")
+        .file("/test/project/a/page.html", "{% include 'only-b.html' %}")
         .file("/test/project/a/only-a.html", "a")
         .file("/test/project/b/page.html", "b")
         .file("/test/project/b/only-b.html", "b")
@@ -1282,32 +1294,30 @@ fn scoped_resolution_and_names_exclude_other_backends() {
     let only_b = TemplateName::new(&db, "only-b.html".to_string());
 
     assert!(matches!(
-        resolution.resolve_for_file(&db, only_b, page),
-        TemplateResolutionResult::DoesNotExist(_)
+        resolve_reference_for_file(
+            &db,
+            resolution,
+            page,
+            only_b,
+            TemplateReferenceKind::Include
+        ),
+        Some(TemplateResolutionResult::DoesNotExist(_))
     ));
-    let names = resolution
-        .template_names_for_backend_scope(&db, page)
-        .into_iter()
-        .map(|name| name.name(&db).clone())
-        .collect::<Vec<_>>();
-    assert!(names.contains(&"only-a.html".to_string()));
-    assert!(!names.contains(&"only-b.html".to_string()));
-
-    for prefix in ["", "only-", "only-a.html", "only-b", "PAGE", "missing"] {
-        let prefixed = resolution
+    for (prefix, expected) in [
+        ("", &["only-a.html", "page.html"][..]),
+        ("only-", &["only-a.html"]),
+        ("only-a.html", &["only-a.html"]),
+        ("only-b", &[]),
+        ("PAGE", &[]),
+        ("missing", &[]),
+    ] {
+        let mut prefixed = resolution
             .template_names_for_backend_scope_with_prefix(&db, page, prefix)
             .into_iter()
             .map(|name| name.name(&db).clone())
             .collect::<Vec<_>>();
-        assert_eq!(
-            prefixed,
-            names
-                .iter()
-                .filter(|name| name.starts_with(prefix))
-                .cloned()
-                .collect::<Vec<_>>(),
-            "prefix {prefix:?} must preserve scoped enumeration order and membership"
-        );
+        prefixed.sort();
+        assert_eq!(prefixed, expected, "prefix {prefix:?}");
     }
 }
 
@@ -1318,7 +1328,7 @@ fn scoped_missing_template_reports_only_selected_backend_roots() {
     let project = ProjectFixture::new("/test/project")
         .django_settings_module("testproject.settings")
         .file("/test/project/testproject/settings.py", settings)
-        .file("/test/project/a/page.html", "a")
+        .file("/test/project/a/page.html", "{% include 'missing.html' %}")
         .file("/test/project/b/other.html", "b")
         .build(&db)
         .expect("scoped-missing project fixture should build");
@@ -1328,9 +1338,16 @@ fn scoped_missing_template_reports_only_selected_backend_roots() {
         .expect("scoped-missing template fixture should exist in the test database");
     let missing = TemplateName::new(&db, "missing.html".to_string());
 
-    let error = match resolution.resolve_for_file(&db, missing, page) {
-        TemplateResolutionResult::DoesNotExist(error) => Some(error),
-        TemplateResolutionResult::Found(_) | TemplateResolutionResult::Inconclusive(_) => None,
+    let error = match resolve_reference_for_file(
+        &db,
+        resolution,
+        page,
+        missing,
+        TemplateReferenceKind::Include,
+    ) {
+        Some(TemplateResolutionResult::DoesNotExist(error)) => Some(error),
+        Some(TemplateResolutionResult::Found(_) | TemplateResolutionResult::Inconclusive(_))
+        | None => None,
     }
     .expect("the selected backend should exhaustively miss the template");
     assert_eq!(error.tried, [Utf8Path::new("/test/project/a/missing.html")]);
@@ -1355,34 +1372,40 @@ fn scoped_resolution_joins_duplicate_backend_memberships() {
     let child = db
         .file(Utf8Path::new("/test/project/shared/child.html"))
         .expect("duplicate-membership child fixture should exist in the test database");
-    let child_name = TemplateName::new(&db, "child.html".to_string());
     let child_origin = resolution
-        .origins_for_name(&db, child_name)
+        .origins_for_file(&db, child)
         .iter()
         .copied()
-        .find(|origin| origin.file(&db) == child)
+        .find(|origin| origin.template_name(&db).name(&db) == "child.html")
         .expect("the shared child should have a concrete origin");
     let parent = TemplateName::new(&db, "parent.html".to_string());
 
-    let indexed = resolution.resolve_for_file(&db, parent, child);
-    let scanned_scope = resolution.backend_scope_for_origin(&db, child_origin);
-    let scanned = resolution
+    let joined = resolve_reference_for_file(
+        &db,
+        resolution,
+        child,
+        parent,
+        TemplateReferenceKind::Extends,
+    )
+    .expect("an absolute parent name should normalize");
+    let scope = resolution.backend_scope_for_origin(&db, child_origin);
+    let scoped = resolution
         .resolve_reference_from_origin_in_scope(
             &db,
             child_origin,
             parent,
-            &[],
-            true,
-            &scanned_scope,
+            &[child_origin],
+            false,
+            &scope,
         )
         .expect("an absolute parent name should normalize")
         .result;
     assert_eq!(
-        indexed, scanned,
-        "the direct file index must preserve origin-scan scope"
+        joined, scoped,
+        "the joined reference must preserve the shared origin's scope"
     );
 
-    let search = match indexed {
+    let search = match joined {
         TemplateResolutionResult::Inconclusive(search) => Some(search),
         TemplateResolutionResult::Found(_) | TemplateResolutionResult::DoesNotExist(_) => None,
     }
@@ -1418,9 +1441,16 @@ fn scoped_resolution_retains_open_backend_after_concrete_membership() {
         .expect("open-backend child fixture should exist in the test database");
     let parent = TemplateName::new(&db, "parent.html".to_string());
 
-    let search = match resolution.resolve_for_file(&db, parent, child) {
-        TemplateResolutionResult::Inconclusive(search) => Some(search),
-        TemplateResolutionResult::Found(_) | TemplateResolutionResult::DoesNotExist(_) => None,
+    let search = match resolve_reference_for_file(
+        &db,
+        resolution,
+        child,
+        parent,
+        TemplateReferenceKind::Extends,
+    ) {
+        Some(TemplateResolutionResult::Inconclusive(search)) => Some(search),
+        Some(TemplateResolutionResult::Found(_) | TemplateResolutionResult::DoesNotExist(_))
+        | None => None,
     }
     .expect("an additional open engine should keep scoped resolution inconclusive");
     assert_eq!(search.possible_origins.len(), 1);
@@ -1436,13 +1466,17 @@ fn scoped_resolution_retains_open_backend_after_concrete_membership() {
 }
 
 #[test]
-fn resolve_excluding_skips_excluded_origins() {
+fn inheritance_resolution_skips_excluded_origins() {
     let mut db = TestDatabase::new();
     let project = project_with_templates(
         &mut db,
         vec!["/test/project/templates", "/test/project/app/templates"],
         vec![
-            ("base.html", "/test/project/templates/base.html", "first"),
+            (
+                "base.html",
+                "/test/project/templates/base.html",
+                "{% extends 'base.html' %}",
+            ),
             (
                 "base.html",
                 "/test/project/app/templates/base.html",
@@ -1453,9 +1487,15 @@ fn resolve_excluding_skips_excluded_origins() {
     .expect("excluded-origin project fixture should build");
     let resolution = template_resolution(&db, project);
     let name = TemplateName::new(&db, "base.html".to_string());
-    let first = resolution.origins_for_name(&db, name)[0].file(&db);
+    let TemplateResolutionResult::Found(first) = resolution.resolve(&db, name) else {
+        panic!("the first base template should resolve");
+    };
+    let scope = resolution.backend_scope_for_origin(&db, first);
 
-    let origin = match resolution.resolve_excluding(&db, name, &[first]) {
+    let outcome = resolution
+        .resolve_reference_from_origin_in_scope(&db, first, name, &[first], false, &scope)
+        .expect("an absolute parent name should normalize");
+    let origin = match outcome.result {
         TemplateResolutionResult::Found(origin) => Some(origin),
         TemplateResolutionResult::DoesNotExist(_) | TemplateResolutionResult::Inconclusive(_) => {
             None
