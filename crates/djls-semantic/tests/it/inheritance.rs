@@ -5,14 +5,15 @@ use djls_conf::DjangoVersion;
 use djls_project::Project;
 use djls_project::bundled_django_libraries;
 use djls_semantic::BlockDef;
+use djls_semantic::BlockSite;
 use djls_semantic::ChainEnd;
 use djls_semantic::EndTag;
 use djls_semantic::ExtendsTarget;
 use djls_semantic::PartialDef;
 use djls_semantic::TemplateSymbols;
+use djls_semantic::ancestor_blocks;
 use djls_semantic::block_overrides;
 use djls_semantic::bundled_django_tag_specs;
-use djls_semantic::inherited_blocks;
 use djls_semantic::parent_block;
 use djls_semantic::template_inheritance;
 use djls_semantic::template_symbols;
@@ -228,21 +229,35 @@ fn unreadable_ancestor_template_contributes_no_inherited_symbols() {
         &db,
         vec!["/test/project/templates"],
         vec![
-            (child_path, "{% extends 'base.html' %}"),
+            (
+                child_path,
+                "{% extends 'base.html' %}{% block title %}Child{% endblock %}",
+            ),
             (base_path, "{% block title %}Base{% endblock %}"),
         ],
     )
     .expect("template project fixture should build");
+    db.set_project(project);
     let child = db
         .file(Utf8Path::new(child_path))
         .expect("fixture file should exist in the test database");
-    assert_eq!(inherited_blocks(&db, project, child).len(), 1);
+    let base = db
+        .file(Utf8Path::new(base_path))
+        .expect("fixture file should exist in the test database");
+    assert_eq!(
+        parent_block(&db, project, child, "title"),
+        Some(BlockSite {
+            file: base,
+            name_span: Span::saturating_from_bounds_usize(9, 14),
+            full_span: Span::saturating_from_bounds_usize(0, 35),
+        })
+    );
 
     db.remove_file(base_path)
         .expect("base template should be removed from the test database");
     SourceChanges::new([ChangeEvent::Rescan]).apply(&mut db);
 
-    assert!(inherited_blocks(&db, project, child).is_empty());
+    assert_eq!(parent_block(&db, project, child, "title"), None);
 }
 
 #[test]
@@ -689,14 +704,15 @@ fn block_queries_stop_only_for_the_uncertain_name() {
         parent_block(&db, project, child, "sidebar").is_none(),
         "a possible nearer block must hide the grandparent block"
     );
-    let inherited = inherited_blocks(&db, project, child);
     assert_eq!(
-        inherited
-            .iter()
-            .map(|(name, site)| (name.as_str(), site.file))
-            .collect::<Vec<_>>(),
-        vec![("title", base)]
+        ancestor_blocks(&db, project, child, "title"),
+        vec![BlockSite {
+            file: base,
+            name_span: Span::saturating_from_bounds_usize(9, 14),
+            full_span: Span::saturating_from_bounds_usize(0, 41),
+        }]
     );
+    assert_eq!(ancestor_blocks(&db, project, child, "sidebar"), vec![]);
 }
 
 #[test]
@@ -710,7 +726,10 @@ fn inherited_symbols_use_the_child_backend_scope() {
             "/test/project/custom_tags.py",
             "from django import template\nregister = template.Library()\n@register.simple_tag(name='block')\ndef custom_block(value): pass\n",
         )
-        .file("/test/project/a/child.html", "{% extends 'base.html' %}")
+        .file(
+            "/test/project/a/child.html",
+            "{% extends 'base.html' %}{% block content %}Child{% endblock %}",
+        )
         .file(
             "/test/project/shared/base.html",
             "{% block content %}Base{% endblock %}",
@@ -721,20 +740,16 @@ fn inherited_symbols_use_the_child_backend_scope() {
         .file(Utf8Path::new("/test/project/a/child.html"))
         .expect("fixture file should exist in the test database");
 
-    let inherited = inherited_blocks(&db, project, child);
-    assert_eq!(inherited.len(), 1);
-    assert_eq!(inherited[0].0, "content");
+    let base = db
+        .file(Utf8Path::new("/test/project/shared/base.html"))
+        .expect("base fixture should exist in the test database");
     assert_eq!(
-        slash_path(inherited[0].1.file.path(&db)),
-        "/test/project/shared/base.html"
-    );
-    assert_eq!(
-        inherited[0].1.name_span,
-        Span::saturating_from_bounds_usize(9, 16)
-    );
-    assert_eq!(
-        inherited[0].1.full_span,
-        Span::saturating_from_bounds_usize(0, 37)
+        parent_block(&db, project, child, "content"),
+        Some(BlockSite {
+            file: base,
+            name_span: Span::saturating_from_bounds_usize(9, 16),
+            full_span: Span::saturating_from_bounds_usize(0, 37),
+        })
     );
 }
 
