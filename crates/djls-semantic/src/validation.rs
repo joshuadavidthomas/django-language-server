@@ -10,6 +10,7 @@ use djls_templates::Filter;
 
 use crate::TagSpec;
 use crate::db::Db;
+use crate::errors::ValidationError;
 use crate::expressions::consumed_arguments;
 use crate::scoping::ScopedFilterFactResolver;
 use crate::scoping::TemplateAnalysisProjection;
@@ -45,6 +46,7 @@ pub(crate) struct TemplateValidator<'db> {
     projection: TemplateAnalysisProjection<'db>,
     filter_facts: ScopedFilterFactResolver<'db>,
     extends_position: ExtendsPosition,
+    errors: Vec<ValidationError>,
 }
 
 impl<'db> TemplateValidator<'db> {
@@ -55,10 +57,11 @@ impl<'db> TemplateValidator<'db> {
             projection,
             filter_facts: ScopedFilterFactResolver::new(db, projection),
             extends_position: ExtendsPosition::default(),
+            errors: Vec::new(),
         }
     }
 
-    pub(crate) fn validate(mut self) {
+    pub(crate) fn validate(mut self) -> Vec<ValidationError> {
         let tree = self.projection.tree(self.db);
         for node in active_template_nodes(tree.regions(self.db), tree.root(self.db)) {
             match node {
@@ -66,6 +69,7 @@ impl<'db> TemplateValidator<'db> {
                 ActiveTemplateNode::Variable(variable) => self.validate_variable(variable),
             }
         }
+        self.errors
     }
 
     fn validate_tag(&mut self, tag: ActiveTemplateTag<'_>) {
@@ -88,24 +92,17 @@ impl<'db> TemplateValidator<'db> {
             effective_role,
             Some(TagRole::TemplateReference(TemplateReferenceKind::Extends))
         ) {
-            use salsa::Accumulator;
-
-            use crate::ValidationError;
-            use crate::ValidationErrorAccumulator;
-
             match self.extends_position {
                 ExtendsPosition::Start => {}
                 ExtendsPosition::AfterContent => {
-                    ValidationErrorAccumulator(ValidationError::ExtendsMustBeFirst {
+                    self.errors.push(ValidationError::ExtendsMustBeFirst {
                         span: tag.full_span,
-                    })
-                    .accumulate(self.db);
+                    });
                 }
                 ExtendsPosition::AfterExtends => {
-                    ValidationErrorAccumulator(ValidationError::MultipleExtends {
+                    self.errors.push(ValidationError::MultipleExtends {
                         span: tag.full_span,
-                    })
-                    .accumulate(self.db);
+                    });
                 }
             }
             self.extends_position = ExtendsPosition::AfterExtends;
@@ -115,7 +112,7 @@ impl<'db> TemplateValidator<'db> {
             && !facts.structure_accepts_spelling
         {
             scoping::check_tag_scoping_rule(
-                self.db,
+                &mut self.errors,
                 name,
                 span,
                 &facts.availability,
@@ -126,11 +123,11 @@ impl<'db> TemplateValidator<'db> {
         if let Some(spec) = effective_spec
             && let Some(rules) = spec.extracted_rules()
         {
-            arguments::check_tag_arguments_rule(self.db, name, bits, span, rules);
+            arguments::check_tag_arguments_rule(&mut self.errors, name, bits, span, rules);
         }
 
         if effective_role == Some(TagRole::TemplateLibraryLoader) {
-            scoping::check_load_libraries_rule(self.db, &facts.loader_arguments);
+            scoping::check_load_libraries_rule(self.db, &mut self.errors, &facts.loader_arguments);
         }
 
         if !intermediate {
@@ -142,9 +139,14 @@ impl<'db> TemplateValidator<'db> {
 
     fn validate_consumed_arguments(&mut self, tag: ActiveTemplateTag<'_>) {
         let consumed = consumed_arguments(self.projection.scoped_tag_facts(self.db), tag);
-        expressions::check_consumed_expressions_rule(self.db, tag.tag, &consumed);
+        expressions::check_consumed_expressions_rule(&mut self.errors, tag.tag, &consumed);
         for condition in &consumed.conditions {
-            if_expressions::check_if_expression_rule(self.db, tag.tag, condition, tag.span);
+            if_expressions::check_if_expression_rule(
+                &mut self.errors,
+                tag.tag,
+                condition,
+                tag.span,
+            );
         }
         for filter in consumed.filters() {
             self.validate_filter(tag.span.start(), &filter);
@@ -162,7 +164,7 @@ impl<'db> TemplateValidator<'db> {
     fn validate_filter(&mut self, occurrence_start: u32, filter: &Filter) {
         let facts = self.filter_facts.resolve(occurrence_start, filter);
         scoping::check_filter_scoping_rule(
-            self.db,
+            &mut self.errors,
             filter,
             &facts.availability,
             facts.unknown_load_can_shadow,
@@ -170,7 +172,7 @@ impl<'db> TemplateValidator<'db> {
         if !facts.unknown_load_can_shadow
             && let Some(arity) = facts.arity
         {
-            filters::check_filter_arity_rule(self.db, filter, arity);
+            filters::check_filter_arity_rule(&mut self.errors, filter, arity);
         }
     }
 }

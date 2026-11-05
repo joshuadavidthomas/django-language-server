@@ -537,7 +537,6 @@ impl SymbolBuilder<'_> {
             TemplateNode::Opaque { .. }
             | TemplateNode::Variable { .. }
             | TemplateNode::Comment { .. }
-            | TemplateNode::Text { .. }
             | TemplateNode::Error { .. } => {}
         }
     }

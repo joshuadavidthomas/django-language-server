@@ -225,7 +225,6 @@ fn outline_items_for_node(
                     | TemplateNode::StandaloneTag { .. }
                     | TemplateNode::Variable { .. }
                     | TemplateNode::Comment { .. }
-                    | TemplateNode::Text { .. }
                     | TemplateNode::Error { .. } => outline_items_for_node(regions, roles, node),
                 })
                 .collect();
@@ -266,7 +265,7 @@ fn outline_items_for_node(
             filters,
             span,
         } => vec![OutlineItem {
-            label: var.clone(),
+            label: var.to_string(),
             detail: None,
             kind: OutlineKind::Variable,
             span: *span,
@@ -283,9 +282,8 @@ fn outline_items_for_node(
                 })
                 .collect(),
         }],
-        TemplateNode::Opaque { .. }
-        | TemplateNode::Comment { .. }
-        | TemplateNode::Text { .. }
-        | TemplateNode::Error { .. } => Vec::new(),
+        TemplateNode::Opaque { .. } | TemplateNode::Comment { .. } | TemplateNode::Error { .. } => {
+            Vec::new()
+        }
     }
 }

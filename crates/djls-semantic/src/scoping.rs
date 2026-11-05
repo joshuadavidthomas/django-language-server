@@ -30,6 +30,8 @@ use crate::ValidationErrorAccumulator;
 use crate::db::Db;
 use crate::db::scoped_template_libraries_for_file;
 use crate::filters::effective_filter_arity_in_scope;
+use crate::layout::TemplateLayout;
+use crate::layout::template_layout;
 use crate::scoping::loads::LoadArgument;
 use crate::scoping::loads::LoadArgumentLibraries;
 use crate::scoping::loads::LoadCursor;
@@ -126,18 +128,35 @@ pub(crate) struct ScopedTagFact {
     pub(crate) loader_arguments: Vec<LoaderArgumentFact>,
 }
 
+/// Facts sorted by occurrence. A slice rather than a map: it is built once, kept for the
+/// life of the analysis, and holds one entry per tag in every analyzed template.
 #[derive(Clone, Debug, Default, PartialEq)]
-pub(crate) struct ScopedTagFacts(BTreeMap<TagOccurrenceKey, ScopedTagFact>);
+pub(crate) struct ScopedTagFacts(Box<[(TagOccurrenceKey, ScopedTagFact)]>);
 
 impl ScopedTagFacts {
+    /// A later entry for the same occurrence replaces an earlier one.
+    fn new(mut entries: Vec<(TagOccurrenceKey, ScopedTagFact)>) -> Self {
+        entries.sort_by_key(|(key, _)| *key);
+        entries.dedup_by(|later, earlier| {
+            let same = later.0 == earlier.0;
+            if same {
+                std::mem::swap(later, earlier);
+            }
+            same
+        });
+        Self(entries.into_boxed_slice())
+    }
+
     #[must_use]
     pub(crate) fn for_tag(&self, tag: ActiveTemplateTag<'_>) -> Option<&ScopedTagFact> {
-        self.0.get(&TagOccurrenceKey::from_name_span(tag.name_span))
+        self.for_name_span(tag.name_span)
     }
 
     #[must_use]
     pub(crate) fn for_name_span(&self, name_span: Span) -> Option<&ScopedTagFact> {
-        self.0.get(&TagOccurrenceKey::from_name_span(name_span))
+        let key = TagOccurrenceKey::from_name_span(name_span);
+        let index = self.0.binary_search_by_key(&key, |(key, _)| *key).ok()?;
+        Some(&self.0[index].1)
     }
 }
 
@@ -162,18 +181,77 @@ pub(crate) struct TemplateAnalysisProjection<'db> {
     #[tracked]
     #[returns(ref)]
     pub(crate) captured_closers: Vec<CapturedClosingTag>,
+    #[tracked]
+    #[returns(ref)]
+    pub(crate) diagnostics: Vec<crate::errors::ValidationError>,
     #[returns(copy)]
     pub(crate) tree: TemplateTree<'db>,
 }
 
 #[salsa::tracked(returns(copy))]
-#[allow(clippy::too_many_lines)]
 pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
     db: &'db dyn Db,
-    _source_file: File,
+    source_file: File,
     nodelist: NodeList<'db>,
     scope_file: File,
 ) -> TemplateAnalysisProjection<'db> {
+    let layout = template_layout(db, nodelist);
+    let projection = analyze_template_layout_in_scope(db, source_file, layout, scope_file);
+    let positions = layout.positions(db);
+    let diagnostics = projection
+        .diagnostics(db)
+        .iter()
+        .map(|error| positions.error(error.clone()))
+        .collect::<Vec<_>>();
+    for error in &diagnostics {
+        ValidationErrorAccumulator(error.clone()).accumulate(db);
+    }
+
+    let tree = projection.tree(db);
+    let mut regions = tree.regions(db).clone();
+    regions.map_spans(|span| positions.span(span));
+    let tree = TemplateTree::new(db, tree.root(db), regions);
+    let loaded = projection
+        .loaded_libraries(db)
+        .map_spans(|span| positions.span(span));
+    let facts = projection
+        .scoped_tag_facts(db)
+        .0
+        .iter()
+        .map(|(key, fact)| {
+            let mut fact = fact.clone();
+            for argument in &mut fact.loader_arguments {
+                argument.argument.map_span(|span| positions.span(span));
+            }
+            (TagOccurrenceKey(positions.offset(key.0)), fact)
+        })
+        .collect::<Vec<_>>();
+    let mut captured_closers = projection.captured_closers(db).clone();
+    for closer in &mut captured_closers {
+        closer.name_span = positions.span(closer.name_span);
+        closer.full_span = positions.span(closer.full_span);
+        crate::layout::map_bits(&mut closer.bits, |span| positions.span(span));
+    }
+    TemplateAnalysisProjection::new(
+        db,
+        scope_file,
+        loaded,
+        ScopedTagFacts::new(facts),
+        captured_closers,
+        diagnostics,
+        tree,
+    )
+}
+
+#[salsa::tracked(returns(copy))]
+#[allow(clippy::too_many_lines)]
+pub(crate) fn analyze_template_layout_in_scope<'db>(
+    db: &'db dyn Db,
+    _source_file: File,
+    layout: TemplateLayout<'db>,
+    scope_file: File,
+) -> TemplateAnalysisProjection<'db> {
+    let nodelist = layout.nodes(db);
     // Structural/load feedback can change only at parsed tag occurrences. Keep
     // the convergence budget tied to that semantic input rather than raw text,
     // which would bypass NodeList backdating on presentation-only edits.
@@ -242,7 +320,7 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
             continue;
         }
 
-        let mut tag_facts = BTreeMap::new();
+        let mut tag_facts = Vec::new();
         let mut tag_context_cache = ContextualFactCache::default();
         let argument_libraries = loaded.argument_libraries(scoped_libraries);
         let mut load_cursor = loaded.cursor();
@@ -310,7 +388,7 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
                 } else {
                     Vec::new()
                 };
-            tag_facts.insert(
+            tag_facts.push((
                 TagOccurrenceKey::from_name_span(tag.name_span),
                 ScopedTagFact {
                     spec: spec.cloned(),
@@ -331,20 +409,19 @@ pub(crate) fn template_analysis_projection_for_file_in_scope<'db>(
                     unknown_load_can_shadow: contextual_fact.unknown_load_can_shadow,
                     loader_arguments,
                 },
-            );
+            ));
         }
 
-        for error in &tree_data.diagnostics {
-            ValidationErrorAccumulator(error.clone()).accumulate(db);
-        }
+        let diagnostics = tree_data.diagnostics.clone();
         let captured_closers = tree_data.captured_closers.clone();
         let tree = tree_data.into_tree(db);
         return TemplateAnalysisProjection::new(
             db,
             scope_file,
             loaded,
-            ScopedTagFacts(tag_facts),
+            ScopedTagFacts::new(tag_facts),
             captured_closers,
+            diagnostics,
             tree,
         );
     }

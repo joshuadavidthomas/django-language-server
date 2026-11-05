@@ -68,7 +68,6 @@ fn opaque_regions_from_tree(regions: &Regions) -> OpaqueRegions {
             | TemplateNode::StandaloneTag { .. }
             | TemplateNode::Variable { .. }
             | TemplateNode::Comment { .. }
-            | TemplateNode::Text { .. }
             | TemplateNode::Error { .. } => None,
         })
         .collect();

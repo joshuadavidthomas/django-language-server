@@ -529,6 +529,7 @@ dependencies = [
  "castaway",
  "cfg-if",
  "itoa",
+ "serde",
  "static_assertions",
  "zmij",
 ]
@@ -1127,6 +1128,7 @@ name = "djls-templates"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "compact_str 0.10.0",
  "djls-conf",
  "djls-source",
  "insta",

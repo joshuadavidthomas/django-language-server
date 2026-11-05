@@ -520,7 +520,7 @@ mod invalidation_tests {
             "library_tag_specs",
             "library_filter_specs",
             "parse_template",
-            "template_analysis_projection_for_file_in_scope",
+            "analyze_template_layout_in_scope",
             "validate_template_file",
         ] {
             assert_eq!(will_execute_count(&db, &prime_events, forbidden), 0);
@@ -559,7 +559,7 @@ mod invalidation_tests {
         let repeated = event_log.take();
         for cached in [
             "parse_template",
-            "template_analysis_projection_for_file_in_scope",
+            "analyze_template_layout_in_scope",
             "validate_template_file",
             "template_library_definition_facts",
             "library_tag_specs",
@@ -717,11 +717,7 @@ mod invalidation_tests {
         assert!(tree.regions(&db).iter().next().is_some());
         let events = event_log.take();
         assert_eq!(
-            will_execute_count(
-                &db,
-                &events,
-                "template_analysis_projection_for_file_in_scope",
-            ),
+            will_execute_count(&db, &events, "analyze_template_layout_in_scope",),
             1
         );
         assert_eq!(
@@ -739,11 +735,7 @@ mod invalidation_tests {
             1
         );
         assert_eq!(
-            will_execute_count(
-                &db,
-                &events,
-                "template_analysis_projection_for_file_in_scope",
-            ),
+            will_execute_count(&db, &events, "analyze_template_layout_in_scope",),
             0,
             "validation should reuse the correlated analysis projection built above",
         );
@@ -807,15 +799,11 @@ mod invalidation_tests {
             let events = event_log.take();
             assert_eq!(will_execute_count(&db, &events, "parse_template"), 1);
             assert_eq!(
-                will_execute_count(
-                    &db,
-                    &events,
-                    "template_analysis_projection_for_file_in_scope"
-                ),
+                will_execute_count(&db, &events, "analyze_template_layout_in_scope"),
                 1
             );
             assert_eq!(
-                will_execute_count(&db, &events, "validate_template_file"),
+                will_execute_count(&db, &events, "validate_template_layout"),
                 1
             );
             assert_eq!(
@@ -862,17 +850,17 @@ mod invalidation_tests {
         assert!(errors.is_empty());
         let events = event_log.take();
         assert_eq!(will_execute_count(&db, &events, "parse_template"), 1);
+        // The layout keeps no text nodes, so appending text leaves it unchanged
+        // and analysis is backdated rather than re-run.
         assert_eq!(
-            will_execute_count(
-                &db,
-                &events,
-                "template_analysis_projection_for_file_in_scope"
-            ),
-            1
+            will_execute_count(&db, &events, "analyze_template_layout_in_scope"),
+            0
         );
+        // It changes no error and no source position either, so the
+        // position-mapping wrapper is backdated rather than re-run.
         assert_eq!(
             will_execute_count(&db, &events, "validate_template_file"),
-            1
+            0
         );
         for intrinsic in [
             "template_library_definition_facts",
@@ -918,11 +906,7 @@ mod invalidation_tests {
         build_template_tree_for_file(&db, child_file, nodelist);
         let events = event_log.take();
         assert_eq!(
-            will_execute_count(
-                &db,
-                &events,
-                "template_analysis_projection_for_file_in_scope",
-            ),
+            will_execute_count(&db, &events, "analyze_template_layout_in_scope",),
             0,
             "same-revision structure should reuse the correlated projection",
         );
@@ -936,11 +920,7 @@ mod invalidation_tests {
         build_template_tree_for_file(&db, child_file, nodelist);
         let events = event_log.take();
         assert_eq!(
-            will_execute_count(
-                &db,
-                &events,
-                "template_analysis_projection_for_file_in_scope",
-            ),
+            will_execute_count(&db, &events, "analyze_template_layout_in_scope",),
             0,
             "an unrelated Template edit must not rerun this file's projection",
         );
@@ -963,11 +943,7 @@ mod invalidation_tests {
         build_template_tree_for_file(&db, child_file, nodelist);
         let events = event_log.take();
         assert_eq!(
-            will_execute_count(
-                &db,
-                &events,
-                "template_analysis_projection_for_file_in_scope",
-            ),
+            will_execute_count(&db, &events, "analyze_template_layout_in_scope",),
             0,
             "an unrelated Python edit must not rerun this file's projection",
         );
@@ -987,11 +963,7 @@ mod invalidation_tests {
         build_template_tree_for_file(&db, child_file, nodelist);
         let events = event_log.take();
         assert_eq!(
-            will_execute_count(
-                &db,
-                &events,
-                "template_analysis_projection_for_file_in_scope",
-            ),
+            will_execute_count(&db, &events, "analyze_template_layout_in_scope",),
             1,
             "a meaningful owning-source edit must rerun the sparse projection",
         );
@@ -1007,11 +979,7 @@ mod invalidation_tests {
         let _ = build_template_tree_for_file(&db, child_file, nodelist);
         let events = event_log.take();
         assert_eq!(
-            will_execute_count(
-                &db,
-                &events,
-                "template_analysis_projection_for_file_in_scope",
-            ),
+            will_execute_count(&db, &events, "analyze_template_layout_in_scope",),
             1,
             "a relevant Template Library spec edit must invalidate the correlated projection",
         );
@@ -1052,11 +1020,7 @@ mod invalidation_tests {
             "the file revision should execute parsing exactly once",
         );
         assert_eq!(
-            will_execute_count(
-                &db,
-                &events,
-                "template_analysis_projection_for_file_in_scope",
-            ),
+            will_execute_count(&db, &events, "analyze_template_layout_in_scope",),
             0,
             "a backdated NodeList must stop same-meaning text edits before semantic projection",
         );
@@ -1934,11 +1898,7 @@ env_file = ".env.local"
         let _ = build_template_tree_for_file(&db, child_file, nodelist);
         let events = event_log.take();
         assert_eq!(
-            will_execute_count(
-                &db,
-                &events,
-                "template_analysis_projection_for_file_in_scope",
-            ),
+            will_execute_count(&db, &events, "analyze_template_layout_in_scope",),
             1,
             "a relevant Tag Spec edit must invalidate the correlated template projection",
         );

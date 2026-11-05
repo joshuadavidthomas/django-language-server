@@ -4,6 +4,7 @@ mod errors;
 mod expressions;
 mod filters;
 mod inheritance;
+mod layout;
 mod offset;
 mod references;
 mod scoping;
@@ -84,7 +85,9 @@ pub use tags::tag_spec_at;
 pub use tags::tag_specs_at_prefix;
 pub use tags::tag_specs_for_file;
 
-use crate::scoping::template_analysis_projection_for_file;
+use crate::layout::TemplateLayout;
+use crate::layout::template_layout;
+use crate::scoping::analyze_template_layout_in_scope;
 use crate::validation::TemplateValidator;
 
 /// Validate a Django template file.
@@ -98,6 +101,28 @@ pub fn validate_template_file(db: &dyn Db, file: File) {
         return;
     };
 
-    let projection = template_analysis_projection_for_file(db, file, nodelist);
-    TemplateValidator::new(db, projection).validate();
+    let layout = template_layout(db, nodelist);
+    let positions = layout.positions(db);
+    for error in validate_template_layout(db, file, layout) {
+        use salsa::Accumulator;
+
+        ValidationErrorAccumulator(positions.error(error.clone())).accumulate(db);
+    }
+}
+
+// Returned rather than accumulated: reading accumulated values inside a tracked
+// function is an untracked read, which would re-run every file's validation on
+// every revision.
+#[salsa::tracked(returns(ref))]
+fn validate_template_layout(
+    db: &dyn Db,
+    file: File,
+    layout: TemplateLayout<'_>,
+) -> Vec<ValidationError> {
+    let projection = analyze_template_layout_in_scope(db, file, layout, file);
+    let mut errors = TemplateValidator::new(db, projection).validate();
+    // Validation's own errors come before its structural dependency's, as when both
+    // were accumulated.
+    errors.extend(projection.diagnostics(db).iter().cloned());
+    errors
 }

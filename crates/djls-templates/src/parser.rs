@@ -10,6 +10,7 @@ use crate::filters::parse_filter;
 use crate::filters::split_variable_expression;
 use crate::lexer::Lexer;
 use crate::nodelist::Node;
+use crate::nodelist::NodeText;
 use crate::quotes::split_on_unquoted_whitespace;
 use crate::tokens::TagDelimiter;
 use crate::tokens::Token;
@@ -34,10 +35,7 @@ impl<'src> Parser<'src> {
         while let Some(token) = self.tokens.next() {
             let node = match &token {
                 Token::Block { content, span } => Self::parse_block(content, *span),
-                Token::Comment { content, span } => Ok(Node::Comment {
-                    content: (*content).to_string(),
-                    span: *span,
-                }),
+                Token::Comment { span, .. } => Ok(Node::Comment { span: *span }),
                 Token::Error {
                     content, delimiter, ..
                 } => Err(Self::parse_error(&token, content, *delimiter)),
@@ -92,7 +90,7 @@ impl<'src> Parser<'src> {
     fn parse_tag_args(
         content: &str,
         position: usize,
-    ) -> Result<(String, Span, Vec<TagBit>), ParseError> {
+    ) -> Result<(NodeText, Span, Box<[TagBit]>), ParseError> {
         let mut iter = split_on_unquoted_whitespace(content);
         let name = iter.next().ok_or(ParseError::EmptyTag { position })?;
         let name_span =
@@ -100,7 +98,7 @@ impl<'src> Parser<'src> {
         let bits = iter
             .map(|segment| {
                 TagBit::new(
-                    segment.text.to_string(),
+                    segment.text,
                     Span::saturating_from_parts_usize(
                         position + segment.start_byte,
                         segment.text.len(),
@@ -109,7 +107,7 @@ impl<'src> Parser<'src> {
             })
             .collect();
 
-        Ok((name.text.to_string(), name_span, bits))
+        Ok((name.text.into(), name_span, bits))
     }
 
     fn parse_error(token: &Token<&str>, content: &str, delimiter: TagDelimiter) -> ParseError {
@@ -130,7 +128,7 @@ impl<'src> Parser<'src> {
             position: span.start_usize(),
         })?;
         let var_trimmed_start = var_raw.len() - var_raw.trim_start().len();
-        let var = var_raw.trim().to_string();
+        let var = NodeText::from(var_raw.trim());
         let var_span = Span::saturating_from_parts_usize(
             base_offset as usize + var_offset as usize + var_trimmed_start,
             var.len(),
@@ -152,7 +150,7 @@ impl<'src> Parser<'src> {
         Ok(Node::Variable {
             var,
             var_span,
-            filters,
+            filters: filters.into_boxed_slice(),
             span,
         })
     }
@@ -279,14 +277,14 @@ mod tests {
     impl TestSpannedText {
         fn from_tag(bit: &crate::TagBit) -> Self {
             Self {
-                text: bit.text.clone(),
+                text: bit.text.to_string(),
                 span: (&bit.span).into(),
             }
         }
 
         fn from_filter(argument: &crate::FilterArgument) -> Self {
             Self {
-                text: argument.text.clone(),
+                text: argument.text.to_string(),
                 span: (&argument.span).into(),
             }
         }
@@ -303,7 +301,7 @@ mod tests {
     impl TestFilter {
         fn from_filter(filter: &crate::filters::Filter) -> Self {
             Self {
-                name: filter.name.clone(),
+                name: filter.name.to_string(),
                 arg: filter.arg.as_ref().map(TestSpannedText::from_filter),
                 span: (&filter.span).into(),
             }
@@ -321,7 +319,6 @@ mod tests {
             full_span: (u32, u32),
         },
         Comment {
-            content: String,
             span: (u32, u32),
             full_span: (u32, u32),
         },
@@ -351,14 +348,13 @@ mod tests {
                     bits,
                     span,
                 } => TestNode::Tag {
-                    name: name.clone(),
+                    name: name.to_string(),
                     name_span: name_span.into(),
                     bits: bits.iter().map(TestSpannedText::from_tag).collect(),
                     span: span.into(),
                     full_span: node.full_span().into(),
                 },
-                Node::Comment { content, span } => TestNode::Comment {
-                    content: content.clone(),
+                Node::Comment { span } => TestNode::Comment {
                     span: span.into(),
                     full_span: node.full_span().into(),
                 },
@@ -372,7 +368,7 @@ mod tests {
                     filters,
                     span,
                 } => TestNode::Variable {
-                    var: var.clone(),
+                    var: var.to_string(),
                     filters: filters.iter().map(TestFilter::from_filter).collect(),
                     span: span.into(),
                     full_span: node.full_span().into(),

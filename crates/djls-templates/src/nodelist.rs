@@ -5,6 +5,10 @@ use crate::filters::Filter;
 use crate::parser::ParseError;
 use crate::tokens::TagDelimiter;
 
+/// Owned text for tag names, tag arguments, variables and filters. Most fit inline, and
+/// each template's nodes are copied into its layout and structure tree.
+pub type NodeText = compact_str::CompactString;
+
 #[salsa::tracked(debug)]
 pub struct NodeList<'db> {
     #[tracked]
@@ -15,22 +19,21 @@ pub struct NodeList<'db> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Node {
     Tag {
-        name: String,
+        name: NodeText,
         name_span: Span,
-        bits: Vec<TagBit>,
+        bits: Box<[TagBit]>,
         span: Span,
     },
     Comment {
-        content: String,
         span: Span,
     },
     Text {
         span: Span,
     },
     Variable {
-        var: String,
+        var: NodeText,
         var_span: Span,
-        filters: Vec<Filter>,
+        filters: Box<[Filter]>,
         span: Span,
     },
     Error {

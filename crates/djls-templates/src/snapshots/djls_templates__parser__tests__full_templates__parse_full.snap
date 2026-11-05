@@ -34,7 +34,6 @@ nodelist:
       - 493
       - 17
   - type: Comment
-    content: " Welcome message "
     span:
       - 512
       - 17

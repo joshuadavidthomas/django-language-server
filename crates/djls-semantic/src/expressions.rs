@@ -50,7 +50,7 @@ impl ConsumedArguments<'_> {
                     )
                 });
                 filters.push(Filter {
-                    name: filter.name.clone(),
+                    name: filter.name.as_str().into(),
                     arg,
                     span: operand.source_span(filter.range.clone()),
                 });

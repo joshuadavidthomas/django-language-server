@@ -90,10 +90,15 @@ ecosystem BASE="origin/main":
     rm -rf "$out" && mkdir -p "$out"
     git worktree prune
     git worktree add --detach "$out/base-src" "{{ BASE }}" >/dev/null
-    trap 'git worktree remove --force "$out/base-src"' EXIT
+    trap 'git worktree remove --force "$out/base-src" 2>/dev/null || true' EXIT
     # Both builds share target/ so the second reuses the first's dependencies.
     cargo build --release -q -p djls --manifest-path "$out/base-src/Cargo.toml" --target-dir target
     cp target/release/djls "$out/djls-base"
+    # Base and head workspace crates share fingerprints in target/, and Cargo checks
+    # their freshness by mtime, so head would otherwise reuse base's crates. Remove
+    # base's sources so its dep-info is stale, and make head's sources newer.
+    git worktree remove --force "$out/base-src"
+    find crates -type f -exec touch {} +
     cargo build --release -q -p djls
     cp target/release/djls "$out/djls-head"
     uv run tools/ecosystem.py run --djls "$out/djls-base" --output "$out/base.json"

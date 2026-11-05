@@ -2,6 +2,7 @@ use djls_source::Span;
 use serde::Serialize;
 
 use crate::bits::FilterArgument;
+use crate::nodelist::NodeText;
 use crate::quotes::first_unquoted_delimiter_index;
 use crate::quotes::split_on_unquoted_delimiter;
 
@@ -12,21 +13,21 @@ use crate::quotes::split_on_unquoted_delimiter;
 /// within the source text.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 pub struct Filter {
-    pub name: String,
+    pub name: NodeText,
     pub arg: Option<FilterArgument>,
     pub span: Span,
 }
 
 impl Filter {
     #[must_use]
-    fn new(name: String, arg: Option<FilterArgument>, span: Span) -> Self {
+    fn new(name: NodeText, arg: Option<FilterArgument>, span: Span) -> Self {
         Self { name, arg, span }
     }
 
     #[must_use]
     pub fn label(&self) -> String {
         self.arg.as_ref().map_or_else(
-            || self.name.clone(),
+            || self.name.to_string(),
             |arg| format!("{}:{}", self.name, arg.as_str()),
         )
     }
@@ -68,16 +69,16 @@ pub(crate) fn parse_filter(raw: &str, base_offset: u32) -> Result<Filter, Filter
                 None
             } else {
                 Some(FilterArgument::new(
-                    arg.to_string(),
+                    arg,
                     Span::saturating_from_parts_usize(
                         filter_offset as usize + pos + 1 + arg_trimmed_start,
                         arg.len(),
                     ),
                 ))
             };
-            (name.to_string(), arg)
+            (name, arg)
         }
-        None => (trimmed.to_string(), None),
+        None => (trimmed, None),
     };
 
     if name.is_empty() {
@@ -88,7 +89,7 @@ pub(crate) fn parse_filter(raw: &str, base_offset: u32) -> Result<Filter, Filter
     }
 
     let span = Span::new(filter_offset, usize_to_u32(trimmed.len()));
-    Ok(Filter::new(name, arg, span))
+    Ok(Filter::new(NodeText::from(name), arg, span))
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]

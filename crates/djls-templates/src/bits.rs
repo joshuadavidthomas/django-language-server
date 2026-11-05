@@ -1,18 +1,22 @@
 use djls_source::Span;
 use serde::Serialize;
 
+use crate::nodelist::NodeText;
 use crate::quotes::TemplateString;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 pub struct TagBit {
-    pub(crate) text: String,
+    pub(crate) text: NodeText,
     pub span: Span,
 }
 
 impl TagBit {
     #[must_use]
-    pub fn new(text: String, span: Span) -> Self {
-        Self { text, span }
+    pub fn new(text: impl Into<NodeText>, span: Span) -> Self {
+        Self {
+            text: text.into(),
+            span,
+        }
     }
 
     #[must_use]
@@ -34,14 +38,17 @@ impl AsRef<str> for TagBit {
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 pub struct FilterArgument {
-    pub(crate) text: String,
-    pub(crate) span: Span,
+    pub(crate) text: NodeText,
+    pub span: Span,
 }
 
 impl FilterArgument {
     #[must_use]
-    pub fn new(text: String, span: Span) -> Self {
-        Self { text, span }
+    pub fn new(text: impl Into<NodeText>, span: Span) -> Self {
+        Self {
+            text: text.into(),
+            span,
+        }
     }
 
     #[must_use]

@@ -1,5 +1,6 @@
 use djls_source::Span;
 use djls_templates::Filter;
+use djls_templates::NodeText;
 use djls_templates::TagBit;
 use serde::Serialize;
 
@@ -71,9 +72,72 @@ impl Regions {
         self.region_mut(target).nodes.push(node);
     }
 
+    /// Regions and their node lists grow while building and are kept with the tree.
+    pub(crate) fn shrink_to_fit(&mut self) {
+        self.0.shrink_to_fit();
+        for region in &mut self.0 {
+            region.nodes.shrink_to_fit();
+        }
+    }
+
     fn region_mut(&mut self, id: RegionId) -> &mut TemplateRegion {
         let idx = id.index();
         &mut self.0[idx]
+    }
+
+    pub(crate) fn map_spans(&mut self, mut map: impl FnMut(Span) -> Span) {
+        for region in &mut self.0 {
+            region.span = map(region.span);
+            for node in &mut region.nodes {
+                match node {
+                    TemplateNode::Block {
+                        name_span,
+                        bits,
+                        full_span,
+                        ..
+                    }
+                    | TemplateNode::StandaloneTag {
+                        name_span,
+                        bits,
+                        full_span,
+                        ..
+                    } => {
+                        *name_span = map(*name_span);
+                        crate::layout::map_bits(bits, &mut map);
+                        *full_span = map(*full_span);
+                    }
+                    TemplateNode::Opaque {
+                        name_span,
+                        bits,
+                        full_span,
+                        body_span,
+                        ..
+                    } => {
+                        *name_span = map(*name_span);
+                        crate::layout::map_bits(bits, &mut map);
+                        *full_span = map(*full_span);
+                        *body_span = map(*body_span);
+                    }
+                    TemplateNode::Variable {
+                        var_span,
+                        filters,
+                        span,
+                        ..
+                    } => {
+                        *var_span = map(*var_span);
+                        crate::layout::map_filters(filters, &mut map);
+                        *span = map(*span);
+                    }
+                    TemplateNode::Comment { span } => {
+                        *span = map(*span);
+                    }
+                    TemplateNode::Error { span, full_span } => {
+                        *span = map(*span);
+                        *full_span = map(*full_span);
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -156,38 +220,35 @@ pub enum TemplateNode {
     /// region. This keeps intermediate tags like `elif`/`else` in source order
     /// without nested ownership inside the Salsa-tracked tree.
     Block {
-        tag: String,
+        tag: NodeText,
         name_span: Span,
-        bits: Vec<TagBit>,
+        bits: Box<[TagBit]>,
         full_span: Span,
         body: RegionId,
         role: BlockRole,
     },
     /// A paired opaque tag whose body is raw bytes with no internal structure.
     Opaque {
-        tag: String,
+        tag: NodeText,
         name_span: Span,
-        bits: Vec<TagBit>,
+        bits: Box<[TagBit]>,
         full_span: Span,
         body_span: Span,
         body_analysis: BodyAnalysis,
     },
     StandaloneTag {
-        tag: String,
+        tag: NodeText,
         name_span: Span,
-        bits: Vec<TagBit>,
+        bits: Box<[TagBit]>,
         full_span: Span,
     },
     Variable {
-        var: String,
+        var: NodeText,
         var_span: Span,
-        filters: Vec<Filter>,
+        filters: Box<[Filter]>,
         span: Span,
     },
     Comment {
-        span: Span,
-    },
-    Text {
         span: Span,
     },
     Error {
@@ -203,9 +264,7 @@ impl TemplateNode {
             | TemplateNode::Opaque { full_span, .. }
             | TemplateNode::StandaloneTag { full_span, .. }
             | TemplateNode::Error { full_span, .. } => *full_span,
-            TemplateNode::Variable { span, .. }
-            | TemplateNode::Comment { span }
-            | TemplateNode::Text { span } => *span,
+            TemplateNode::Variable { span, .. } | TemplateNode::Comment { span } => *span,
         }
     }
 }
