@@ -841,7 +841,7 @@ static PROJECT_INVENTORY_SCOPE: TemplateBackendScope =
     TemplateBackendScope(TemplateBackendScopeKind::ProjectInventory);
 
 impl TemplateBackendScope {
-    pub(super) const fn project_inventory() -> Self {
+    const fn project_inventory() -> Self {
         Self(TemplateBackendScopeKind::ProjectInventory)
     }
 
@@ -849,7 +849,7 @@ impl TemplateBackendScope {
         &PROJECT_INVENTORY_SCOPE
     }
 
-    pub(super) fn selected(mut selections: Vec<TemplateBackendSelection>) -> Option<Self> {
+    fn selected(mut selections: Vec<TemplateBackendSelection>) -> Option<Self> {
         stable_deduplicate_backend_selections(&mut selections);
         (!selections.is_empty()).then_some({
             Self(TemplateBackendScopeKind::Selected(

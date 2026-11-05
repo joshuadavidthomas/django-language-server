@@ -112,7 +112,6 @@ pub use templates::TemplateDoesNotExist;
 pub use templates::TemplateLibrary;
 pub use templates::TemplateLibraryAppCandidates;
 pub use templates::TemplateLibraryCatalog;
-pub use templates::TemplateLibraryChain;
 pub use templates::TemplateLibraryChainStep;
 pub use templates::TemplateLibraryDefinitionFacts;
 pub use templates::TemplateLibraryFilterFacts;
