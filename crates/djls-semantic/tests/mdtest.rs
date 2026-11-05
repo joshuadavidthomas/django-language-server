@@ -4,7 +4,6 @@ use djls_semantic::ChainEnd;
 use djls_semantic::ExtendsTarget;
 use djls_semantic::TemplateInheritance;
 use djls_semantic::block_overrides;
-use djls_semantic::inherited_blocks;
 use djls_semantic::parent_block;
 use djls_semantic::template_inheritance;
 use djls_semantic::template_symbols;
@@ -150,16 +149,6 @@ fn render_block_queries(
             let parent = parent_block(db, project, file, &block.name)
                 .map_or_else(|| "none".to_string(), |site| render_block_site(db, site));
             output.push(format!("    - {} -> {parent}", block.name));
-        }
-    }
-
-    output.push("  inherited blocks:".to_string());
-    let inherited = inherited_blocks(db, project, file);
-    if inherited.is_empty() {
-        output.push("    none".to_string());
-    } else {
-        for (name, site) in inherited {
-            output.push(format!("    - {name} -> {}", render_block_site(db, site)));
         }
     }
 
