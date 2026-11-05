@@ -2,7 +2,6 @@ use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::fmt;
 
-use djls_source::File;
 use djls_source::Span;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprAttribute;
@@ -1462,16 +1461,8 @@ struct RegistrationDescriptor {
 /// Whether Django's `inspect.unwrap` recovers the declaration's signature.
 #[derive(Clone, Debug, PartialEq, Eq, salsa::SalsaValue)]
 enum SignatureEvidence {
-    Preserved(Vec<File>),
-    Unknown(Vec<File>),
-}
-
-impl SignatureEvidence {
-    fn dependencies(&self) -> &[File] {
-        match self {
-            Self::Preserved(dependencies) | Self::Unknown(dependencies) => dependencies,
-        }
-    }
+    Preserved,
+    Unknown,
 }
 
 /// Resolve inner decorators when signature details are requested.
@@ -1501,11 +1492,10 @@ fn decorated_signature_evidence(
                     || is_canonical_stringfilter(&mut lookup, &decorator.expression)
             })
     });
-    let dependencies = lookup.consulted_files().to_vec();
     if preserved {
-        SignatureEvidence::Preserved(dependencies)
+        SignatureEvidence::Preserved
     } else {
-        SignatureEvidence::Unknown(dependencies)
+        SignatureEvidence::Unknown
     }
 }
 
@@ -1540,7 +1530,7 @@ impl RegistrationDescriptor {
             CallableRelation::Original => true,
             CallableRelation::Unknown { registration_span } => matches!(
                 decorated_signature_evidence(db, definition.clone(), registration_span),
-                SignatureEvidence::Preserved(_)
+                SignatureEvidence::Preserved
             ),
         }
     }
@@ -1795,7 +1785,6 @@ impl TemplateLibraryFilterFacts {
 #[derive(Clone, Debug, Default, PartialEq, salsa::SalsaValue)]
 struct TemplateLibraryTagRuleAnalysis {
     tag_rules: TagRuleMap,
-    dependencies: Vec<djls_source::File>,
 }
 
 #[salsa::tracked(returns(ref))]
@@ -1825,7 +1814,6 @@ fn template_library_tag_rule_analysis<'db>(
 ) -> TemplateLibraryTagRuleAnalysis {
     let inventory = template_library_registration_inventory(db, key);
     let mut tag_rules = TagRuleMap::default();
-    let mut dependencies = Vec::new();
     for descriptor in &inventory.descriptors {
         tag_rules.remove(&descriptor.key);
         if descriptor.kind.symbol_kind() != TemplateSymbolKind::Tag {
@@ -1854,16 +1842,8 @@ fn template_library_tag_rule_analysis<'db>(
         ) {
             tag_rules.insert(descriptor.key.clone(), rule.into());
         }
-        for dependency in source.lookup.consulted_files() {
-            if !dependencies.contains(dependency) {
-                dependencies.push(*dependency);
-            }
-        }
     }
-    TemplateLibraryTagRuleAnalysis {
-        tag_rules,
-        dependencies,
-    }
+    TemplateLibraryTagRuleAnalysis { tag_rules }
 }
 
 #[salsa::tracked(returns(ref))]
@@ -1945,8 +1925,7 @@ fn tag_meaning(db: &dyn ProjectDb, descriptor: &RegistrationDescriptor) -> TagMe
 
 /// Python source dependencies followed while discovering registrations.
 ///
-/// This excludes dependencies consulted only while deriving detail evidence. Callers that require
-/// complete detail coverage should use [`template_library_registration_dependencies`].
+/// This excludes dependencies consulted only while deriving detail evidence.
 #[salsa::tracked(returns(ref))]
 pub fn template_library_inventory_dependencies<'db>(
     db: &'db dyn ProjectDb,
@@ -1955,36 +1934,6 @@ pub fn template_library_inventory_dependencies<'db>(
     template_library_registration_inventory(db, key)
         .inventory_dependencies
         .clone()
-}
-
-/// Python source dependencies for registrations, wrapper signatures, and Tag Rule analysis.
-#[salsa::tracked(returns(ref))]
-pub fn template_library_registration_dependencies<'db>(
-    db: &'db dyn ProjectDb,
-    key: TemplateLibraryId<'db>,
-) -> Vec<djls_source::File> {
-    let mut dependencies = template_library_inventory_dependencies(db, key).clone();
-    for dependency in &template_library_tag_rule_analysis(db, key).dependencies {
-        if !dependencies.contains(dependency) {
-            dependencies.push(*dependency);
-        }
-    }
-    for descriptor in &template_library_registration_inventory(db, key).descriptors {
-        if descriptor.kind != RegistrationKind::Tag
-            && let Some(definition) = &descriptor.function
-            && let CallableRelation::Unknown { registration_span } = descriptor.relation
-        {
-            for dependency in
-                decorated_signature_evidence(db, definition.clone(), registration_span)
-                    .dependencies()
-            {
-                if !dependencies.contains(dependency) {
-                    dependencies.push(*dependency);
-                }
-            }
-        }
-    }
-    dependencies
 }
 
 #[must_use]
