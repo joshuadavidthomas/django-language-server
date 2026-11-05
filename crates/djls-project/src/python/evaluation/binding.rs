@@ -648,6 +648,13 @@ impl PythonBinding {
     }
 
     fn normalize(&mut self, operation_origin: Option<Origin>) {
+        if let [case] = self.cases.as_mut_slice() {
+            if let PythonBindingState::Bound(bound) = &mut case.state {
+                bound.value.normalize();
+                bound.value.constrain_value_evidence(&case.constraints);
+            }
+            return;
+        }
         let mut normalized = Vec::<BindingCase>::new();
         for mut incoming_case in mem::take(&mut self.cases) {
             match incoming_case.state {
@@ -1238,6 +1245,85 @@ mod tests {
             joined(vec![a.clone(), ab.clone(), b.clone()], false),
             joined(vec![a, ab, b], true),
         );
+    }
+
+    #[test]
+    fn reselecting_a_branch_preserves_value_evidence_until_intersection() {
+        let mut value = binding(BindingValue::Exact("kept".to_string()), 10);
+        let join = origin(0, 100);
+        value.select_branch(join, 0);
+        value.select_branch(join, 1);
+        let mut selected = BranchConstraints::unconstrained();
+        selected.select(join, 1);
+        let value = value
+            .intersect_constraints(&selected)
+            .expect("the latest selection replaces the earlier control-flow arm");
+        let bound = value.single_bound().expect("one string remains bound");
+        assert_eq!(bound.value.origins().collect::<Vec<_>>(), [origin(0, 10)]);
+        assert!(
+            bound
+                .value
+                .has_origin_feasible_under(origin(0, 10), &selected)
+        );
+    }
+
+    #[test]
+    fn dictionary_cap_does_not_resurrect_discarded_values_after_a_late_duplicate() {
+        let dictionary = |index: u32, key_origins: &[u32]| {
+            let mut key = PythonValue::string("key".to_string(), origin(0, key_origins[0]));
+            for start in &key_origins[1..] {
+                key.record_origin(origin(0, *start));
+            }
+            PythonBinding::bound(
+                PythonValue::dict_entry(
+                    key,
+                    PythonValue::string(format!("{index:03}"), origin(0, 100)),
+                    origin(0, 200),
+                ),
+                origin(0, 200),
+            )
+        };
+        for count in [63, 64, 65] {
+            let mut inputs: Vec<_> = (0..count)
+                .map(|index| dictionary(index, if index == 64 { &[10, 20] } else { &[10] }))
+                .collect();
+            inputs.push(dictionary(0, &[30]));
+            // Merging the late key evidence changes the structural order of
+            // value 000, but value 064 was already discarded by the first cap.
+            let result = joined(inputs, false);
+            let mut values: Vec<_> = result
+                .alternatives()
+                .filter_map(|state| {
+                    let PythonBindingState::Bound(bound) = state else {
+                        return None;
+                    };
+                    let PythonValueKind::Dict(dict) = &bound.value.kind else {
+                        return None;
+                    };
+                    dict.mapping()
+                        .lookup_string_key("key")
+                        .value()?
+                        .known_scalar()?
+                        .string_value()
+                        .map(str::to_owned)
+                })
+                .collect();
+            values.sort();
+            assert_eq!(
+                values,
+                (0..count.min(64))
+                    .map(|index| format!("{index:03}"))
+                    .collect::<Vec<_>>()
+            );
+            assert_eq!(
+                result
+                    .cases
+                    .iter()
+                    .filter(|case| case.is_limit_remainder())
+                    .count(),
+                usize::from(count == 65)
+            );
+        }
     }
 
     #[test]
