@@ -8,4 +8,5 @@ mod formatting;
 mod hover;
 mod incremental;
 mod navigation;
+mod symbols;
 mod warmup;

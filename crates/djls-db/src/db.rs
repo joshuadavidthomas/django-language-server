@@ -209,6 +209,7 @@ mod invalidation_tests {
     use djls_conf::TagLibraryDef;
     use djls_conf::TagSpecDef;
     use djls_conf::TagTypeDef;
+    use djls_ide::collect_folding_ranges;
     use djls_ide::prime_template_library_products;
     use djls_project::Db as ProjectDb;
     use djls_project::FilterArity;
@@ -228,7 +229,6 @@ mod invalidation_tests {
     use djls_project::template_library_filter_facts;
     use djls_semantic::SemanticOffsetContext;
     use djls_semantic::ValidationErrorAccumulator;
-    use djls_semantic::build_template_folds_for_file;
     use djls_semantic::library_filter_specs;
     use djls_semantic::library_tag_specs;
     use djls_semantic::scoped_template_libraries_for_file;
@@ -435,7 +435,7 @@ mod invalidation_tests {
             );
             fs.add_file(
                 child_path.clone(),
-                "{% extends \"base.html\" %}\n{% block content %}{{ one }}{% endblock %}"
+                "{% extends \"base.html\" %}\n{% block content %}\n{{ one }}\n{% endblock %}"
                     .to_string(),
             );
             fs.add_file(
@@ -711,9 +711,8 @@ mod invalidation_tests {
             1
         );
 
-        let nodelist = parse_template(&db, child_file).expect("child fixture should parse");
         event_log.take();
-        let folds = build_template_folds_for_file(&db, child_file, nodelist);
+        let folds = collect_folding_ranges(&db, child_file);
         assert!(!folds.is_empty());
         let events = event_log.take();
         assert_eq!(
@@ -838,7 +837,7 @@ mod invalidation_tests {
             .expect("test mutex should not be poisoned")
             .add_file(
                 child_path,
-                "{% extends \"base.html\" %}\n{% block content %}{{ one }}{% endblock %} "
+                "{% extends \"base.html\" %}\n{% block content %}\n{{ one }}\n{% endblock %} "
                     .to_string(),
             );
         SourceChanges::new([ChangeEvent::ContentChanged(child_file.path(&db).clone())])
@@ -899,11 +898,10 @@ mod invalidation_tests {
             ..
         } = template_inheritance_fixture();
 
-        let nodelist = parse_template(&db, child_file).expect("child fixture should parse");
-        build_template_folds_for_file(&db, child_file, nodelist);
+        drop(collect_folding_ranges(&db, child_file));
         event_log.take();
 
-        build_template_folds_for_file(&db, child_file, nodelist);
+        drop(collect_folding_ranges(&db, child_file));
         let events = event_log.take();
         assert_eq!(
             will_execute_count(&db, &events, "analyze_template_layout_in_scope",),
@@ -916,8 +914,7 @@ mod invalidation_tests {
             .add_file(other_file.path(&db).clone(), "unrelated edit".to_string());
         SourceChanges::new([ChangeEvent::ContentChanged(other_file.path(&db).clone())])
             .apply(&mut db);
-        let nodelist = parse_template(&db, child_file).expect("child fixture should still parse");
-        build_template_folds_for_file(&db, child_file, nodelist);
+        drop(collect_folding_ranges(&db, child_file));
         let events = event_log.take();
         assert_eq!(
             will_execute_count(&db, &events, "analyze_template_layout_in_scope",),
@@ -939,8 +936,7 @@ mod invalidation_tests {
             unrelated_python.path(&db).clone(),
         )])
         .apply(&mut db);
-        let nodelist = parse_template(&db, child_file).expect("child fixture should still parse");
-        build_template_folds_for_file(&db, child_file, nodelist);
+        drop(collect_folding_ranges(&db, child_file));
         let events = event_log.take();
         assert_eq!(
             will_execute_count(&db, &events, "analyze_template_layout_in_scope",),
@@ -959,8 +955,7 @@ mod invalidation_tests {
             );
         SourceChanges::new([ChangeEvent::ContentChanged(child_file.path(&db).clone())])
             .apply(&mut db);
-        let nodelist = parse_template(&db, child_file).expect("edited child should parse");
-        build_template_folds_for_file(&db, child_file, nodelist);
+        drop(collect_folding_ranges(&db, child_file));
         let events = event_log.take();
         assert_eq!(
             will_execute_count(&db, &events, "analyze_template_layout_in_scope",),
@@ -975,8 +970,7 @@ mod invalidation_tests {
                 .to_string(),
         );
         SourceChanges::new([ChangeEvent::ContentChanged(loader_tags_path)]).apply(&mut db);
-        let nodelist = parse_template(&db, child_file).expect("child fixture should still parse");
-        let _ = build_template_folds_for_file(&db, child_file, nodelist);
+        drop(collect_folding_ranges(&db, child_file));
         let events = event_log.take();
         assert_eq!(
             will_execute_count(&db, &events, "analyze_template_layout_in_scope",),
@@ -996,8 +990,7 @@ mod invalidation_tests {
             ..
         } = template_inheritance_fixture();
 
-        let nodelist = parse_template(&db, parent_file).expect("parent fixture should parse");
-        build_template_folds_for_file(&db, parent_file, nodelist);
+        drop(collect_folding_ranges(&db, parent_file));
         event_log.take();
 
         // Template text nodes carry source positions, not their presentation text.
@@ -1010,8 +1003,7 @@ mod invalidation_tests {
             );
         SourceChanges::new([ChangeEvent::ContentChanged(parent_file.path(&db).clone())])
             .apply(&mut db);
-        let nodelist = parse_template(&db, parent_file).expect("edited parent should parse");
-        build_template_folds_for_file(&db, parent_file, nodelist);
+        drop(collect_folding_ranges(&db, parent_file));
         let events = event_log.take();
 
         assert_eq!(
@@ -1847,10 +1839,7 @@ env_file = ".env.local"
         let loader_tags_identity = (loader_tags.file(&db), loader_tags.module(&db).clone());
         let _ = library_tag_specs(&db, project, defaulttags);
         let _ = library_tag_specs(&db, project, loader_tags);
-        {
-            let nodelist = parse_template(&db, child_file).expect("child fixture should parse");
-            let _ = build_template_folds_for_file(&db, child_file, nodelist);
-        }
+        drop(collect_folding_ranges(&db, child_file));
         event_log.take();
 
         let new_tagspecs = TagSpecDef {
@@ -1894,8 +1883,7 @@ env_file = ".env.local"
         assert_eq!(will_execute_count(&db, &events, "library_tag_specs"), 1);
         assert_eq!(will_execute_count(&db, &events, "library_filter_specs"), 0);
 
-        let nodelist = parse_template(&db, child_file).expect("child fixture should still parse");
-        let _ = build_template_folds_for_file(&db, child_file, nodelist);
+        drop(collect_folding_ranges(&db, child_file));
         let events = event_log.take();
         assert_eq!(
             will_execute_count(&db, &events, "analyze_template_layout_in_scope",),

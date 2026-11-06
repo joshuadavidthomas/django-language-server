@@ -10,6 +10,7 @@ mod hover;
 mod imports;
 mod links;
 mod navigation;
+mod outline;
 mod snippets;
 mod symbols;
 mod warmup;

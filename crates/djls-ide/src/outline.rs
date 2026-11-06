@@ -1,23 +1,19 @@
 use djls_project::TagRole;
+use djls_semantic::BlockRole;
+use djls_semantic::Db;
+use djls_semantic::LoadKind;
+use djls_semantic::RegionId;
+use djls_semantic::SourceBits;
+use djls_semantic::SourceNode;
+use djls_semantic::SourceStructure;
+use djls_semantic::template_structure_with_roles;
 use djls_source::File;
 use djls_source::Span;
 use djls_templates::NodeList;
-use djls_templates::TagBit;
 use djls_templates::TemplateString;
 
-use crate::TagSpec;
-use crate::db::Db;
-use crate::layout::MapSpans;
-use crate::scoping::LoadKind;
-use crate::scoping::ScopedTagFacts;
-use crate::scoping::template_analysis_projection_for_file;
-use crate::structure::BlockRole;
-use crate::structure::RegionId;
-use crate::structure::Regions;
-use crate::structure::TemplateNode;
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct OutlineItem {
+pub(crate) struct OutlineItem {
     pub label: String,
     pub detail: Option<String>,
     pub kind: OutlineKind,
@@ -31,7 +27,7 @@ pub struct OutlineItem {
 /// The template outline is a navigational projection over template semantics,
 /// not the source of truth for every semantic fact in a template.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum OutlineKind {
+pub(crate) enum OutlineKind {
     TemplateBlock,
     /// A Block Tag without a Tag Role.
     BlockTag,
@@ -61,52 +57,26 @@ impl From<TagRole> for OutlineKind {
 }
 
 #[salsa::tracked(returns(ref))]
-pub fn build_template_outline_for_file(
+pub(crate) fn build_template_outline_for_file(
     db: &dyn Db,
     file: File,
     nodelist: NodeList<'_>,
 ) -> Vec<OutlineItem> {
-    template_analysis_projection_for_file(db, file, nodelist).read(|analysis| {
-        let tree = analysis.tree(db);
-        let roles = OutlineTagRoles {
-            facts: analysis.scoped_tag_facts(db),
-        };
-        outline_items_for_region(tree.regions(db), &roles, tree.root(db))
-    })
-}
-
-impl MapSpans for OutlineItem {
-    fn map_spans(&mut self, map: &mut impl FnMut(Span) -> Span) {
-        self.span.map_spans(map);
-        self.selection_span.map_spans(map);
-        self.children.map_spans(map);
-    }
-}
-
-struct OutlineTagRoles<'a> {
-    facts: &'a ScopedTagFacts,
-}
-
-impl OutlineTagRoles<'_> {
-    fn role(&self, name_span: Span) -> Option<TagRole> {
-        self.facts
-            .for_name_span(name_span)
-            .and_then(|fact| fact.spec.as_deref())
-            .and_then(TagSpec::role)
-    }
+    let tree = template_structure_with_roles(db, file, nodelist);
+    outline_items_for_region(&tree, tree.root())
 }
 
 fn outline_items_for_tag(
     role: Option<TagRole>,
     tag: &str,
     name_span: Span,
-    bits: &[TagBit],
+    bits: SourceBits<'_>,
     span: Span,
     children: Vec<OutlineItem>,
 ) -> Vec<OutlineItem> {
     let Some(role) = role else {
         let mut label = tag.to_string();
-        for bit in bits {
+        for bit in bits.iter() {
             label.push(' ');
             label.push_str(bit.as_str());
         }
@@ -127,7 +97,7 @@ fn outline_items_for_tag(
         | TagRole::TemplatePartialReference
         | TagRole::StaticAssetReference
         | TagRole::RouteReference => {
-            let item = if let Some(bit) = bits.first() {
+            let item = if let Some(bit) = bits.iter().next() {
                 let (label, selection_span) = match bit.template_string() {
                     TemplateString::Quoted { value, span } => (value.to_string(), span),
                     TemplateString::Unquoted(value) => (value.to_string(), bit.span),
@@ -153,123 +123,110 @@ fn outline_items_for_tag(
             };
             vec![item]
         }
-        TagRole::TemplateLibraryLoader => match LoadKind::from_loader_bits(bits) {
-            Some(LoadKind::FullLoad { libraries }) => libraries
-                .into_iter()
-                .map(|library| OutlineItem {
+        TagRole::TemplateLibraryLoader => {
+            match LoadKind::from_loader_bits(&bits.iter().collect::<Vec<_>>()) {
+                Some(LoadKind::FullLoad { libraries }) => libraries
+                    .into_iter()
+                    .map(|library| OutlineItem {
+                        label: library.as_str().to_string(),
+                        detail: Some(tag.to_string()),
+                        kind: role.into(),
+                        span,
+                        selection_span: library.span(),
+                        children: Vec::new(),
+                    })
+                    .collect(),
+                Some(LoadKind::SelectiveImport { symbols, library }) => vec![OutlineItem {
                     label: library.as_str().to_string(),
                     detail: Some(tag.to_string()),
                     kind: role.into(),
                     span,
                     selection_span: library.span(),
-                    children: Vec::new(),
-                })
-                .collect(),
-            Some(LoadKind::SelectiveImport { symbols, library }) => vec![OutlineItem {
-                label: library.as_str().to_string(),
-                detail: Some(tag.to_string()),
-                kind: role.into(),
-                span,
-                selection_span: library.span(),
-                children: symbols
-                    .into_iter()
-                    .map(|symbol| OutlineItem {
-                        label: symbol.as_str().to_string(),
-                        detail: Some(format!("from {}", library.as_str())),
-                        kind: OutlineKind::TemplateLibrarySymbol,
-                        span,
-                        selection_span: symbol.span(),
-                        children: Vec::new(),
-                    })
-                    .collect(),
-            }],
-            None => Vec::new(),
-        },
+                    children: symbols
+                        .into_iter()
+                        .map(|symbol| OutlineItem {
+                            label: symbol.as_str().to_string(),
+                            detail: Some(format!("from {}", library.as_str())),
+                            kind: OutlineKind::TemplateLibrarySymbol,
+                            span,
+                            selection_span: symbol.span(),
+                            children: Vec::new(),
+                        })
+                        .collect(),
+                }],
+                None => Vec::new(),
+            }
+        }
     }
 }
 
-fn outline_items_for_region(
-    regions: &Regions,
-    roles: &OutlineTagRoles<'_>,
-    region: RegionId,
-) -> Vec<OutlineItem> {
-    regions
-        .get(region)
+fn outline_items_for_region(tree: &SourceStructure<'_>, region: RegionId) -> Vec<OutlineItem> {
+    tree.region(region)
         .nodes()
-        .iter()
-        .flat_map(|node| outline_items_for_node(regions, roles, node))
+        .flat_map(|node| outline_items_for_node(tree, &node))
         .collect()
 }
 
 #[allow(clippy::too_many_lines)]
-fn outline_items_for_node(
-    regions: &Regions,
-    roles: &OutlineTagRoles<'_>,
-    node: &TemplateNode,
-) -> Vec<OutlineItem> {
+fn outline_items_for_node(tree: &SourceStructure<'_>, node: &SourceNode<'_>) -> Vec<OutlineItem> {
     match node {
-        TemplateNode::Block {
+        SourceNode::Block {
             tag,
             name_span,
             bits,
             full_span: _,
             body,
-            role: BlockRole::Opener,
+            block_role: BlockRole::Opener,
+            tag_role,
         } => {
-            let role = roles.role(*name_span);
-            let children = regions
-                .get(*body)
+            let children = tree
+                .region(*body)
                 .nodes()
-                .iter()
-                .flat_map(|node| match node {
-                    TemplateNode::Block {
+                .flat_map(|node| match &node {
+                    SourceNode::Block {
                         tag: segment_tag,
                         body: segment_body,
-                        role: BlockRole::Segment,
+                        block_role: BlockRole::Segment,
                         ..
-                    } if segment_tag == tag => {
-                        outline_items_for_region(regions, roles, *segment_body)
-                    }
-                    TemplateNode::Block { .. }
-                    | TemplateNode::Opaque { .. }
-                    | TemplateNode::StandaloneTag { .. }
-                    | TemplateNode::Variable { .. }
-                    | TemplateNode::Comment { .. }
-                    | TemplateNode::Error { .. } => outline_items_for_node(regions, roles, node),
+                    } if segment_tag == tag => outline_items_for_region(tree, *segment_body),
+                    SourceNode::Block { .. }
+                    | SourceNode::Opaque { .. }
+                    | SourceNode::StandaloneTag { .. }
+                    | SourceNode::Variable { .. } => outline_items_for_node(tree, &node),
                 })
                 .collect();
 
             outline_items_for_tag(
-                role,
+                *tag_role,
                 tag,
                 *name_span,
-                bits,
-                *regions.get(*body).span(),
+                *bits,
+                tree.region(*body).span(),
                 children,
             )
         }
-        TemplateNode::Block {
+        SourceNode::Block {
             tag,
             name_span,
             bits,
             full_span,
             body,
-            role: BlockRole::Segment,
+            block_role: BlockRole::Segment,
             ..
         } => {
-            let children = outline_items_for_region(regions, roles, *body);
-            outline_items_for_tag(None, tag, *name_span, bits, *full_span, children)
+            let children = outline_items_for_region(tree, *body);
+            outline_items_for_tag(None, tag, *name_span, *bits, *full_span, children)
         }
-        TemplateNode::StandaloneTag {
+        SourceNode::StandaloneTag {
             tag,
             name_span,
             bits,
             full_span,
-            ..
-        } => roles.role(*name_span).map_or_else(Vec::new, |role| {
-            outline_items_for_tag(Some(role), tag, *name_span, bits, *full_span, Vec::new())
+            tag_role,
+        } => tag_role.map_or_else(Vec::new, |role| {
+            outline_items_for_tag(Some(role), tag, *name_span, *bits, *full_span, Vec::new())
         }),
-        TemplateNode::Variable {
+        SourceNode::Variable {
             var,
             var_span,
             filters,
@@ -292,8 +249,6 @@ fn outline_items_for_node(
                 })
                 .collect(),
         }],
-        TemplateNode::Opaque { .. } | TemplateNode::Comment { .. } | TemplateNode::Error { .. } => {
-            Vec::new()
-        }
+        SourceNode::Opaque { .. } => Vec::new(),
     }
 }
