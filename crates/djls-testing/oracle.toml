@@ -1,0 +1,23 @@
+# Runtime and static analysis use the same corpus environment. Extra dependencies belong in
+# oracle/requirements/<target>.txt, not an overlay visible to only one side.
+
+[apps]
+# Wagtail's libraries import its models, which need its whole app set and dependencies.
+"wagtail-7.2" = ["taggit", "modelcluster", "wagtail.search", "wagtail.snippets", "wagtail.documents", "wagtail.sites", "wagtail.contrib.forms", "wagtail.contrib.redirects", "wagtail.locales", "django.contrib.admin"]
+
+# Project environment variables: Django runs with them and DJLS reads them as `env_file`
+# entries, so both evaluate settings in the same environment. `{scratch}` is a temporary
+# directory per run.
+# DJLS's static read of InvenTree's settings stays inconclusive with these: BASE_DIR,
+# MEDIA_ROOT, DEBUG and the other flags are calls into InvenTree/config.py, which the evaluator
+# does not follow, and the `for app in SOCIAL_BACKENDS` loop appends unknown apps.
+[env.inventree]
+INVENTREE_SITE_URL = "http://localhost"
+INVENTREE_DB_ENGINE = "sqlite3"
+INVENTREE_DB_NAME = "{scratch}/db.sqlite3"
+INVENTREE_CONFIG_FILE = "{scratch}/config.yaml"
+INVENTREE_SECRET_KEY_FILE = "{scratch}/secret.txt"
+INVENTREE_STATIC_ROOT = "{scratch}/static"
+INVENTREE_MEDIA_ROOT = "{scratch}/media"
+INVENTREE_BACKUP_DIR = "{scratch}/backup"
+INVENTREE_PLUGINS_ENABLED = "False"
