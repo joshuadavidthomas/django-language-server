@@ -991,6 +991,7 @@ dependencies = [
  "djls-testing",
  "percent-encoding",
  "proptest",
+ "salsa",
  "tempfile",
  "tower-lsp-server",
  "tracing",
