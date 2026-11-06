@@ -327,6 +327,12 @@ impl ProjectFixture {
     }
 
     #[must_use]
+    pub(crate) fn env_var(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.env_vars.push((key.into(), value.into()));
+        self
+    }
+
+    #[must_use]
     pub fn tag_specs(mut self, tag_specs: TagSpecDef) -> Self {
         self.tag_specs = tag_specs;
         self

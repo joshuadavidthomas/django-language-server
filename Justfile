@@ -51,6 +51,11 @@ corpus *ARGS:
         cargo run -q -p djls-testing --bin corpus -- "$@"
     fi
 
+# Run the live Django pytest suite (pass -m facts_fixtures, facts_blocks, etc.)
+[positional-arguments]
+django-facts *ARGS:
+    just nox facts -- "$@"
+
 # Pass `--fix --allow-dirty` to apply suggestions
 [positional-arguments]
 clippy *ARGS:
