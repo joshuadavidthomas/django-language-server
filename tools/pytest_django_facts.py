@@ -161,6 +161,8 @@ def prepare(name, target, interpreter):
                 "--source-only",
             ]
         )
+        # The corpus bootstrap may select an older Python than the pinned oracle
+        # environment below, so oracle constraints must not affect its install.
         execute(
             [
                 "cargo",
@@ -174,8 +176,7 @@ def prepare(name, target, interpreter):
                 "environment",
                 "sync",
                 name,
-            ],
-            env={**os.environ, "UV_CONSTRAINT": str(lock)},
+            ]
         )
         environment = ROOT / "crates/djls-testing/.corpus/environments" / name
         metadata = {
