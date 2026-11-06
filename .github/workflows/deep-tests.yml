@@ -20,6 +20,53 @@ env:
 permissions: {}
 
 jobs:
+  django-facts:
+    name: Live Django exploration (${{ matrix.shard }})
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [fixtures, blocks, helpers, nightly]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: $/.github/actions/setup
+        with:
+          tools: uv rust just
+          save: false
+          rust-cache: test
+          corpus: true
+
+      - name: Install historical interpreter build dependencies
+        if: matrix.shard == 'nightly'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libssl-dev zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev libffi-dev liblzma-dev libpq-dev libcurl4-openssl-dev
+
+      - name: Restore historical interpreters
+        if: matrix.shard == 'nightly'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: crates/djls-testing/.corpus/interpreters
+          key: ${{ runner.os }}-${{ runner.arch }}-ubuntu22-corpus-python-${{ hashFiles('tools/corpus-python.sh') }}
+
+      - name: Collect live Django subjects with pytest
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: just django-facts -m "facts_$SHARD" --facts-required-shard "$SHARD" --facts-output "target/oracle/$SHARD" --junitxml "target/oracle/$SHARD/junit.xml"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: django-facts-${{ matrix.shard }}
+          path: target/oracle/${{ matrix.shard }}/
+          if-no-files-found: error
+
   properties:
     name: Property tests with a fresh seed
     runs-on: ubuntu-latest

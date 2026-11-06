@@ -199,6 +199,15 @@ def e2e(session):
 
 
 @nox.session(python=PY_DEFAULT)
+def facts(session):
+    """Collect live Django subjects with pytest, outside the LSP test suite."""
+    session.install("pytest>=9.0.3")
+    session.run(
+        "pytest", "tests/facts", "--django-facts", "--facts-prepare", *session.posargs
+    )
+
+
+@nox.session(python=PY_DEFAULT)
 def fixtures(session):
     """Generate Django facts against the exact django-5.2 corpus version."""
     session.run_install(
