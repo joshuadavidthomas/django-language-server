@@ -25,6 +25,7 @@ The **extraction engine** analyzes Python source code (using static AST analysis
 - **Block structure** — which tags need closing tags, what intermediate tags are allowed
 - **Filter arity** — whether a filter expects an argument (e.g., `{{ value|default:"nothing" }}`)
 - **Argument consumption** — which tag arguments Django compiles as filter expressions (e.g., the sequence in `{% for x in items|dictsort:"name" %}`)
+- **Unique names** — which tag arguments must not repeat within a template (e.g., the name in `{% block content %}`)
 
 Expression syntax (S114) uses ports of Django's own grammars: arguments that extraction shows Django compiles are parsed like Django's `FilterExpression`, and `{% if %}` / `{% elif %}` conditions like Django's `IfParser` (`django/template/smartif.py`). Extraction does not follow `TemplateIfParser`, so a Fallback Rule for Django's `do_if` supplies the condition fact.
 
@@ -119,6 +120,14 @@ Validates structural rules for `{% extends %}`:
 
 - **S122** — `{% extends %}` must be the first tag in the template. Text and `{# comments #}` are allowed before it, but no other tags (`{% load %}`, etc.) or variables (`{{ foo }}`) may appear first. This matches Django's parse-time enforcement.
 - **S123** — `{% extends %}` cannot appear more than once in a template.
+
+### Duplicate Names (S125)
+
+- **S125** — A tag name argument appears more than once in a template, such as two `{% block content %}` tags. Django rejects the second one when it compiles the template, with or without `{% extends %}`, even when the duplicates are nested or in different `{% if %}` branches. Tags inside `{% comment %}` or `{% verbatim %}` are not compiled and do not count.
+
+Extraction finds the rule in the compile function: a tag that rejects an argument already in parser state, such as `parser.__loaded_blocks` in Django's `do_block` or `parser.extra_data["partials"]` in Django 6.0's `partialdef`, and records the argument there. Custom tags written the same way get the same check.
+
+The message is the one the compile function raises, extracted from its `raise` statement, including `%` formats and f-strings. For `{% partialdef %}`, Django names the template with `parser.origin.name`; djls uses the template's path, as Django's filesystem loaders do. When extraction cannot read the message, djls reports `'<tag>' tag with name '<name>' appears more than once`.
 
 ### Expression Syntax (S114)
 

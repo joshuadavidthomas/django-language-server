@@ -4,9 +4,14 @@ mod filters;
 mod if_expressions;
 mod scoping;
 
+use djls_project::NameRegistry;
 use djls_project::TagRole;
 use djls_project::TemplateReferenceKind;
+use djls_project::UniqueName;
 use djls_templates::Filter;
+use djls_templates::TagBit;
+use rustc_hash::FxHashMap;
+use rustc_hash::FxHashSet;
 
 use crate::TagSpec;
 use crate::db::Db;
@@ -18,6 +23,8 @@ use crate::structure::ActiveTemplateNode;
 use crate::structure::ActiveTemplateTag;
 use crate::structure::ActiveTemplateVariable;
 use crate::structure::active_template_nodes;
+use crate::tags::MessageContext;
+use crate::tags::render_message_template;
 
 /// Tracks the validation state for `{% extends %}` positioning rules.
 #[derive(Debug, Clone, Copy, Default)]
@@ -46,6 +53,8 @@ pub(crate) struct TemplateValidator<'db> {
     projection: TemplateAnalysisProjection<'db>,
     filter_facts: ScopedFilterFactResolver<'db>,
     extends_position: ExtendsPosition,
+    /// Names recorded so far in each registry, as Django's Parser accumulates them.
+    recorded_names: FxHashMap<NameRegistry, FxHashSet<String>>,
     errors: Vec<ValidationError>,
 }
 
@@ -57,6 +66,7 @@ impl<'db> TemplateValidator<'db> {
             projection,
             filter_facts: ScopedFilterFactResolver::new(db, projection),
             extends_position: ExtendsPosition::default(),
+            recorded_names: FxHashMap::default(),
             errors: Vec::new(),
         }
     }
@@ -108,6 +118,10 @@ impl<'db> TemplateValidator<'db> {
             self.extends_position = ExtendsPosition::AfterExtends;
         }
 
+        if !intermediate && let Some(unique_name) = effective_spec.and_then(TagSpec::unique_name) {
+            self.check_unique_name(tag, unique_name);
+        }
+
         if effective_role != Some(TagRole::TemplateLibraryLoader)
             && !facts.structure_accepts_spelling
         {
@@ -123,7 +137,15 @@ impl<'db> TemplateValidator<'db> {
         if let Some(spec) = effective_spec
             && let Some(rules) = spec.extracted_rules()
         {
-            arguments::check_tag_arguments_rule(&mut self.errors, name, bits, span, rules);
+            let origin_name = self.origin_name();
+            arguments::check_tag_arguments_rule(
+                &mut self.errors,
+                name,
+                bits,
+                span,
+                rules,
+                origin_name,
+            );
         }
 
         if effective_role == Some(TagRole::TemplateLibraryLoader) {
@@ -135,6 +157,58 @@ impl<'db> TemplateValidator<'db> {
         }
 
         self.extends_position = self.extends_position.record_non_text();
+    }
+
+    /// Django's Parser keeps the names a compile function records for the whole template, so a
+    /// repeat fails even in another branch or nested inside the first Tag.
+    fn check_unique_name(&mut self, tag: ActiveTemplateTag<'_>, unique_name: &UniqueName) {
+        let name = tag.tag;
+        let bits = tag.bits;
+        let Some(bit) = unique_name
+            .position()
+            .checked_sub(1)
+            .and_then(|index| bits.get(index))
+        else {
+            return;
+        };
+        if self
+            .recorded_names
+            .entry(unique_name.registry().clone())
+            .or_default()
+            .insert(bit.as_str().to_string())
+        {
+            return;
+        }
+        let bit_texts = bits.iter().map(TagBit::as_str).collect::<Vec<_>>();
+        let message = unique_name
+            .message()
+            .and_then(|message| {
+                render_message_template(
+                    message,
+                    MessageContext {
+                        tag_name: name,
+                        bits: &bit_texts,
+                        origin_name: self.origin_name(),
+                    },
+                )
+            })
+            .unwrap_or_else(|| {
+                format!(
+                    "'{name}' tag with name '{}' appears more than once",
+                    bit.as_str()
+                )
+            });
+        self.errors.push(ValidationError::DuplicateTagName {
+            tag: name.to_string(),
+            name: bit.as_str().to_string(),
+            message,
+            span: bit.span,
+        });
+    }
+
+    /// What Django's filesystem loaders put in `parser.origin.name`: the Template's path.
+    fn origin_name(&self) -> &'db str {
+        self.projection.scope_file(self.db).path(self.db).as_str()
     }
 
     fn validate_consumed_arguments(&mut self, tag: ActiveTemplateTag<'_>) {

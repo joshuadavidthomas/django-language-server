@@ -203,7 +203,8 @@ pub fn code_actions(
             | ValidationError::UnknownLibrary { .. }
             | ValidationError::LibraryNotInInstalledApps { .. }
             | ValidationError::ExtendsMustBeFirst { .. }
-            | ValidationError::MultipleExtends { .. } => {}
+            | ValidationError::MultipleExtends { .. }
+            | ValidationError::DuplicateTagName { .. } => {}
         }
     }
 

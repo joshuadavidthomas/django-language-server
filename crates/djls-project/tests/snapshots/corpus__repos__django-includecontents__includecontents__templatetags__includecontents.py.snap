@@ -26,6 +26,15 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Max: 2
+        message:
+          PercentFormat:
+            template: "Invalid contents tag format: %s"
+            args:
+              - TokenContents
     argument_syntax:
       Parameters:
         - name: arg1

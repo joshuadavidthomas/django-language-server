@@ -71,6 +71,16 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Min: 3
+        message:
+          PercentFormat:
+            template: "'%s' takes at least two arguments, a model and an action."
+            args:
+              - SplitElement:
+                  Forward: 0
     argument_syntax:
       Parameters:
         - name: arg1

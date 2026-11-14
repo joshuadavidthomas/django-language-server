@@ -99,6 +99,18 @@ tag_meanings:
     role:
       - template_block
       - fallback
+    unique_name:
+      position: 1
+      registry:
+        parser_attribute: __loaded_blocks
+      message:
+        PercentFormat:
+          template: "'%s' tag with name '%s' appears more than once"
+          args:
+            - SplitElement:
+                Forward: 0
+            - SplitElement:
+                Forward: 1
     fallbacks:
       - gap: Inheritance Blocks exist only through BlockNode and ExtendsNode at render time; the compile function calls no parser API that marks the definition.
         path: django/template/loader_tags.py

@@ -180,6 +180,7 @@ pub(crate) fn evaluate_tag_rules(
     tag_name: &str,
     bits: &[&str],
     rules: &TagRule,
+    origin_name: &str,
     span: Span,
 ) -> Vec<ValidationError> {
     let mut errors = Vec::new();
@@ -187,10 +188,19 @@ pub(crate) fn evaluate_tag_rules(
     let effective_bits = effective_tag_bits(bits, rules.as_var.strips_suffix());
 
     let diagnostic_messages = rules.diagnostic_messages.as_deref().unwrap_or(&[]);
+    let context = MessageContext {
+        tag_name,
+        bits: effective_bits,
+        origin_name,
+    };
 
-    if let Some(error) =
-        validate_argument_syntax(tag_name, &rules.argument_syntax, effective_bits, span)
-    {
+    if let Some(error) = validate_argument_syntax(
+        tag_name,
+        &rules.argument_syntax,
+        effective_bits,
+        origin_name,
+        span,
+    ) {
         return vec![error];
     }
 
@@ -199,8 +209,7 @@ pub(crate) fn evaluate_tag_rules(
             message_for_constraint(
                 diagnostic_messages,
                 &ExtractedDiagnosticConstraint::ArgumentCount(constraint.clone()),
-                tag_name,
-                effective_bits,
+                context,
             )
         };
         errors.extend(constraint.validate(tag_name, effective_bits, span, message));
@@ -227,8 +236,7 @@ pub(crate) fn evaluate_tag_rules(
                             position: keyword.position,
                             value: keyword.value.clone(),
                         },
-                        tag_name,
-                        effective_bits,
+                        context,
                     )
                 };
                 errors.extend(keyword.validate(tag_name, effective_bits, span, message));
@@ -268,8 +276,7 @@ pub(crate) fn evaluate_tag_rules(
                     position: choice.position,
                     values: choice.values.clone(),
                 },
-                tag_name,
-                effective_bits,
+                context,
             )
         };
         errors.extend(choice.validate(tag_name, effective_bits, span, message));
@@ -293,11 +300,11 @@ struct AssignmentMatch {
 }
 
 fn validate_assignments(
-    tag_name: &str,
-    bits: &[&str],
+    context: MessageContext<'_>,
     operand: &AssignmentOperand,
     span: Span,
 ) -> Option<ValidationError> {
+    let MessageContext { tag_name, bits, .. } = context;
     let matched = match_assignments(bits, operand.mode);
     let cardinality_failed = match operand.cardinality {
         UniqueKeyCardinality::Any => false,
@@ -312,7 +319,7 @@ fn validate_assignments(
         };
         source_message
             .as_ref()
-            .and_then(|message| render_message_template(message, tag_name, bits))
+            .and_then(|message| render_message_template(message, context))
             .unwrap_or_else(|| {
                 if operand.cardinality == UniqueKeyCardinality::AtLeastOne {
                     format!("'{tag_name}' expected at least one variable assignment")
@@ -324,7 +331,7 @@ fn validate_assignments(
         operand
             .remainder_message
             .as_ref()
-            .and_then(|message| render_message_template(message, tag_name, bits))
+            .and_then(|message| render_message_template(message, context))
             .unwrap_or_else(|| format!("'{tag_name}' received an invalid assignment"))
     } else {
         return None;
@@ -397,8 +404,14 @@ fn validate_argument_syntax(
     tag_name: &str,
     syntax: &TagArgumentSyntax,
     bits: &[&str],
+    origin_name: &str,
     span: Span,
 ) -> Option<ValidationError> {
+    let context = MessageContext {
+        tag_name,
+        bits,
+        origin_name,
+    };
     match syntax {
         TagArgumentSyntax::Signature {
             parameters,
@@ -411,17 +424,14 @@ fn validate_argument_syntax(
             bits,
             span,
         ),
-        TagArgumentSyntax::Assignments { operand } => {
-            validate_assignments(tag_name, bits, operand, span)
-        }
+        TagArgumentSyntax::Assignments { operand } => validate_assignments(context, operand, span),
         TagArgumentSyntax::Forms {
             forms,
             coverage: ArgumentFormCoverage::Complete,
             length_mismatch_message,
         } => match_complete_forms(forms, bits).err().map(|mismatch| {
             form_mismatch_error(
-                tag_name,
-                bits,
+                context,
                 forms,
                 length_mismatch_message.as_ref(),
                 mismatch,
@@ -575,13 +585,13 @@ fn match_complete_forms<'a>(
 }
 
 fn form_mismatch_error(
-    tag_name: &str,
-    bits: &[&str],
+    context: MessageContext<'_>,
     forms: &[TagArgumentForm],
     length_mismatch_message: Option<&ExtractedMessageTemplate>,
     mismatch: TagArgumentFormMismatch<'_>,
     span: Span,
 ) -> ValidationError {
+    let MessageContext { tag_name, bits, .. } = context;
     let message = match mismatch {
         TagArgumentFormMismatch::Atom(FormAtomMismatch {
             argument_index,
@@ -590,7 +600,7 @@ fn form_mismatch_error(
         }) => {
             let forward = SplitPosition::Forward(argument_index + 1);
             message
-                .and_then(|message| render_message_template(message, tag_name, bits))
+                .and_then(|message| render_message_template(message, context))
                 .unwrap_or_else(|| match expected {
                     FormAtomExpectation::Literal(value) => {
                         format!("Tag '{tag_name}' expects '{value}' at position {forward}")
@@ -606,7 +616,7 @@ fn form_mismatch_error(
         }
         TagArgumentFormMismatch::Length => {
             if let Some(message) = length_mismatch_message
-                .and_then(|message| render_message_template(message, tag_name, bits))
+                .and_then(|message| render_message_template(message, context))
             {
                 message
             } else {
@@ -686,27 +696,36 @@ fn form_length_mismatch_error(
 fn message_for_constraint(
     messages: &[ExtractedDiagnosticMessage],
     constraint: &ExtractedDiagnosticConstraint,
-    tag_name: &str,
-    bits: &[&str],
+    context: MessageContext<'_>,
 ) -> Option<String> {
     messages.iter().find_map(|message| {
         if &message.constraint == constraint {
-            render_message_template(&message.message, tag_name, bits)
+            render_message_template(&message.message, context)
         } else {
             None
         }
     })
 }
 
-fn render_message_template(
+/// What an extracted message can name about the Tag being validated.
+#[derive(Clone, Copy)]
+pub(crate) struct MessageContext<'a> {
+    pub(crate) tag_name: &'a str,
+    /// The Tag Bits after the tag name.
+    pub(crate) bits: &'a [&'a str],
+    /// `parser.origin.name`: Django's filesystem loaders name the Template by its path.
+    pub(crate) origin_name: &'a str,
+}
+
+/// Render a message Django raises, or `None` when the Template cannot supply its arguments.
+pub(crate) fn render_message_template(
     message: &ExtractedMessageTemplate,
-    tag_name: &str,
-    bits: &[&str],
+    context: MessageContext<'_>,
 ) -> Option<String> {
     match message {
         ExtractedMessageTemplate::Static(message) => Some(message.clone()),
         ExtractedMessageTemplate::PercentFormat { template, args } => {
-            render_percent_format(template, args, tag_name, bits)
+            render_percent_format(template, args, context)
         }
     }
 }
@@ -714,8 +733,7 @@ fn render_message_template(
 fn render_percent_format(
     template: &str,
     args: &[ExtractedMessageArg],
-    tag_name: &str,
-    bits: &[&str],
+    context: MessageContext<'_>,
 ) -> Option<String> {
     let mut rendered = String::new();
     let mut chars = template.chars().peekable();
@@ -730,20 +748,10 @@ fn render_percent_format(
         let spec = chars.next()?;
         match spec {
             '%' => rendered.push('%'),
-            's' => rendered.push_str(&format_arg(
-                args.next()?,
-                tag_name,
-                bits,
-                FormatKind::String,
-            )?),
-            'r' => rendered.push_str(&format_arg(args.next()?, tag_name, bits, FormatKind::Repr)?),
+            's' => rendered.push_str(&format_arg(args.next()?, context, FormatKind::String)?),
+            'r' => rendered.push_str(&format_arg(args.next()?, context, FormatKind::Repr)?),
             'd' | 'i' => {
-                rendered.push_str(&format_arg(
-                    args.next()?,
-                    tag_name,
-                    bits,
-                    FormatKind::Integer,
-                )?);
+                rendered.push_str(&format_arg(args.next()?, context, FormatKind::Integer)?);
             }
             _ => return None,
         }
@@ -765,10 +773,14 @@ enum FormatKind {
 
 fn format_arg(
     arg: &ExtractedMessageArg,
-    tag_name: &str,
-    bits: &[&str],
+    context: MessageContext<'_>,
     kind: FormatKind,
 ) -> Option<String> {
+    let MessageContext {
+        tag_name,
+        bits,
+        origin_name,
+    } = context;
     match (arg, kind) {
         (ExtractedMessageArg::Int(value), FormatKind::Integer) => Some(value.to_string()),
         (ExtractedMessageArg::Int(value), FormatKind::String | FormatKind::Repr) => {
@@ -779,9 +791,12 @@ fn format_arg(
         (
             ExtractedMessageArg::String(_)
             | ExtractedMessageArg::SplitElement(_)
-            | ExtractedMessageArg::TokenContents,
+            | ExtractedMessageArg::TokenContents
+            | ExtractedMessageArg::OriginName,
             FormatKind::Integer,
         ) => None,
+        (ExtractedMessageArg::OriginName, FormatKind::String) => Some(origin_name.to_string()),
+        (ExtractedMessageArg::OriginName, FormatKind::Repr) => Some(python_repr(origin_name)),
         (ExtractedMessageArg::TokenContents, FormatKind::String) => {
             Some(normalized_token_contents(tag_name, bits))
         }
@@ -1058,7 +1073,7 @@ mod tests {
             ..TagRule::default()
         };
 
-        assert!(evaluate_tag_rules("manual", &[], &rule, Span::new(0, 1)).is_empty());
+        assert!(evaluate_tag_rules("manual", &[], &rule, "test.html", Span::new(0, 1)).is_empty());
     }
 
     // --- ArgumentCountConstraint tests ---
@@ -1071,7 +1086,7 @@ mod tests {
         };
         // 3 bits + tag name = split_len 4
         let bits = make_bits(&["item", "in", "items"]);
-        let errors = evaluate_tag_rules("for", &bits, &rule, Span::new(0, 10));
+        let errors = evaluate_tag_rules("for", &bits, &rule, "test.html", Span::new(0, 10));
         assert!(errors.is_empty());
     }
 
@@ -1083,7 +1098,7 @@ mod tests {
         };
         // 2 bits + tag name = split_len 3, expected 4
         let bits = make_bits(&["item", "in"]);
-        let errors = evaluate_tag_rules("for", &bits, &rule, Span::new(0, 10));
+        let errors = evaluate_tag_rules("for", &bits, &rule, "test.html", Span::new(0, 10));
         assert_eq!(errors.len(), 1);
         assert!(matches!(
             &errors[0],
@@ -1118,11 +1133,14 @@ mod tests {
             make_bits(&["first", "value", "left"]),
             make_bits(&["second", "value", "right"]),
         ] {
-            assert!(evaluate_tag_rules("custom", &bits, &rule, Span::new(0, 10)).is_empty());
+            assert!(
+                evaluate_tag_rules("custom", &bits, &rule, "test.html", Span::new(0, 10))
+                    .is_empty()
+            );
         }
         let crossed = make_bits(&["first", "value", "right"]);
         assert_eq!(
-            evaluate_tag_rules("custom", &crossed, &rule, Span::new(0, 10)).len(),
+            evaluate_tag_rules("custom", &crossed, &rule, "test.html", Span::new(0, 10)).len(),
             1
         );
     }
@@ -1145,8 +1163,13 @@ mod tests {
             ..TagRule::default()
         };
 
-        let errors =
-            evaluate_tag_rules("custom", &make_bits(&["blocked"]), &rule, Span::new(0, 10));
+        let errors = evaluate_tag_rules(
+            "custom",
+            &make_bits(&["blocked"]),
+            &rule,
+            "test.html",
+            Span::new(0, 10),
+        );
 
         assert!(matches!(
             errors.as_slice(),
@@ -1167,7 +1190,9 @@ mod tests {
             ..TagRule::default()
         };
         let unknown = make_bits(&["other", "shape"]);
-        assert!(evaluate_tag_rules("custom", &unknown, &rule, Span::new(0, 10)).is_empty());
+        assert!(
+            evaluate_tag_rules("custom", &unknown, &rule, "test.html", Span::new(0, 10)).is_empty()
+        );
     }
 
     #[test]
@@ -1184,7 +1209,7 @@ mod tests {
             }]),
             ..TagRule::default()
         };
-        let errors = evaluate_tag_rules("custom", &[], &rule, Span::new(0, 10));
+        let errors = evaluate_tag_rules("custom", &[], &rule, "test.html", Span::new(0, 10));
         assert!(matches!(
             &errors[0],
             ValidationError::ExtractedRuleViolation { message, .. }
@@ -1207,7 +1232,7 @@ mod tests {
             }]),
             ..TagRule::default()
         };
-        let errors = evaluate_tag_rules("custom", &[], &rule, Span::new(0, 10));
+        let errors = evaluate_tag_rules("custom", &[], &rule, "test.html", Span::new(0, 10));
         assert!(matches!(
             &errors[0],
             ValidationError::ExtractedRuleViolation { message, .. }
@@ -1225,8 +1250,11 @@ mod tests {
                     ExtractedMessageArg::TokenContents,
                     ExtractedMessageArg::TokenContents,
                 ],
-                "targetTag",
-                &bits,
+                MessageContext {
+                    tag_name: "targetTag",
+                    bits: &bits,
+                    origin_name: "test.html",
+                },
             ),
             Some(
                 "bad % tag: targetTag item from \"quoted value\" / 'targetTag item from \"quoted value\"'"
@@ -1250,7 +1278,7 @@ mod tests {
             }]),
             ..TagRule::default()
         };
-        let errors = evaluate_tag_rules("targetTag", &[], &rule, Span::new(0, 10));
+        let errors = evaluate_tag_rules("targetTag", &[], &rule, "test.html", Span::new(0, 10));
 
         assert!(matches!(
             &errors[0],
@@ -1266,7 +1294,7 @@ mod tests {
             ..TagRule::default()
         };
         let bits = make_bits(&["arg1", "arg2"]);
-        let errors = evaluate_tag_rules("mytag", &bits, &rule, Span::new(0, 10));
+        let errors = evaluate_tag_rules("mytag", &bits, &rule, "test.html", Span::new(0, 10));
         assert!(errors.is_empty());
     }
 
@@ -1277,7 +1305,7 @@ mod tests {
             ..TagRule::default()
         };
         let bits = make_bits(&["arg1"]);
-        let errors = evaluate_tag_rules("mytag", &bits, &rule, Span::new(0, 10));
+        let errors = evaluate_tag_rules("mytag", &bits, &rule, "test.html", Span::new(0, 10));
         assert_eq!(errors.len(), 1);
         assert!(matches!(
             &errors[0],
@@ -1293,7 +1321,7 @@ mod tests {
             ..TagRule::default()
         };
         let bits = make_bits(&["a", "b", "c"]);
-        let errors = evaluate_tag_rules("mytag", &bits, &rule, Span::new(0, 10));
+        let errors = evaluate_tag_rules("mytag", &bits, &rule, "test.html", Span::new(0, 10));
         assert!(errors.is_empty());
     }
 
@@ -1305,7 +1333,7 @@ mod tests {
         };
         let bits = make_bits(&["a", "b", "c"]);
         // split_len = 4, max = 3
-        let errors = evaluate_tag_rules("mytag", &bits, &rule, Span::new(0, 10));
+        let errors = evaluate_tag_rules("mytag", &bits, &rule, "test.html", Span::new(0, 10));
         assert_eq!(errors.len(), 1);
         assert!(matches!(
             &errors[0],
@@ -1322,7 +1350,7 @@ mod tests {
         };
         // split_len = 4 (3 bits + tag name)
         let bits = make_bits(&["a", "b", "c"]);
-        let errors = evaluate_tag_rules("mytag", &bits, &rule, Span::new(0, 10));
+        let errors = evaluate_tag_rules("mytag", &bits, &rule, "test.html", Span::new(0, 10));
         assert!(errors.is_empty());
     }
 
@@ -1334,7 +1362,7 @@ mod tests {
         };
         // split_len = 3 (2 bits + tag name), not in {2, 4}
         let bits = make_bits(&["a", "b"]);
-        let errors = evaluate_tag_rules("mytag", &bits, &rule, Span::new(0, 10));
+        let errors = evaluate_tag_rules("mytag", &bits, &rule, "test.html", Span::new(0, 10));
         assert_eq!(errors.len(), 1);
         assert!(matches!(
             &errors[0],
@@ -1356,7 +1384,7 @@ mod tests {
         };
         // bits[1] (position 2 in split_contents - 1) = "in"
         let bits = make_bits(&["item", "in", "items"]);
-        let errors = evaluate_tag_rules("for", &bits, &rule, Span::new(0, 10));
+        let errors = evaluate_tag_rules("for", &bits, &rule, "test.html", Span::new(0, 10));
         assert!(errors.is_empty());
     }
 
@@ -1370,7 +1398,7 @@ mod tests {
             ..TagRule::default()
         };
         let bits = make_bits(&["item", "from", "items"]);
-        let errors = evaluate_tag_rules("for", &bits, &rule, Span::new(0, 10));
+        let errors = evaluate_tag_rules("for", &bits, &rule, "test.html", Span::new(0, 10));
         assert_eq!(errors.len(), 1);
         assert!(matches!(
             &errors[0],
@@ -1391,7 +1419,7 @@ mod tests {
         // bits = ["'view_name'", "arg1", "as", "varname"]
         // bits[-2] = "as"
         let bits = make_bits(&["'view_name'", "arg1", "as", "varname"]);
-        let errors = evaluate_tag_rules("url", &bits, &rule, Span::new(0, 10));
+        let errors = evaluate_tag_rules("url", &bits, &rule, "test.html", Span::new(0, 10));
         assert!(errors.is_empty());
     }
 
@@ -1405,7 +1433,7 @@ mod tests {
             ..TagRule::default()
         };
         let bits = make_bits(&["'view_name'", "arg1", "with", "varname"]);
-        let errors = evaluate_tag_rules("url", &bits, &rule, Span::new(0, 10));
+        let errors = evaluate_tag_rules("url", &bits, &rule, "test.html", Span::new(0, 10));
         assert_eq!(errors.len(), 1);
     }
 
@@ -1419,7 +1447,7 @@ mod tests {
             ..TagRule::default()
         };
         let bits = make_bits(&["item"]);
-        let errors = evaluate_tag_rules("for", &bits, &rule, Span::new(0, 10));
+        let errors = evaluate_tag_rules("for", &bits, &rule, "test.html", Span::new(0, 10));
         assert!(errors.is_empty(), "Out-of-bounds keyword should be skipped");
     }
 
@@ -1433,7 +1461,7 @@ mod tests {
             ..TagRule::default()
         };
         let bits = make_bits(&["item", "in", "items"]);
-        let errors = evaluate_tag_rules("for", &bits, &rule, Span::new(0, 10));
+        let errors = evaluate_tag_rules("for", &bits, &rule, "test.html", Span::new(0, 10));
         assert!(errors.is_empty(), "Position 0 (tag name) should be skipped");
     }
 
@@ -1450,7 +1478,7 @@ mod tests {
             ..TagRule::default()
         };
         let bits = make_bits(&["'template.html'", "with", "x=1", "with", "y=2"]);
-        let errors = evaluate_tag_rules("include", &bits, &rule, Span::new(0, 10));
+        let errors = evaluate_tag_rules("include", &bits, &rule, "test.html", Span::new(0, 10));
         assert_eq!(errors.len(), 1);
         assert!(matches!(
             &errors[0],
@@ -1470,7 +1498,7 @@ mod tests {
             ..TagRule::default()
         };
         let bits = make_bits(&["'template.html'", "with", "x=1", "with", "y=2"]);
-        let errors = evaluate_tag_rules("include", &bits, &rule, Span::new(0, 10));
+        let errors = evaluate_tag_rules("include", &bits, &rule, "test.html", Span::new(0, 10));
         assert!(errors.is_empty());
     }
 
@@ -1480,7 +1508,7 @@ mod tests {
     fn empty_rules_no_errors() {
         let rule = TagRule::default();
         let bits = make_bits(&["anything", "goes", "here"]);
-        let errors = evaluate_tag_rules("mytag", &bits, &rule, Span::new(0, 10));
+        let errors = evaluate_tag_rules("mytag", &bits, &rule, "test.html", Span::new(0, 10));
         assert!(errors.is_empty());
     }
 
@@ -1500,7 +1528,7 @@ mod tests {
         // split_len = 5 (4 bits + tag name), satisfies Min(4) and Max(6)
         // bits[1] = "in", satisfies keyword
         let bits = make_bits(&["item", "in", "items", "reversed"]);
-        let errors = evaluate_tag_rules("for", &bits, &rule, Span::new(0, 10));
+        let errors = evaluate_tag_rules("for", &bits, &rule, "test.html", Span::new(0, 10));
         assert!(errors.is_empty());
     }
 
@@ -1516,7 +1544,7 @@ mod tests {
         };
         // split_len = 3, fails Min(4); bits[1] = "from", fails keyword
         let bits = make_bits(&["item", "from"]);
-        let errors = evaluate_tag_rules("for", &bits, &rule, Span::new(0, 10));
+        let errors = evaluate_tag_rules("for", &bits, &rule, "test.html", Span::new(0, 10));
         assert_eq!(errors.len(), 2);
     }
 
@@ -1535,7 +1563,7 @@ mod tests {
         // split_contents = ["for", "item", "in", "items"]
         // position 2 in split_contents = "in" = bits[1] ✓
         let bits = make_bits(&["item", "in", "items"]);
-        let errors = evaluate_tag_rules("for", &bits, &rule, Span::new(0, 10));
+        let errors = evaluate_tag_rules("for", &bits, &rule, "test.html", Span::new(0, 10));
         assert!(
             errors.is_empty(),
             "Position 2 in split_contents should map to bits[1]"
@@ -1557,7 +1585,8 @@ mod tests {
         };
         // {% user_display user as foo %} → bits = ["user", "as", "foo"]
         let bits = make_bits(&["user", "as", "foo"]);
-        let errors = evaluate_tag_rules("user_display", &bits, &rule, Span::new(0, 10));
+        let errors =
+            evaluate_tag_rules("user_display", &bits, &rule, "test.html", Span::new(0, 10));
         assert!(
             errors.is_empty(),
             "simple_tag with `as varname` should pass: {errors:?}"
@@ -1574,7 +1603,8 @@ mod tests {
         };
         // {% get_providers as providers %} → bits = ["as", "providers"]
         let bits = make_bits(&["as", "providers"]);
-        let errors = evaluate_tag_rules("get_providers", &bits, &rule, Span::new(0, 10));
+        let errors =
+            evaluate_tag_rules("get_providers", &bits, &rule, "test.html", Span::new(0, 10));
         assert!(
             errors.is_empty(),
             "simple_tag with 0 params + `as varname` should pass: {errors:?}"
@@ -1591,7 +1621,8 @@ mod tests {
         };
         // {% user_display user %} → bits = ["user"]
         let bits = make_bits(&["user"]);
-        let errors = evaluate_tag_rules("user_display", &bits, &rule, Span::new(0, 10));
+        let errors =
+            evaluate_tag_rules("user_display", &bits, &rule, "test.html", Span::new(0, 10));
         assert!(errors.is_empty(), "Normal usage should pass: {errors:?}");
     }
 
@@ -1605,7 +1636,8 @@ mod tests {
         };
         // {% user_display user extra %} → bits = ["user", "extra"]
         let bits = make_bits(&["user", "extra"]);
-        let errors = evaluate_tag_rules("user_display", &bits, &rule, Span::new(0, 10));
+        let errors =
+            evaluate_tag_rules("user_display", &bits, &rule, "test.html", Span::new(0, 10));
         assert_eq!(errors.len(), 1, "Extra args without `as` should still fail");
     }
 
@@ -1619,7 +1651,7 @@ mod tests {
         };
         // bits = ["user", "as", "foo"] → split_len=4, Max(2) fails
         let bits = make_bits(&["user", "as", "foo"]);
-        let errors = evaluate_tag_rules("mytag", &bits, &rule, Span::new(0, 10));
+        let errors = evaluate_tag_rules("mytag", &bits, &rule, "test.html", Span::new(0, 10));
         assert_eq!(
             errors.len(),
             1,
@@ -1639,7 +1671,7 @@ mod tests {
             ..TagRule::default()
         };
         let bits = make_bits(&["on"]);
-        let errors = evaluate_tag_rules("autoescape", &bits, &rule, Span::new(0, 10));
+        let errors = evaluate_tag_rules("autoescape", &bits, &rule, "test.html", Span::new(0, 10));
         assert!(errors.is_empty());
     }
 
@@ -1653,7 +1685,7 @@ mod tests {
             ..TagRule::default()
         };
         let bits = make_bits(&["unknown"]);
-        let errors = evaluate_tag_rules("autoescape", &bits, &rule, Span::new(0, 10));
+        let errors = evaluate_tag_rules("autoescape", &bits, &rule, "test.html", Span::new(0, 10));
         assert_eq!(errors.len(), 1);
         assert!(matches!(
             &errors[0],
@@ -1673,7 +1705,7 @@ mod tests {
         };
         // bits[-1] = "yes"
         let bits = make_bits(&["something", "yes"]);
-        let errors = evaluate_tag_rules("mytag", &bits, &rule, Span::new(0, 10));
+        let errors = evaluate_tag_rules("mytag", &bits, &rule, "test.html", Span::new(0, 10));
         assert!(errors.is_empty());
     }
 
@@ -1687,7 +1719,7 @@ mod tests {
             ..TagRule::default()
         };
         let bits = make_bits(&["x"]);
-        let errors = evaluate_tag_rules("mytag", &bits, &rule, Span::new(0, 10));
+        let errors = evaluate_tag_rules("mytag", &bits, &rule, "test.html", Span::new(0, 10));
         assert!(errors.is_empty());
     }
 
@@ -1717,7 +1749,12 @@ mod tests {
             (make_bits(&[]), "needs an assignment"),
             (make_bits(&["x=1", "y=2"]), "too many assignments"),
         ] {
-            let error = validate_assignments("assign", &bits, &operand, Span::new(0, 10));
+            let context = MessageContext {
+                tag_name: "assign",
+                bits: &bits,
+                origin_name: "test.html",
+            };
+            let error = validate_assignments(context, &operand, Span::new(0, 10));
             assert!(
                 matches!(error, Some(ValidationError::ExtractedRuleViolation { message: actual, .. })
                 if actual == message)
@@ -1725,8 +1762,11 @@ mod tests {
         }
         assert!(
             validate_assignments(
-                "assign",
-                &make_bits(&["x=1", "x=2"]),
+                MessageContext {
+                    tag_name: "assign",
+                    bits: &make_bits(&["x=1", "x=2"]),
+                    origin_name: "test.html",
+                },
                 &operand,
                 Span::new(0, 10)
             )
@@ -1766,7 +1806,7 @@ mod tests {
         };
         // Correct count, wrong value
         let bits = make_bits(&["bad"]);
-        let errors = evaluate_tag_rules("autoescape", &bits, &rule, Span::new(0, 10));
+        let errors = evaluate_tag_rules("autoescape", &bits, &rule, "test.html", Span::new(0, 10));
         assert_eq!(errors.len(), 1); // Only choice violation, count is correct
         assert!(matches!(
             &errors[0],

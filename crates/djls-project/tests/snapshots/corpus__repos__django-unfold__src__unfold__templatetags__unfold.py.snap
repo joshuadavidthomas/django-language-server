@@ -175,6 +175,16 @@ tag_rules:
         - include_context
       duplicate_rejection: detected
       unknown_rejection: detected
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Min: 2
+        message:
+          PercentFormat:
+            template: "%s tag takes at least one argument: the name of the template to be included."
+            args:
+              - SplitElement:
+                  Forward: 0
     argument_syntax:
       Parameters:
         - name: arg1
