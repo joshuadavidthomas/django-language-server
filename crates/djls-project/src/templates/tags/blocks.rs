@@ -13,9 +13,8 @@ use ruff_python_ast::StmtFunctionDef;
 
 use crate::ast::ExprExt;
 use crate::templates::tags::analysis::AbstractValue;
-use crate::templates::tags::analysis::constants::StaticBindings;
+use crate::templates::tags::analysis::FunctionEnv;
 use crate::templates::tags::analysis::constants::VisibleConstants;
-use crate::templates::tags::blocks::dynamic_end::FunctionEnv;
 use crate::templates::tags::types::BodyAnalysisEvidence;
 use crate::templates::tags::types::ClosingTagArguments;
 use crate::templates::tags::types::SplitPosition;
@@ -67,43 +66,32 @@ pub(super) fn is_tag_name_value(value: &AbstractValue) -> bool {
 #[cfg(test)]
 #[must_use]
 fn extract_block_spec(func: &StmtFunctionDef) -> Option<ExtractedBlockSpec> {
-    extract_block_spec_in_module(func, None)
+    extract_block_spec_in_module(&FunctionEnv::for_compile_function(func, None)?)
 }
 
-/// Like `extract_block_spec`, with the module's name-resolution facts.
+/// Like `extract_block_spec`, over a compile function bound with its module's
+/// name-resolution facts.
 ///
 /// Detectors that interpret the function body need them to prove that names
 /// such as `len` are still Python builtins, as the Tag Rule interpreter does.
 /// Stop tokens may also name module string constants from them.
 #[must_use]
-pub(crate) fn extract_block_spec_in_module(
-    func: &StmtFunctionDef,
-    static_bindings: Option<&StaticBindings>,
-) -> Option<ExtractedBlockSpec> {
-    let parser_var = func
-        .parameters
-        .args
-        .first()
-        .map(|p| p.parameter.name.to_string())?;
-
-    let token_var = func
-        .parameters
-        .args
-        .get(1)
-        .map(|p| p.parameter.name.to_string())?;
-
-    let env = FunctionEnv::new(func, static_bindings, &parser_var, &token_var);
-    let skip_past = opaque::detect(&func.body, &parser_var);
-    let parse_detected = parse_calls::is_detected(&func.body, &parser_var);
+pub(crate) fn extract_block_spec_in_module(env: &FunctionEnv<'_>) -> Option<ExtractedBlockSpec> {
+    let func = env.func();
+    let static_bindings = env.static_bindings();
+    let parser_var = env.parser_var();
+    let token_var = env.token_var();
+    let skip_past = opaque::detect(&func.body, parser_var);
+    let parse_detected = parse_calls::is_detected(&func.body, parser_var);
     let constants = match static_bindings {
         Some(bindings) if names_stop_tokens(func) => bindings.visible_in(func),
         _ => VisibleConstants::default(),
     };
     // A dynamic end tag needs a `parser.parse()` call; without one, skip interpreting the body.
     let parse_spec =
-        parse_calls::detect(&func.body, &parser_var, &token_var, &constants).or_else(|| {
+        parse_calls::detect(&func.body, parser_var, token_var, &constants).or_else(|| {
             if parse_detected {
-                dynamic_end::detect(func, &env, &parser_var)
+                dynamic_end::detect(func, env, parser_var)
             } else {
                 None
             }
@@ -117,13 +105,11 @@ pub(crate) fn extract_block_spec_in_module(
     let mut spec = match (skip_past, parse_detected) {
         (Some(skip_spec), true) => combine_mixed_structure(&skip_spec, parse_spec),
         (Some(skip_spec), false) => skip_spec,
-        (None, _) => {
-            parse_spec.or_else(|| next_token::detect(func, &env, &parser_var, &token_var))?
-        }
+        (None, _) => parse_spec.or_else(|| next_token::detect(func, env, parser_var, token_var))?,
     };
     spec.body_analysis_evidence = body_analysis_evidence;
     if let EndTagEvidence::Literal(end_tag) = &spec.end_tag {
-        spec.closing_arguments = closing_arguments::detect(func, &env, &parser_var, end_tag);
+        spec.closing_arguments = closing_arguments::detect(func, env, parser_var, end_tag);
     }
     Some(spec)
 }
@@ -355,6 +341,7 @@ mod tests {
     use ruff_python_parser::parse_module;
 
     use super::*;
+    use crate::templates::tags::analysis::constants::StaticBindings;
     use crate::templates::tags::testing::django_function;
     use crate::templates::tags::testing::find_function_in_source;
     use crate::templates::tags::testing::fixture_source;
@@ -649,8 +636,10 @@ def do_block(parser, token):
     fn block_closer_may_repeat_block_name() {
         let (func, bindings) =
             django_function_in_module("django/template/loader_tags.py", "do_block");
-        let spec = extract_block_spec_in_module(&func, Some(&bindings))
-            .expect("should extract block spec");
+        let spec = extract_block_spec_in_module(
+            &FunctionEnv::for_compile_function(&func, Some(&bindings)).expect("compile function"),
+        )
+        .expect("should extract block spec");
         assert_eq!(spec.end_tag.as_literal(), Some("endblock"));
         assert_eq!(
             spec.closing_arguments,
@@ -664,8 +653,10 @@ def do_block(parser, token):
     fn partialdef_stop_tokens_resolve_through_local_tuple() {
         let (func, bindings) =
             django_function_in_module("django/template/defaulttags.py", "partialdef_func");
-        let spec = extract_block_spec_in_module(&func, Some(&bindings))
-            .expect("should extract block spec");
+        let spec = extract_block_spec_in_module(
+            &FunctionEnv::for_compile_function(&func, Some(&bindings)).expect("compile function"),
+        )
+        .expect("should extract block spec");
         assert_eq!(spec.end_tag.as_literal(), Some("endpartialdef"));
         assert!(spec.intermediates.is_empty());
         assert_eq!(
@@ -733,8 +724,10 @@ def do_if(parser, token):
     fn simple_block_with_endblock_validation() {
         let (func, bindings) =
             django_function_in_module("django/template/loader_tags.py", "do_block");
-        let spec = extract_block_spec_in_module(&func, Some(&bindings))
-            .expect("should extract block spec");
+        let spec = extract_block_spec_in_module(
+            &FunctionEnv::for_compile_function(&func, Some(&bindings)).expect("compile function"),
+        )
+        .expect("should extract block spec");
         assert_eq!(spec.end_tag.as_literal(), Some("endblock"));
         assert!(spec.intermediates.is_empty());
         assert_eq!(

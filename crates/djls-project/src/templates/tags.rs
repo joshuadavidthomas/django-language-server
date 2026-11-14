@@ -17,6 +17,7 @@ use crate::templates::tags::analysis::AbstractValue;
 use crate::templates::tags::analysis::AbstractValueKey;
 use crate::templates::tags::analysis::CallContext;
 use crate::templates::tags::analysis::Env;
+pub(crate) use crate::templates::tags::analysis::FunctionEnv;
 pub(crate) use crate::templates::tags::analysis::TagSourceContext;
 pub(crate) use crate::templates::tags::analysis::constants::module_static_bindings;
 use crate::templates::tags::analysis::process_statements;

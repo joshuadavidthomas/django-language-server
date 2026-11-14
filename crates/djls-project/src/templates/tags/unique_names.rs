@@ -22,14 +22,10 @@ use crate::ast::ExprExt;
 use crate::ast::Recurse;
 use crate::ast::walk_stmts;
 use crate::templates::tags::analysis::AbstractValue;
-use crate::templates::tags::analysis::CallContext;
-use crate::templates::tags::analysis::Env;
-use crate::templates::tags::analysis::constants::StaticBindings;
-use crate::templates::tags::analysis::constants::seed_static_bindings;
+use crate::templates::tags::analysis::FunctionEnv;
 use crate::templates::tags::analysis::exceptions::direct_raise_exception;
 use crate::templates::tags::analysis::exceptions::extract_exception_message;
 use crate::templates::tags::analysis::expressions::eval_expr;
-use crate::templates::tags::analysis::process_statements;
 use crate::templates::tags::blocks::is_parser_receiver;
 use crate::templates::tags::meaning::NameRegistry;
 use crate::templates::tags::meaning::UniqueName;
@@ -49,13 +45,16 @@ use crate::templates::tags::types::SplitPosition;
 /// Tag with that name fails while compiling the same template. When another function in the
 /// module writes the registry, as Tetra's component tag resets `parser.__loaded_slots` around
 /// each component body, names are unique only within that scope, so no fact is extracted.
-pub(crate) fn extract_unique_name(
-    func: &StmtFunctionDef,
-    module: &[Stmt],
-    static_bindings: Option<&StaticBindings>,
+///
+/// A cheap scan for a guard and a record rejects almost every compile function first. Only then
+/// does extraction read `function`'s interpretation, which block extraction shares, and the
+/// module body from `module`.
+pub(crate) fn extract_unique_name<'m>(
+    function: &FunctionEnv<'_>,
+    module: impl FnOnce() -> Option<&'m [Stmt]>,
 ) -> Option<UniqueName> {
-    let parser_var = func.parameters.args.first()?.parameter.name.as_str();
-    let token_var = func.parameters.args.get(1)?.parameter.name.as_str();
+    let func = function.func();
+    let parser_var = function.parser_var();
     let registries = Registries {
         parser_var,
         aliases: registry_aliases(&func.body, parser_var),
@@ -94,16 +93,7 @@ pub(crate) fn extract_unique_name(
     if guards.is_empty() || records.is_empty() {
         return None;
     }
-
-    let mut env = Env::for_compile_function(parser_var, token_var);
-    if let Some(static_bindings) = static_bindings {
-        seed_static_bindings(static_bindings, func, &mut env);
-    }
-    let mut ctx = CallContext {
-        source: None,
-        manual_as_var_strips: &[],
-    };
-    let _ = process_statements(&func.body, &mut env, &mut ctx);
+    let env = function.get();
     let split_position = |expr: &Expr| {
         let AbstractValue::SplitElement {
             index: SplitPosition::Forward(position),
@@ -127,11 +117,13 @@ pub(crate) fn extract_unique_name(
                     UniqueName::new(
                         position,
                         registry,
-                        extract_exception_message(exception, &env),
+                        extract_exception_message(exception, env),
                     )
                 })
         })
-        .filter(|unique_name| !written_elsewhere(module, func, unique_name.registry()))
+        .filter(|unique_name| {
+            module().is_some_and(|module| !written_elsewhere(module, func, unique_name.registry()))
+        })
 }
 
 /// Whether a function other than `func` stores to, deletes, or pops the registry.
@@ -376,6 +368,7 @@ mod tests {
     use ruff_python_parser::parse_module;
 
     use super::*;
+    use crate::templates::tags::analysis::constants::StaticBindings;
     use crate::templates::tags::testing::find_function_in_source;
     use crate::templates::tags::testing::fixture_source;
     use crate::templates::tags::types::ExtractedMessageArg;
@@ -387,11 +380,11 @@ mod tests {
         let Some(func) = find_function_in_source(source, name) else {
             panic!("fixture should define {name}");
         };
-        extract_unique_name(
-            &func,
-            &module.body,
-            Some(&StaticBindings::from_module(&module.body)),
-        )
+        let bindings = StaticBindings::from_module(&module.body);
+        let Some(function) = FunctionEnv::for_compile_function(&func, Some(&bindings)) else {
+            panic!("{name} should be a compile function");
+        };
+        extract_unique_name(&function, || Some(&module.body))
     }
 
     fn unique_name(source: &str) -> Option<UniqueName> {

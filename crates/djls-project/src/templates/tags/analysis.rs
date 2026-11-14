@@ -26,6 +26,7 @@ pub(crate) mod constraints;
 pub(crate) mod consumption;
 pub(crate) mod exceptions;
 pub(crate) mod expressions;
+mod function_env;
 pub(crate) mod guards;
 pub(crate) mod mutations;
 mod native;
@@ -46,6 +47,7 @@ use ruff_text_size::Ranged;
 use ruff_text_size::TextRange;
 
 pub(crate) use self::calls::AbstractValueKey;
+pub(crate) use self::function_env::FunctionEnv;
 pub(crate) use self::state::AbstractValue;
 pub(crate) use self::state::AssignmentCall;
 pub(crate) use self::state::Env;
