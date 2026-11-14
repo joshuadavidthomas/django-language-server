@@ -20,6 +20,16 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Exact: 2
+        message:
+          PercentFormat:
+            template: "'%s' tag requires a single argument 'partial_name'"
+            args:
+              - SplitElement:
+                  Forward: 0
     argument_syntax:
       Parameters:
         - name: partial_name

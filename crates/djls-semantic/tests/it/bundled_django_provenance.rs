@@ -12,6 +12,7 @@ use djls_project::BodyAnalysisEvidence;
 use djls_project::BodyLexing;
 use djls_project::Db as _;
 use djls_project::FactProvenance;
+use djls_project::NameRegistry;
 use djls_project::Project;
 use djls_project::ScopedTemplateLibraries;
 use djls_project::SymbolKey;
@@ -125,7 +126,7 @@ fn provenance_rows(
     db: &dyn djls_semantic::Db,
     project: Project,
     library: &TemplateLibrary<'_>,
-) -> Vec<[String; 8]> {
+) -> Vec<[String; 9]> {
     let module = library.module_name_str();
     let facts = template_library_tag_facts(db, library.id());
     let fused = library_tag_specs(db, project, library.id());
@@ -147,6 +148,7 @@ fn provenance_rows(
                 return [
                     library_label(library),
                     name,
+                    "-".into(),
                     "-".into(),
                     "-".into(),
                     "-".into(),
@@ -241,6 +243,26 @@ fn provenance_rows(
                 },
             );
 
+            let unique_name_cell = meaning
+                .and_then(|meaning| meaning.unique_name())
+                .map_or_else(
+                    || "-".to_string(),
+                    |unique_name| {
+                        let registry = match unique_name.registry() {
+                            NameRegistry::ParserAttribute(attribute) => {
+                                format!("parser.{attribute}")
+                            }
+                            NameRegistry::ParserExtraData(key) => {
+                                format!("parser.extra_data[{key:?}]")
+                            }
+                        };
+                        cell(
+                            Source::Extracted,
+                            &format!("bit {} in {registry}", unique_name.position()),
+                        )
+                    },
+                );
+
             [
                 library_label(library),
                 name,
@@ -250,6 +272,7 @@ fn provenance_rows(
                 consumption_cell,
                 role_cell,
                 condition_cell,
+                unique_name_cell,
             ]
         })
         .collect()
@@ -282,6 +305,7 @@ fn bundled_django_tag_fact_provenance() {
                 "consumption",
                 "role",
                 "condition",
+                "unique name",
             ]
             .map(String::from),
         ];
@@ -289,7 +313,7 @@ fn bundled_django_tag_fact_provenance() {
             rows.extend(provenance_rows(&db, project, library));
         }
 
-        let mut widths = [0; 8];
+        let mut widths = [0; 9];
         for row in &rows {
             for (width, value) in widths.iter_mut().zip(row) {
                 *width = (*width).max(value.len());

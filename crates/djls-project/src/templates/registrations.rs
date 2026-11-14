@@ -32,6 +32,7 @@ use super::tags::TagRuleMap;
 use super::tags::apply_fallback_rules;
 use super::tags::blocks::EndTagEvidence;
 use super::tags::extract_tag_role;
+use super::tags::extract_unique_name;
 use crate::ast::ExprExt;
 use crate::ast::RangedExt;
 use crate::db::Db as ProjectDb;
@@ -1938,6 +1939,18 @@ fn tag_meaning(db: &dyn ProjectDb, descriptor: &RegistrationDescriptor) -> TagMe
             .and_then(extract_tag_role)
     {
         meaning.set_role(role, FactProvenance::Extracted);
+    }
+    if descriptor.kind == RegistrationKind::Tag
+        && let Some(definition) = function
+        && let Some(func) = definition.statement(db)
+        && let Ok(Some(module)) = RecoveredPythonModule::from_file(db, definition.file())
+        && let Some(unique_name) = extract_unique_name(
+            func,
+            module.body(db),
+            Some(module_static_bindings(db, definition.file())),
+        )
+    {
+        meaning.set_unique_name(unique_name);
     }
     apply_fallback_rules(&mut meaning, &descriptor.key.name, function);
     meaning

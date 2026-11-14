@@ -153,16 +153,18 @@ pub enum ExtractedDiagnosticConstraint {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ExtractedMessageTemplate {
     Static(String),
+    /// A `%` format, or an f-string lowered to one: each interpolation becomes `%s`, or `%r`
+    /// for `!r`, and literal `%` becomes `%%`.
     PercentFormat {
         template: String,
         args: Vec<ExtractedMessageArg>,
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ExtractedMessageArg {
     SplitElement(SplitPosition),
     /// The source token reconstructed from the semantic tag name and Tag Bits.
@@ -170,6 +172,9 @@ pub enum ExtractedMessageArg {
     /// Rendering joins the tag name and each bit with one ASCII space. This
     /// preserves bit spellings, including quotes, but normalizes source whitespace.
     TokenContents,
+    /// `parser.origin.name`: the name of the template being compiled, which Django's filesystem
+    /// loaders set to the template's path.
+    OriginName,
     String(String),
     Int(i64),
 }

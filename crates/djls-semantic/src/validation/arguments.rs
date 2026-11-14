@@ -13,10 +13,11 @@ pub(crate) fn check_tag_arguments_rule(
     bits: &[TagBit],
     span: Span,
     rules: &TagRule,
+    origin_name: &str,
 ) {
     let full_span = span.expand(TagDelimiter::LENGTH_U32, TagDelimiter::LENGTH_U32);
     let bits = bits.iter().map(TagBit::as_str).collect::<Vec<_>>();
-    for error in evaluate_tag_rules(name, &bits, rules, full_span) {
+    for error in evaluate_tag_rules(name, &bits, rules, origin_name, full_span) {
         errors.push(error);
     }
 }

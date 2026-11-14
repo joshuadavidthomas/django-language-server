@@ -93,6 +93,7 @@ pub use tags::FormAtomExpectation;
 pub use tags::FormAtomMismatch;
 pub use tags::FormContinuation;
 pub use tags::KnownOptions;
+pub use tags::NameRegistry;
 pub use tags::OptionRejection;
 pub use tags::ParameterRequirement;
 pub use tags::RemainderPolicy;
@@ -114,6 +115,7 @@ pub use tags::TagRule;
 pub use tags::TagRuleMap;
 pub use tags::TemplateReferenceKind;
 pub use tags::UniqueKeyCardinality;
+pub use tags::UniqueName;
 
 use crate::db::Db as ProjectDb;
 use crate::project::Project;

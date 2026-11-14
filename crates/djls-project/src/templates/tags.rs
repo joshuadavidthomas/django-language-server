@@ -6,6 +6,7 @@ mod registry;
 mod roles;
 mod signature;
 mod types;
+mod unique_names;
 
 #[cfg(test)]
 pub(crate) mod testing;
@@ -24,10 +25,12 @@ pub use crate::templates::tags::meaning::BodyLexing;
 pub use crate::templates::tags::meaning::ConditionArguments;
 pub use crate::templates::tags::meaning::FactProvenance;
 pub use crate::templates::tags::meaning::FallbackCitation;
+pub use crate::templates::tags::meaning::NameRegistry;
 pub use crate::templates::tags::meaning::TagMeaning;
 pub use crate::templates::tags::meaning::TagMeaningMap;
 pub use crate::templates::tags::meaning::TagRole;
 pub use crate::templates::tags::meaning::TemplateReferenceKind;
+pub use crate::templates::tags::meaning::UniqueName;
 pub(crate) use crate::templates::tags::roles::extract_tag_role;
 pub use crate::templates::tags::types::ArgumentConsumption;
 pub use crate::templates::tags::types::ArgumentCountConstraint;
@@ -66,6 +69,7 @@ pub use crate::templates::tags::types::TagBitSpan;
 pub use crate::templates::tags::types::TagRule;
 pub use crate::templates::tags::types::TagRuleMap;
 pub use crate::templates::tags::types::UniqueKeyCardinality;
+pub(crate) use crate::templates::tags::unique_names::extract_unique_name;
 
 /// Interned key for an exact helper function call.
 #[salsa::interned]
