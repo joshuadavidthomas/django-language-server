@@ -500,11 +500,13 @@ mod invalidation_tests {
         assert_eq!(primed.library_count(), 3);
         assert_eq!(primed.reprime_files().len(), 2);
         assert_eq!(primed.full_reload_files().len(), 1);
-        assert!(primed.covered_files().all(|file| {
-            file.path(&db)
-                .extension()
-                .is_some_and(|extension| extension == "py")
-        }));
+        for files in [primed.reprime_files(), primed.full_reload_files()] {
+            assert!(files.iter().all(|file| {
+                file.path(&db)
+                    .extension()
+                    .is_some_and(|extension| extension == "py")
+            }));
+        }
         let prime_events = event_log.take();
         assert_eq!(
             will_execute_count(&db, &prime_events, "template_library_structure_facts"),
