@@ -7,7 +7,6 @@ use djls_source::File;
 use djls_templates::Db as TemplatesDb;
 
 use crate::errors::ValidationError;
-use crate::filters::FilterAritySpecs;
 use crate::tags::TagSpecs;
 
 #[salsa::db]
@@ -20,9 +19,6 @@ pub trait Db: ProjectDb + TemplatesDb {
 
     /// Get the diagnostics configuration.
     fn diagnostics_config(&self) -> DiagnosticsConfig;
-
-    /// Explicit fixture seam for Filter validation without a Project.
-    fn projectless_filter_arity_specs(&self) -> &FilterAritySpecs;
 }
 
 pub fn scoped_template_libraries_for_file(

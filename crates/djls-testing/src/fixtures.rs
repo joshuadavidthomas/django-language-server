@@ -26,7 +26,6 @@ use djls_project::TemplateSymbolName;
 use djls_project::file_to_module;
 use djls_project::testing;
 use djls_project::testing::TemplateLibraryInput;
-use djls_semantic::FilterAritySpecs;
 use djls_semantic::TagSpecs;
 use djls_semantic::ValidationError;
 use djls_semantic::ValidationErrorAccumulator;
@@ -442,20 +441,13 @@ pub fn collect_argument_validation_errors_with_revision(
             matches!(
                 error,
                 ValidationError::ExpressionSyntaxError { .. }
-                    | ValidationError::FilterMissingArgument { .. }
-                    | ValidationError::FilterUnexpectedArgument { .. }
                     | ValidationError::ExtractedRuleViolation { .. }
             )
         })
         .collect())
 }
 
-fn extract_and_merge(
-    _corpus: &Corpus,
-    dir: &Utf8Path,
-    specs: &mut TagSpecs,
-    arities: &mut FilterAritySpecs,
-) -> anyhow::Result<()> {
+fn extract_and_merge(dir: &Utf8Path, specs: &mut TagSpecs) -> anyhow::Result<()> {
     let db = TestDatabase::new();
 
     for file_path in &Corpus::extraction_targets_in(dir) {
@@ -469,7 +461,6 @@ fn extract_and_merge(
         let file = db.file(file_path)?;
         let bundle = extract_bundle(&db, file, module_name);
 
-        arities.merge_filter_arities(&bundle.filter_arities);
         specs
             .merge_tag_rules(&bundle.tag_rules)
             .merge_block_specs(&bundle.block_specs)
@@ -479,22 +470,14 @@ fn extract_and_merge(
 }
 
 /// Projectless specs for Django's bundled libraries, with `entry_dir`'s libraries merged on top.
-pub fn build_specs_from_extraction(
-    corpus: &Corpus,
-    entry_dir: &Utf8Path,
-) -> anyhow::Result<(TagSpecs, FilterAritySpecs)> {
+pub fn build_specs_from_extraction(entry_dir: &Utf8Path) -> anyhow::Result<TagSpecs> {
     let mut specs = bundled_django_tag_specs().clone();
-    let mut arities = FilterAritySpecs::new();
-    extract_and_merge(corpus, entry_dir, &mut specs, &mut arities)?;
-    Ok((specs, arities))
+    extract_and_merge(entry_dir, &mut specs)?;
+    Ok(specs)
 }
 
-pub fn build_entry_specs(
-    corpus: &Corpus,
-    entry_dir: &Utf8Path,
-) -> anyhow::Result<(TagSpecs, FilterAritySpecs)> {
+pub fn build_entry_specs(corpus: &Corpus, entry_dir: &Utf8Path) -> anyhow::Result<TagSpecs> {
     let mut specs = TagSpecs::default();
-    let mut arities = FilterAritySpecs::new();
     let name = entry_dir.file_name().context("missing corpus entry name")?;
     let db = corpus.environment_database(name)?;
     let project = db.project().context("missing corpus project")?;
@@ -517,14 +500,13 @@ pub fn build_entry_specs(
         let module = file_to_module(&db, project, path.clone())
             .with_context(|| format!("extraction target `{path}` does not resolve in `{name}`"))?;
         let bundle = extract_bundle(&db, module.file(), module.name().clone());
-        arities.merge_filter_arities(&bundle.filter_arities);
         specs
             .merge_tag_rules(&bundle.tag_rules)
             .merge_block_specs(&bundle.block_specs)
             .merge_tag_meanings(&bundle.tag_meanings);
     }
 
-    Ok((specs, arities))
+    Ok(specs)
 }
 
 /// Render validation errors into a plain-text diagnostic snapshot.
