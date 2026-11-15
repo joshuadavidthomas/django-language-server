@@ -1,7 +1,11 @@
+use ruff_python_ast::ConversionFlag;
 use ruff_python_ast::Expr;
 use ruff_python_ast::ExprAttribute;
 use ruff_python_ast::ExprBinOp;
 use ruff_python_ast::ExprCall;
+use ruff_python_ast::ExprFString;
+use ruff_python_ast::FStringPart;
+use ruff_python_ast::InterpolatedStringElement;
 use ruff_python_ast::Operator;
 use ruff_python_ast::Stmt;
 use ruff_python_ast::StmtRaise;
@@ -17,7 +21,7 @@ use crate::templates::tags::types::ExtractedMessageTemplate;
 ///
 /// Only checks direct children (does not recurse into nested control flow).
 /// Any exception type counts — `TemplateSyntaxError`, `ValueError`, etc.
-pub(super) fn direct_raise_exception(body: &[Stmt]) -> Option<&Expr> {
+pub(crate) fn direct_raise_exception(body: &[Stmt]) -> Option<&Expr> {
     body.iter().find_map(|stmt| {
         let Stmt::Raise(StmtRaise { exc: Some(exc), .. }) = stmt else {
             return None;
@@ -26,7 +30,7 @@ pub(super) fn direct_raise_exception(body: &[Stmt]) -> Option<&Expr> {
     })
 }
 
-pub(super) fn extract_exception_message(
+pub(crate) fn extract_exception_message(
     expr: &Expr,
     env: &Env,
 ) -> Option<ExtractedMessageTemplate> {
@@ -40,6 +44,9 @@ pub(super) fn extract_exception_message(
     }
     if let AbstractValue::Str(message) = eval_expr(first_arg, &mut env.clone()) {
         return Some(ExtractedMessageTemplate::Static(message));
+    }
+    if let Expr::FString(fstring) = first_arg {
+        return lower_fstring(fstring, env);
     }
 
     let Expr::BinOp(ExprBinOp {
@@ -101,7 +108,67 @@ pub(super) fn extract_exception_message(
     Some(ExtractedMessageTemplate::PercentFormat { template, args })
 }
 
+/// Lower an f-string to the `%` format it renders like. Format specs, `!a`, and `=` have no
+/// `%` equivalent here, so they leave the message unextracted.
+fn lower_fstring(fstring: &ExprFString, env: &Env) -> Option<ExtractedMessageTemplate> {
+    let mut template = String::new();
+    let mut args = Vec::new();
+    for part in &fstring.value {
+        let elements = match part {
+            FStringPart::Literal(literal) => {
+                template.push_str(&literal.value.replace('%', "%%"));
+                continue;
+            }
+            FStringPart::FString(fstring) => &fstring.elements,
+        };
+        for element in elements {
+            match element {
+                InterpolatedStringElement::Literal(literal) => {
+                    template.push_str(&literal.value.replace('%', "%%"));
+                }
+                InterpolatedStringElement::Interpolation(interpolation) => {
+                    if interpolation.format_spec.is_some() || interpolation.debug_text.is_some() {
+                        return None;
+                    }
+                    template.push_str(match interpolation.conversion {
+                        ConversionFlag::None | ConversionFlag::Str => "%s",
+                        ConversionFlag::Repr => "%r",
+                        ConversionFlag::Ascii => return None,
+                    });
+                    args.push(extract_message_arg(&interpolation.expression, env)?);
+                }
+            }
+        }
+    }
+    Some(if args.is_empty() {
+        ExtractedMessageTemplate::Static(template.replace("%%", "%"))
+    } else {
+        ExtractedMessageTemplate::PercentFormat { template, args }
+    })
+}
+
+/// `parser.origin.name`
+fn is_origin_name(expr: &Expr, env: &Env) -> bool {
+    let Expr::Attribute(ExprAttribute { value, attr, .. }) = expr else {
+        return false;
+    };
+    let Expr::Attribute(ExprAttribute {
+        value: parser,
+        attr: origin,
+        ..
+    }) = value.as_ref()
+    else {
+        return false;
+    };
+    attr.as_str() == "name"
+        && origin.as_str() == "origin"
+        && matches!(eval_expr(parser, &mut env.clone()), AbstractValue::Parser)
+}
+
 fn extract_message_arg(expr: &Expr, env: &Env) -> Option<ExtractedMessageArg> {
+    if is_origin_name(expr, env) {
+        return Some(ExtractedMessageArg::OriginName);
+    }
     if let Expr::Attribute(ExprAttribute { value, attr, .. }) = expr
         && attr.as_str() == "contents"
         && matches!(eval_expr(value, &mut env.clone()), AbstractValue::Token)

@@ -1,4 +1,3 @@
-use std::cell::OnceCell;
 use std::ops::ControlFlow;
 
 use ruff_python_ast::Expr;
@@ -17,12 +16,9 @@ use ruff_python_ast::StmtReturn;
 use crate::ast::ExprExt;
 use crate::ast::Recurse;
 use crate::ast::walk_stmts;
-use crate::templates::tags::analysis::CallContext;
 use crate::templates::tags::analysis::Env;
-use crate::templates::tags::analysis::constants::StaticBindings;
-use crate::templates::tags::analysis::constants::seed_static_bindings;
+use crate::templates::tags::analysis::FunctionEnv;
 use crate::templates::tags::analysis::expressions::eval_expr;
-use crate::templates::tags::analysis::process_statements;
 use crate::templates::tags::blocks::EndTagEvidence;
 use crate::templates::tags::blocks::ExtractedBlockSpec;
 use crate::templates::tags::blocks::is_parser_receiver;
@@ -48,49 +44,6 @@ pub(super) fn detect(
         body_analysis_evidence: BodyAnalysisEvidence::NotDetected,
         closing_arguments: ClosingTagArguments::Unchecked,
     })
-}
-
-/// The compile function body interpreted like the Tag Rule interpreter does, once, on first use.
-///
-/// Several detectors read it, and interpreting a body is the expensive part of block extraction.
-pub(super) struct FunctionEnv<'a> {
-    func: &'a StmtFunctionDef,
-    static_bindings: Option<&'a StaticBindings>,
-    parser_var: &'a str,
-    token_var: &'a str,
-    env: OnceCell<Env>,
-}
-
-impl<'a> FunctionEnv<'a> {
-    pub(super) fn new(
-        func: &'a StmtFunctionDef,
-        static_bindings: Option<&'a StaticBindings>,
-        parser_var: &'a str,
-        token_var: &'a str,
-    ) -> Self {
-        Self {
-            func,
-            static_bindings,
-            parser_var,
-            token_var,
-            env: OnceCell::new(),
-        }
-    }
-
-    pub(super) fn get(&self) -> &Env {
-        self.env.get_or_init(|| {
-            let mut env = Env::for_compile_function(self.parser_var, self.token_var);
-            if let Some(static_bindings) = self.static_bindings {
-                seed_static_bindings(static_bindings, self.func, &mut env);
-            }
-            let mut ctx = CallContext {
-                source: None,
-                manual_as_var_strips: &[],
-            };
-            let _result = process_statements(&self.func.body, &mut env, &mut ctx);
-            env
-        })
-    }
 }
 
 pub(super) fn collect_simple_assignments(body: &[Stmt]) -> Vec<(String, &Expr)> {

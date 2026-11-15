@@ -8,6 +8,7 @@ use rustc_hash::FxHashMap;
 use serde::Serialize;
 
 use crate::templates::SymbolKey;
+use crate::templates::tags::types::ExtractedMessageTemplate;
 
 pub type TagMeaningMap = FxHashMap<SymbolKey, TagMeaning>;
 
@@ -84,6 +85,58 @@ impl ConditionArguments {
     }
 }
 
+/// Per-template state on Django's `Parser` where a compile function records names.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NameRegistry {
+    /// An attribute of the parser, such as `parser.__loaded_blocks`.
+    ParserAttribute(String),
+    /// A key of `parser.extra_data`.
+    ParserExtraData(String),
+}
+
+/// An opener argument that names something once per template: the compile function records it
+/// in a [`NameRegistry`] and raises when the name is already there.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+pub struct UniqueName {
+    /// Split position of the argument; 0 is the tag name.
+    position: usize,
+    registry: NameRegistry,
+    /// The message the compile function raises for a repeated name.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    message: Option<ExtractedMessageTemplate>,
+}
+
+impl UniqueName {
+    pub(crate) fn new(
+        position: usize,
+        registry: NameRegistry,
+        message: Option<ExtractedMessageTemplate>,
+    ) -> Self {
+        Self {
+            position,
+            registry,
+            message,
+        }
+    }
+
+    #[must_use]
+    pub fn position(&self) -> usize {
+        self.position
+    }
+
+    /// Tags that share a registry reject each other's names.
+    #[must_use]
+    pub fn registry(&self) -> &NameRegistry {
+        &self.registry
+    }
+
+    #[must_use]
+    pub fn message(&self) -> Option<&ExtractedMessageTemplate> {
+        self.message.as_ref()
+    }
+}
+
 /// Meaning of one Tag Definition.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize)]
 pub struct TagMeaning {
@@ -93,6 +146,8 @@ pub struct TagMeaning {
     body_lexing: BodyLexing,
     #[serde(skip_serializing_if = "Option::is_none")]
     condition: Option<ConditionArguments>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    unique_name: Option<UniqueName>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     fallbacks: Vec<FallbackCitation>,
 }
@@ -129,6 +184,12 @@ impl TagMeaning {
         self.condition.as_ref()
     }
 
+    /// Always extracted from the compile function's membership check.
+    #[must_use]
+    pub fn unique_name(&self) -> Option<&UniqueName> {
+        self.unique_name.as_ref()
+    }
+
     /// Fallback Rules that contributed facts to this meaning.
     #[must_use]
     pub fn fallbacks(&self) -> &[FallbackCitation] {
@@ -150,6 +211,10 @@ impl TagMeaning {
 
     pub(crate) fn set_condition(&mut self, condition: ConditionArguments) {
         self.condition = Some(condition);
+    }
+
+    pub(crate) fn set_unique_name(&mut self, unique_name: UniqueName) {
+        self.unique_name = Some(unique_name);
     }
 
     pub(crate) fn cite_fallback(&mut self, citation: FallbackCitation) {

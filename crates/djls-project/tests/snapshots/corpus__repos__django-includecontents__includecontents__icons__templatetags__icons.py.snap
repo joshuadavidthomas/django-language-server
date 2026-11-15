@@ -20,6 +20,16 @@ tag_rules:
     required_keywords: []
     choice_at_constraints: []
     known_options: ~
+    diagnostic_messages:
+      - constraint:
+          ArgumentCount:
+            Min: 2
+        message:
+          PercentFormat:
+            template: "%s tag requires at least one argument: the icon name"
+            args:
+              - SplitElement:
+                  Forward: 0
     argument_syntax:
       Parameters:
         - name: icon_name_token

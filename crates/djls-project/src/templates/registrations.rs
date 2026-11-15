@@ -26,12 +26,14 @@ use super::symbols::TemplateSymbolSource;
 use super::tags::BlockSpec;
 use super::tags::BlockSpecs;
 use super::tags::FactProvenance;
+use super::tags::FunctionEnv;
 use super::tags::TagMeaning;
 use super::tags::TagMeaningMap;
 use super::tags::TagRuleMap;
 use super::tags::apply_fallback_rules;
 use super::tags::blocks::EndTagEvidence;
 use super::tags::extract_tag_role;
+use super::tags::extract_unique_name;
 use crate::ast::ExprExt;
 use crate::ast::RangedExt;
 use crate::db::Db as ProjectDb;
@@ -1880,7 +1882,18 @@ pub fn template_library_structure_facts<'db>(
         if descriptor.kind.symbol_kind() != TemplateSymbolKind::Tag {
             continue;
         }
-        let meaning = tag_meaning(db, descriptor);
+        // One interpretation of the body serves both the meaning and the block spec.
+        let statement = descriptor
+            .function
+            .as_ref()
+            .and_then(|definition| Some((definition, definition.statement(db)?)));
+        let function = statement.and_then(|(definition, func)| {
+            FunctionEnv::for_compile_function(
+                func,
+                Some(module_static_bindings(db, definition.file())),
+            )
+        });
+        let meaning = tag_meaning(db, descriptor, function.as_ref());
         if !meaning.is_empty() {
             tag_meanings.insert(descriptor.key.clone(), meaning);
         }
@@ -1890,18 +1903,12 @@ pub fn template_library_structure_facts<'db>(
         {
             continue;
         }
-        let Some((definition, func)) = descriptor
-            .function
-            .as_ref()
-            .and_then(|definition| Some((definition, definition.statement(db)?)))
-        else {
+        if statement.is_none() {
             continue;
-        };
-        let static_bindings = module_static_bindings(db, definition.file());
-        if let Some(block_spec) =
-            descriptor
-                .kind
-                .extract_block_spec(func, Some(static_bindings), &descriptor.options)
+        }
+        if let Some(block_spec) = descriptor
+            .kind
+            .extract_block_spec(function.as_ref(), &descriptor.options)
         {
             let end_tag = match block_spec.end_tag {
                 EndTagEvidence::Literal(end_tag) => Some(end_tag),
@@ -1926,7 +1933,11 @@ pub fn template_library_structure_facts<'db>(
 }
 
 /// Extract a Tag registration's meaning, then let Fallback Rules fill Extraction Gaps.
-fn tag_meaning(db: &dyn ProjectDb, descriptor: &RegistrationDescriptor) -> TagMeaning {
+fn tag_meaning(
+    db: &dyn ProjectDb,
+    descriptor: &RegistrationDescriptor,
+    function_env: Option<&FunctionEnv<'_>>,
+) -> TagMeaning {
     let mut meaning = TagMeaning::default();
     let function = descriptor
         .function
@@ -1938,6 +1949,16 @@ fn tag_meaning(db: &dyn ProjectDb, descriptor: &RegistrationDescriptor) -> TagMe
             .and_then(extract_tag_role)
     {
         meaning.set_role(role, FactProvenance::Extracted);
+    }
+    if descriptor.kind == RegistrationKind::Tag
+        && let Some(definition) = function
+        && let Some(function_env) = function_env
+        && let Some(unique_name) = extract_unique_name(function_env, || {
+            let module = RecoveredPythonModule::from_file(db, definition.file()).ok()??;
+            Some(module.body(db))
+        })
+    {
+        meaning.set_unique_name(unique_name);
     }
     apply_fallback_rules(&mut meaning, &descriptor.key.name, function);
     meaning

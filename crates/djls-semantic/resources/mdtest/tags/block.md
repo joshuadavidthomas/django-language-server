@@ -26,7 +26,41 @@
 ✓ no diagnostics
 ```
 
+### a repeated name inside a comment is not compiled
+
+```htmldjango
+{% block content %}{% endblock %}
+{% comment %}{% block content %}{% endblock %}{% endcomment %}
+```
+
+```snapshot
+✓ no diagnostics
+```
+
 ## Invalid
+
+### rejects a repeated block name
+
+Django's `do_block` records each name on the parser and rejects one it has already seen, even in another branch or nested inside the first block.
+
+```htmldjango
+{% extends "base.html" %}
+{% block content %}{% block content %}{% endblock %}{% endblock %}
+{% if user %}{% block sidebar %}{% endblock %}{% else %}{% block sidebar %}{% endblock %}{% endif %}
+```
+
+```snapshot
+error[S125]: 'block' tag with name 'content' appears more than once
+ --> test.html:2:29
+  |
+2 | {% block content %}{% block content %}{% endblock %}{% endblock %}
+  |                             ^^^^^^^
+error[S125]: 'block' tag with name 'sidebar' appears more than once
+ --> test.html:3:66
+  |
+3 | {% if user %}{% block sidebar %}{% endblock %}{% else %}{% block sidebar %}{% endblock %}{% endif %}
+  |                                                                  ^^^^^^^
+```
 
 ### rejects mismatched closing name
 

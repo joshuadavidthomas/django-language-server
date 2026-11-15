@@ -69,3 +69,17 @@ block_specs:
         position: 1
     end_tag: endblock
     intermediates: []
+tag_meanings:
+  "django.template.loader_tags::tag::block":
+    unique_name:
+      position: 1
+      registry:
+        parser_attribute: __loaded_blocks
+      message:
+        PercentFormat:
+          template: "'%s' tag with name '%s' appears more than once"
+          args:
+            - SplitElement:
+                Forward: 0
+            - SplitElement:
+                Forward: 1

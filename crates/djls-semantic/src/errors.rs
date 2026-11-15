@@ -168,6 +168,15 @@ pub enum ValidationError {
 
     #[error("The 'extends' tag can only appear once in a template")]
     MultipleExtends { span: Span },
+
+    /// Django's own message when extraction found it.
+    #[error("{message}")]
+    DuplicateTagName {
+        tag: String,
+        name: String,
+        message: String,
+        span: Span,
+    },
 }
 
 fn format_library_list(libraries: &[String]) -> String {
@@ -236,7 +245,8 @@ impl MapSpans for ValidationError {
             | Self::LibraryNotInInstalledApps { span, .. }
             | Self::UnreadableLibrary { span, .. }
             | Self::ExtendsMustBeFirst { span }
-            | Self::MultipleExtends { span } => span.map_spans(map),
+            | Self::MultipleExtends { span }
+            | Self::DuplicateTagName { span, .. } => span.map_spans(map),
         }
     }
 }
@@ -266,6 +276,7 @@ impl ValidationError {
             Self::ExtendsMustBeFirst { .. } => "S122",
             Self::MultipleExtends { .. } => "S123",
             Self::UnreadableLibrary { .. } => "S124",
+            Self::DuplicateTagName { .. } => "S125",
         }
     }
 
@@ -321,7 +332,8 @@ impl ValidationError {
             | Self::LibraryNotInInstalledApps { span, .. }
             | Self::UnreadableLibrary { span, .. }
             | Self::ExtendsMustBeFirst { span, .. }
-            | Self::MultipleExtends { span, .. } => Some(*span),
+            | Self::MultipleExtends { span, .. }
+            | Self::DuplicateTagName { span, .. } => Some(*span),
         }
     }
 }

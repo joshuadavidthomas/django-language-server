@@ -1535,6 +1535,31 @@ fn deeply_nested_unclosed_blocks_validate_without_overflowing_the_stack() {
 
 // Extends validation (S122, S123)
 
+#[test]
+fn repeated_partialdef_name_reports_djangos_message_with_template_path() {
+    let mut db = djls_testing::bundled_django_database(djls_conf::DjangoVersion::Django60)
+        .expect("bundled Django 6.0 project should install");
+    let source = "{% partialdef card %}{% endpartialdef %}{% block card %}{% endblock %}{% partialdef card %}{% endpartialdef %}";
+    db.add_file("/project/templates/cards.html", source)
+        .expect("template should be added");
+
+    let errors = collect_file_errors(&db, "/project/templates/cards.html")
+        .expect("template should validate");
+
+    let start = source.rfind("card %}").expect("second partialdef name");
+    assert_eq!(
+        errors,
+        vec![ValidationError::DuplicateTagName {
+            tag: "partialdef".to_string(),
+            name: "card".to_string(),
+            message:
+                "Partial 'card' is already defined in the '/project/templates/cards.html' template."
+                    .to_string(),
+            span: djls_source::Span::saturating_from_bounds_usize(start, start + "card".len()),
+        }]
+    );
+}
+
 // Corpus / template validation tests
 //
 // These tests extract rules from real Django source files and validate

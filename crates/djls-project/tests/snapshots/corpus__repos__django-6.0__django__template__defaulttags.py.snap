@@ -646,6 +646,17 @@ tag_meanings:
     role:
       - template_partial
       - extracted
+    unique_name:
+      position: 1
+      registry:
+        parser_extra_data: partials
+      message:
+        PercentFormat:
+          template: "Partial '%s' is already defined in the '%s' template."
+          args:
+            - SplitElement:
+                Forward: 1
+            - OriginName
   "django.template.defaulttags::tag::url":
     role:
       - route_reference

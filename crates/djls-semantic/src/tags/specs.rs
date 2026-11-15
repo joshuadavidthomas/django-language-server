@@ -26,6 +26,7 @@ use djls_project::TagRole;
 use djls_project::TagRule;
 use djls_project::TagRuleMap;
 use djls_project::TemplateSymbolKind;
+use djls_project::UniqueName;
 use rustc_hash::FxHashMap;
 
 pub(crate) type S<T = str> = Cow<'static, T>;
@@ -526,6 +527,12 @@ impl TagSpec {
     #[must_use]
     pub(crate) fn condition(&self) -> Option<&ConditionArguments> {
         self.meaning.as_deref().and_then(TagMeaning::condition)
+    }
+
+    /// The opener argument Django rejects when an earlier Tag in the template recorded it.
+    #[must_use]
+    pub(crate) fn unique_name(&self) -> Option<&UniqueName> {
+        self.meaning.as_deref().and_then(TagMeaning::unique_name)
     }
 
     #[must_use]
