@@ -1,0 +1,5 @@
+asgiref==3.13.0
+coverage==7.17.2
+django==5.2.19
+pillow==13.0.0
+sqlparse==0.6.1

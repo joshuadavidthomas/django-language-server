@@ -5,6 +5,7 @@ mod extraction;
 mod fixtures;
 pub mod log_capture;
 mod mdtest;
+pub mod oracle;
 mod paths;
 mod settings;
 mod vendor;

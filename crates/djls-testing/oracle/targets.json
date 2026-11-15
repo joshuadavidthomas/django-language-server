@@ -1,0 +1,29 @@
+{
+  "python": "3.12.15",
+  "required_shards": ["fixtures", "blocks", "helpers"],
+  "shards": {
+    "fixtures": ["project", "compilation", "facts", "relative", "appconfig", "loaders"],
+    "blocks": ["misago", "sorl-thumbnail", "wagtail-7.2"],
+    "helpers": ["django-includecontents", "django-template-partials", "django-sekizai"],
+    "nightly": ["django-bird", "django-formset-js-improved", "django-permission", "inventree", "bird-project"]
+  },
+  "targets": {
+    "project": {"kind": "project", "root": "tests/project", "settings": "djls_test.settings", "mode": "project", "required": true, "include_django": true},
+    "compilation": {"kind": "project", "root": "tests/compilation", "settings": "settings", "seeds": "tests/compilation/templates", "mode": "project", "required": true},
+    "facts": {"kind": "project", "root": "tests/oracle-projects/facts", "settings": "settings", "mode": "project", "required": true},
+    "relative": {"kind": "project", "root": "tests/oracle-projects/relative", "settings": "config.settings", "mode": "project", "required": true},
+    "appconfig": {"kind": "project", "root": "tests/oracle-projects/appconfig", "settings": "settings", "mode": "project", "required": true},
+    "loaders": {"kind": "project", "root": "tests/oracle-projects/loaders", "settings": "settings", "mode": "project", "required": true},
+    "misago": {"kind": "corpus", "mode": "synthetic", "required": true},
+    "sorl-thumbnail": {"kind": "corpus", "mode": "synthetic", "required": true},
+    "django-includecontents": {"kind": "corpus", "mode": "synthetic", "required": true},
+    "django-template-partials": {"kind": "corpus", "mode": "synthetic", "required": true},
+    "django-bird": {"kind": "corpus", "mode": "synthetic", "include_django": true},
+    "django-formset-js-improved": {"kind": "corpus", "mode": "synthetic", "include_django": true},
+    "wagtail-7.2": {"kind": "corpus", "mode": "synthetic", "python": "3.14.8", "required": true, "reason": "Required PR coverage of Wagtail's large library set; its environment now starts."},
+    "django-sekizai": {"kind": "corpus", "mode": "synthetic", "python": "3.9.25", "required": true, "reason": "Required PR coverage of inherited block compilation; historical dependencies require Python 3.9."},
+    "django-permission": {"kind": "corpus", "mode": "synthetic", "historical_python": "3.6", "no_binary": ["app-version"], "reason": "Nightly because Python 3.6 requires a source-built interpreter. The real permission library still runs."},
+    "inventree": {"kind": "corpus", "mode": "both", "python": "3.11.6", "reason": "Nightly because the full application needs 153 dependencies. Keep project-settings uncertainty visible and independently test libraries synthetically."},
+    "bird-project": {"kind": "project", "root": "tests/oracle-projects/bird-project", "settings": "settings", "mode": "project", "environment_target": "django-bird", "venv": "crates/djls-testing/.corpus/environments/django-bird", "pythonpath": ["crates/djls-testing/.corpus/repos/django-bird/src"], "seeds": "tests/oracle-projects/bird-project/templates", "reason": "Real project settings use the actual pinned Bird package as a builtin, matching upstream's test configuration. Keep alongside the synthetic corpus run."}
+  }
+}

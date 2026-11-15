@@ -8,6 +8,10 @@ description = "Shared test infrastructure for Django Language Server"
 name = "corpus"
 path = "src/main.rs"
 
+[[bin]]
+name = "django-oracle"
+path = "src/bin/django_oracle.rs"
+
 [dependencies]
 djls-conf = { workspace = true }
 djls-project = { workspace = true, features = ["bundled-django"] }
