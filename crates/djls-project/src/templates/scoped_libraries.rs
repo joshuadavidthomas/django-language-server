@@ -11,7 +11,6 @@ use crate::templates::ScopedTemplateSymbolLookup;
 use crate::templates::TemplateBackendScope;
 use crate::templates::TemplateLibrary;
 use crate::templates::TemplateLibraryCatalog;
-use crate::templates::TemplateLibraryChain;
 use crate::templates::TemplateLibraryChainStep;
 use crate::templates::TemplateSymbolCandidate;
 use crate::templates::TemplateSymbolKind;
@@ -57,13 +56,6 @@ impl<'a, 'db> ScopedTemplateLibraries<'a, 'db> {
             kind,
             loaded_names,
         )
-    }
-
-    /// Return each feasible backend's ordered builtin and load updates.
-    #[must_use]
-    pub fn library_chains(self, loaded_names: &[&str]) -> Vec<TemplateLibraryChain<'a, 'db>> {
-        self.catalog
-            .library_chains_in_scope(self.scope, loaded_names)
     }
 
     /// Fold each feasible backend's ordered builtin and load updates without materializing chains.
