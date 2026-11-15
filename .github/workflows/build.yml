@@ -58,7 +58,7 @@ jobs:
             target: aarch64
           - runner: macos-15-intel
             target: x86_64
-          - runner: macos-14
+          - runner: macos-15
             target: aarch64
           - runner: windows-latest
             target: x86_64
@@ -307,7 +307,7 @@ jobs:
         platform:
           - runner: macos-15-intel
             target: x86_64
-          - runner: macos-14
+          - runner: macos-15
             target: aarch64
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
