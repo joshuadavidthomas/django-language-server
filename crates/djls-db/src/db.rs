@@ -1256,7 +1256,10 @@ mod invalidation_tests {
         }
         event_log.take();
 
-        let file_root = db.files().expect_root(&db, &child_path);
+        let file_root = db
+            .files()
+            .root(&db, &child_path)
+            .expect("child template should have a registered root");
         db.bump_file_root_revision(file_root);
 
         let name = match SemanticOffsetContext::from_offset(&db, child, offset) {
@@ -1330,7 +1333,10 @@ mod invalidation_tests {
             "all resolution views should reuse the same directory index"
         );
 
-        let source_root = db.files().expect_root(&db, templates_dir.as_path());
+        let source_root = db
+            .files()
+            .root(&db, templates_dir.as_path())
+            .expect("template directory should have a registered root");
         db.bump_file_root_revision(source_root);
 
         {
