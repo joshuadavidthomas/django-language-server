@@ -317,35 +317,14 @@ fn arguments_match_prefix(arguments: &[TagArgument], completed: &[&str]) -> bool
 
 #[cfg(test)]
 mod tests {
+    use djls_conf::TagSpecDef;
     use djls_project::ArgumentConsumption;
-    use djls_semantic::EndTag;
     use djls_semantic::ParameterRequirement;
     use djls_semantic::TagArgument;
-    use djls_semantic::TagArgumentForm;
     use djls_semantic::TagArgumentKind;
+    use djls_testing::project_tag_spec;
 
     use super::*;
-
-    fn make_form(arguments: Vec<TagArgument>) -> TagArgumentForm {
-        TagArgumentForm::new(
-            arguments
-                .into_iter()
-                .map(|argument| TagArgumentPattern {
-                    name: argument.name,
-                    kind: match argument.kind {
-                        TagArgumentKind::Variable
-                        | TagArgumentKind::Keyword
-                        | TagArgumentKind::VarArgs => TagArgumentPatternKind::Variable,
-                        TagArgumentKind::Literal(value) => TagArgumentPatternKind::Literal(value),
-                        TagArgumentKind::Choice(values) => TagArgumentPatternKind::Choice(values),
-                    },
-                    mismatch_message: None,
-                    consumption: ArgumentConsumption::Unknown,
-                })
-                .collect(),
-        )
-        .expect("fixed-width test form is valid")
-    }
 
     fn requirement(required: bool) -> ParameterRequirement {
         if required {
@@ -455,22 +434,39 @@ mod tests {
 
     #[test]
     fn test_snippet_with_end_tag() {
-        use std::borrow::Cow;
-
-        let spec = TagSpec::new(
-            "django.template.defaulttags".into(),
-            Some(EndTag {
-                name: "endautoescape".into(),
-                required: true,
-            }),
-            Cow::Borrowed(&[]),
-            djls_semantic::BodyAnalysis::Analyze,
+        let configured: TagSpecDef = serde_json::from_value(serde_json::json!({
+            "libraries": [{
+                "module": "custom_tags",
+                "tags": [{
+                    "name": "autoescape",
+                    "type": "block",
+                    "args": [{
+                        "name": "mode",
+                        "kind": "choice",
+                        "extra": {"choices": ["on", "off"]}
+                    }]
+                }]
+            }]
+        }))
+        .expect("custom block tag configuration should deserialize");
+        let spec = project_tag_spec(
+            r"from django import template
+register = template.Library()
+class CustomAutoescapeNode(template.Node):
+    def __init__(self, body): self.body = body
+    def render(self, context): return self.body.render(context)
+@register.tag(name='autoescape')
+def custom_autoescape(parser, token):
+    if token.contents not in ('autoescape on', 'autoescape off'):
+        raise template.TemplateSyntaxError('unknown mode')
+    body = parser.parse(('endautoescape',))
+    parser.delete_first_token()
+    return CustomAutoescapeNode(body)
+",
+            "autoescape",
+            configured,
         )
-        .with_argument_syntax(TagArgumentSyntax::Parameters(vec![make_choice(
-            "mode",
-            true,
-            vec!["on", "off"],
-        )]));
+        .expect("custom autoescape should have an effective spec");
 
         let snippet = generate_snippet_for_tag_with_end("autoescape", &spec);
         assert_eq!(
@@ -481,67 +477,49 @@ mod tests {
 
     #[test]
     fn correlated_forms_use_shortest_full_snippet_and_whole_suffix() {
-        let spec = TagSpec::new(
-            "django.template.defaulttags".into(),
-            None,
-            std::borrow::Cow::Borrowed(&[]),
-            djls_semantic::BodyAnalysis::Analyze,
-        )
-        .with_argument_syntax(TagArgumentSyntax::Forms {
-            forms: vec![
-                make_form(vec![
-                    make_var("this_value_expr", true),
-                    make_var("max_value_expr", true),
-                    make_var("max_width", true),
-                ]),
-                make_form(vec![
-                    make_var("this_value_expr", true),
-                    make_var("max_value_expr", true),
-                    make_var("max_width", true),
-                    make_literal("as", true),
-                    make_var("asvar", true),
-                ]),
-            ],
-            coverage: ArgumentFormCoverage::Complete,
-            length_mismatch_message: None,
-        });
+        let spec = djls_semantic::bundled_django_tag_specs()
+            .get("widthratio")
+            .expect("bundled Django defines widthratio");
 
         assert_eq!(
-            generate_snippet_for_tag_with_end("widthratio", &spec),
+            generate_snippet_for_tag_with_end("widthratio", spec),
             "widthratio ${1:this_value_expr} ${2:max_value_expr} ${3:max_width}"
         );
         assert_eq!(
-            generate_partial_snippet(&spec, &["this", "max", "width"], 3),
+            generate_partial_snippet(spec, &["this", "max", "width"], 3),
             "as ${1:asvar}"
         );
         assert_eq!(
-            generate_partial_snippet(&spec, &["this", "max", "width", "as"], 4),
+            generate_partial_snippet(spec, &["this", "max", "width", "as"], 4),
             "${1:asvar}"
         );
     }
 
     #[test]
     fn compatible_form_arguments_follow_earlier_literals() {
-        let spec = TagSpec::new(
-            "test.tags".into(),
-            None,
-            std::borrow::Cow::Borrowed(&[]),
-            djls_semantic::BodyAnalysis::Analyze,
+        let spec = project_tag_spec(
+            r"from django import template
+register = template.Library()
+class EmptyNode(template.Node):
+    def render(self, context): return ''
+@register.tag
+def paired(parser, token):
+    bits = token.split_contents()
+    if len(bits) == 3:
+        if bits[1] == 'first':
+            if bits[2] != 'left': raise template.TemplateSyntaxError('expected left')
+            return EmptyNode()
+        elif bits[1] == 'second':
+            if bits[2] != 'right': raise template.TemplateSyntaxError('expected right')
+            return EmptyNode()
+        else:
+            raise template.TemplateSyntaxError('unknown first argument')
+    raise template.TemplateSyntaxError('expected two arguments')
+",
+            "paired",
+            TagSpecDef::default(),
         )
-        .with_argument_syntax(TagArgumentSyntax::Forms {
-            forms: vec![
-                make_form(vec![
-                    make_literal("first", true),
-                    make_literal("left", true),
-                ]),
-                make_form(vec![
-                    make_literal("second", true),
-                    make_literal("right", true),
-                ]),
-            ],
-            coverage: ArgumentFormCoverage::Complete,
-            length_mismatch_message: None,
-        });
+        .expect("paired should have an effective spec");
 
         let arguments = compatible_arguments_at(&spec, &["first"], 1);
         assert_eq!(arguments.len(), 1);
