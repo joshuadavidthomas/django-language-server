@@ -45,6 +45,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 - Changed template edits to skip re-checking cached facts about project Python modules, settings, and file sets. Project templates now get their own Salsa durability, which cuts the instructions per template edit by about 15%.
 - Reduced allocations when parsing and rechecking templates by storing short tag names, arguments, and variables inline.
 - Reduced memory used by folding, outline, symbols, and references by keeping one copy of each template's structure instead of two.
+- **Internal**: Moved template folding and outline construction from `djls-semantic` to `djls-ide`.
 - **Internal**: Resolved model import prefixes by walking parent module names instead of re-parsing each prefix.
 - **Internal**: Shared name strings between model, class, and field identities instead of copying them.
 - **Internal**: Stored each model's app label in the model graph's name index for exact lookups.

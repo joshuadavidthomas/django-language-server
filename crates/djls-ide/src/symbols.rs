@@ -1,5 +1,3 @@
-use djls_semantic::OutlineItem;
-use djls_semantic::build_template_outline_for_file;
 use djls_source::File;
 use djls_source::LineIndex;
 use djls_source::PositionEncoding;
@@ -7,6 +5,8 @@ use tower_lsp_server::ls_types;
 
 use crate::ext::OutlineKindExt;
 use crate::ext::SpanExt;
+use crate::outline::OutlineItem;
+use crate::outline::build_template_outline_for_file;
 
 #[must_use]
 pub fn document_symbols(
@@ -69,6 +69,7 @@ mod tests {
     use djls_source::Span;
 
     use super::*;
+    use crate::outline::OutlineKind;
 
     #[test]
     fn outline_conversion_maps_kinds_ranges_and_children() {
@@ -77,14 +78,14 @@ mod tests {
         let outline = [OutlineItem {
             label: "content".to_string(),
             detail: Some("block".to_string()),
-            kind: djls_semantic::OutlineKind::TemplateBlock,
+            kind: OutlineKind::TemplateBlock,
             span: Span::saturating_from_bounds_usize(0, source.len() - 1),
             selection_span: Span::saturating_from_bounds_usize(3, 7),
             children: vec![
                 OutlineItem {
                     label: "card.html".to_string(),
                     detail: Some("include".to_string()),
-                    kind: djls_semantic::OutlineKind::TemplateReference,
+                    kind: OutlineKind::TemplateReference,
                     span: Span::saturating_from_bounds_usize(22, 47),
                     selection_span: Span::saturating_from_bounds_usize(25, 45),
                     children: Vec::new(),
@@ -92,13 +93,13 @@ mod tests {
                 OutlineItem {
                     label: "user.username".to_string(),
                     detail: None,
-                    kind: djls_semantic::OutlineKind::Variable,
+                    kind: OutlineKind::Variable,
                     span: Span::saturating_from_bounds_usize(50, 74),
                     selection_span: Span::saturating_from_bounds_usize(53, 65),
                     children: vec![OutlineItem {
                         label: "lower".to_string(),
                         detail: None,
-                        kind: djls_semantic::OutlineKind::Filter,
+                        kind: OutlineKind::Filter,
                         span: Span::saturating_from_bounds_usize(67, 71),
                         selection_span: Span::saturating_from_bounds_usize(67, 71),
                         children: Vec::new(),
@@ -148,7 +149,7 @@ mod tests {
         let item = OutlineItem {
             label: "user".to_string(),
             detail: None,
-            kind: djls_semantic::OutlineKind::Variable,
+            kind: OutlineKind::Variable,
             span: Span::saturating_from_bounds_usize(7, source.len()),
             selection_span: Span::saturating_from_bounds_usize(start, start + "user".len()),
             children: Vec::new(),

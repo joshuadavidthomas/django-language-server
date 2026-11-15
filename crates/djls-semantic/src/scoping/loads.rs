@@ -17,7 +17,7 @@ pub struct LoadArgument {
 
 impl LoadArgument {
     #[must_use]
-    pub fn new(name: String, span: Span) -> Self {
+    pub(crate) fn new(name: String, span: Span) -> Self {
         Self { name, span }
     }
 
@@ -73,7 +73,7 @@ impl LoadKind {
     /// Template Library loader role. This avoids coupling semantics to the
     /// conventional `load` spelling.
     #[must_use]
-    pub(crate) fn from_loader_bits(bits: &[TagBit]) -> Option<Self> {
+    pub fn from_loader_bits(bits: &[TagBit]) -> Option<Self> {
         parse_load_bits(bits)
     }
 
