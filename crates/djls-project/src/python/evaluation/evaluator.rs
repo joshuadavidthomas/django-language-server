@@ -1639,7 +1639,7 @@ mod tests {
     #[test]
     fn env_reads_keep_file_candidates_and_runtime_uncertainty() {
         let source = "import os\nfrom os import environ as imported_environ, getenv as imported_getenv\nENVIRON = os.environ\nENV_GET = os.environ.get\nGETENV = os.getenv\nPRESENT = os.environ.get('APP')\nALIASED = ENV_GET('APP')\nIMPORTED_GET = imported_environ.get('APP')\nIMPORTED_GETENV = imported_getenv('APP')\nDEFAULTED = GETENV('MISSING', 'fallback')\nGET_DEFAULTED = os.environ.get('MISSING', 'fallback')\nABSENT = os.environ.get('ABSENT')\nGETENV_ABSENT = os.getenv('ABSENT')\nDYNAMIC_KEY = os.getenv(KEY)\nDYNAMIC_DEFAULT = os.getenv('MISSING', fallback())\nKEYWORD_DEFAULT = os.getenv('MISSING', default='fallback')\nSUBSCRIPT = os.environ['APP']\nos.getenv('APP')\nAFTER_DISCARDED = os.getenv('APP')\nINSTALLED_APPS = [os.getenv('APP', 'fallback')]\n";
-        let db = TestDatabase::new();
+        let mut db = TestDatabase::new();
         for (path, content) in [
             (host_path("/project/.env"), "APP=stale.app\nAPP=env.app\n"),
             (host_path("/project/manage.py"), ""),
@@ -1651,11 +1651,9 @@ mod tests {
         }
         let settings: Settings =
             toml::from_str("django_settings_module = 'config.settings'\n").expect("config parses");
-        let project = crate::project::Project::bootstrap(
-            &db,
-            Utf8Path::new(host_path("/project")),
-            &settings,
-        );
+        let project =
+            crate::project::Project::initial(&db, Utf8Path::new(host_path("/project")), &settings);
+        project.reload_from_settings(&mut db, &settings);
         let module = crate::python::file_to_module(
             &db,
             project,

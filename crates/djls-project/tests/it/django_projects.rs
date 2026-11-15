@@ -25,6 +25,8 @@ use djls_testing::OsTestDatabase;
 use tempfile::TempDir;
 use tempfile::tempdir;
 
+use crate::initialize_project;
+
 type TestResult<T> = Result<T, Box<dyn std::error::Error>>;
 
 const CANONICAL_MANAGE_PY: &str = r#"
@@ -47,15 +49,14 @@ fn fixture_root(name: &str) -> TestResult<Utf8PathBuf> {
     })?)
 }
 
-fn bootstrap_fixture(
+fn project_fixture(
     name: &str,
     overrides: Option<serde_json::Map<String, serde_json::Value>>,
 ) -> TestResult<(OsTestDatabase, Project, Utf8PathBuf)> {
     let root = fixture_root(name)?;
     let mut db = OsTestDatabase::with_disk_roots([root.clone()]);
     let settings = djls_conf::Settings::new(root.as_path(), overrides)?;
-    let project = Project::bootstrap(&db, root.as_path(), &settings);
-    db.set_project(project);
+    let project = initialize_project(&mut db, root.as_path(), &settings)?;
     Ok((db, project, root))
 }
 
@@ -109,8 +110,8 @@ fn canonical_manage_py_discovers_startproject_settings_module() {
 
     let settings =
         configured_settings(&root, &module).expect("settings module override should be valid");
-    let project = Project::bootstrap(&db, &root, &settings);
-    db.set_project(project);
+    let project = initialize_project(&mut db, &root, &settings)
+        .expect("Django environment should be assembled");
 
     assert_eq!(
         settings_module_file(&db, project)
@@ -143,8 +144,8 @@ fn canonical_manage_py_discovers_src_layout_settings_module() {
 
     let settings =
         configured_settings(&root, &module).expect("settings module override should be valid");
-    let project = Project::bootstrap(&db, &root, &settings);
-    db.set_project(project);
+    let project = initialize_project(&mut db, &root, &settings)
+        .expect("Django environment should be assembled");
 
     assert_eq!(
         settings_module_file(&db, project)
@@ -174,8 +175,8 @@ fn src_layout_discovers_nested_roots_settings_models_and_libraries() {
     let root = fixture_root("src-layout").expect("src-layout fixture root should resolve");
     let venv = root.join(".venv");
     let overrides = serde_json::Map::from_iter([("venv_path".into(), serde_json::json!(venv))]);
-    let (db, project, root) = bootstrap_fixture("src-layout", Some(overrides))
-        .expect("src-layout fixture should bootstrap");
+    let (db, project, root) = project_fixture("src-layout", Some(overrides))
+        .expect("src-layout fixture should initialize");
 
     let site_packages = root.join(".venv/lib/python3.12/site-packages");
     let search_paths: Vec<_> = project.search_paths(&db).iter().cloned().collect();
@@ -223,8 +224,8 @@ fn editable_pth_discovers_editable_roots_libraries_and_shadowing() {
     let root = fixture_root("editable-pth").expect("editable-pth fixture root should resolve");
     let venv = root.join(".venv");
     let overrides = serde_json::Map::from_iter([("venv_path".into(), serde_json::json!(venv))]);
-    let (db, project, root) = bootstrap_fixture("editable-pth", Some(overrides))
-        .expect("editable-pth fixture should bootstrap");
+    let (db, project, root) = project_fixture("editable-pth", Some(overrides))
+        .expect("editable-pth fixture should initialize");
 
     let site_packages = root.join(".venv/lib/python3.12/site-packages");
     let search_paths: Vec<_> = project.search_paths(&db).iter().cloned().collect();
@@ -282,8 +283,8 @@ fn namespace_apps_discovers_namespace_dirs_config_tails_and_libraries() {
     let root = fixture_root("namespace-apps").expect("namespace-apps fixture root should resolve");
     let venv = root.join(".venv");
     let overrides = serde_json::Map::from_iter([("venv_path".into(), serde_json::json!(venv))]);
-    let (db, project, root) = bootstrap_fixture("namespace-apps", Some(overrides))
-        .expect("namespace-apps fixture should bootstrap");
+    let (db, project, root) = project_fixture("namespace-apps", Some(overrides))
+        .expect("namespace-apps fixture should initialize");
 
     assert_eq!(
         project.python_environment(&db),
@@ -367,8 +368,8 @@ fn gh401_multisite_keeps_settings_environments_separate() {
             "django_settings_module".into(),
             serde_json::json!(settings_module),
         )]);
-        let (db, project, root) = bootstrap_fixture("gh401-multisite", Some(overrides))
-            .expect("GH-401 multi-site fixture should bootstrap");
+        let (db, project, root) = project_fixture("gh401-multisite", Some(overrides))
+            .expect("GH-401 multi-site fixture should initialize");
 
         let settings_file = settings_module_file(&db, project)
             .expect("configured GH-401 settings module should resolve");
