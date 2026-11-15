@@ -26,7 +26,7 @@ use djls_project::TemplateSymbolKind;
 use djls_project::UniqueKeyCardinality;
 use djls_project::template_library_definition_facts;
 use djls_project::template_library_filter_facts;
-use djls_project::template_library_registration_dependencies;
+use djls_project::template_library_inventory_dependencies;
 use djls_project::template_library_structure_facts;
 use djls_project::template_library_tag_facts;
 use djls_project::template_symbol_source;
@@ -411,9 +411,14 @@ def compile_tag(parser, token):
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "keep the Python fixture and signature invalidation in one test"
+)]
 fn canonical_stringfilter_supplies_lazy_signature_evidence_not_body_or_navigation() {
     let events = SalsaEventLog::default();
     let mut db = TestDatabase::with_event_log(events.clone());
+    let mut django_source = String::new();
     install_stringfilter_project(
         &mut db,
         r"
@@ -446,7 +451,10 @@ def raw(parser, token):
 def generated(content, value):
     return content
 ",
-        |source| source,
+        |source| {
+            django_source.clone_from(&source);
+            source
+        },
     )
     .expect("installed Django fixture");
     let file = db
@@ -497,12 +505,35 @@ def generated(content, value):
         tags.tag_rules()[&SymbolKey::tag("tags", "helper")].argument_syntax,
         TagArgumentSyntax::Signature { .. }
     ));
-    let dependency = db
-        .file(Utf8Path::new(
-            "/test/site-packages/django/template/defaultfilters.py",
-        ))
-        .expect("Django source exists");
-    assert!(template_library_registration_dependencies(&db, key).contains(&dependency));
+    events.take().expect("events before Django source edit");
+    let django_path = Utf8Path::new("/test/site-packages/django/template/defaultfilters.py");
+    db.add_file(
+        django_path.as_str(),
+        &format!("{django_source}\nstringfilter = replacement\n"),
+    )
+    .expect("edited Django source");
+    SourceChanges::new([ChangeEvent::ContentChanged(django_path.to_path_buf())]).apply(&mut db);
+    let key = TemplateLibraryId::new(
+        &db,
+        Some(file),
+        PythonModuleName::parse("tags").expect("valid module"),
+    );
+    assert_eq!(
+        template_library_filter_facts(&db, key)
+            .filter_arities()
+            .len(),
+        0
+    );
+    assert_eq!(template_library_tag_facts(&db, key).tag_rules().len(), 0);
+    let events = events.take().expect("events after Django source edit");
+    assert_eq!(
+        will_execute_count(&db, &events, "template_library_filter_facts"),
+        1
+    );
+    assert_eq!(
+        will_execute_count(&db, &events, "template_library_tag_rule_analysis"),
+        1
+    );
 }
 
 #[test]
@@ -581,7 +612,8 @@ fn stringfilter_signature_evidence_requires_the_resolved_canonical_export() {
 #[test]
 fn first_party_stringfilter_evidence_tracks_the_selected_export() {
     let source = "from django import template\nfrom django.template.defaultfilters import stringfilter\nregister = template.Library()\n@register.filter(name='visible')\n@stringfilter\ndef filtered(value, arg): return value\n";
-    let mut db = TestDatabase::new();
+    let events = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(events.clone());
     let mut library = String::new();
     install_stringfilter_project(&mut db, source, |source| {
         library.clone_from(&source);
@@ -627,9 +659,8 @@ fn first_party_stringfilter_evidence_tracks_the_selected_export() {
             .is_empty()
     );
     let library_path = Utf8Path::new("/test/project/django/template/defaultfilters.py");
-    let library_file = db.file(library_path).expect("first-party Django source");
-    assert!(template_library_registration_dependencies(&db, key).contains(&library_file));
     let definitions = template_library_definition_facts_snapshot(&db, key);
+    events.take().expect("events before first-party edits");
     for (suffix, expected) in [
         ("", Some(FilterArity::RequiredArgument)),
         ("\nstringfilter = replacement\n", None),
@@ -659,6 +690,17 @@ fn first_party_stringfilter_evidence_tracks_the_selected_export() {
         assert_eq!(
             template_library_definition_facts_snapshot(&db, key),
             definitions
+        );
+        let edit_events = events.take().expect("events after first-party edit");
+        assert_eq!(
+            will_execute_count(&db, &edit_events, "decorated_signature_evidence"),
+            1,
+            "{suffix}"
+        );
+        assert_eq!(
+            will_execute_count(&db, &edit_events, "template_library_filter_facts"),
+            1,
+            "{suffix}"
         );
     }
 }
@@ -3354,7 +3396,6 @@ def first(token):
     let helper_source = "def second(token):\n    return token.split_contents()[1:]\n";
     db.add_file(helper_path.as_str(), helper_source)
         .expect("helper source should install");
-    let helper_file = db.file(helper_path).expect("helper file should exist");
     let key = TemplateLibraryId::new(&db, Some(file), module.clone());
     let definitions = template_library_definition_facts(&db, key);
     assert!(!definitions.symbols_are_unobserved());
@@ -3393,17 +3434,6 @@ def first(token):
         template_library_tag_facts(&db, key).tag_rules()[&SymbolKey::tag("pkg.tags", "nested")]
             .arg_constraints,
         vec![ArgumentCountConstraint::Exact(3)]
-    );
-    let dependencies = template_library_registration_dependencies(&db, key);
-    assert!(
-        dependencies.contains(&helper_file),
-        "nested source must enter priming coverage"
-    );
-    assert!(
-        dependencies.contains(
-            &db.file(Utf8Path::new("/test/project/pkg/implementation.py"))
-                .expect("outer helper should exist")
-        )
     );
     let detail_events = event_log
         .take()
@@ -3458,8 +3488,7 @@ def first(token):
     db.add_file(helper_path.as_str(), &format!("{changed}\ndef broken(\n"))
         .expect("recovered helper source should be written");
     SourceChanges::new([ChangeEvent::ContentChanged(helper_path.to_path_buf())]).apply(&mut db);
-    let repaired_module = module.clone();
-    let key = TemplateLibraryId::new(&db, Some(file), module);
+    let key = TemplateLibraryId::new(&db, Some(file), module.clone());
     assert!(
         !template_library_definition_facts(&db, key).symbols_are_unobserved(),
         "recovered Tag Rule helper evidence must not open an exact registration inventory"
@@ -3474,14 +3503,15 @@ def first(token):
             .get(&SymbolKey::tag("pkg.tags", "nested"))
             .is_none_or(|rule| rule.arg_constraints.is_empty())
     );
-    assert!(
-        template_library_registration_dependencies(&db, key).contains(&helper_file),
-        "an uncertain dependency must remain covered so repairing it triggers extraction"
+    let events = event_log.take().expect("events after helper syntax error");
+    assert_eq!(
+        will_execute_count(&db, &events, "template_library_tag_rule_analysis"),
+        1
     );
     db.add_file(helper_path.as_str(), &changed)
         .expect("repaired helper source should be written");
     SourceChanges::new([ChangeEvent::ContentChanged(helper_path.to_path_buf())]).apply(&mut db);
-    let repaired_key = TemplateLibraryId::new(&db, Some(file), repaired_module);
+    let repaired_key = TemplateLibraryId::new(&db, Some(file), module.clone());
     assert!(!template_library_definition_facts(&db, repaired_key).symbols_are_unobserved());
     assert_eq!(
         template_library_tag_facts(&db, repaired_key).tag_rules()
@@ -3489,13 +3519,43 @@ def first(token):
             .arg_constraints,
         vec![ArgumentCountConstraint::Exact(4)]
     );
+    let events = event_log.take().expect("events after helper repair");
+    assert_eq!(
+        will_execute_count(&db, &events, "template_library_tag_rule_analysis"),
+        1
+    );
+
+    let outer_path = Utf8Path::new("/test/project/pkg/implementation.py");
+    db.add_file(
+        outer_path.as_str(),
+        "def first(token):\n    return token.split_contents()\n",
+    )
+    .expect("changed outer helper should be written");
+    SourceChanges::new([ChangeEvent::ContentChanged(outer_path.to_path_buf())]).apply(&mut db);
+    let key = TemplateLibraryId::new(&db, Some(file), module);
+    assert_eq!(
+        template_library_tag_facts(&db, key).tag_rules()[&SymbolKey::tag("pkg.tags", "nested")]
+            .arg_constraints,
+        vec![ArgumentCountConstraint::Exact(2)]
+    );
+    let events = event_log.take().expect("events after outer helper edit");
+    assert_eq!(
+        will_execute_count(&db, &events, "template_library_tag_rule_analysis"),
+        1
+    );
 }
 
 #[test]
-fn overwritten_rule_retains_earlier_helper_dependencies() {
-    let (db, file, module) = imported_registration_fixture(
-        "",
-        r"from django import template
+fn overwritten_rule_stays_unchanged_after_earlier_helper_edit() {
+    let events = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(events.clone());
+    ProjectFixture::new("/test/project")
+        .django_settings_module("settings")
+        .file("/test/project/settings.py", "INSTALLED_APPS = []\n")
+        .file("/test/project/pkg/__init__.py", "")
+        .file(
+            "/test/project/pkg/tags.py",
+            r"from django import template
 from .implementation import first
 register = template.Library()
 def earlier(parser, token):
@@ -3507,23 +3567,27 @@ def later(parser, token):
 register.tag('shared', earlier)
 register.tag('shared', later)
 ",
-        r"from .helper import second
+        )
+        .file(
+            "/test/project/pkg/implementation.py",
+            r"from .helper import second
 def first(token):
     return second(token)
 ",
-    )
-    .expect("overwritten-helper fixture should install");
-    db.add_file(
-        "/test/project/pkg/helper.py",
-        r"def second(token):
+        )
+        .file(
+            "/test/project/pkg/helper.py",
+            r"def second(token):
     return token.split_contents()
 ",
-    )
-    .expect("transitive helper should install");
-    let helper = db
-        .file(Utf8Path::new("/test/project/pkg/helper.py"))
-        .expect("transitive helper should exist");
-    let library = TemplateLibraryId::new(&db, Some(file), module);
+        )
+        .install(&mut db)
+        .expect("overwritten-helper fixture should install");
+    let file = db
+        .file(Utf8Path::new("/test/project/pkg/tags.py"))
+        .expect("library source");
+    let module = PythonModuleName::parse("pkg.tags").expect("valid module");
+    let library = TemplateLibraryId::new(&db, Some(file), module.clone());
 
     assert_eq!(
         template_library_tag_facts(&db, library).tag_rules()[&SymbolKey::tag("pkg.tags", "shared")]
@@ -3531,9 +3595,28 @@ def first(token):
         vec![ArgumentCountConstraint::Exact(5)],
         "the later registration should own the final rule"
     );
-    assert!(
-        template_library_registration_dependencies(&db, library).contains(&helper),
-        "overwriting a rule must not discard helper coverage from the earlier registration"
+    events.take().expect("events before earlier helper edit");
+    let helper_path = Utf8Path::new("/test/project/pkg/helper.py");
+    db.add_file(
+        helper_path.as_str(),
+        "def second(token):\n    return token.split_contents()[1:]\n",
+    )
+    .expect("edited earlier helper");
+    SourceChanges::new([ChangeEvent::ContentChanged(helper_path.to_path_buf())]).apply(&mut db);
+    let library = TemplateLibraryId::new(&db, Some(file), module);
+    assert_eq!(
+        template_library_tag_facts(&db, library).tag_rules()[&SymbolKey::tag("pkg.tags", "shared")]
+            .arg_constraints,
+        vec![ArgumentCountConstraint::Exact(5)]
+    );
+    let events = events.take().expect("events after earlier helper edit");
+    assert_eq!(
+        will_execute_count(&db, &events, "template_library_tag_rule_analysis"),
+        1
+    );
+    assert_eq!(
+        will_execute_count(&db, &events, "template_library_tag_facts"),
+        0
     );
 }
 
@@ -3594,9 +3677,15 @@ def checked(parser, token):
 
 #[test]
 fn unknown_module_call_target_keeps_dependency_and_repair_evidence() {
-    let (mut db, file, module) = imported_registration_fixture(
-        "",
-        r#"from django import template
+    let events = SalsaEventLog::default();
+    let mut db = TestDatabase::with_event_log(events.clone());
+    ProjectFixture::new("/test/project")
+        .django_settings_module("settings")
+        .file("/test/project/settings.py", "INSTALLED_APPS = []\n")
+        .file("/test/project/pkg/__init__.py", "")
+        .file(
+            "/test/project/pkg/tags.py",
+            r#"from django import template
 from . import implementation
 chooser = implementation.bits
 register = template.Library()
@@ -3608,11 +3697,18 @@ def checked(parser, token):
     body = parser.parse(("endchecked",))
     return template.Node(body)
 "#,
-        "class bits:\n    pass\n",
-    )
-    .expect("unknown call fixture should install");
+        )
+        .file(
+            "/test/project/pkg/implementation.py",
+            "class bits:\n    pass\n",
+        )
+        .install(&mut db)
+        .expect("unknown call fixture should install");
     let helper_path = Utf8Path::new("/test/project/pkg/implementation.py");
-    let helper_file = db.file(helper_path).expect("helper should exist");
+    let file = db
+        .file(Utf8Path::new("/test/project/pkg/tags.py"))
+        .expect("library source");
+    let module = PythonModuleName::parse("pkg.tags").expect("valid module");
     let library = TemplateLibraryId::new(&db, Some(file), module.clone());
     let key = SymbolKey::tag("pkg.tags", "checked");
     assert!(
@@ -3626,7 +3722,7 @@ def checked(parser, token):
             .get(&key)
             .is_none_or(|rule| rule.arg_constraints.is_empty())
     );
-    assert!(template_library_registration_dependencies(&db, library).contains(&helper_file));
+    events.take().expect("events before helper repair");
     db.add_file(
         helper_path.as_str(),
         "def bits(token):\n    return token.split_contents()[1:]\n",
@@ -3637,6 +3733,11 @@ def checked(parser, token):
     assert_eq!(
         template_library_tag_facts(&db, library).tag_rules()[&key].arg_constraints,
         vec![ArgumentCountConstraint::Exact(3)]
+    );
+    let events = events.take().expect("events after helper repair");
+    assert_eq!(
+        will_execute_count(&db, &events, "template_library_tag_rule_analysis"),
+        1
     );
 }
 
@@ -4410,7 +4511,7 @@ def do_asset(parser, token):
         "def do_bird(parser, token):\n    bits = split_bits(token)\n    if len(bits) != 2:\n        raise ValueError(\"bird takes one argument\")\n    nodelist = parser.parse((\"endbird\",))\n    parser.delete_first_token()\n    return nodelist"
     );
 
-    let covered_paths = template_library_registration_dependencies(&db, key)
+    let covered_paths = template_library_inventory_dependencies(&db, key)
         .iter()
         .map(|file| slash_path(file.path(&db)))
         .collect::<Vec<_>>();
