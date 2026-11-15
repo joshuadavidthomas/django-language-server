@@ -20,6 +20,8 @@ use djls_project::SearchPath;
 use djls_project::SearchPaths;
 use djls_project::TemplateLibraryId;
 use djls_project::TemplateName;
+use djls_project::TemplateReferenceKind;
+use djls_project::TemplateResolutionResult;
 use djls_project::template_library_catalog;
 use djls_project::template_library_definition_facts;
 use djls_project::template_library_structure_facts;
@@ -27,6 +29,7 @@ use djls_project::template_library_tag_facts;
 use djls_project::template_resolution;
 use djls_project::testing::django_settings;
 use djls_project::testing::settings_module_file;
+use djls_semantic::resolve_reference_for_file;
 use djls_source::Db as _;
 use djls_source::File;
 use djls_source::FileError;
@@ -543,55 +546,86 @@ fn merge_tags(bencher: Bencher) {
 
 /// Cold indexing and warm scoped lookup over 2,000 templates; fixture creation
 /// and warm-up are outside the timed operation. Missing lookup includes
-/// re-interning its already-warmed template name.
-#[divan::bench(args = ["index", "all", "prefix", "missing"])]
+/// re-interning its already-warmed template name, but drops its database outside
+/// the measurement. Existing cases retain their original teardown timing.
+#[divan::bench(args = ["index", "all", "prefix", "missing_reference"])]
 fn scoped_template_operations(bencher: Bencher, operation: &str) {
-    bencher
-        .with_inputs(|| {
-            let db = TestDatabase::new();
-            let mut fixture = ProjectFixture::new("/proj").settings(&ProjectSettings {
-                dirs: vec!["/proj/templates".to_string()],
-                ..ProjectSettings::default()
-            });
-            for index in 0..2_000 {
-                fixture = fixture.file(format!("/proj/templates/page_{index:04}.html"), "body");
-            }
-            let project = require("prepare template fixture", fixture.build(&db));
-            let page = require(
-                "template file",
-                db.file(Utf8Path::new("/proj/templates/page_0000.html")),
-            );
-            TemplateName::new(&db, "missing.html".to_string());
-            if operation != "index" {
-                let resolution = template_resolution(&db, project);
-                assert_eq!(resolution.origins(&db).count(), 2_000);
-            }
-            (db, project, page)
-        })
-        .bench_local_values(|(db, project, page)| {
-            let resolution = template_resolution(&db, project);
-            match operation {
-                "index" => {
-                    divan::black_box(resolution.origins(&db).count());
-                }
-                "all" => {
-                    divan::black_box(resolution.template_names_for_backend_scope(&db, page));
-                }
-                "prefix" => {
-                    divan::black_box(
-                        resolution
-                            .template_names_for_backend_scope_with_prefix(&db, page, "page_199"),
-                    );
-                }
-                "missing" => {
-                    let name = TemplateName::new(&db, "missing.html".to_string());
-                    divan::black_box(resolution.resolve_for_file(&db, name, page));
-                }
-                _ => fail(format_args!(
-                    "unknown scoped template operation: {operation}"
-                )),
-            }
+    let inputs = || {
+        let db = TestDatabase::new();
+        let mut fixture = ProjectFixture::new("/proj").settings(&ProjectSettings {
+            dirs: vec!["/proj/templates".to_string()],
+            ..ProjectSettings::default()
         });
+        for index in 0..2_000 {
+            fixture = fixture.file(format!("/proj/templates/page_{index:04}.html"), "body");
+        }
+        let project = require("prepare template fixture", fixture.build(&db));
+        let page = require(
+            "template file",
+            db.file(Utf8Path::new("/proj/templates/page_0000.html")),
+        );
+        TemplateName::new(&db, "missing.html".to_string());
+        if operation != "index" {
+            let resolution = template_resolution(&db, project);
+            assert_eq!(resolution.origins(&db).count(), 2_000);
+            if operation == "missing_reference" {
+                let name = TemplateName::new(&db, "missing.html".to_string());
+                assert!(matches!(
+                    resolve_reference_for_file(
+                        &db,
+                        resolution,
+                        page,
+                        name,
+                        TemplateReferenceKind::Include,
+                    ),
+                    Some(TemplateResolutionResult::DoesNotExist(_))
+                ));
+            }
+        }
+        (db, project, page)
+    };
+
+    if operation == "missing_reference" {
+        bencher
+            .with_inputs(inputs)
+            .bench_local_refs(|(db, project, page)| {
+                let resolution = template_resolution(db, *project);
+                let name = TemplateName::new(db, "missing.html".to_string());
+                divan::black_box(resolve_reference_for_file(
+                    db,
+                    resolution,
+                    *page,
+                    name,
+                    TemplateReferenceKind::Include,
+                ));
+            });
+    } else {
+        bencher
+            .with_inputs(inputs)
+            .bench_local_values(|(db, project, page)| {
+                let resolution = template_resolution(&db, project);
+                match operation {
+                    "index" => {
+                        divan::black_box(resolution.origins(&db).count());
+                    }
+                    "all" => {
+                        divan::black_box(
+                            resolution.template_names_for_backend_scope_with_prefix(&db, page, ""),
+                        );
+                    }
+                    "prefix" => {
+                        divan::black_box(
+                            resolution.template_names_for_backend_scope_with_prefix(
+                                &db, page, "page_199",
+                            ),
+                        );
+                    }
+                    _ => fail(format_args!(
+                        "unknown scoped template operation: {operation}"
+                    )),
+                }
+            });
+    }
 }
 
 /// Warm hits per `warm_detail` sample. `CodSpeed` simulates one sample with cold
