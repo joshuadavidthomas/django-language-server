@@ -1433,6 +1433,60 @@ fn templates_keep_mutually_exclusive_settings_cases_separate() {
 }
 
 #[test]
+fn template_loaders_flatten_cached_loaders_in_search_order() {
+    let settings = extract(
+        host_source("TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'loaders': [('django.template.loaders.cached.Loader', ['django.template.loaders.app_directories.Loader', ('django.template.loaders.cached.Loader', ['django.template.loaders.filesystem.Loader'])])]}}]"),
+    ).expect("Django settings extraction should succeed");
+    let backend = &cases(&settings, "/templates/cases")
+        .expect("settings JSON pointer should identify an array")[0]["known"]["backends"][0];
+
+    let loaders = backend["loaders"]
+        .as_array()
+        .expect("known loaders should be an array")
+        .iter()
+        .map(|loader| loader["value"].as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        loaders,
+        [Some("app_directories"), Some("filesystem")],
+        "{settings:#}"
+    );
+}
+
+#[test]
+fn unsupported_template_loaders_keep_their_position() {
+    let settings = extract(
+        host_source("TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'OPTIONS': {'loaders': ['django.template.loaders.filesystem.Loader', ('django.template.loaders.locmem.Loader', {'base.html': ''}), ('django.template.loaders.filesystem.Loader', ['/elsewhere']), 'project.loaders.Loader', 'django.template.loaders.app_directories.Loader']}}]"),
+    ).expect("Django settings extraction should succeed");
+    let template_case = &cases(&settings, "/templates/cases")
+        .expect("settings JSON pointer should identify an array")[0];
+    assert!(template_case.get("dynamic").is_some(), "{settings:#}");
+    let backend = &template_case["dynamic"]["evidence"][0]["backend"];
+
+    let loaders = backend["loaders"]["known"]
+        .as_array()
+        .expect("loader evidence should be an array")
+        .iter()
+        .map(|evidence| {
+            evidence["known"]["value"]
+                .as_str()
+                .or_else(|| evidence["issue"]["kind"].as_str())
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        loaders,
+        [
+            Some("filesystem"),
+            Some("unsupported_template_loader"),
+            Some("unsupported_template_loader"),
+            Some("unsupported_template_loader"),
+            Some("app_directories"),
+        ],
+        "{settings:#}"
+    );
+}
+
+#[test]
 fn template_field_uncertainty_does_not_erase_siblings() {
     let settings = extract(
         host_source("TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/templates'], 'OPTIONS': {'libraries': {'good': 'app.templatetags.good'}, 'context_processors': ['app.context.good', unknown]}}]"),
@@ -2539,7 +2593,7 @@ fn imported_template_nested_mutation_preserves_known_backend_fields() {
 
 #[test]
 fn nested_dictionary_assignment_invalidates_stale_aliases_only() {
-    let source = "OPTIONS = {}\nALIAS = OPTIONS\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'OPTIONS': OPTIONS}]\nTEMPLATES[0]['OPTIONS']['loaders'] = ('loader',)\n";
+    let source = "OPTIONS = {}\nALIAS = OPTIONS\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'OPTIONS': OPTIONS}]\nTEMPLATES[0]['OPTIONS']['loaders'] = ('django.template.loaders.filesystem.Loader',)\n";
     let settings = extract(source).expect("Django settings extraction should succeed");
     let template_case = &cases(&settings, "/templates/cases")
         .expect("settings JSON pointer should identify an array")[0];

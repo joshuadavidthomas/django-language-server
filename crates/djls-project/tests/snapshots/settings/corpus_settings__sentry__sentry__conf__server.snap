@@ -293,6 +293,9 @@ templates:
               libraries:
                 issues: []
                 known: []
+              loaders:
+                issues: []
+                known: ~
               options:
                 issues: []
                 known: ~

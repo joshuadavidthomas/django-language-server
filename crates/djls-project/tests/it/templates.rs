@@ -787,6 +787,167 @@ fn wholly_dynamic_dirs_weakens_app_dirs_candidates() {
 }
 
 #[test]
+fn app_directories_loader_finds_app_templates_without_app_dirs() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file(
+            "/test/project/testproject/settings.py",
+            "INSTALLED_APPS = ['blog']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [], 'OPTIONS': {'loaders': [('django.template.loaders.cached.Loader', ['django.template.loaders.app_directories.Loader'])]}}]\n",
+        )
+        .file("/test/project/blog/__init__.py", "")
+        .file("/test/project/blog/templates/blog/post.html", "post")
+        .build(&db)
+        .expect("app-directories-loader project fixture should build");
+    let name = TemplateName::new(&db, "blog/post.html".to_string());
+
+    let TemplateResolutionResult::Found(origin) =
+        template_resolution(&db, project).resolve(&db, name)
+    else {
+        panic!("app_directories.Loader should search app template directories");
+    };
+    assert_eq!(
+        slash_path(origin.file(&db).path(&db)),
+        "/test/project/blog/templates/blog/post.html"
+    );
+}
+
+#[test]
+fn loaders_without_filesystem_loader_do_not_search_dirs() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file(
+            "/test/project/testproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'OPTIONS': {'loaders': ['django.template.loaders.app_directories.Loader']}}]\n",
+        )
+        .file("/test/project/templates/base.html", "base")
+        .build(&db)
+        .expect("no-filesystem-loader project fixture should build");
+    let name = TemplateName::new(&db, "base.html".to_string());
+
+    assert!(
+        matches!(
+            template_resolution(&db, project).resolve(&db, name),
+            TemplateResolutionResult::DoesNotExist(_)
+        ),
+        "DIRS should not be searched without a filesystem loader"
+    );
+}
+
+#[test]
+fn loaders_search_in_configured_order() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file(
+            "/test/project/testproject/settings.py",
+            "INSTALLED_APPS = ['blog']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'OPTIONS': {'loaders': ['django.template.loaders.app_directories.Loader', 'django.template.loaders.filesystem.Loader']}}]\n",
+        )
+        .file("/test/project/templates/base.html", "dirs")
+        .file("/test/project/blog/__init__.py", "")
+        .file("/test/project/blog/templates/base.html", "app")
+        .build(&db)
+        .expect("loader-order project fixture should build");
+    let name = TemplateName::new(&db, "base.html".to_string());
+
+    let TemplateResolutionResult::Found(origin) =
+        template_resolution(&db, project).resolve(&db, name)
+    else {
+        panic!("the first configured loader should win");
+    };
+    assert_eq!(
+        slash_path(origin.file(&db).path(&db)),
+        "/test/project/blog/templates/base.html"
+    );
+}
+
+#[test]
+fn unsupported_loader_leaves_later_search_open() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file(
+            "/test/project/testproject/settings.py",
+            "INSTALLED_APPS = ['blog']\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'OPTIONS': {'loaders': ['django.template.loaders.filesystem.Loader', 'project.loaders.Loader', 'django.template.loaders.app_directories.Loader']}}]\n",
+        )
+        .file("/test/project/templates/base.html", "dirs")
+        .file("/test/project/blog/__init__.py", "")
+        .file("/test/project/blog/templates/blog/post.html", "app")
+        .build(&db)
+        .expect("custom-loader project fixture should build");
+    let resolution = template_resolution(&db, project);
+
+    let before = TemplateName::new(&db, "base.html".to_string());
+    assert!(matches!(
+        resolution.resolve(&db, before),
+        TemplateResolutionResult::Found(_)
+    ));
+    let after = TemplateName::new(&db, "blog/post.html".to_string());
+    let TemplateResolutionResult::Inconclusive(search) = resolution.resolve(&db, after) else {
+        panic!("a template after a custom loader should be inconclusive");
+    };
+    assert_eq!(
+        search.possible_origins[0].path_buf(&db),
+        Utf8Path::new("/test/project/blog/templates/blog/post.html")
+    );
+    let missing = TemplateName::new(&db, "missing.html".to_string());
+    assert!(matches!(
+        resolution.resolve(&db, missing),
+        TemplateResolutionResult::Inconclusive(_)
+    ));
+}
+
+#[test]
+fn unevaluable_loaders_leave_resolution_open() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file(
+            "/test/project/testproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'OPTIONS': {'loaders': UNKNOWN}}]\n",
+        )
+        .file("/test/project/templates/base.html", "base")
+        .build(&db)
+        .expect("dynamic-loaders project fixture should build");
+    let resolution = template_resolution(&db, project);
+
+    let known = TemplateName::new(&db, "base.html".to_string());
+    assert!(matches!(
+        resolution.resolve(&db, known),
+        TemplateResolutionResult::Inconclusive(_)
+    ));
+    let missing = TemplateName::new(&db, "missing.html".to_string());
+    assert!(matches!(
+        resolution.resolve(&db, missing),
+        TemplateResolutionResult::Inconclusive(_)
+    ));
+}
+
+#[test]
+fn app_dirs_alongside_loaders_leaves_resolution_open() {
+    let db = TestDatabase::new();
+    let project = ProjectFixture::new("/test/project")
+        .django_settings_module("testproject.settings")
+        .file(
+            "/test/project/testproject/settings.py",
+            "INSTALLED_APPS = []\nTEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': ['/test/project/templates'], 'APP_DIRS': True, 'OPTIONS': {'loaders': ['django.template.loaders.filesystem.Loader']}}]\n",
+        )
+        .file("/test/project/templates/base.html", "base")
+        .build(&db)
+        .expect("conflicting-loaders project fixture should build");
+    let name = TemplateName::new(&db, "base.html".to_string());
+
+    assert!(
+        matches!(
+            template_resolution(&db, project).resolve(&db, name),
+            TemplateResolutionResult::Inconclusive(_)
+        ),
+        "Django rejects APP_DIRS with loaders, so no template is known to load"
+    );
+}
+
+#[test]
 fn scalar_path_alternatives_follow_unanimous_and_divergent_resolution_policy() {
     let db = TestDatabase::new();
     let project = ProjectFixture::new("/test/project")

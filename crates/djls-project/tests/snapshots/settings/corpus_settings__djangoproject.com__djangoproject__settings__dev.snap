@@ -638,3 +638,4 @@ templates:
                     start: 5564
                 value: "${REPO}/djangoproject/templates"
             libraries: []
+            loaders: ~

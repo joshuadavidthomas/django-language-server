@@ -28,6 +28,7 @@ use crate::templates::settings_cases::TemplateBackendId;
 use crate::templates::settings_cases::TemplateBackendKind;
 use crate::templates::settings_cases::TemplateBackendSlot;
 use crate::templates::settings_cases::TemplateDirectorySlot;
+use crate::templates::settings_cases::TemplateLoaderSlot;
 use crate::templates::settings_cases::TemplateSettingsCaseId;
 use crate::templates::settings_cases::template_settings_cases;
 
@@ -152,6 +153,44 @@ fn add_backend_roots(
     ) {
         return;
     }
+    let selection = TemplateBackendSelection::Backend(backend.id());
+    if backend.loaders_completeness().is_open() {
+        alternative.mark_unknown_roots(selection);
+    }
+    let Some(loaders) = backend.loaders() else {
+        // Without `loaders`, Django searches `DIRS`, then app directories when `APP_DIRS` is set.
+        add_directory_roots(backend, alternative);
+        if backend.app_directories_completeness().is_open() {
+            alternative.mark_unknown_roots(selection);
+        }
+        if backend.app_directories() == Some(true) {
+            add_app_directory_roots(db, project, backend, installed_apps, alternative);
+        }
+        return;
+    };
+    // Django raises `ImproperlyConfigured` when `APP_DIRS` is set alongside `loaders`.
+    if backend.app_directories() == Some(true) {
+        alternative.mark_unknown_roots(selection);
+        return;
+    }
+    if backend.app_directories_completeness().is_open() {
+        alternative.mark_unknown_roots(selection);
+    }
+    for loader in loaders {
+        match loader {
+            TemplateLoaderSlot::Filesystem => add_directory_roots(backend, alternative),
+            TemplateLoaderSlot::AppDirectories => {
+                add_app_directory_roots(db, project, backend, installed_apps, alternative);
+            }
+            TemplateLoaderSlot::Unknown => alternative.mark_unknown_roots(selection),
+        }
+    }
+}
+
+fn add_directory_roots(
+    backend: &TemplateBackendCase,
+    alternative: &mut TemplateDirectoryAlternative,
+) {
     for evidence in backend.directories() {
         match evidence {
             TemplateDirectorySlot::Path(path) => {
@@ -162,26 +201,30 @@ fn add_backend_roots(
             }
         }
     }
-    if backend.app_directories_completeness().is_open() {
-        alternative.mark_unknown_roots(TemplateBackendSelection::Backend(backend.id()));
-    }
-    if backend.app_directories() == Some(true) {
-        for evidence in installed_apps {
-            let InstalledAppEvidence::Known(app) = evidence else {
-                alternative.mark_unknown_roots(TemplateBackendSelection::Backend(backend.id()));
-                continue;
-            };
-            let Some(package_module) = installed_app_package_module(db, project, &app.value) else {
-                alternative.mark_unknown_roots(TemplateBackendSelection::Backend(backend.id()));
-                continue;
-            };
-            let package_dirs = resolve_package_dirs(db, project, package_module);
-            if package_dirs.dirs.is_empty() {
-                alternative.mark_unknown_roots(TemplateBackendSelection::Backend(backend.id()));
-            }
-            for package_dir in package_dirs.dirs {
-                alternative.push_root(package_dir.join("templates"), backend.id());
-            }
+}
+
+fn add_app_directory_roots(
+    db: &dyn ProjectDb,
+    project: Project,
+    backend: &TemplateBackendCase,
+    installed_apps: &[InstalledAppEvidence],
+    alternative: &mut TemplateDirectoryAlternative,
+) {
+    for evidence in installed_apps {
+        let InstalledAppEvidence::Known(app) = evidence else {
+            alternative.mark_unknown_roots(TemplateBackendSelection::Backend(backend.id()));
+            continue;
+        };
+        let Some(package_module) = installed_app_package_module(db, project, &app.value) else {
+            alternative.mark_unknown_roots(TemplateBackendSelection::Backend(backend.id()));
+            continue;
+        };
+        let package_dirs = resolve_package_dirs(db, project, package_module);
+        if package_dirs.dirs.is_empty() {
+            alternative.mark_unknown_roots(TemplateBackendSelection::Backend(backend.id()));
+        }
+        for package_dir in package_dirs.dirs {
+            alternative.push_root(package_dir.join("templates"), backend.id());
         }
     }
 }

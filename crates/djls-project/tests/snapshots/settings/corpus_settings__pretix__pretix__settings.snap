@@ -810,6 +810,23 @@ templates:
               libraries:
                 issues: []
                 known: []
+              loaders:
+                issues: []
+                known:
+                  - known:
+                      spans:
+                        - length: 43
+                          start: 23554
+                        - length: 43
+                          start: 5182
+                      value: filesystem
+                  - issue:
+                      kind: unsupported_template_loader
+                      spans:
+                        - length: 43
+                          start: 23603
+                        - length: 43
+                          start: 5231
               options:
                 issues: []
                 known: ~

@@ -84,3 +84,4 @@ templates:
                     start: 599
                 value: "${REPO}/tests/projects/account_only/templates"
             libraries: []
+            loaders: ~

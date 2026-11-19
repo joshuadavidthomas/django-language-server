@@ -14,6 +14,8 @@ use crate::settings::types::SettingCase;
 use crate::settings::types::TemplateBackend;
 use crate::settings::types::TemplateBackendEvidence;
 use crate::settings::types::TemplateDirectoryEvidence;
+use crate::settings::types::TemplateLoader;
+use crate::settings::types::TemplateLoaderEvidence;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(super) struct TemplateSettingsCaseId(usize);
@@ -58,6 +60,22 @@ pub(super) enum TemplateDirectorySlot {
     Unknown,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum TemplateLoaderSlot {
+    Filesystem,
+    AppDirectories,
+    Unknown,
+}
+
+impl From<TemplateLoader> for TemplateLoaderSlot {
+    fn from(loader: TemplateLoader) -> Self {
+        match loader {
+            TemplateLoader::Filesystem => Self::Filesystem,
+            TemplateLoader::AppDirectories => Self::AppDirectories,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct TemplateSettingsCases {
     settings_cases: Vec<TemplateSettingsCase>,
@@ -84,6 +102,8 @@ struct TemplateBackendSettings {
     directories: Vec<TemplateDirectorySlot>,
     app_directories: Option<bool>,
     app_directories_completeness: TemplateEvidenceCompleteness,
+    loaders: Option<Vec<TemplateLoaderSlot>>,
+    loaders_completeness: TemplateEvidenceCompleteness,
     libraries: Vec<(String, PythonModuleName)>,
     libraries_completeness: TemplateEvidenceCompleteness,
     builtins: Vec<PythonModuleName>,
@@ -247,6 +267,8 @@ impl TemplateBackendSettings {
             directories: Vec::new(),
             app_directories: None,
             app_directories_completeness: TemplateEvidenceCompleteness::Complete,
+            loaders: None,
+            loaders_completeness: TemplateEvidenceCompleteness::Complete,
             libraries: Vec::new(),
             libraries_completeness: TemplateEvidenceCompleteness::Complete,
             builtins: Vec::new(),
@@ -263,6 +285,12 @@ impl TemplateBackendSettings {
                 .map(|directory| TemplateDirectorySlot::Path(directory.value.path().to_path_buf()))
                 .collect(),
             app_directories: backend.app_dirs.as_ref().map(|value| value.value),
+            loaders: backend.loaders.as_ref().map(|loaders| {
+                loaders
+                    .iter()
+                    .map(|loader| TemplateLoaderSlot::from(loader.value))
+                    .collect()
+            }),
             libraries: backend
                 .libraries
                 .iter()
@@ -301,6 +329,21 @@ impl TemplateBackendSettings {
             app_directories: backend.app_dirs.known.as_ref().map(|value| value.value),
             app_directories_completeness: TemplateEvidenceCompleteness::open_if(
                 !backend.app_dirs.issues.is_empty(),
+            ),
+            loaders: backend.loaders.known.as_ref().map(|loaders| {
+                loaders
+                    .iter()
+                    .map(|evidence| match evidence {
+                        TemplateLoaderEvidence::Known(loader) => {
+                            TemplateLoaderSlot::from(loader.value)
+                        }
+                        TemplateLoaderEvidence::Issue(_) => TemplateLoaderSlot::Unknown,
+                    })
+                    .collect()
+            }),
+            // An unevaluable `OPTIONS` may set `loaders`.
+            loaders_completeness: TemplateEvidenceCompleteness::open_if(
+                !backend.options.issues.is_empty() || !backend.loaders.issues.is_empty(),
             ),
             libraries: backend
                 .libraries
@@ -371,6 +414,15 @@ impl TemplateBackendCase {
 
     pub(super) fn app_directories_completeness(&self) -> TemplateEvidenceCompleteness {
         self.data.app_directories_completeness
+    }
+
+    /// The configured loaders in search order, or `None` when `OPTIONS['loaders']` is unset.
+    pub(super) fn loaders(&self) -> Option<&[TemplateLoaderSlot]> {
+        self.data.loaders.as_deref()
+    }
+
+    pub(super) fn loaders_completeness(&self) -> TemplateEvidenceCompleteness {
+        self.data.loaders_completeness
     }
 
     pub(super) fn libraries(&self) -> &[(String, PythonModuleName)] {

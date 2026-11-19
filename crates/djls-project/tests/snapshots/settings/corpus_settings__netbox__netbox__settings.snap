@@ -359,6 +359,7 @@ templates:
                     start: 21654
                 value: "${REPO}/netbox/templates"
             libraries: []
+            loaders: ~
     - dynamic:
         evidence:
           - issue:

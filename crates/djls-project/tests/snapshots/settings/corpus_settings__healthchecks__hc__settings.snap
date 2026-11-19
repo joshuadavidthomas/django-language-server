@@ -231,6 +231,7 @@ templates:
                     start: 4768
                 value: "${REPO}/templates"
             libraries: []
+            loaders: ~
     - dynamic:
         evidence:
           - issue:

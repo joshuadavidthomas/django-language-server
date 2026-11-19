@@ -42,6 +42,8 @@ use crate::settings::types::TemplateBackendEvidence;
 use crate::settings::types::TemplateBackends;
 use crate::settings::types::TemplateContextProcessorPath;
 use crate::settings::types::TemplateDirectoryPath;
+use crate::settings::types::TemplateLoader;
+use crate::settings::types::TemplateLoaderEvidence;
 use crate::settings::types::TemplateSettingAlternatives;
 use crate::settings::types::WithOrigins;
 
@@ -598,10 +600,21 @@ fn template_settings_case(
         .map(|evidence| match evidence {
             TemplateBackendEvidence::Backend(backend) if !backend.has_issues() => {
                 let known_backend = backend.backend.known.clone()?;
+                // `has_issues` rejects backends with an unmodeled loader, so every entry is known.
+                let loaders = backend.loaders.known.as_ref().map(|loaders| {
+                    loaders
+                        .iter()
+                        .filter_map(|evidence| match evidence {
+                            TemplateLoaderEvidence::Known(loader) => Some(loader.clone()),
+                            TemplateLoaderEvidence::Issue(_) => None,
+                        })
+                        .collect()
+                });
                 Some(TemplateBackend {
                     backend: known_backend,
                     dirs: backend.dirs.clone().into_known(),
                     app_dirs: backend.app_dirs.known.clone(),
+                    loaders,
                     libraries: backend.libraries.known.clone(),
                     builtins: backend.builtins.known.clone(),
                     context_processors: backend.context_processors.known.clone(),
@@ -630,6 +643,7 @@ fn partial_backend(
         dirs: PartialTemplateDirectories::new(),
         app_dirs: SettingFieldEvidence::new(None),
         options: SettingFieldEvidence::new(()),
+        loaders: SettingFieldEvidence::new(None),
         libraries: SettingFieldEvidence::new(Vec::new()),
         builtins: SettingFieldEvidence::new(Vec::new()),
         context_processors: SettingFieldEvidence::new(Vec::new()),
@@ -721,6 +735,14 @@ fn partial_backend(
 }
 
 fn extract_options(options: PythonMapping<'_>, backend: &mut PartialTemplateBackend) {
+    let (loaders_value, mut issues) = dict_field(options, "loaders");
+    backend.loaders.issues.append(&mut issues);
+    if let Some(value) = loaders_value {
+        let mut loaders = Vec::new();
+        template_loader_list(value, &mut loaders);
+        backend.loaders.known = Some(loaders);
+    }
+
     let (libraries_value, mut issues) = dict_field(options, "libraries");
     backend.libraries.issues.append(&mut issues);
     if let Some(value) = libraries_value {
@@ -800,6 +822,119 @@ fn extract_options(options: PythonMapping<'_>, backend: &mut PartialTemplateBack
                 .issues
                 .push(value_issue(SettingIssueKind::InvalidShape, value));
         }
+    }
+}
+
+const FILESYSTEM_LOADER: &str = "django.template.loaders.filesystem.Loader";
+const APP_DIRECTORIES_LOADER: &str = "django.template.loaders.app_directories.Loader";
+const CACHED_LOADER: &str = "django.template.loaders.cached.Loader";
+
+/// Appends the loaders a `loaders` list configures, in Django's search order.
+fn template_loader_list(value: &PythonValue, loaders: &mut Vec<TemplateLoaderEvidence>) {
+    let Some(sequence) = collection_sequence(value) else {
+        let issue = if value.unknown_value().is_some() {
+            unknown_value_issue(value)
+        } else {
+            value_issue(SettingIssueKind::InvalidShape, value)
+        };
+        loaders.push(TemplateLoaderEvidence::Issue(issue));
+        return;
+    };
+    for item in sequence.semantic_items() {
+        match item {
+            PythonSequenceItem::Value(value) => template_loader_entry(value, loaders),
+            PythonSequenceItem::UnknownElement(unknown) => {
+                loaders.push(TemplateLoaderEvidence::Issue(issue(
+                    SettingIssueKind::UnknownElement,
+                    unknown.origins(),
+                )));
+            }
+            PythonSequenceItem::UnknownUnpack(unknown) => {
+                loaders.push(TemplateLoaderEvidence::Issue(issue(
+                    SettingIssueKind::UnknownUnpack,
+                    unknown.origins(),
+                )));
+            }
+        }
+    }
+}
+
+/// Mirrors `Engine.find_template_loader`: an entry is a loader path, or a tuple or list of
+/// a loader path followed by the arguments for the loader's constructor.
+fn template_loader_entry(value: &PythonValue, loaders: &mut Vec<TemplateLoaderEvidence>) {
+    let (path_value, arguments) = if let Some(sequence) = collection_sequence(value) {
+        match sequence.semantic_items() {
+            [PythonSequenceItem::Value(path), arguments @ ..] => (path, arguments),
+            [
+                PythonSequenceItem::UnknownElement(unknown)
+                | PythonSequenceItem::UnknownUnpack(unknown),
+                ..,
+            ] => {
+                loaders.push(TemplateLoaderEvidence::Issue(unknown_issue(unknown)));
+                return;
+            }
+            [] => {
+                loaders.push(TemplateLoaderEvidence::Issue(value_issue(
+                    SettingIssueKind::InvalidShape,
+                    value,
+                )));
+                return;
+            }
+        }
+    } else {
+        (value, [].as_slice())
+    };
+
+    let Some(scalar) = path_value.known_scalar() else {
+        let issue = if path_value.unknown_value().is_some() {
+            unknown_value_issue(path_value)
+        } else {
+            value_issue(SettingIssueKind::InvalidShape, path_value)
+        };
+        loaders.push(TemplateLoaderEvidence::Issue(issue));
+        return;
+    };
+    let Some(path) = scalar.string_value() else {
+        loaders.push(TemplateLoaderEvidence::Issue(value_issue(
+            SettingIssueKind::InvalidShape,
+            path_value,
+        )));
+        return;
+    };
+    let known = |loader| {
+        TemplateLoaderEvidence::Known(WithOrigins::new(
+            loader,
+            scalar.first_origin(),
+            scalar.additional_origins(),
+        ))
+    };
+
+    match (path, arguments) {
+        // A `dirs` argument replaces the backend's `DIRS` for this loader only.
+        (FILESYSTEM_LOADER, []) => loaders.push(known(TemplateLoader::Filesystem)),
+        // `app_directories.Loader` overrides `get_dirs`, so a `dirs` argument has no effect.
+        (APP_DIRECTORIES_LOADER, _) => loaders.push(known(TemplateLoader::AppDirectories)),
+        (CACHED_LOADER, [PythonSequenceItem::Value(wrapped)]) => {
+            template_loader_list(wrapped, loaders);
+        }
+        (
+            CACHED_LOADER,
+            [
+                PythonSequenceItem::UnknownElement(unknown)
+                | PythonSequenceItem::UnknownUnpack(unknown),
+            ],
+        ) => loaders.push(TemplateLoaderEvidence::Issue(unknown_issue(unknown))),
+        // `cached.Loader` requires exactly one list of loaders to wrap.
+        (CACHED_LOADER, _) => loaders.push(TemplateLoaderEvidence::Issue(value_issue(
+            SettingIssueKind::InvalidShape,
+            value,
+        ))),
+        // Custom loaders, `locmem.Loader` (its templates are not files) and a filesystem
+        // loader with its own directories search places DJLS cannot enumerate.
+        _ => loaders.push(TemplateLoaderEvidence::Issue(value_issue(
+            SettingIssueKind::UnsupportedTemplateLoader,
+            value,
+        ))),
     }
 }
 
