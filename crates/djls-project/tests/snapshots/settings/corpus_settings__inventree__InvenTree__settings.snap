@@ -2779,6 +2779,14 @@ templates:
               libraries:
                 issues: []
                 known: []
+              loaders:
+                issues: []
+                known:
+                  - issue:
+                      kind: unsupported_template_loader
+                      spans:
+                        - length: 337
+                          start: 20949
               options:
                 issues: []
                 known: ~
