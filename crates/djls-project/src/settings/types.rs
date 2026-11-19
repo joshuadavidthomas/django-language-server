@@ -292,6 +292,7 @@ pub(crate) enum SettingIssueKind {
     UnknownElement,
     UnknownUnpack,
     UnsupportedMutation,
+    UnsupportedTemplateLoader,
     InvalidShape,
     MissingBackend,
     InvalidModuleName,
@@ -420,9 +421,33 @@ pub(crate) struct TemplateBackend {
     pub(crate) backend: WithOrigins<String>,
     pub(crate) dirs: Vec<WithOrigins<TemplateDirectoryPath>>,
     pub(crate) app_dirs: Option<WithOrigins<bool>>,
+    /// `OPTIONS['loaders']`, or `None` when unset and Django derives loaders from `APP_DIRS`.
+    pub(crate) loaders: Option<Vec<WithOrigins<TemplateLoader>>>,
     pub(crate) libraries: Vec<(String, WithOrigins<PythonModuleName>)>,
     pub(crate) builtins: Vec<WithOrigins<PythonModuleName>>,
     pub(crate) context_processors: Vec<WithOrigins<TemplateContextProcessorPath>>,
+}
+
+/// A Django template loader whose search DJLS models.
+///
+/// `cached.Loader` is recorded as the loaders it wraps: caching does not change which
+/// directories are searched or in what order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum TemplateLoader {
+    /// `filesystem.Loader` without its own `dirs` argument, which searches the backend's `DIRS`.
+    Filesystem,
+    /// `app_directories.Loader`, which searches each installed app's `templates` directory.
+    AppDirectories,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum TemplateLoaderEvidence {
+    Known(WithOrigins<TemplateLoader>),
+    /// A loader at this position whose search DJLS cannot enumerate. Loader order is
+    /// significant, so the issue keeps its place in the list.
+    Issue(SettingIssue),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -504,6 +529,7 @@ pub(crate) struct PartialTemplateBackend {
     pub(crate) dirs: PartialTemplateDirectories,
     pub(crate) app_dirs: SettingFieldEvidence<Option<WithOrigins<bool>>>,
     pub(crate) options: SettingFieldEvidence<()>,
+    pub(crate) loaders: SettingFieldEvidence<Option<Vec<TemplateLoaderEvidence>>>,
     pub(crate) libraries: SettingFieldEvidence<Vec<(String, WithOrigins<PythonModuleName>)>>,
     pub(crate) builtins: SettingFieldEvidence<Vec<WithOrigins<PythonModuleName>>>,
     pub(crate) context_processors:
@@ -516,6 +542,8 @@ impl PartialTemplateBackend {
             || self.dirs.has_issues()
             || !self.app_dirs.issues.is_empty()
             || !self.options.issues.is_empty()
+            || !self.loaders.issues.is_empty()
+            || self.loader_issues().next().is_some()
             || !self.libraries.issues.is_empty()
             || !self.builtins.issues.is_empty()
             || !self.context_processors.issues.is_empty()
@@ -539,9 +567,22 @@ impl PartialTemplateBackend {
             .chain(self.dirs.issues())
             .chain(&self.app_dirs.issues)
             .chain(&self.options.issues)
+            .chain(&self.loaders.issues)
+            .chain(self.loader_issues())
             .chain(&self.libraries.issues)
             .chain(&self.builtins.issues)
             .chain(&self.context_processors.issues)
+    }
+
+    fn loader_issues(&self) -> impl Iterator<Item = &SettingIssue> {
+        self.loaders
+            .known
+            .iter()
+            .flatten()
+            .filter_map(|evidence| match evidence {
+                TemplateLoaderEvidence::Known(_) => None,
+                TemplateLoaderEvidence::Issue(issue) => Some(issue),
+            })
     }
 }
 
@@ -646,6 +687,7 @@ equality_is_semantic!(
     PythonModuleName,
     TemplateDirectoryPath,
     TemplateContextProcessorPath,
+    TemplateLoader,
 );
 
 merge_struct_fields!(InstalledApps { apps });
@@ -751,6 +793,7 @@ impl MergeEvidence for TemplateBackend {
             && self.backend.can_merge_evidence(&other.backend)
             && self.dirs.can_merge_evidence(&other.dirs)
             && self.app_dirs.can_merge_evidence(&other.app_dirs)
+            && self.loaders.can_merge_evidence(&other.loaders)
             && self.libraries.can_merge_evidence(&other.libraries)
             && self.builtins.can_merge_evidence(&other.builtins)
             && self
@@ -762,10 +805,29 @@ impl MergeEvidence for TemplateBackend {
         self.backend.absorb_evidence(&other.backend);
         self.dirs.absorb_evidence(&other.dirs);
         self.app_dirs.absorb_evidence(&other.app_dirs);
+        self.loaders.absorb_evidence(&other.loaders);
         self.libraries.absorb_evidence(&other.libraries);
         self.builtins.absorb_evidence(&other.builtins);
         self.context_processors
             .absorb_evidence(&other.context_processors);
+    }
+}
+impl MergeEvidence for TemplateLoaderEvidence {
+    fn can_merge_evidence(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Known(left), Self::Known(right)) => left.can_merge_evidence(right),
+            (Self::Issue(left), Self::Issue(right)) => left.can_merge_evidence(right),
+            (Self::Known(_), Self::Issue(_)) | (Self::Issue(_), Self::Known(_)) => false,
+        }
+    }
+
+    fn absorb_evidence(&mut self, other: &Self) {
+        match (self, other) {
+            (Self::Known(left), Self::Known(right)) => left.absorb_evidence(right),
+            (Self::Issue(left), Self::Issue(right)) => left.absorb_evidence(right),
+            // `can_merge_evidence` rejects mixed variants.
+            (Self::Known(_), Self::Issue(_)) | (Self::Issue(_), Self::Known(_)) => {}
+        }
     }
 }
 impl MergeEvidence for TemplateDirectoryEvidence {
@@ -842,6 +904,7 @@ merge_struct_fields!(PartialTemplateBackend {
     dirs,
     app_dirs,
     options,
+    loaders,
     libraries,
     builtins,
     context_processors,

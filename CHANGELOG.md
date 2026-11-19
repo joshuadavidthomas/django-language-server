@@ -79,6 +79,7 @@ and this project attempts to adhere to [Semantic Versioning](https://semver.org/
 
 ### Fixed
 
+- Fixed template resolution ignoring `OPTIONS['loaders']`. Projects that list `app_directories.Loader` without setting `APP_DIRS`, including inside `cached.Loader`, no longer get app templates reported as missing, and `DIRS` is searched only when a filesystem loader is listed. Loaders are searched in their configured order. A custom loader, `locmem.Loader`, a filesystem loader with its own directories, or a `loaders` value that can't be evaluated now makes resolution inconclusive instead of reporting a template as missing.
 - Fixed hover and completion documentation for template tags and filters, which has been missing since template libraries moved to static extraction. Docstrings are now read from library source, including Django's builtins and functions registered with `simple_tag`, `inclusion_tag`, `simple_block_tag`, `stringfilter`, or `register.tag("name", func)`.
 - Fixed the template parser skipping everything up to the next `{% %}`, `{{ }}`, or `{# #}` after a syntax error, so a later malformed construct, such as the second line of `{{ a` then `{{ b`, now gets its own T100 error.
 - Fixed `{% elif %}` conditions never being checked for expression syntax errors (S114).
